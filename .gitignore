@@ -1,7 +1,5 @@
-ref.lua
 node_modules
 .env
-Server/dist
+dist
 .vscode
-ref
-Server/releases
+releases
