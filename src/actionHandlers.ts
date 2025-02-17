@@ -220,13 +220,13 @@ const setAnteAction = (
 };
 
 // TODO: Fix this
-const serverVersion = "0.1.7-MULTIPLAYER";
+const serverVersion = "0.1.8-MULTIPLAYER";
 /** Verifies the client version and allows connection if it matches the server's */
 const versionAction = (
 	{ version }: ActionHandlerArgs<ActionVersion>,
 	client: Client,
 ) => {
-	const versionMatch = version.match(/^(\d+\.\d+\.\d+)$/);
+	const versionMatch = version.match(/^(\d+\.\d+\.\d+)/);
 	if (versionMatch) {
 			const clientVersion = versionMatch[1];
 			const serverVersionNumber = serverVersion.split('-')[0];
