@@ -32,6 +32,7 @@ export type ActionEnemyInfo = {
 	score: BigInt
 	handsLeft: number
 	skips: number
+	lives: number
 }
 export type ActionEndPvP = { action: 'endPvP'; lost: boolean }
 export type ActionLobbyOptions = { action: 'lobbyOptions', gamemode: string }
@@ -41,7 +42,12 @@ export type ActionSendPhantom = { action: 'sendPhantom', key: string }
 export type ActionRemovePhantom = { action: 'removePhantom', key: string }
 export type ActionSpeedrun = { action: 'speedrun' }
 export type ActionAsteroid = { action: 'asteroid' }
-
+export type ActionLetsGoGamblingNemesis = { action: 'letsGoGamblingNemesis' }
+export type ActionEatPizza = { action: 'eatPizza', whole: boolean }
+export type ActionSoldJoker = { action: 'soldJoker' }
+export type ActionSpentLastShop = { action: 'spentLastShop', amount: number }
+export type ActionMagnet = { action: 'magnet' }
+export type ActionMagnetResponse = { action: 'magnetResponse', key: string }
 export type ActionServerToClient =
 	| ActionConnected
 	| ActionError
@@ -64,7 +70,12 @@ export type ActionServerToClient =
 	| ActionRemovePhantom
 	| ActionSpeedrun
 	| ActionAsteroid
-
+	| ActionLetsGoGamblingNemesis
+	| ActionEatPizza
+	| ActionSoldJoker
+	| ActionSpentLastShop
+	| ActionMagnet
+	| ActionMagnetResponse
 // Client to Server
 export type ActionUsername = { action: 'username'; username: string; modHash: string }
 export type ActionCreateLobby = { action: 'createLobby'; gameMode: GameMode }
@@ -93,7 +104,12 @@ export type ActionVersion = { action: 'version'; version: string }
 export type ActionSetLocation = { action: 'setLocation'; location: string }
 export type ActionNewRound = { action: 'newRound' }
 export type ActionSkip = { action: 'skip', skips: number }
-
+export type ActionLetsGoGamblingNemesisRequest = { action: 'letsGoGamblingNemesis' }
+export type ActionEatPizzaRequest = { action: 'eatPizza', whole: boolean }
+export type ActionSoldJokerRequest = { action: 'soldJoker' }
+export type ActionSpentLastShopRequest = { action: 'spentLastShop', amount: number }
+export type ActionMagnetRequest = { action: 'magnet' }
+export type ActionMagnetResponseRequest = { action: 'magnetResponse', key: string }
 export type ActionClientToServer =
 	| ActionUsername
 	| ActionCreateLobby
@@ -118,7 +134,12 @@ export type ActionClientToServer =
 	| ActionSendPhantom
 	| ActionRemovePhantom
 	| ActionAsteroid
-
+	| ActionLetsGoGamblingNemesisRequest
+	| ActionEatPizzaRequest
+	| ActionSoldJokerRequest
+	| ActionSpentLastShopRequest
+	| ActionMagnetRequest
+	| ActionMagnetResponseRequest
 // Utility actions
 export type ActionKeepAlive = { action: 'keepAlive' }
 export type ActionKeepAliveAck = { action: 'keepAliveAck' }

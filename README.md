@@ -78,7 +78,7 @@ playerInfo: lives
 
 ---
 
-enemyInfo: score, handsLeft
+enemyInfo: score, handsLeft, skips, lives
 - Updates the client on their enemy's score and hands left. This should be sent when the enemy plays a hand
 
 ---

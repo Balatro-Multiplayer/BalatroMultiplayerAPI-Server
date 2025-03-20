@@ -1,13 +1,16 @@
-import { Socket, createServer} from 'node:net'
+import { Socket, createServer } from 'node:net'
 import Client from './Client.js'
 import { actionHandlers } from './actionHandlers.js'
 import type {
 	Action,
 	ActionClientToServer,
 	ActionCreateLobby,
+	ActionEatPizza,
 	ActionHandlerArgs,
 	ActionJoinLobby,
 	ActionLobbyOptions,
+	ActionMagnet,
+	ActionMagnetResponse,
 	ActionPlayHand,
 	ActionRemovePhantom,
 	ActionSendPhantom,
@@ -15,6 +18,7 @@ import type {
 	ActionSetAnte,
 	ActionSetLocation,
 	ActionSkip,
+	ActionSpentLastShop,
 	ActionUsername,
 	ActionUtility,
 	ActionVersion,
@@ -36,7 +40,7 @@ interface BigIntWithToJSON {
 }
 
 (BigInt as unknown as BigIntWithToJSON).prototype.toJSON = function () {
-  return this.toString();
+	return this.toString();
 };
 
 const scientificNotationToBigInt = (value: string): bigint => {
@@ -146,12 +150,12 @@ const server = createServer((socket) => {
 			try {
 				const message: ActionClientToServer | ActionUtility = stringToJson(msg)
 				const { action, ...actionArgs } = message
-				
+
 				if (action !== 'keepAlive' && action !== 'keepAliveAck') {
 					console.log(
 						`${new Date().toISOString()}: Received action ${action} from ${client.id}: ${JSON.stringify(
-						actionArgs,
-					)}`,
+							actionArgs,
+						)}`,
 					)
 				}
 
@@ -255,6 +259,33 @@ const server = createServer((socket) => {
 						break
 					case 'asteroid':
 						actionHandlers.asteroid(client)
+						break
+					case 'letsGoGamblingNemesis':
+						actionHandlers.letsGoGamblingNemesis(client)
+						break
+					case 'eatPizza':
+						actionHandlers.eatPizza(
+							actionArgs as ActionHandlerArgs<ActionEatPizza>,
+							client,
+						)
+						break
+					case 'soldJoker':
+						actionHandlers.soldJoker(client)
+						break
+					case 'spentLastShop':
+						actionHandlers.spentLastShop(
+							actionArgs as ActionHandlerArgs<ActionSpentLastShop>,
+							client,
+						)
+						break
+					case 'magnet':
+						actionHandlers.magnet(client)
+						break
+					case 'magnetResponse':
+						actionHandlers.magnetResponse(
+							actionArgs as ActionHandlerArgs<ActionMagnetResponse>,
+							client,
+						)
 						break
 				}
 			} catch (error) {

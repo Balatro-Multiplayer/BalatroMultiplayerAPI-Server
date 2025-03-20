@@ -24,6 +24,7 @@ class Client {
 	lobby: Lobby | null = null
 	/** Whether player is ready for next blind */
 	isReady = false
+	firstReady = false
 	lives = 5
 	score = 0n
 	handsLeft = 4
@@ -75,6 +76,16 @@ class Client {
 			this.lives -= 1
 			this.livesBlocker = true
 			this.sendAction({ action: "playerInfo", lives: this.lives });
+			if (this.lobby && this.lobby.host && this.lobby.guest) {
+				const enemy = this.lobby.host === this ? this.lobby.guest : this.lobby.host
+				enemy.sendAction({
+					action: "enemyInfo",
+					handsLeft: this.handsLeft,
+					score: this.score,
+					skips: this.skips,
+					lives: this.lives,
+				});
+			}
 		}
 	}
 
