@@ -12,6 +12,7 @@ import type {
 	ActionMagnet,
 	ActionMagnetResponse,
 	ActionPlayHand,
+	ActionReceiveEndGameJokersRequest,
 	ActionRemovePhantom,
 	ActionSendPhantom,
 	ActionServerToClient,
@@ -19,6 +20,7 @@ import type {
 	ActionSetLocation,
 	ActionSkip,
 	ActionSpentLastShop,
+	ActionStartAnteTimer,
 	ActionUsername,
 	ActionUtility,
 	ActionVersion,
@@ -286,6 +288,24 @@ const server = createServer((socket) => {
 							actionArgs as ActionHandlerArgs<ActionMagnetResponse>,
 							client,
 						)
+						break
+					case 'getEndGameJokers':
+						actionHandlers.getEndGameJokers(client)
+						break
+					case 'receiveEndGameJokers':
+						actionHandlers.receiveEndGameJokers(
+							actionArgs as ActionHandlerArgs<ActionReceiveEndGameJokersRequest>,
+							client,
+						)
+						break
+					case 'startAnteTimer':
+						actionHandlers.startAnteTimer(
+							actionArgs as ActionHandlerArgs<ActionStartAnteTimer>,
+							client,
+						)
+						break
+					case 'failTimer':
+						actionHandlers.failTimer(client)
 						break
 				}
 			} catch (error) {

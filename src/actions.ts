@@ -48,6 +48,9 @@ export type ActionSoldJoker = { action: 'soldJoker' }
 export type ActionSpentLastShop = { action: 'spentLastShop', amount: number }
 export type ActionMagnet = { action: 'magnet' }
 export type ActionMagnetResponse = { action: 'magnetResponse', key: string }
+export type ActionGetEndGameJokersRequest = { action: 'getEndGameJokers' }
+export type ActionReceiveEndGameJokersRequest = { action: 'receiveEndGameJokers', keys: string }
+export type ActionStartAnteTimer = { action: 'startAnteTimer', time: number }
 export type ActionServerToClient =
 	| ActionConnected
 	| ActionError
@@ -76,6 +79,9 @@ export type ActionServerToClient =
 	| ActionSpentLastShop
 	| ActionMagnet
 	| ActionMagnetResponse
+	| ActionGetEndGameJokersRequest
+	| ActionReceiveEndGameJokersRequest
+	| ActionStartAnteTimer
 // Client to Server
 export type ActionUsername = { action: 'username'; username: string; modHash: string }
 export type ActionCreateLobby = { action: 'createLobby'; gameMode: GameMode }
@@ -110,6 +116,10 @@ export type ActionSoldJokerRequest = { action: 'soldJoker' }
 export type ActionSpentLastShopRequest = { action: 'spentLastShop', amount: number }
 export type ActionMagnetRequest = { action: 'magnet' }
 export type ActionMagnetResponseRequest = { action: 'magnetResponse', key: string }
+export type ActionGetEndGameJokersResponse = { action: 'getEndGameJokers' }
+export type ActionReceiveEndGameJokersResponse = { action: 'receiveEndGameJokers', keys: string }
+export type ActionStartAnteTimerRequest = { action: 'startAnteTimer', time: number }
+export type ActionFailTimer = { action: 'failTimer' }
 export type ActionClientToServer =
 	| ActionUsername
 	| ActionCreateLobby
@@ -140,6 +150,10 @@ export type ActionClientToServer =
 	| ActionSpentLastShopRequest
 	| ActionMagnetRequest
 	| ActionMagnetResponseRequest
+	| ActionGetEndGameJokersResponse
+	| ActionReceiveEndGameJokersResponse
+	| ActionStartAnteTimerRequest
+	| ActionFailTimer
 // Utility actions
 export type ActionKeepAlive = { action: 'keepAlive' }
 export type ActionKeepAliveAck = { action: 'keepAliveAck' }

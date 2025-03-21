@@ -10,12 +10,14 @@ import type {
 	ActionMagnet,
 	ActionMagnetResponse,
 	ActionPlayHand,
+	ActionReceiveEndGameJokersRequest,
 	ActionRemovePhantom,
 	ActionSendPhantom,
 	ActionSetAnte,
 	ActionSetLocation,
 	ActionSkip,
 	ActionSpentLastShop,
+	ActionStartAnteTimer,
 	ActionUsername,
 	ActionVersion,
 } from "./actions.js";
@@ -352,6 +354,55 @@ const magnetResponseAction = ({ key }: ActionHandlerArgs<ActionMagnetResponse>, 
 	})
 }
 
+const getEndGameJokersAction = (client: Client) => {
+	const [lobby, enemy] = getEnemy(client)
+	if (!lobby || !enemy) return;
+	enemy.sendAction({
+		action: "getEndGameJokers"
+	})
+}
+
+const receiveEndGameJokersAction = ({ keys }: ActionHandlerArgs<ActionReceiveEndGameJokersRequest>, client: Client) => {
+	const [lobby, enemy] = getEnemy(client)
+	if (!lobby || !enemy) return;
+	enemy.sendAction({
+		action: "receiveEndGameJokers",
+		keys
+	})
+}
+
+const startAnteTimerAction = ({ time }: ActionHandlerArgs<ActionStartAnteTimer>, client: Client) => {
+	const [lobby, enemy] = getEnemy(client)
+	if (!lobby || !enemy) return;
+	enemy.sendAction({
+		action: "startAnteTimer",
+		time
+	})
+}
+
+const failTimerAction = (client: Client) => {
+	const lobby = client.lobby;
+
+	client.loseLife()
+
+	if (!lobby) return;
+
+	if (client.lives === 0) {
+		let gameLoser = null;
+		let gameWinner = null;
+		if (client.id === lobby.host?.id) {
+			gameLoser = lobby.host;
+			gameWinner = lobby.guest;
+		} else {
+			gameLoser = lobby.guest;
+			gameWinner = lobby.host;
+		}
+
+		gameWinner?.sendAction({ action: "winGame" });
+		gameLoser?.sendAction({ action: "loseGame" });
+	}
+}
+
 export const actionHandlers = {
 	username: usernameAction,
 	createLobby: createLobbyAction,
@@ -381,4 +432,8 @@ export const actionHandlers = {
 	spentLastShop: spentLastShopAction,
 	magnet: magnetAction,
 	magnetResponse: magnetResponseAction,
+	getEndGameJokers: getEndGameJokersAction,
+	receiveEndGameJokers: receiveEndGameJokersAction,
+	startAnteTimer: startAnteTimerAction,
+	failTimer: failTimerAction,
 } satisfies Partial<ActionHandlers>;
