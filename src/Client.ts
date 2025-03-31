@@ -35,6 +35,8 @@ class Client {
 
 	location = 'loc_selecting'
 
+	isCached = true
+
 	constructor(address: Address, send: SendFn, closeConnection: CloseConnFn) {
 		this.id = uuidv4()
 		this.address = address

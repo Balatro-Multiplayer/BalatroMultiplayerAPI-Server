@@ -114,11 +114,13 @@ class Lobby {
 			host: this.host.username,
 			hostHash: this.host.modHash,
 			isHost: false,
+			hostCached: this.host.isCached,
 		};
 
 		if (this.guest?.username) {
 			action.guest = this.guest.username;
 			action.guestHash = this.guest.modHash;
+			action.guestCached = this.guest.isCached;
 			this.guest.sendAction(action);
 		}
 

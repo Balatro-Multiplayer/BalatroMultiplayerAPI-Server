@@ -18,6 +18,7 @@ import type {
 	ActionSkip,
 	ActionSpentLastShop,
 	ActionStartAnteTimer,
+	ActionSyncClient,
 	ActionUsername,
 	ActionVersion,
 } from "./actions.js";
@@ -403,6 +404,10 @@ const failTimerAction = (client: Client) => {
 	}
 }
 
+const syncClientAction = ({ isCached }: ActionHandlerArgs<ActionSyncClient>, client: Client) => {
+	client.isCached = isCached
+}
+
 export const actionHandlers = {
 	username: usernameAction,
 	createLobby: createLobbyAction,
@@ -436,4 +441,5 @@ export const actionHandlers = {
 	receiveEndGameJokers: receiveEndGameJokersAction,
 	startAnteTimer: startAnteTimerAction,
 	failTimer: failTimerAction,
+	syncClient: syncClientAction,
 } satisfies Partial<ActionHandlers>;

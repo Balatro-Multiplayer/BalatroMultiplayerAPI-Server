@@ -6,8 +6,10 @@ export type ActionLobbyInfo = {
 	action: 'lobbyInfo'
 	host: string
 	hostHash: string
+	hostCached: boolean
 	guest?: string
 	guestHash?: string
+	guestCached?: boolean
 	isHost: boolean
 }
 export type ActionStopGame = { action: 'stopGame' }
@@ -120,6 +122,7 @@ export type ActionGetEndGameJokersResponse = { action: 'getEndGameJokers' }
 export type ActionReceiveEndGameJokersResponse = { action: 'receiveEndGameJokers', keys: string }
 export type ActionStartAnteTimerRequest = { action: 'startAnteTimer', time: number }
 export type ActionFailTimer = { action: 'failTimer' }
+export type ActionSyncClient = { action: 'syncClient', isCached: boolean }
 export type ActionClientToServer =
 	| ActionUsername
 	| ActionCreateLobby
@@ -154,6 +157,7 @@ export type ActionClientToServer =
 	| ActionReceiveEndGameJokersResponse
 	| ActionStartAnteTimerRequest
 	| ActionFailTimer
+	| ActionSyncClient
 // Utility actions
 export type ActionKeepAlive = { action: 'keepAlive' }
 export type ActionKeepAliveAck = { action: 'keepAliveAck' }

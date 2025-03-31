@@ -21,6 +21,7 @@ import type {
 	ActionSkip,
 	ActionSpentLastShop,
 	ActionStartAnteTimer,
+	ActionSyncClient,
 	ActionUsername,
 	ActionUtility,
 	ActionVersion,
@@ -306,6 +307,12 @@ const server = createServer((socket) => {
 						break
 					case 'failTimer':
 						actionHandlers.failTimer(client)
+						break
+					case 'syncClient':
+						actionHandlers.syncClient(
+							actionArgs as ActionHandlerArgs<ActionSyncClient>,
+							client,
+						)
 						break
 				}
 			} catch (error) {
