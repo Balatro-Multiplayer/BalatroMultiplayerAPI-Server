@@ -1,5 +1,6 @@
 import type Client from "./Client.js";
 import GameModes from "./GameMode.js";
+import { InsaneInt } from "./InsaneInt.js";
 import Lobby, { getEnemy } from "./Lobby.js";
 import type {
 	ActionCreateLobby,
@@ -105,8 +106,8 @@ const readyBlindAction = (client: Client) => {
 		client.lobby.guest.isReady = false;
 
 		// Reset scores for next blind
-		client.lobby.host.score = 0n;
-		client.lobby.guest.score = 0n;
+		client.lobby.host.score = new InsaneInt(0, 0, 0);
+		client.lobby.guest.score = new InsaneInt(0, 0, 0);
 
 		// Reset hands left for next blind
 		client.lobby.host.handsLeft = 4;
@@ -131,7 +132,7 @@ const playHandAction = (
 		return
 	}
 
-	client.score = BigInt(String(score));
+	client.score = InsaneInt.fromString(String(score));
 
 	client.handsLeft =
 		typeof handsLeft === "number" ? handsLeft : Number(handsLeft);
@@ -139,7 +140,7 @@ const playHandAction = (
 	enemy.sendAction({
 		action: "enemyInfo",
 		handsLeft,
-		score: client.score,
+		score: client.score.toString(),
 		skips: client.skips,
 		lives: client.lives,
 	});
@@ -147,16 +148,16 @@ const playHandAction = (
 	// This info is only sent on a boss blind, so it shouldn't
 	// affect other blinds
 	if (
-		(lobby.guest.handsLeft === 0 && lobby.host.score > lobby.guest.score) ||
-		(lobby.host.handsLeft === 0 && lobby.guest.score > lobby.host.score) ||
+		(lobby.guest.handsLeft === 0 && lobby.guest.score.lessThan(lobby.host.score)) ||
+		(lobby.host.handsLeft === 0 && lobby.host.score.lessThan(lobby.guest.score)) ||
 		(lobby.host.handsLeft === 0 && lobby.guest.handsLeft === 0)
 	) {
 		const roundWinner =
-			lobby.host.score > lobby.guest.score ? lobby.host : lobby.guest;
+			lobby.guest.score.lessThan(lobby.host.score) ? lobby.host : lobby.guest;
 		const roundLoser =
 			roundWinner.id === lobby.host.id ? lobby.guest : lobby.host;
 
-		if (lobby.host.score !== lobby.guest.score) {
+		if (!lobby.host.score.equalTo(lobby.guest.score)) {
 			roundLoser.loseLife();
 
 			// If no lives are left, we end the game
@@ -175,7 +176,7 @@ const playHandAction = (
 		roundWinner.firstReady = false
 		roundLoser.firstReady = false
 		roundWinner.sendAction({ action: "endPvP", lost: false });
-		roundLoser.sendAction({ action: "endPvP", lost: lobby.host.score !== lobby.guest.score });
+		roundLoser.sendAction({ action: "endPvP", lost: !lobby.guest.score.equalTo(lobby.host.score) });
 	}
 };
 
@@ -272,7 +273,7 @@ const skipAction = ({ skips }: ActionHandlerArgs<ActionSkip>, client: Client) =>
 	enemy.sendAction({
 		action: "enemyInfo",
 		handsLeft: client.handsLeft,
-		score: client.score,
+		score: client.score.toString(),
 		skips: client.skips,
 		lives: client.lives,
 	});

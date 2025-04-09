@@ -26,6 +26,7 @@ import type {
 	ActionUtility,
 	ActionVersion,
 } from './actions.js'
+import { InsaneInt } from './InsaneInt.js'
 
 const PORT = 8788
 
@@ -55,7 +56,7 @@ const scientificNotationToBigInt = (value: string): bigint => {
 
 // biome-ignore lint/suspicious/noExplicitAny: Object is parsed from string
 const stringToJson = (str: string): any => {
-	const obj: Record<string, string | number | bigint | boolean> = {}
+	const obj: Record<string, string | number | InsaneInt | boolean> = {}
 	for (const part of str.split(',')) {
 		const [key, value] = part.split(':')
 		if (value === 'true' || value === 'false') {
@@ -65,11 +66,7 @@ const stringToJson = (str: string): any => {
 		const numericValue = Number(value)
 		let score = null
 		if (key === 'score') {
-			if (value.includes('e')) {
-				score = scientificNotationToBigInt(value)
-			} else {
-				score = BigInt(value)
-			}
+			score = InsaneInt.fromString(value)
 		}
 		obj[key] = score === null ? (Number.isNaN(numericValue) ? value : numericValue) : score
 	}
