@@ -2,6 +2,7 @@ import { type AddressInfo } from 'node:net'
 import { v4 as uuidv4 } from 'uuid'
 import type Lobby from './Lobby.js'
 import type { ActionServerToClient } from './actions.js'
+import { InsaneInt } from './InsaneInt.js'
 
 type SendFn = (action: ActionServerToClient) => void
 type CloseConnFn = () => void
@@ -26,7 +27,7 @@ class Client {
 	isReady = false
 	firstReady = false
 	lives = 5
-	score = 0n
+	score = new InsaneInt(0, 0, 0)
 	handsLeft = 4
 	ante = 1
 	skips = 0
@@ -83,7 +84,7 @@ class Client {
 				enemy.sendAction({
 					action: "enemyInfo",
 					handsLeft: this.handsLeft,
-					score: this.score,
+					score: this.score.toString(),
 					skips: this.skips,
 					lives: this.lives,
 				});

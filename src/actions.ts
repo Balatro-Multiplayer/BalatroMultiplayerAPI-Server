@@ -31,7 +31,7 @@ export type ActionGameInfo = {
 export type ActionPlayerInfo = { action: 'playerInfo'; lives: number }
 export type ActionEnemyInfo = {
 	action: 'enemyInfo'
-	score: BigInt
+	score: string
 	handsLeft: number
 	skips: number
 	lives: number
@@ -96,7 +96,7 @@ export type ActionReadyBlind = { action: 'readyBlind' }
 export type ActionUnreadyBlind = { action: 'unreadyBlind' }
 export type ActionPlayHand = {
 	action: 'playHand'
-	score: BigInt
+	score: string
 	handsLeft: number
 	hasSpeedrun: boolean
 }
