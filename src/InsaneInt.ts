@@ -80,10 +80,10 @@ export class InsaneInt {
         if (this.exponent == 0 && this.startingECount != 0) return false;
 
         // Improper balancing
-        if ((this.coefficient >= 10 && this.exponent > 0) || this.coefficient >= 10000000) return false;
+        if ((this.coefficient >= 10 && this.exponent > 0) || this.coefficient >= 100000000000) return false;
         if (this.coefficient < 1 && this.exponent > 0) return false;
         if (this.exponent > 0 && this.exponent < 1000000 && this.startingECount > 1) return false;
-        if (this.exponent >= 10000000) return false;
+        if (this.exponent >= 100000000000) return false;
 
         // Decimals in exponents, or leading zeros
         if (this.exponent % 1 != 0 || this.startingECount % 1 != 0) return false;
@@ -113,7 +113,7 @@ export class InsaneInt {
             }
 
             // Balance coefficient and exponent
-            if ((this.coefficient >= 10 && this.exponent > 0) || this.coefficient >= 10000000) {
+            if ((this.coefficient >= 10 && this.exponent > 0) || this.coefficient >= 100000000000) {
                 const change = Math.floor(this.coefficient).toString().length - 1;
                 this.coefficient /= Math.pow(10, change);
                 this.exponent += change;
@@ -127,12 +127,12 @@ export class InsaneInt {
             }
 
             // Balance exponent and startingECount
-            if ((this.exponent >= 100000 && this.startingECount > 0) || this.exponent >= 10000000) {
+            if ((this.exponent >= 100000000 && this.startingECount > 0) || this.exponent >= 100000000000) {
                 const change = Math.floor(this.exponent).toString().length - 5;
                 this.exponent /= Math.pow(10, change);
                 this.startingECount += change;
             }
-            if (this.exponent != 0 && this.exponent < 10000 && this.startingECount != 0) {
+            if (this.exponent != 0 && this.exponent < 100000000000 && this.startingECount != 0) {
                 let change = 5 - Math.floor(this.exponent).toString().length;
                 if (change >= this.startingECount) change = this.startingECount - 1;
                 this.exponent *= Math.pow(10, change);
