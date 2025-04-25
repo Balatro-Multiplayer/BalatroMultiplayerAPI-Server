@@ -12,6 +12,7 @@ import type {
 	ActionMagnetResponse,
 	ActionPlayHand,
 	ActionReceiveEndGameJokersRequest,
+	ActionReceiveNemesisDeckRequest,
 	ActionRemovePhantom,
 	ActionSendPhantom,
 	ActionSetAnte,
@@ -373,6 +374,23 @@ const receiveEndGameJokersAction = ({ keys }: ActionHandlerArgs<ActionReceiveEnd
 	})
 }
 
+const getNemesisDeckAction = (client: Client) => {
+	const [lobby, enemy] = getEnemy(client)
+	if (!lobby || !enemy) return;
+	enemy.sendAction({
+		action: "getNemesisDeck"
+	})
+}
+
+const receiveNemesisDeckAction = ({ cards }: ActionHandlerArgs<ActionReceiveNemesisDeckRequest>, client: Client) => {
+	const [lobby, enemy] = getEnemy(client)
+	if (!lobby || !enemy) return;
+	enemy.sendAction({
+		action: "receiveNemesisDeck",
+		cards
+	})
+}
+
 const startAnteTimerAction = ({ time }: ActionHandlerArgs<ActionStartAnteTimer>, client: Client) => {
 	const [lobby, enemy] = getEnemy(client)
 	if (!lobby || !enemy) return;
@@ -440,6 +458,8 @@ export const actionHandlers = {
 	magnetResponse: magnetResponseAction,
 	getEndGameJokers: getEndGameJokersAction,
 	receiveEndGameJokers: receiveEndGameJokersAction,
+	getNemesisDeck: getNemesisDeckAction,
+	receiveNemesisDeck: receiveNemesisDeckAction,
 	startAnteTimer: startAnteTimerAction,
 	failTimer: failTimerAction,
 	syncClient: syncClientAction,

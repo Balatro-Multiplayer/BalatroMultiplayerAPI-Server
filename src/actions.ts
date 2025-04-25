@@ -52,6 +52,8 @@ export type ActionMagnet = { action: 'magnet' }
 export type ActionMagnetResponse = { action: 'magnetResponse', key: string }
 export type ActionGetEndGameJokersRequest = { action: 'getEndGameJokers' }
 export type ActionReceiveEndGameJokersRequest = { action: 'receiveEndGameJokers', keys: string }
+export type ActionGetNemesisDeckRequest = { action: 'getNemesisDeck' }
+export type ActionReceiveNemesisDeckRequest = { action: 'receiveNemesisDeck', cards: string }
 export type ActionStartAnteTimer = { action: 'startAnteTimer', time: number }
 export type ActionServerToClient =
 	| ActionConnected
@@ -83,6 +85,8 @@ export type ActionServerToClient =
 	| ActionMagnetResponse
 	| ActionGetEndGameJokersRequest
 	| ActionReceiveEndGameJokersRequest
+	| ActionGetNemesisDeckRequest
+	| ActionReceiveNemesisDeckRequest
 	| ActionStartAnteTimer
 // Client to Server
 export type ActionUsername = { action: 'username'; username: string; modHash: string }
@@ -120,6 +124,8 @@ export type ActionMagnetRequest = { action: 'magnet' }
 export type ActionMagnetResponseRequest = { action: 'magnetResponse', key: string }
 export type ActionGetEndGameJokersResponse = { action: 'getEndGameJokers' }
 export type ActionReceiveEndGameJokersResponse = { action: 'receiveEndGameJokers', keys: string }
+export type ActionGetNemesisDeckResponse = { action: 'getNemesisDeck' }
+export type ActionReceiveNemesisDeckResponse = { action: 'receiveNemesisDeck', cards: string }
 export type ActionStartAnteTimerRequest = { action: 'startAnteTimer', time: number }
 export type ActionFailTimer = { action: 'failTimer' }
 export type ActionSyncClient = { action: 'syncClient', isCached: boolean }
@@ -155,6 +161,8 @@ export type ActionClientToServer =
 	| ActionMagnetResponseRequest
 	| ActionGetEndGameJokersResponse
 	| ActionReceiveEndGameJokersResponse
+	| ActionGetNemesisDeckResponse
+	| ActionReceiveNemesisDeckResponse
 	| ActionStartAnteTimerRequest
 	| ActionFailTimer
 	| ActionSyncClient
