@@ -13,6 +13,7 @@ import type {
 	ActionMagnetResponse,
 	ActionPlayHand,
 	ActionReceiveEndGameJokersRequest,
+	ActionReceiveNemesisDeckRequest,
 	ActionRemovePhantom,
 	ActionSendPhantom,
 	ActionServerToClient,
@@ -294,6 +295,15 @@ const server = createServer((socket) => {
 					case 'receiveEndGameJokers':
 						actionHandlers.receiveEndGameJokers(
 							actionArgs as ActionHandlerArgs<ActionReceiveEndGameJokersRequest>,
+							client,
+						)
+						break
+					case 'getNemesisDeck':
+						actionHandlers.getNemesisDeck(client)
+						break
+					case 'receiveNemesisDeck':
+						actionHandlers.receiveNemesisDeck(
+							actionArgs as ActionHandlerArgs<ActionReceiveNemesisDeckRequest>,
 							client,
 						)
 						break

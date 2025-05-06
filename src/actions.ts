@@ -52,6 +52,8 @@ export type ActionMagnet = { action: 'magnet' }
 export type ActionMagnetResponse = { action: 'magnetResponse', key: string }
 export type ActionGetEndGameJokersRequest = { action: 'getEndGameJokers' }
 export type ActionReceiveEndGameJokersRequest = { action: 'receiveEndGameJokers', keys: string }
+export type ActionGetNemesisDeckRequest = { action: 'getNemesisDeck' }
+export type ActionReceiveNemesisDeckRequest = { action: 'receiveNemesisDeck', cards: string }
 export type ActionStartAnteTimer = { action: 'startAnteTimer', time: number }
 export type ActionPauseAnteTimer = { action: 'pauseAnteTimer', time: number }
 export type ActionServerToClient =
@@ -84,6 +86,8 @@ export type ActionServerToClient =
 	| ActionMagnetResponse
 	| ActionGetEndGameJokersRequest
 	| ActionReceiveEndGameJokersRequest
+	| ActionGetNemesisDeckRequest
+	| ActionReceiveNemesisDeckRequest
 	| ActionStartAnteTimer
 	| ActionPauseAnteTimer
 // Client to Server
@@ -122,6 +126,8 @@ export type ActionMagnetRequest = { action: 'magnet' }
 export type ActionMagnetResponseRequest = { action: 'magnetResponse', key: string }
 export type ActionGetEndGameJokersResponse = { action: 'getEndGameJokers' }
 export type ActionReceiveEndGameJokersResponse = { action: 'receiveEndGameJokers', keys: string }
+export type ActionGetNemesisDeckResponse = { action: 'getNemesisDeck' }
+export type ActionReceiveNemesisDeckResponse = { action: 'receiveNemesisDeck', cards: string }
 export type ActionStartAnteTimerRequest = { action: 'startAnteTimer', time: number }
 export type ActionPauseAnteTimerRequest = { action: 'pauseAnteTimer', time: number }
 export type ActionFailTimer = { action: 'failTimer' }
@@ -158,6 +164,8 @@ export type ActionClientToServer =
 	| ActionMagnetResponseRequest
 	| ActionGetEndGameJokersResponse
 	| ActionReceiveEndGameJokersResponse
+	| ActionGetNemesisDeckResponse
+	| ActionReceiveNemesisDeckResponse
 	| ActionStartAnteTimerRequest
 	| ActionPauseAnteTimerRequest
 	| ActionFailTimer
