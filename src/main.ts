@@ -21,6 +21,7 @@ import type {
 	ActionSkip,
 	ActionSpentLastShop,
 	ActionStartAnteTimer,
+	ActionPauseAnteTimer,
 	ActionSyncClient,
 	ActionUsername,
 	ActionUtility,
@@ -299,6 +300,12 @@ const server = createServer((socket) => {
 					case 'startAnteTimer':
 						actionHandlers.startAnteTimer(
 							actionArgs as ActionHandlerArgs<ActionStartAnteTimer>,
+							client,
+						)
+						break
+					case 'pauseAnteTimer':
+						actionHandlers.pauseAnteTimer(
+							actionArgs as ActionHandlerArgs<ActionPauseAnteTimer>,
 							client,
 						)
 						break

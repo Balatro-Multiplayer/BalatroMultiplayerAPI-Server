@@ -19,6 +19,7 @@ import type {
 	ActionSkip,
 	ActionSpentLastShop,
 	ActionStartAnteTimer,
+	ActionPauseAnteTimer,
 	ActionSyncClient,
 	ActionUsername,
 	ActionVersion,
@@ -382,6 +383,15 @@ const startAnteTimerAction = ({ time }: ActionHandlerArgs<ActionStartAnteTimer>,
 	})
 }
 
+const pauseAnteTimerAction = ({ time }: ActionHandlerArgs<ActionPauseAnteTimer>, client: Client) => {
+	const [lobby, enemy] = getEnemy(client)
+	if (!lobby || !enemy) return;
+	enemy.sendAction({
+		action: "pauseAnteTimer",
+		time
+	})
+}
+
 const failTimerAction = (client: Client) => {
 	const lobby = client.lobby;
 
@@ -441,6 +451,7 @@ export const actionHandlers = {
 	getEndGameJokers: getEndGameJokersAction,
 	receiveEndGameJokers: receiveEndGameJokersAction,
 	startAnteTimer: startAnteTimerAction,
+	pauseAnteTimer: pauseAnteTimerAction,
 	failTimer: failTimerAction,
 	syncClient: syncClientAction,
 } satisfies Partial<ActionHandlers>;

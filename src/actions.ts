@@ -53,6 +53,7 @@ export type ActionMagnetResponse = { action: 'magnetResponse', key: string }
 export type ActionGetEndGameJokersRequest = { action: 'getEndGameJokers' }
 export type ActionReceiveEndGameJokersRequest = { action: 'receiveEndGameJokers', keys: string }
 export type ActionStartAnteTimer = { action: 'startAnteTimer', time: number }
+export type ActionPauseAnteTimer = { action: 'pauseAnteTimer', time: number }
 export type ActionServerToClient =
 	| ActionConnected
 	| ActionError
@@ -84,6 +85,7 @@ export type ActionServerToClient =
 	| ActionGetEndGameJokersRequest
 	| ActionReceiveEndGameJokersRequest
 	| ActionStartAnteTimer
+	| ActionPauseAnteTimer
 // Client to Server
 export type ActionUsername = { action: 'username'; username: string; modHash: string }
 export type ActionCreateLobby = { action: 'createLobby'; gameMode: GameMode }
@@ -121,6 +123,7 @@ export type ActionMagnetResponseRequest = { action: 'magnetResponse', key: strin
 export type ActionGetEndGameJokersResponse = { action: 'getEndGameJokers' }
 export type ActionReceiveEndGameJokersResponse = { action: 'receiveEndGameJokers', keys: string }
 export type ActionStartAnteTimerRequest = { action: 'startAnteTimer', time: number }
+export type ActionPauseAnteTimerRequest = { action: 'pauseAnteTimer', time: number }
 export type ActionFailTimer = { action: 'failTimer' }
 export type ActionSyncClient = { action: 'syncClient', isCached: boolean }
 export type ActionClientToServer =
@@ -156,6 +159,7 @@ export type ActionClientToServer =
 	| ActionGetEndGameJokersResponse
 	| ActionReceiveEndGameJokersResponse
 	| ActionStartAnteTimerRequest
+	| ActionPauseAnteTimerRequest
 	| ActionFailTimer
 	| ActionSyncClient
 // Utility actions
