@@ -203,7 +203,7 @@ const lobbyOptionsAction = (
 };
 
 const failRoundAction = (client: Client) => {
-	const lobby = client.lobby;
+    const [lobby, enemy] = getEnemy(client)
 
 	if (!lobby) return;
 
@@ -212,18 +212,22 @@ const failRoundAction = (client: Client) => {
 	}
 
 	if (client.lives === 0) {
-		let gameLoser = null;
-		let gameWinner = null;
-		if (client.id === lobby.host?.id) {
-			gameLoser = lobby.host;
-			gameWinner = lobby.guest;
-		} else {
-			gameLoser = lobby.guest;
-			gameWinner = lobby.host;
-		}
+		if (lobby.gameMode !== 'survival') {
+			let gameLoser = null;
+			let gameWinner = null;
+			if (client.id === lobby.host?.id) {
+				gameLoser = lobby.host;
+				gameWinner = lobby.guest;
+			} else {
+				gameLoser = lobby.guest;
+				gameWinner = lobby.host;
+			}
 
-		gameWinner?.sendAction({ action: "winGame" });
-		gameLoser?.sendAction({ action: "loseGame" });
+			gameWinner?.sendAction({ action: "winGame" });
+			gameLoser?.sendAction({ action: "loseGame" });
+        } else {
+            
+        }
 	}
 };
 
