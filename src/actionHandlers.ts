@@ -17,6 +17,7 @@ import type {
 	ActionSendPhantom,
 	ActionSetAnte,
 	ActionSetLocation,
+	ActionSetFurthestBlind,
 	ActionSkip,
 	ActionSpentLastShop,
 	ActionStartAnteTimer,
@@ -203,16 +204,32 @@ const lobbyOptionsAction = (
 };
 
 const failRoundAction = (client: Client) => {
-    const [lobby, enemy] = getEnemy(client)
-
-	if (!lobby) return;
+	const [lobby, enemy] = getEnemy(client)
+	if (!lobby || !enemy) return;
 
 	if (lobby.options.death_on_round_loss) {
 		client.loseLife()
 	}
 
 	if (client.lives === 0) {
-		if (lobby.gameMode !== 'survival') {
+		if (lobby.gameMode === 'survival') {
+			if (enemy.lives === 0) {
+				if (client.furthestBlind === enemy.furthestBlind) { //Survival draw behavior, both players win by default
+					client.sendAction({ action: "winGame" });
+					enemy.sendAction({ action: "winGame" });
+				} else if (client.furthestBlind < enemy.furthestBlind) {
+					client.sendAction({ action: "loseGame" });
+					enemy.sendAction({ action: "winGame" });
+				}
+				//Otherwise do nothing
+			} else {
+				if (client.furthestBlind < enemy.furthestBlind) {
+					client.sendAction({ action: "loseGame" });
+					enemy.sendAction({ action: "winGame" });
+				}
+				//Otherwise do nothing
+			}
+		} else {
 			let gameLoser = null;
 			let gameWinner = null;
 			if (client.id === lobby.host?.id) {
@@ -225,9 +242,7 @@ const failRoundAction = (client: Client) => {
 
 			gameWinner?.sendAction({ action: "winGame" });
 			gameLoser?.sendAction({ action: "loseGame" });
-        } else {
-            
-        }
+		}
 	}
 };
 
@@ -270,6 +285,18 @@ const setLocationAction = ({ location }: ActionHandlerArgs<ActionSetLocation>, c
 
 const newRoundAction = (client: Client) => {
 	client.resetBlocker()
+}
+
+const setFurthestBlindAction = ({ furthestBlind }: ActionHandlerArgs<ActionSetFurthestBlind>, client: Client) => {
+	const [lobby, enemy] = getEnemy(client)
+	client.furthestBlind = furthestBlind
+	if (!lobby || !enemy) return;
+
+	//If enemy died and client.furthestBlind is bigger, client wins
+	if (((lobby.gameMode === 'survival') && (enemy.lives === 0)) && (client.furthestBlind > enemy.furthestBlind)) {
+		client.sendAction({ action: "winGame" });
+		enemy.sendAction({ action: "loseGame" });
+	}
 }
 
 const skipAction = ({ skips }: ActionHandlerArgs<ActionSkip>, client: Client) => {
@@ -460,6 +487,7 @@ export const actionHandlers = {
 	version: versionAction,
 	setLocation: setLocationAction,
 	newRound: newRoundAction,
+	setFurthestBlind: setFurthestBlindAction,
 	skip: skipAction,
 	sendPhantom: sendPhantomAction,
 	removePhantom: removePhantomAction,

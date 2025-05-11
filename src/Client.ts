@@ -30,8 +30,8 @@ class Client {
 	score = new InsaneInt(0, 0, 0)
 	handsLeft = 4
 	ante = 1
-    skips = 0
-    furthest_blind = 0
+	skips = 0
+	furthestBlind = 0
 
 	livesBlocker = false
 

@@ -19,6 +19,7 @@ import type {
 	ActionServerToClient,
 	ActionSetAnte,
 	ActionSetLocation,
+	ActionSetFurthestBlind,
 	ActionSkip,
 	ActionSpentLastShop,
 	ActionStartAnteTimer,
@@ -238,6 +239,12 @@ const server = createServer((socket) => {
 					case 'setAnte':
 						actionHandlers.setAnte(
 							actionArgs as ActionHandlerArgs<ActionSetAnte>,
+							client,
+						)
+						break
+					case 'setFurthestBlind':
+						actionHandlers.setFurthestBlind(
+							actionArgs as ActionHandlerArgs<ActionSetFurthestBlind>,
 							client,
 						)
 						break

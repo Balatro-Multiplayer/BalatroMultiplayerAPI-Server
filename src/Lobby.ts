@@ -168,11 +168,15 @@ class Lobby {
 			this.host.isReady = false;
 			this.host.resetBlocker();
 			this.host.setLocation("Blind Select");
+			this.host.furthestBlind = 0;
+			this.host.skips = 0;
 		}
 		if (this.guest) {
 			this.guest.isReady = false;
 			this.guest.resetBlocker();
 			this.guest.setLocation("Blind Select");
+			this.guest.furthestBlind = 0;
+			this.guest.skips = 0;
 		}
 	}
 }
