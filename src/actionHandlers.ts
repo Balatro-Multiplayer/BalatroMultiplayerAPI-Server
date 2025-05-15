@@ -1,7 +1,7 @@
 import type Client from "./Client.js";
 import GameModes from "./GameMode.js";
 import { InsaneInt } from "./InsaneInt.js";
-import Lobby, { getEnemy } from "./Lobby.js";
+import Lobby, { getEnemies } from "./Lobby.js";
 import type {
 	ActionCreateLobby,
 	ActionEatPizza,
@@ -94,30 +94,44 @@ const startGameAction = (client: Client) => {
 const readyBlindAction = (client: Client) => {
 	client.isReady = true
 
-	const [lobby, enemy] = getEnemy(client)
+	const [lobby, enemies] = getEnemies(client)
 
-	if (!client.firstReady && !enemy?.isReady && !enemy?.firstReady) {
+	if (!client.firstReady && !isEnemiesReady(enemies) && !isEnemiesFirstReady(enemies)) {
 		client.firstReady = true
 		client.sendAction({ action: "speedrun" })
 	}
 
 	// TODO: Refactor for more than two players
-	if (client.lobby?.host?.isReady && client.lobby.guests?.isReady) {
+	if (client.lobby?.host?.isReady && isEnemiesReady(enemies)) {
 		// Reset ready status for next blind
 		client.lobby.host.isReady = false;
-		client.lobby.guests.isReady = false;
+		client.lobby.guests.forEach((guest) => {
+			guest.isReady = false;
+		});
 
 		// Reset scores for next blind
 		client.lobby.host.score = new InsaneInt(0, 0, 0);
-		client.lobby.guests.score = new InsaneInt(0, 0, 0);
+		client.lobby.guests.forEach((guest) => {
+			guest.score = new InsaneInt(0, 0, 0);
+		});
 
 		// Reset hands left for next blind
 		client.lobby.host.handsLeft = 4;
-		client.lobby.guests.handsLeft = 4;
+		client.lobby.guests.forEach((guest) => {
+			guest.handsLeft = 4;
+		});
 
 		client.lobby.broadcastAction({ action: "startBlind" });
 	}
 };
+
+const isEnemiesReady = (enemies: Client[] | null) => {
+	return enemies?.every((enemy) => enemy.isReady);
+}
+
+const isEnemiesFirstReady = (enemies: Client[] | null) => {
+	return enemies?.every((enemy) => enemy.firstReady);
+}
 
 const unreadyBlindAction = (client: Client) => {
 	client.isReady = false;
@@ -127,9 +141,9 @@ const playHandAction = (
 	{ handsLeft, score }: ActionHandlerArgs<ActionPlayHand>,
 	client: Client,
 ) => {
-	const [lobby, enemy] = getEnemy(client)
+	const [lobby, enemies] = getEnemies(client)
 
-	if (lobby === null || enemy === null || lobby.host === null || lobby.guests === null) {
+	if (lobby === null || enemies === null || lobby.host === null || lobby.guests === null) {
 		stopGameAction(client);
 		return
 	}
@@ -139,12 +153,14 @@ const playHandAction = (
 	client.handsLeft =
 		typeof handsLeft === "number" ? handsLeft : Number(handsLeft);
 
-	enemy.sendAction({
-		action: "enemyInfo",
-		handsLeft,
-		score: client.score.toString(),
-		skips: client.skips,
-		lives: client.lives,
+	enemies.forEach((enemy) => {
+		enemy.sendAction({
+			action: "enemyInfo",
+			handsLeft,
+			score: client.score.toString(),
+			skips: client.skips,
+			lives: client.lives,
+		});
 	});
 
 	// This info is only sent on a boss blind, so it shouldn't
@@ -154,25 +170,33 @@ const playHandAction = (
 		(lobby.host.handsLeft === 0 && lobby.host.score.lessThan(lobby.guests.score)) ||
 		(lobby.host.handsLeft === 0 && lobby.guests.handsLeft === 0)
 	) {
-		const roundWinner =
-			lobby.guests.score.lessThan(lobby.host.score) ? lobby.host : lobby.guests;
-		const roundLoser =
-			roundWinner.id === lobby.host.id ? lobby.guests : lobby.host;
+		const scores = [lobby.host.score, ...lobby.guests.map((guest) => guest.score)];
+		const players = [lobby.host, ...lobby.guests];
 
-		if (!lobby.host.score.equalTo(lobby.guests.score)) {
-			roundLoser.loseLife();
+		const roundWinners = players.filter((player) => player.score.equalTo(InsaneInt.max(scores)));
+		var roundWinner: Client | null;
 
-			// If no lives are left, we end the game
-			if (lobby.host.lives === 0 || lobby.guests.lives === 0) {
-				const gameWinner =
-					lobby.host.lives > lobby.guests.lives ? lobby.host : lobby.guests;
-				const gameLoser =
-					gameWinner.id === lobby.host.id ? lobby.guests : lobby.host;
+		if (roundWinners.length === 1) {
+			roundWinner = roundWinners[0];
+			const roundLosers = players.filter((player) => player !== roundWinner);
 
-				gameWinner?.sendAction({ action: "winGame" });
-				gameLoser?.sendAction({ action: "loseGame" });
-				return;
-			}
+			roundLosers.forEach((roundLoser) => {
+				roundLoser.loseLife();
+
+				// If no lives are left, we end the game
+
+				// DOES THE GAME END IF 1 PLAYER GETS TO 0 LIVES OR IF ALL BUT 1 GET TO 0
+				if (lobby.host?.lives === 0 || lobby.guests.lives === 0) {
+					const gameWinner =
+						lobby.host.lives > lobby.guests.lives ? lobby.host : lobby.guests;
+					const gameLoser =
+						gameWinner.id === lobby.host.id ? lobby.guests : lobby.host;
+
+					gameWinner?.sendAction({ action: "winGame" });
+					gameLoser?.sendAction({ action: "loseGame" });
+					return;
+				}
+			})
 		}
 
 		roundWinner.firstReady = false

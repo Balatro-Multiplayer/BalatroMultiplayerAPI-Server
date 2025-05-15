@@ -39,6 +39,16 @@ export class InsaneInt {
         return new InsaneInt(startingECount, coefficient, exponent);
     }
 
+    static max(val: InsaneInt[]) {
+        let max = val[0];
+        for (let i = 1; i < val.length; i++) {
+            if (val[i].greaterThan(max)) {
+                max = val[i];
+            }
+        }
+        return max;
+    };
+
     toString() {
         let result = "";
         for (let i = 0; i < this.startingECount; i++) {
