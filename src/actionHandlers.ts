@@ -102,18 +102,18 @@ const readyBlindAction = (client: Client) => {
 	}
 
 	// TODO: Refactor for more than two players
-	if (client.lobby?.host?.isReady && client.lobby.guest?.isReady) {
+	if (client.lobby?.host?.isReady && client.lobby.guests?.isReady) {
 		// Reset ready status for next blind
 		client.lobby.host.isReady = false;
-		client.lobby.guest.isReady = false;
+		client.lobby.guests.isReady = false;
 
 		// Reset scores for next blind
 		client.lobby.host.score = new InsaneInt(0, 0, 0);
-		client.lobby.guest.score = new InsaneInt(0, 0, 0);
+		client.lobby.guests.score = new InsaneInt(0, 0, 0);
 
 		// Reset hands left for next blind
 		client.lobby.host.handsLeft = 4;
-		client.lobby.guest.handsLeft = 4;
+		client.lobby.guests.handsLeft = 4;
 
 		client.lobby.broadcastAction({ action: "startBlind" });
 	}
@@ -129,7 +129,7 @@ const playHandAction = (
 ) => {
 	const [lobby, enemy] = getEnemy(client)
 
-	if (lobby === null || enemy === null || lobby.host === null || lobby.guest === null) {
+	if (lobby === null || enemy === null || lobby.host === null || lobby.guests === null) {
 		stopGameAction(client);
 		return
 	}
@@ -150,24 +150,24 @@ const playHandAction = (
 	// This info is only sent on a boss blind, so it shouldn't
 	// affect other blinds
 	if (
-		(lobby.guest.handsLeft === 0 && lobby.guest.score.lessThan(lobby.host.score)) ||
-		(lobby.host.handsLeft === 0 && lobby.host.score.lessThan(lobby.guest.score)) ||
-		(lobby.host.handsLeft === 0 && lobby.guest.handsLeft === 0)
+		(lobby.guests.handsLeft === 0 && lobby.guests.score.lessThan(lobby.host.score)) ||
+		(lobby.host.handsLeft === 0 && lobby.host.score.lessThan(lobby.guests.score)) ||
+		(lobby.host.handsLeft === 0 && lobby.guests.handsLeft === 0)
 	) {
 		const roundWinner =
-			lobby.guest.score.lessThan(lobby.host.score) ? lobby.host : lobby.guest;
+			lobby.guests.score.lessThan(lobby.host.score) ? lobby.host : lobby.guests;
 		const roundLoser =
-			roundWinner.id === lobby.host.id ? lobby.guest : lobby.host;
+			roundWinner.id === lobby.host.id ? lobby.guests : lobby.host;
 
-		if (!lobby.host.score.equalTo(lobby.guest.score)) {
+		if (!lobby.host.score.equalTo(lobby.guests.score)) {
 			roundLoser.loseLife();
 
 			// If no lives are left, we end the game
-			if (lobby.host.lives === 0 || lobby.guest.lives === 0) {
+			if (lobby.host.lives === 0 || lobby.guests.lives === 0) {
 				const gameWinner =
-					lobby.host.lives > lobby.guest.lives ? lobby.host : lobby.guest;
+					lobby.host.lives > lobby.guests.lives ? lobby.host : lobby.guests;
 				const gameLoser =
-					gameWinner.id === lobby.host.id ? lobby.guest : lobby.host;
+					gameWinner.id === lobby.host.id ? lobby.guests : lobby.host;
 
 				gameWinner?.sendAction({ action: "winGame" });
 				gameLoser?.sendAction({ action: "loseGame" });
@@ -178,7 +178,7 @@ const playHandAction = (
 		roundWinner.firstReady = false
 		roundLoser.firstReady = false
 		roundWinner.sendAction({ action: "endPvP", lost: false });
-		roundLoser.sendAction({ action: "endPvP", lost: !lobby.guest.score.equalTo(lobby.host.score) });
+		roundLoser.sendAction({ action: "endPvP", lost: !lobby.guests.score.equalTo(lobby.host.score) });
 	}
 };
 
@@ -216,9 +216,9 @@ const failRoundAction = (client: Client) => {
 		let gameWinner = null;
 		if (client.id === lobby.host?.id) {
 			gameLoser = lobby.host;
-			gameWinner = lobby.guest;
+			gameWinner = lobby.guests;
 		} else {
-			gameLoser = lobby.guest;
+			gameLoser = lobby.guests;
 			gameWinner = lobby.host;
 		}
 
@@ -422,9 +422,9 @@ const failTimerAction = (client: Client) => {
 		let gameWinner = null;
 		if (client.id === lobby.host?.id) {
 			gameLoser = lobby.host;
-			gameWinner = lobby.guest;
+			gameWinner = lobby.guests;
 		} else {
-			gameLoser = lobby.guest;
+			gameLoser = lobby.guests;
 			gameWinner = lobby.host;
 		}
 

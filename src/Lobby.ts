@@ -17,13 +17,19 @@ const generateUniqueLobbyCode = (): string => {
 	return Lobbies.get(result) ? generateUniqueLobbyCode() : result;
 };
 
-export const getEnemy = (client: Client): [Lobby | null, Client | null] => {
+export const getEnemies = (client: Client): [Lobby | null, Client[] | null] => {
 	const lobby = client.lobby
 	if (!lobby) return [null, null]
 	if (lobby.host?.id === client.id) {
-		return [lobby, lobby.guest]
-	} else if (lobby.guest?.id === client.id) {
-		return [lobby, lobby.host]
+		return [lobby, lobby.guests]
+	} else if (lobby.guests.map((guest) => guest.id).includes(client.id) && lobby.host != null) {
+		var otherGuests = lobby.guests.filter((guest) => guest.id !== client.id);
+		var enemies = [lobby.host]
+		otherGuests.forEach((guest) => {
+			enemies.push(guest)
+		})
+
+		return [lobby, enemies]
 	}
 	return [lobby, null]
 }
@@ -31,7 +37,7 @@ export const getEnemy = (client: Client): [Lobby | null, Client | null] => {
 class Lobby {
 	code: string;
 	host: Client | null;
-	guest: Client | null;
+	guests: Client[];
 	gameMode: GameMode;
 	// biome-ignore lint/suspicious/noExplicitAny: 
 	options: { [key: string]: any };
@@ -44,7 +50,7 @@ class Lobby {
 		Lobbies.set(this.code, this);
 
 		this.host = host;
-		this.guest = null;
+		this.guests = [];
 		this.gameMode = gameMode;
 		this.options = {};
 
@@ -61,11 +67,11 @@ class Lobby {
 	};
 
 	leave = (client: Client) => {
-		if (this.host?.id === client.id) {
-			this.host = this.guest;
-			this.guest = null;
-		} else if (this.guest?.id === client.id) {
-			this.guest = null;
+		if (this.host?.id === client.id && this.guests.length > 0) {
+			this.host = this.guests.pop() ?? null;
+		} else if (this.guests.map((guest) => guest.id).includes(client.id)) {
+			var index = this.guests.indexOf(client);
+			this.guests.splice(index, 1);
 		}
 
 		client.setLobby(null);
@@ -81,14 +87,14 @@ class Lobby {
 	};
 
 	join = (client: Client) => {
-		if (this.guest) {
+		if (this.guests?.length === 4) {
 			client.sendAction({
 				action: "error",
 				message: "Lobby is full or does not exist.",
 			});
 			return;
 		}
-		this.guest = client;
+		this.guests.push(client);
 		client.setLobby(this);
 		client.sendAction({
 			action: "joinedLobby",
@@ -101,7 +107,9 @@ class Lobby {
 
 	broadcastAction = (action: ActionServerToClient) => {
 		this.host?.sendAction(action);
-		this.guest?.sendAction(action);
+		this.guests.forEach(guest => {
+			guest.sendAction(action)
+		});
 	};
 
 	broadcastLobbyInfo = () => {
@@ -117,13 +125,15 @@ class Lobby {
 			hostCached: this.host.isCached,
 		};
 
-		if (this.guest?.username) {
-			action.guest = this.guest.username;
-			action.guestHash = this.guest.modHash;
-			action.guestCached = this.guest.isCached;
-			this.guest.sendAction(action);
-		}
-
+		this.guests.forEach((guest) => {
+			if (guest.username) {
+				action.guest = guest.username;
+				action.guestHash = guest.modHash;
+				action.guestCached = guest.isCached;
+				guest.sendAction(action);
+			}
+		})
+		
 		// Should only sent true to the host
 		action.isHost = true;
 		this.host.sendAction(action);
@@ -132,14 +142,16 @@ class Lobby {
 	setPlayersLives = (lives: number) => {
 		// TODO: Refactor for more than 2 players
 		if (this.host) this.host.lives = lives;
-		if (this.guest) this.guest.lives = lives;
+		this.guests.forEach((guest) => {
+			guest.lives = lives;
+		})
 
 		this.broadcastAction({ action: "playerInfo", lives });
 	};
 
 	// Deprecated
 	sendGameInfo = (client: Client) => {
-		if (this.host !== client && this.guest !== client) {
+		if (this.host !== client && !this.guests.includes(client)) {
 			return client.sendAction({
 				action: "error",
 				message: "Client not in Lobby",
@@ -160,7 +172,10 @@ class Lobby {
 				this.options[key] = options[key];
 			}
 		}
-		this.guest?.sendAction({ action: "lobbyOptions", gamemode: this.gameMode, ...options });
+
+		this.guests.forEach((guest) => {
+			guest.sendAction({ action: "lobbyOptions", gamemode: this.gameMode, ...options });
+		})
 	};
 
 	resetPlayers = () => {
@@ -169,11 +184,11 @@ class Lobby {
 			this.host.resetBlocker();
 			this.host.setLocation("Blind Select");
 		}
-		if (this.guest) {
-			this.guest.isReady = false;
-			this.guest.resetBlocker();
-			this.guest.setLocation("Blind Select");
-		}
+		this.guests.forEach((guest) => {
+			guest.isReady = false;
+			guest.resetBlocker();
+			guest.setLocation("Blind Select");
+		})
 	}
 }
 
