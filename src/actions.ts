@@ -117,6 +117,7 @@ export type ActionSetAnte = {
 export type ActionVersion = { action: 'version'; version: string }
 export type ActionSetLocation = { action: 'setLocation'; location: string }
 export type ActionNewRound = { action: 'newRound' }
+export type ActionSetFurthestBlind = { action: 'setFurthestBlind', furthestBlind: number}
 export type ActionSkip = { action: 'skip', skips: number }
 export type ActionLetsGoGamblingNemesisRequest = { action: 'letsGoGamblingNemesis' }
 export type ActionEatPizzaRequest = { action: 'eatPizza', whole: boolean }
@@ -152,6 +153,7 @@ export type ActionClientToServer =
 	| ActionVersion
 	| ActionSetLocation
 	| ActionNewRound
+	| ActionSetFurthestBlind
 	| ActionSkip
 	| ActionSendPhantom
 	| ActionRemovePhantom
@@ -197,4 +199,4 @@ export type ActionHandlers = {
 export type ActionHandlerArgs<T extends HandledActions> = Omit<T, 'action'>
 
 // Other types
-export type GameMode = 'attrition' | 'showdown'
+export type GameMode = 'attrition' | 'showdown' | 'survival'

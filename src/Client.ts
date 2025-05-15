@@ -31,6 +31,7 @@ class Client {
 	handsLeft = 4
 	ante = 1
 	skips = 0
+	furthestBlind = 0
 
 	livesBlocker = false
 

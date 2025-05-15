@@ -175,6 +175,12 @@ setAnte: ante
 - Declares the current ante that the client is on to the server, this needs to be handled by the server on a per-client basis since clients can be on different antes at the same time
 - ante: The ante to set the client to on the server side
 
+---
+
+setFurthestBlind: furthestBlind
+- Declares the furthest blind the client has beaten to the server
+- furthestBlind: The number to set the client's furthest blind to on the server side
+
 ### Utility
 
 keepAlive
