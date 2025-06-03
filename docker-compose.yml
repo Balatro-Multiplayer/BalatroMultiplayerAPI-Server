@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   socket:
     build:
@@ -10,3 +9,7 @@ services:
     environment:
       NODE_ENV: development
     restart: unless-stopped
+    volumes:
+      - ./logs:/logs
+    command: >
+      sh -c "node ./dist/main.js >> /logs/socket-log.txt 2>&1"
