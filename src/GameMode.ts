@@ -32,6 +32,12 @@ const GameModes: {
       else return { small: 'bl_pvp', big: 'bl_pvp', boss: 'bl_pvp' }
 		},
 	},
+	survival: {
+		startingLives: 1,
+		getBlindFromAnte: (ante, options) => {
+			return { };
+		},
+	}
 };
 
 export default GameModes;
