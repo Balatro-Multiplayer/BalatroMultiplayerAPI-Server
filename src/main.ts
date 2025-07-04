@@ -151,7 +151,6 @@ const server = createServer((socket) => {
 		for (const msg of messages) {
 			if (!msg) return
 			try {
-				console.log(msg)
 				const message: ActionClientToServer | ActionUtility = stringToJson(msg)
 				const { action, ...actionArgs } = message
 
