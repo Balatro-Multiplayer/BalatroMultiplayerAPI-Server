@@ -27,7 +27,7 @@ import type {
 	ActionSyncClient,
 	ActionUsername,
 	ActionUtility,
-	ActionVersion,
+	ActionVersion, ActionReceiveNemesisStatsRequest,
 } from './actions.js'
 import { InsaneInt } from './InsaneInt.js'
 
@@ -335,6 +335,14 @@ const server = createServer((socket) => {
 							client,
 						)
 						break
+					case "endGameStatsRequested":
+						actionHandlers.endGameStatsRequested(client)
+						break
+					case "nemesisEndGameStats":
+						actionHandlers.nemesisEndGameStats(
+							actionArgs as ActionHandlerArgs<ActionReceiveNemesisStatsRequest>,
+							client
+						)
 				}
 			} catch (error) {
 				const failedToParseError = 'Failed to parse message'

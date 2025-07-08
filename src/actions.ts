@@ -54,6 +54,8 @@ export type ActionGetEndGameJokersRequest = { action: 'getEndGameJokers' }
 export type ActionReceiveEndGameJokersRequest = { action: 'receiveEndGameJokers', keys: string }
 export type ActionGetNemesisDeckRequest = { action: 'getNemesisDeck' }
 export type ActionReceiveNemesisDeckRequest = { action: 'receiveNemesisDeck', cards: string }
+export type ActionGetNemesisStatsRequest = { action: 'endGameStatsRequested' }
+export type ActionReceiveNemesisStatsRequest = { action: 'nemesisEndGameStats', reroll_count: string, reroll_cost_total:string, vouchers:string }
 export type ActionStartAnteTimer = { action: 'startAnteTimer', time: number }
 export type ActionPauseAnteTimer = { action: 'pauseAnteTimer', time: number }
 export type ActionServerToClient =
@@ -88,6 +90,8 @@ export type ActionServerToClient =
 	| ActionReceiveEndGameJokersRequest
 	| ActionGetNemesisDeckRequest
 	| ActionReceiveNemesisDeckRequest
+	| ActionGetNemesisStatsRequest
+	| ActionReceiveNemesisStatsRequest
 	| ActionStartAnteTimer
 	| ActionPauseAnteTimer
 // Client to Server
@@ -129,6 +133,8 @@ export type ActionGetEndGameJokersResponse = { action: 'getEndGameJokers' }
 export type ActionReceiveEndGameJokersResponse = { action: 'receiveEndGameJokers', keys: string }
 export type ActionGetNemesisDeckResponse = { action: 'getNemesisDeck' }
 export type ActionReceiveNemesisDeckResponse = { action: 'receiveNemesisDeck', cards: string }
+export type ActionGetNemesisStatsResponse = { action: 'endGameStatsRequested' }
+export type ActionReceiveNemesisStatsResponse = { action: 'nemesisEndGameStats', reroll_count: string,reroll_cost_total:string, vouchers:string }
 export type ActionStartAnteTimerRequest = { action: 'startAnteTimer', time: number }
 export type ActionPauseAnteTimerRequest = { action: 'pauseAnteTimer', time: number }
 export type ActionFailTimer = { action: 'failTimer' }
@@ -168,6 +174,8 @@ export type ActionClientToServer =
 	| ActionReceiveEndGameJokersResponse
 	| ActionGetNemesisDeckResponse
 	| ActionReceiveNemesisDeckResponse
+	| ActionGetNemesisStatsResponse
+	| ActionReceiveNemesisStatsResponse
 	| ActionStartAnteTimerRequest
 	| ActionPauseAnteTimerRequest
 	| ActionFailTimer

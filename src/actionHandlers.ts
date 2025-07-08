@@ -13,6 +13,7 @@ import type {
 	ActionPlayHand,
 	ActionReceiveEndGameJokersRequest,
 	ActionReceiveNemesisDeckRequest,
+	ActionReceiveNemesisStatsRequest,
 	ActionRemovePhantom,
 	ActionSendPhantom,
 	ActionSetAnte,
@@ -423,6 +424,23 @@ const receiveNemesisDeckAction = ({ cards }: ActionHandlerArgs<ActionReceiveNeme
 	})
 }
 
+const requestNemesisStatsActionHandler = (client: Client) => {
+	const [lobby, enemy] = getEnemy(client)
+	if (!lobby || !enemy) return;
+	enemy.sendAction({
+		action: "endGameStatsRequested"
+	})
+}
+
+const receiveNemesisStatsActionHandler = (stats : ActionHandlerArgs<ActionReceiveNemesisStatsRequest>, client: Client) => {
+	const [lobby, enemy] = getEnemy(client)
+	if (!lobby || !enemy) return;
+	enemy.sendAction({
+		action: "nemesisEndGameStats",
+		...stats
+	})
+}
+
 const startAnteTimerAction = ({ time }: ActionHandlerArgs<ActionStartAnteTimer>, client: Client) => {
 	const [lobby, enemy] = getEnemy(client)
 	if (!lobby || !enemy) return;
@@ -502,6 +520,8 @@ export const actionHandlers = {
 	receiveEndGameJokers: receiveEndGameJokersAction,
 	getNemesisDeck: getNemesisDeckAction,
 	receiveNemesisDeck: receiveNemesisDeckAction,
+	endGameStatsRequested: requestNemesisStatsActionHandler,
+	nemesisEndGameStats: receiveNemesisStatsActionHandler,
 	startAnteTimer: startAnteTimerAction,
 	pauseAnteTimer: pauseAnteTimerAction,
 	failTimer: failTimerAction,
