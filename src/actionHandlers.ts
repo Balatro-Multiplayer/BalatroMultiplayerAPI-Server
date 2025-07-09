@@ -173,6 +173,8 @@ const playHandAction = (
 
 				gameWinner?.sendAction({ action: "winGame" });
 				gameLoser?.sendAction({ action: "loseGame" });
+				roundWinner.firstReady = false
+				roundLoser.firstReady = false
 				return;
 			}
 		}
