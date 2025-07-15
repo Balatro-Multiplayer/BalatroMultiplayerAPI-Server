@@ -49,6 +49,7 @@ class Lobby {
 		this.options = {};
 
 		host.setLobby(this);
+		host.isReadyLobby = false;
 		host.sendAction({
 			action: "joinedLobby",
 			code: this.code,
@@ -88,8 +89,11 @@ class Lobby {
 			});
 			return;
 		}
+
 		this.guest = client;
+
 		client.setLobby(this);
+		client.isReadyLobby = false;
 		client.sendAction({
 			action: "joinedLobby",
 			code: this.code,
@@ -121,6 +125,7 @@ class Lobby {
 			action.guest = this.guest.username;
 			action.guestHash = this.guest.modHash;
 			action.guestCached = this.guest.isCached;
+			action.guestReady = this.guest.isReadyLobby;
 			this.guest.sendAction(action);
 		}
 

@@ -23,6 +23,7 @@ class Client {
 	username = 'Guest'
 	modHash = 'NULL'
 	lobby: Lobby | null = null
+	isReadyLobby = false
 	/** Whether player is ready for next blind */
 	isReady = false
 	firstReady = false

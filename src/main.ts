@@ -199,6 +199,12 @@ const server = createServer((socket) => {
 					case 'leaveLobby':
 						actionHandlers.leaveLobby(client)
 						break
+					case 'readyLobby':
+						actionHandlers.readyLobby(client)
+						break
+					case 'unreadyLobby':
+						actionHandlers.unreadyLobby(client)
+						break
 					case 'startGame':
 						actionHandlers.startGame(client)
 						break

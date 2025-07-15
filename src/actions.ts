@@ -10,6 +10,7 @@ export type ActionLobbyInfo = {
 	guest?: string
 	guestHash?: string
 	guestCached?: boolean
+	guestReady?: boolean
 	isHost: boolean
 }
 export type ActionStopGame = { action: 'stopGame' }
@@ -99,6 +100,8 @@ export type ActionUsername = { action: 'username'; username: string; modHash: st
 export type ActionCreateLobby = { action: 'createLobby'; gameMode: GameMode }
 export type ActionJoinLobby = { action: 'joinLobby'; code: string }
 export type ActionLeaveLobby = { action: 'leaveLobby' }
+export type ActionReadyLobby = { action: 'readyLobby' }
+export type ActionUnreadyLobby = { action: 'unreadyLobby' }
 export type ActionLobbyInfoRequest = { action: 'lobbyInfo' }
 export type ActionStopGameRequest = { action: 'stopGame' }
 export type ActionStartGameRequest = { action: 'startGame' }
@@ -144,6 +147,8 @@ export type ActionClientToServer =
 	| ActionCreateLobby
 	| ActionJoinLobby
 	| ActionLeaveLobby
+	| ActionReadyLobby
+	| ActionUnreadyLobby
 	| ActionLobbyInfoRequest
 	| ActionStopGameRequest
 	| ActionStartGameRequest

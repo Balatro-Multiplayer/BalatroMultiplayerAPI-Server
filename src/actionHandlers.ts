@@ -68,6 +68,16 @@ const lobbyInfoAction = (client: Client) => {
 	client.lobby?.broadcastLobbyInfo();
 };
 
+const readyLobbyAction = (client: Client) => {
+	client.isReadyLobby = true;
+	client.lobby?.broadcastLobbyInfo();
+}
+
+const unreadyLobbyAction = (client: Client) => {
+	client.isReadyLobby = false;
+	client.lobby?.broadcastLobbyInfo();
+}
+
 const keepAliveAction = (client: Client) => {
 	// Send an ack back to the received keepAlive
 	client.sendAction({ action: "keepAliveAck" });
@@ -75,10 +85,17 @@ const keepAliveAction = (client: Client) => {
 
 const startGameAction = (client: Client) => {
 	const lobby = client.lobby;
+
 	// Only allow the host to start the game
 	if (!lobby || lobby.host?.id !== client.id) {
 		return;
 	}
+
+	// Only start the game if guest is ready
+	// TODO: Uncomment this when Client ready is released in the mod
+	// if (!lobby.guest?.isReadyLobby) {
+	// 	return;
+	// }
 
 	const lives = lobby.options.starting_lives
 		? Number.parseInt(lobby.options.starting_lives)
@@ -89,8 +106,14 @@ const startGameAction = (client: Client) => {
 		deck: "c_multiplayer_1",
 		seed: lobby.options.different_seeds ? undefined : generateSeed(),
 	});
+
 	// Reset players' lives
 	lobby.setPlayersLives(lives);
+
+	// Unready guest for next game
+	if (lobby.guest) {
+		lobby.guest.isReadyLobby = false;
+	}
 };
 
 const readyBlindAction = (client: Client) => {
@@ -494,6 +517,8 @@ export const actionHandlers = {
 	joinLobby: joinLobbyAction,
 	lobbyInfo: lobbyInfoAction,
 	leaveLobby: leaveLobbyAction,
+	readyLobby: readyLobbyAction,
+	unreadyLobby: unreadyLobbyAction,
 	keepAlive: keepAliveAction,
 	startGame: startGameAction,
 	readyBlind: readyBlindAction,
