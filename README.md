@@ -124,6 +124,16 @@ lobbyInfo
 
 ---
 
+readyLobby
+- Client is ready to start, host may start the game
+
+---
+
+unreadyLobby
+- Client is not ready to start, host has to wait to start the game
+
+---
+
 stopGame
 - Client is returning to lobby. Server should send other clients back to lobby as well.
 
