@@ -71,12 +71,12 @@ const lobbyInfoAction = (client: Client) => {
 const readyLobbyAction = (client: Client) => {
 	client.isReadyLobby = true;
 	client.lobby?.broadcastLobbyInfo();
-}
+};
 
 const unreadyLobbyAction = (client: Client) => {
 	client.isReadyLobby = false;
 	client.lobby?.broadcastLobbyInfo();
-}
+};
 
 const keepAliveAction = (client: Client) => {
 	// Send an ack back to the received keepAlive
@@ -117,13 +117,13 @@ const startGameAction = (client: Client) => {
 };
 
 const readyBlindAction = (client: Client) => {
-	client.isReady = true
+	client.isReady = true;
 
-	const [lobby, enemy] = getEnemy(client)
+	const [lobby, enemy] = getEnemy(client);
 
 	if (!client.firstReady && !enemy?.isReady && !enemy?.firstReady) {
-		client.firstReady = true
-		client.sendAction({ action: "speedrun" })
+		client.firstReady = true;
+		client.sendAction({ action: "speedrun" });
 	}
 
 	// TODO: Refactor for more than two players
@@ -152,11 +152,16 @@ const playHandAction = (
 	{ handsLeft, score }: ActionHandlerArgs<ActionPlayHand>,
 	client: Client,
 ) => {
-	const [lobby, enemy] = getEnemy(client)
+	const [lobby, enemy] = getEnemy(client);
 
-	if (lobby === null || enemy === null || lobby.host === null || lobby.guest === null) {
+	if (
+		lobby === null ||
+		enemy === null ||
+		lobby.host === null ||
+		lobby.guest === null
+	) {
 		stopGameAction(client);
-		return
+		return;
 	}
 
 	client.score = InsaneInt.fromString(String(score));
@@ -175,12 +180,15 @@ const playHandAction = (
 	// This info is only sent on a boss blind, so it shouldn't
 	// affect other blinds
 	if (
-		(lobby.guest.handsLeft === 0 && lobby.guest.score.lessThan(lobby.host.score)) ||
-		(lobby.host.handsLeft === 0 && lobby.host.score.lessThan(lobby.guest.score)) ||
+		(lobby.guest.handsLeft === 0 &&
+			lobby.guest.score.lessThan(lobby.host.score)) ||
+		(lobby.host.handsLeft === 0 &&
+			lobby.host.score.lessThan(lobby.guest.score)) ||
 		(lobby.host.handsLeft === 0 && lobby.guest.handsLeft === 0)
 	) {
-		const roundWinner =
-			lobby.guest.score.lessThan(lobby.host.score) ? lobby.host : lobby.guest;
+		const roundWinner = lobby.guest.score.lessThan(lobby.host.score)
+			? lobby.host
+			: lobby.guest;
 		const roundLoser =
 			roundWinner.id === lobby.host.id ? lobby.guest : lobby.host;
 
@@ -196,16 +204,19 @@ const playHandAction = (
 
 				gameWinner?.sendAction({ action: "winGame" });
 				gameLoser?.sendAction({ action: "loseGame" });
-				roundWinner.firstReady = false
-				roundLoser.firstReady = false
+				roundWinner.firstReady = false;
+				roundLoser.firstReady = false;
 				return;
 			}
 		}
 
-		roundWinner.firstReady = false
-		roundLoser.firstReady = false
+		roundWinner.firstReady = false;
+		roundLoser.firstReady = false;
 		roundWinner.sendAction({ action: "endPvP", lost: false });
-		roundLoser.sendAction({ action: "endPvP", lost: !lobby.guest.score.equalTo(lobby.host.score) });
+		roundLoser.sendAction({
+			action: "endPvP",
+			lost: !lobby.guest.score.equalTo(lobby.host.score),
+		});
 	}
 };
 
@@ -230,17 +241,18 @@ const lobbyOptionsAction = (
 };
 
 const failRoundAction = (client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 
 	if (lobby.options.death_on_round_loss) {
-		client.loseLife()
+		client.loseLife();
 	}
 
 	if (client.lives === 0) {
-		if (lobby.gameMode === 'survival') {
+		if (lobby.gameMode === "survival") {
 			if (enemy.lives === 0) {
-				if (client.furthestBlind === enemy.furthestBlind) { //Survival draw behavior, both players win by default
+				if (client.furthestBlind === enemy.furthestBlind) {
+					//Survival draw behavior, both players win by default
 					client.sendAction({ action: "winGame" });
 					enemy.sendAction({ action: "winGame" });
 				} else if (client.furthestBlind < enemy.furthestBlind) {
@@ -280,7 +292,7 @@ const setAnteAction = (
 };
 
 // TODO: Fix this
-const serverVersion = "0.2.11-MULTIPLAYER";
+const serverVersion = "0.2.12-MULTIPLAYER";
 /** Verifies the client version and allows connection if it matches the server's */
 const versionAction = (
 	{ version }: ActionHandlerArgs<ActionVersion>,
@@ -289,45 +301,66 @@ const versionAction = (
 	const versionMatch = version.match(/^(\d+\.\d+\.\d+)/);
 	if (versionMatch) {
 		const clientVersion = versionMatch[1];
-		const serverVersionNumber = serverVersion.split('-')[0];
+		const serverVersionNumber = serverVersion.split("-")[0];
 
-		const [clientMajor, clientMinor, clientPatch] = clientVersion.split('.').map(Number);
-		const [serverMajor, serverMinor, serverPatch] = serverVersionNumber.split('.').map(Number);
+		const [clientMajor, clientMinor, clientPatch] = clientVersion
+			.split(".")
+			.map(Number);
+		const [serverMajor, serverMinor, serverPatch] = serverVersionNumber
+			.split(".")
+			.map(Number);
 
-		if (clientMajor < serverMajor ||
+		if (
+			clientMajor < serverMajor ||
 			(clientMajor === serverMajor && clientMinor < serverMinor) ||
-			(clientMajor === serverMajor && clientMinor === serverMinor && clientPatch < serverPatch)) {
+			(clientMajor === serverMajor &&
+				clientMinor === serverMinor &&
+				clientPatch < serverPatch)
+		) {
 			client.sendAction({
 				action: "error",
-				message: `[WARN] Server expecting version ${serverVersion}`
+				message: `[WARN] Server expecting version ${serverVersion}`,
 			});
 		}
 	}
 };
 
-const setLocationAction = ({ location }: ActionHandlerArgs<ActionSetLocation>, client: Client) => {
+const setLocationAction = (
+	{ location }: ActionHandlerArgs<ActionSetLocation>,
+	client: Client,
+) => {
 	client.setLocation(location);
-}
+};
 
 const newRoundAction = (client: Client) => {
-	client.resetBlocker()
-}
+	client.resetBlocker();
+};
 
-const setFurthestBlindAction = ({ furthestBlind }: ActionHandlerArgs<ActionSetFurthestBlind>, client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
-	client.furthestBlind = furthestBlind
+const setFurthestBlindAction = (
+	{ furthestBlind }: ActionHandlerArgs<ActionSetFurthestBlind>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
+	client.furthestBlind = furthestBlind;
 	if (!lobby || !enemy) return;
 
 	//If enemy died and client.furthestBlind is bigger, client wins
-	if (((lobby.gameMode === 'survival') && (enemy.lives === 0)) && (client.furthestBlind > enemy.furthestBlind)) {
+	if (
+		lobby.gameMode === "survival" &&
+		enemy.lives === 0 &&
+		client.furthestBlind > enemy.furthestBlind
+	) {
 		client.sendAction({ action: "winGame" });
 		enemy.sendAction({ action: "loseGame" });
 	}
-}
+};
 
-const skipAction = ({ skips }: ActionHandlerArgs<ActionSkip>, client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
-	client.setSkips(skips)
+const skipAction = (
+	{ skips }: ActionHandlerArgs<ActionSkip>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
+	client.setSkips(skips);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
 		action: "enemyInfo",
@@ -336,158 +369,188 @@ const skipAction = ({ skips }: ActionHandlerArgs<ActionSkip>, client: Client) =>
 		skips: client.skips,
 		lives: client.lives,
 	});
-}
+};
 
-const sendPhantomAction = ({ key }: ActionHandlerArgs<ActionSendPhantom>, client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+const sendPhantomAction = (
+	{ key }: ActionHandlerArgs<ActionSendPhantom>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
 		action: "sendPhantom",
-		key
+		key,
 	});
-}
+};
 
-const removePhantomAction = ({ key }: ActionHandlerArgs<ActionRemovePhantom>, client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+const removePhantomAction = (
+	{ key }: ActionHandlerArgs<ActionRemovePhantom>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
 		action: "removePhantom",
-		key
+		key,
 	});
-}
+};
 
 const asteroidAction = (client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
-		action: "asteroid"
+		action: "asteroid",
 	});
-}
+};
 
 const letsGoGamblingNemesisAction = (client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
-		action: "letsGoGamblingNemesis"
+		action: "letsGoGamblingNemesis",
 	});
-}
+};
 
-const eatPizzaAction = ({ whole }: ActionHandlerArgs<ActionEatPizza>, client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+const eatPizzaAction = (
+	{ whole }: ActionHandlerArgs<ActionEatPizza>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
 		action: "eatPizza",
-		whole
-	})
-}
+		whole,
+	});
+};
 
 const soldJokerAction = (client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
-		action: "soldJoker"
-	})
-}
+		action: "soldJoker",
+	});
+};
 
-const spentLastShopAction = ({ amount }: ActionHandlerArgs<ActionSpentLastShop>, client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+const spentLastShopAction = (
+	{ amount }: ActionHandlerArgs<ActionSpentLastShop>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
 		action: "spentLastShop",
-		amount
-	})
-}
+		amount,
+	});
+};
 
 const magnetAction = (client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
-		action: "magnet"
-	})
-}
+		action: "magnet",
+	});
+};
 
-const magnetResponseAction = ({ key }: ActionHandlerArgs<ActionMagnetResponse>, client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+const magnetResponseAction = (
+	{ key }: ActionHandlerArgs<ActionMagnetResponse>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
 		action: "magnetResponse",
-		key
-	})
-}
+		key,
+	});
+};
 
 const getEndGameJokersAction = (client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
-		action: "getEndGameJokers"
-	})
-}
+		action: "getEndGameJokers",
+	});
+};
 
-const receiveEndGameJokersAction = ({ keys }: ActionHandlerArgs<ActionReceiveEndGameJokersRequest>, client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+const receiveEndGameJokersAction = (
+	{ keys }: ActionHandlerArgs<ActionReceiveEndGameJokersRequest>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
 		action: "receiveEndGameJokers",
-		keys
-	})
-}
+		keys,
+	});
+};
 
 const getNemesisDeckAction = (client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
-		action: "getNemesisDeck"
-	})
-}
+		action: "getNemesisDeck",
+	});
+};
 
-const receiveNemesisDeckAction = ({ cards }: ActionHandlerArgs<ActionReceiveNemesisDeckRequest>, client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+const receiveNemesisDeckAction = (
+	{ cards }: ActionHandlerArgs<ActionReceiveNemesisDeckRequest>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
 		action: "receiveNemesisDeck",
-		cards
-	})
-}
+		cards,
+	});
+};
 
 const requestNemesisStatsActionHandler = (client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
-		action: "endGameStatsRequested"
-	})
-}
+		action: "endGameStatsRequested",
+	});
+};
 
-const receiveNemesisStatsActionHandler = (stats : ActionHandlerArgs<ActionReceiveNemesisStatsRequest>, client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+const receiveNemesisStatsActionHandler = (
+	stats: ActionHandlerArgs<ActionReceiveNemesisStatsRequest>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
 		action: "nemesisEndGameStats",
-		...stats
-	})
-}
+		...stats,
+	});
+};
 
-const startAnteTimerAction = ({ time }: ActionHandlerArgs<ActionStartAnteTimer>, client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+const startAnteTimerAction = (
+	{ time }: ActionHandlerArgs<ActionStartAnteTimer>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
 		action: "startAnteTimer",
-		time
-	})
-}
+		time,
+	});
+};
 
-const pauseAnteTimerAction = ({ time }: ActionHandlerArgs<ActionPauseAnteTimer>, client: Client) => {
-	const [lobby, enemy] = getEnemy(client)
+const pauseAnteTimerAction = (
+	{ time }: ActionHandlerArgs<ActionPauseAnteTimer>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
 	if (!lobby || !enemy) return;
 	enemy.sendAction({
 		action: "pauseAnteTimer",
-		time
-	})
-}
+		time,
+	});
+};
 
 const failTimerAction = (client: Client) => {
 	const lobby = client.lobby;
 
-	client.loseLife()
+	client.loseLife();
 
 	if (!lobby) return;
 
@@ -505,11 +568,14 @@ const failTimerAction = (client: Client) => {
 		gameWinner?.sendAction({ action: "winGame" });
 		gameLoser?.sendAction({ action: "loseGame" });
 	}
-}
+};
 
-const syncClientAction = ({ isCached }: ActionHandlerArgs<ActionSyncClient>, client: Client) => {
-	client.isCached = isCached
-}
+const syncClientAction = (
+	{ isCached }: ActionHandlerArgs<ActionSyncClient>,
+	client: Client,
+) => {
+	client.isCached = isCached;
+};
 
 export const actionHandlers = {
 	username: usernameAction,
