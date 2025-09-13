@@ -91,7 +91,7 @@ const sendActionToSocket =
 			return
 		}
 
-		const data = serializeAction(action)
+		const data = JSON.stringify(action)
 
 		const { action: actionName, ...actionArgs } = action
 
@@ -151,7 +151,7 @@ const server = createServer((socket) => {
 		for (const msg of messages) {
 			if (!msg) return
 			try {
-				const message: ActionClientToServer | ActionUtility = stringToJson(msg)
+				const message: ActionClientToServer | ActionUtility = JSON.parse(msg)
 				const { action, ...actionArgs } = message
 
 				if (action !== 'keepAlive' && action !== 'keepAliveAck') {
