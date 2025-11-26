@@ -1,4 +1,4 @@
-name: Update And Deploy PRODUCTION server
+name: Update and restart PRODUCTION server
 
 # Trigger via actions tab
 on:
