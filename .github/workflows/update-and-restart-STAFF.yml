@@ -1,8 +1,12 @@
-name: Manual Deploy
+name: Update and restart STAFF server
 
-# Trigger via actions tab
 on:
   workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to deploy"
+        required: true
+        default: "main"
 
 permissions:
   contents: read
@@ -15,6 +19,8 @@ jobs:
       # Step 1: Checkout the repository
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
 
       # Step 2: Connect to server via SSH and deploy
       - name: Deploy over SSH
@@ -26,18 +32,13 @@ jobs:
           command_timeout: 10m
           script_stop: true
           script: |
-          
-            # Crash out on error
             set -e
-          
-            # CD to correct dir
+
             cd /root/staff-server
 
-            # Ensure we are on the main branch
-            git checkout main
-            
-            # Pull changes from main
-            git pull origin main
+            # Check out the selected branch based on chosen branch
+            git fetch origin
+            git checkout "${{ github.event.inputs.branch }}"
+            git pull origin "${{ github.event.inputs.branch }}"
 
-            # Build and start container
             docker compose up --build --force-recreate --remove-orphans -d
