@@ -26,11 +26,15 @@ import type {
 	ActionSyncClient,
 	ActionUsername,
 	ActionVersion,
+	ActionTcgServerVersion,
 	ActionTcgBet,
 	ActionTcgPlayerStatusRequest,
 	ActionTcgEndTurn,
 } from "./actions.js";
 import { generateSeed } from "./utils.js";
+
+/** Current TCG server version - clients must match this to use TCG features */
+const TCG_SERVER_VERSION = 1;
 
 const usernameAction = (
 	{ username, modHash }: ActionHandlerArgs<ActionUsername>,
@@ -581,6 +585,16 @@ const syncClientAction = (
 };
 
 // TCG Action Handlers
+const tcgServerVersionAction = (
+	{ version }: ActionHandlerArgs<ActionTcgServerVersion>,
+	client: Client,
+) => {
+	// Only send tcg_compatible if the client's version is compatible (>= server version)
+	if (version >= TCG_SERVER_VERSION) {
+		client.sendAction({ action: "tcg_compatible" });
+	}
+};
+
 const startTcgBettingAction = (client: Client) => {
 	const lobby = client.lobby;
 
@@ -730,6 +744,7 @@ export const actionHandlers = {
 	pauseAnteTimer: pauseAnteTimerAction,
 	failTimer: failTimerAction,
 	syncClient: syncClientAction,
+	tcgServerVersion: tcgServerVersionAction,
 	startTcgBetting: startTcgBettingAction,
 	tcgBet: tcgBetAction,
 	tcgPlayerStatus: tcgPlayerStatusAction,

@@ -29,6 +29,7 @@ import type {
 	ActionUtility,
 	ActionVersion,
 	ActionReceiveNemesisStatsRequest,
+	ActionTcgServerVersion,
 	ActionTcgBet,
 	ActionTcgPlayerStatusRequest,
 	ActionTcgEndTurn,
@@ -352,6 +353,12 @@ const server = createServer((socket) => {
 						actionHandlers.nemesisEndGameStats(
 							actionArgs as ActionHandlerArgs<ActionReceiveNemesisStatsRequest>,
 							client
+						)
+						break
+					case 'tcgServerVersion':
+						actionHandlers.tcgServerVersion(
+							actionArgs as ActionHandlerArgs<ActionTcgServerVersion>,
+							client,
 						)
 						break
 					case 'startTcgBetting':

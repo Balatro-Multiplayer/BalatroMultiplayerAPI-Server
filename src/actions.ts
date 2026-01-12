@@ -60,6 +60,7 @@ export type ActionReceiveNemesisStatsRequest = { action: 'nemesisEndGameStats', 
 export type ActionStartAnteTimer = { action: 'startAnteTimer', time: number }
 export type ActionPauseAnteTimer = { action: 'pauseAnteTimer', time: number }
 // TCG Actions (Server to Client)
+export type ActionTcgCompatible = { action: 'tcg_compatible' }
 export type ActionTcgStartGame = { action: 'tcgStartGame', damage: number, starting: boolean }
 export type ActionTcgPlayerStatus = { action: 'tcgPlayerStatus', [key: string]: unknown }
 export type ActionTcgStartTurn = { action: 'tcgStartTurn', [key: string]: unknown }
@@ -99,6 +100,7 @@ export type ActionServerToClient =
 	| ActionReceiveNemesisStatsRequest
 	| ActionStartAnteTimer
 	| ActionPauseAnteTimer
+	| ActionTcgCompatible
 	| ActionTcgStartGame
 	| ActionTcgPlayerStatus
 	| ActionTcgStartTurn
@@ -150,6 +152,7 @@ export type ActionPauseAnteTimerRequest = { action: 'pauseAnteTimer', time: numb
 export type ActionFailTimer = { action: 'failTimer' }
 export type ActionSyncClient = { action: 'syncClient', isCached: boolean }
 // TCG Actions (Client to Server)
+export type ActionTcgServerVersion = { action: 'tcgServerVersion', version: number }
 export type ActionStartTcgBetting = { action: 'startTcgBetting' }
 export type ActionTcgBet = { action: 'tcgBet', bet: number }
 export type ActionTcgPlayerStatusRequest = { action: 'tcgPlayerStatus', [key: string]: unknown }
@@ -197,6 +200,7 @@ export type ActionClientToServer =
 	| ActionPauseAnteTimerRequest
 	| ActionFailTimer
 	| ActionSyncClient
+	| ActionTcgServerVersion
 	| ActionStartTcgBetting
 	| ActionTcgBet
 	| ActionTcgPlayerStatusRequest
