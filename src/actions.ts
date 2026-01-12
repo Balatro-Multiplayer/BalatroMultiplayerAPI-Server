@@ -59,6 +59,10 @@ export type ActionGetNemesisStatsRequest = { action: 'endGameStatsRequested' }
 export type ActionReceiveNemesisStatsRequest = { action: 'nemesisEndGameStats', reroll_count: string, reroll_cost_total:string, vouchers:string }
 export type ActionStartAnteTimer = { action: 'startAnteTimer', time: number }
 export type ActionPauseAnteTimer = { action: 'pauseAnteTimer', time: number }
+// TCG Actions (Server to Client)
+export type ActionTcgStartGame = { action: 'tcgStartGame', damage: number, starting: boolean }
+export type ActionTcgPlayerStatus = { action: 'tcgPlayerStatus', [key: string]: unknown }
+export type ActionTcgStartTurn = { action: 'tcgStartTurn', [key: string]: unknown }
 export type ActionServerToClient =
 	| ActionConnected
 	| ActionError
@@ -95,6 +99,9 @@ export type ActionServerToClient =
 	| ActionReceiveNemesisStatsRequest
 	| ActionStartAnteTimer
 	| ActionPauseAnteTimer
+	| ActionTcgStartGame
+	| ActionTcgPlayerStatus
+	| ActionTcgStartTurn
 // Client to Server
 export type ActionUsername = { action: 'username'; username: string; modHash: string }
 export type ActionCreateLobby = { action: 'createLobby'; gameMode: GameMode }
@@ -142,6 +149,11 @@ export type ActionStartAnteTimerRequest = { action: 'startAnteTimer', time: numb
 export type ActionPauseAnteTimerRequest = { action: 'pauseAnteTimer', time: number }
 export type ActionFailTimer = { action: 'failTimer' }
 export type ActionSyncClient = { action: 'syncClient', isCached: boolean }
+// TCG Actions (Client to Server)
+export type ActionStartTcgBetting = { action: 'startTcgBetting' }
+export type ActionTcgBet = { action: 'tcgBet', bet: number }
+export type ActionTcgPlayerStatusRequest = { action: 'tcgPlayerStatus', [key: string]: unknown }
+export type ActionTcgEndTurn = { action: 'tcgEndTurn', [key: string]: unknown }
 export type ActionClientToServer =
 	| ActionUsername
 	| ActionCreateLobby
@@ -185,6 +197,10 @@ export type ActionClientToServer =
 	| ActionPauseAnteTimerRequest
 	| ActionFailTimer
 	| ActionSyncClient
+	| ActionStartTcgBetting
+	| ActionTcgBet
+	| ActionTcgPlayerStatusRequest
+	| ActionTcgEndTurn
 // Utility actions
 export type ActionKeepAlive = { action: 'keepAlive' }
 export type ActionKeepAliveAck = { action: 'keepAliveAck' }

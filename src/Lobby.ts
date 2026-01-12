@@ -33,8 +33,9 @@ class Lobby {
 	host: Client | null;
 	guest: Client | null;
 	gameMode: GameMode;
-	// biome-ignore lint/suspicious/noExplicitAny: 
+	// biome-ignore lint/suspicious/noExplicitAny:
 	options: { [key: string]: any };
+	tcgBets: Map<string, number>;
 
 	// Attrition is the default game mode
 	constructor(host: Client, gameMode: GameMode = "attrition") {
@@ -47,6 +48,7 @@ class Lobby {
 		this.guest = null;
 		this.gameMode = gameMode;
 		this.options = {};
+		this.tcgBets = new Map();
 
 		host.setLobby(this);
 		host.isReadyLobby = false;
@@ -183,6 +185,7 @@ class Lobby {
 			this.guest.furthestBlind = 0;
 			this.guest.skips = 0;
 		}
+		this.tcgBets.clear();
 	}
 }
 

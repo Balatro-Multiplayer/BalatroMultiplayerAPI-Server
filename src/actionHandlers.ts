@@ -26,6 +26,9 @@ import type {
 	ActionSyncClient,
 	ActionUsername,
 	ActionVersion,
+	ActionTcgBet,
+	ActionTcgPlayerStatusRequest,
+	ActionTcgEndTurn,
 } from "./actions.js";
 import { generateSeed } from "./utils.js";
 
@@ -577,6 +580,114 @@ const syncClientAction = (
 	client.isCached = isCached;
 };
 
+// TCG Action Handlers
+const startTcgBettingAction = (client: Client) => {
+	const lobby = client.lobby;
+
+	// Only allow the host to start the TCG game
+	if (!lobby || lobby.host?.id !== client.id) {
+		return;
+	}
+
+	// Clear any existing bets
+	lobby.tcgBets.clear();
+
+	// Broadcast startGame with seed to both players
+	lobby.broadcastAction({
+		action: "startGame",
+		deck: "c_multiplayer_1",
+		seed: generateSeed(),
+	});
+};
+
+const tcgBetAction = (
+	{ bet }: ActionHandlerArgs<ActionTcgBet>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
+	if (!lobby || !enemy) return;
+
+	// Store this client's bet
+	lobby.tcgBets.set(client.id, bet);
+
+	// Check if both players have bet
+	if (!lobby.host || !lobby.guest) return;
+	if (!lobby.tcgBets.has(lobby.host.id) || !lobby.tcgBets.has(lobby.guest.id)) {
+		return;
+	}
+
+	// Both players have bet, determine winner
+	const hostBet = lobby.tcgBets.get(lobby.host.id) ?? 0;
+	const guestBet = lobby.tcgBets.get(lobby.guest.id) ?? 0;
+
+	let winner: Client;
+	let loser: Client;
+
+	if (hostBet > guestBet) {
+		winner = lobby.host;
+		loser = lobby.guest;
+	} else if (guestBet > hostBet) {
+		winner = lobby.guest;
+		loser = lobby.host;
+	} else {
+		// Equal bets - flip a coin
+		if (Math.random() < 0.5) {
+			winner = lobby.host;
+			loser = lobby.guest;
+		} else {
+			winner = lobby.guest;
+			loser = lobby.host;
+		}
+	}
+
+	const winnerBet = lobby.tcgBets.get(winner.id) ?? 0;
+
+	// Winner receives their bet as damage and starts first
+	winner.sendAction({
+		action: "tcgStartGame",
+		damage: winnerBet,
+		starting: true,
+	});
+
+	// Loser receives 0 damage and doesn't start
+	loser.sendAction({
+		action: "tcgStartGame",
+		damage: 0,
+		starting: false,
+	});
+
+	// Clear bets for next round
+	lobby.tcgBets.clear();
+};
+
+const tcgPlayerStatusAction = (
+	args: ActionHandlerArgs<ActionTcgPlayerStatusRequest>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
+	if (!lobby || !enemy) return;
+
+	// Echo the action to the other player
+	enemy.sendAction({
+		action: "tcgPlayerStatus",
+		...args,
+	});
+};
+
+const tcgEndTurnAction = (
+	args: ActionHandlerArgs<ActionTcgEndTurn>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
+	if (!lobby || !enemy) return;
+
+	// Send tcgStartTurn to the other player with the same parameters
+	enemy.sendAction({
+		action: "tcgStartTurn",
+		...args,
+	});
+};
+
 export const actionHandlers = {
 	username: usernameAction,
 	createLobby: createLobbyAction,
@@ -619,4 +730,8 @@ export const actionHandlers = {
 	pauseAnteTimer: pauseAnteTimerAction,
 	failTimer: failTimerAction,
 	syncClient: syncClientAction,
+	startTcgBetting: startTcgBettingAction,
+	tcgBet: tcgBetAction,
+	tcgPlayerStatus: tcgPlayerStatusAction,
+	tcgEndTurn: tcgEndTurnAction,
 } satisfies Partial<ActionHandlers>;
