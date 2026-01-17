@@ -59,6 +59,8 @@ export type ActionGetNemesisStatsRequest = { action: 'endGameStatsRequested' }
 export type ActionReceiveNemesisStatsRequest = { action: 'nemesisEndGameStats', reroll_count: string, reroll_cost_total:string, vouchers:string }
 export type ActionStartAnteTimer = { action: 'startAnteTimer', time: number }
 export type ActionPauseAnteTimer = { action: 'pauseAnteTimer', time: number }
+// Handy Actions (Server to Client)
+export type ActionHandyMPExtensionLobbyEnabled = { action: 'handyMPExtensionLobbyEnabled', enabled: boolean }
 // TCG Actions (Server to Client)
 export type ActionTcgCompatible = { action: 'tcg_compatible' }
 export type ActionTcgStartGame = { action: 'tcgStartGame', damage: number, starting: boolean }
@@ -104,6 +106,7 @@ export type ActionServerToClient =
 	| ActionTcgStartGame
 	| ActionTcgPlayerStatus
 	| ActionTcgStartTurn
+    | ActionHandyMPExtensionLobbyEnabled
 // Client to Server
 export type ActionUsername = { action: 'username'; username: string; modHash: string }
 export type ActionCreateLobby = { action: 'createLobby'; gameMode: GameMode }
@@ -157,6 +160,9 @@ export type ActionStartTcgBetting = { action: 'startTcgBetting' }
 export type ActionTcgBet = { action: 'tcgBet', bet: number }
 export type ActionTcgPlayerStatusRequest = { action: 'tcgPlayerStatus', [key: string]: unknown }
 export type ActionTcgEndTurn = { action: 'tcgEndTurn', [key: string]: unknown }
+// Handy Actions (Client to Server)
+export type ActionHandyMPExtensionEnable = { action: 'handyMPExtensionEnable', [key: string]: unknown }
+export type ActionHandyMPExtensionDisable = { action: 'handyMPExtensionDisable', [key: string]: unknown }
 export type ActionClientToServer =
 	| ActionUsername
 	| ActionCreateLobby
@@ -205,6 +211,8 @@ export type ActionClientToServer =
 	| ActionTcgBet
 	| ActionTcgPlayerStatusRequest
 	| ActionTcgEndTurn
+    | ActionHandyMPExtensionEnable
+    | ActionHandyMPExtensionDisable
 // Utility actions
 export type ActionKeepAlive = { action: 'keepAlive' }
 export type ActionKeepAliveAck = { action: 'keepAliveAck' }
