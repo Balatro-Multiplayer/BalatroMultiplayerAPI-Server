@@ -30,6 +30,8 @@ import type {
 	ActionTcgBet,
 	ActionTcgPlayerStatusRequest,
 	ActionTcgEndTurn,
+    ActionHandyMPExtensionEnable,
+    ActionHandyMPExtensionDisable,
 } from "./actions.js";
 import { generateSeed } from "./utils.js";
 
@@ -702,6 +704,26 @@ const tcgEndTurnAction = (
 	});
 };
 
+const handyMPExtensionEnable = (
+    args: ActionHandlerArgs<ActionHandyMPExtensionEnable>,
+    client: Client,
+) => {
+    if (!client.lobby) return
+
+    client.lobby.handyAllowMPExtension.set(client.id, true)
+    client.lobby.broadcastLobbyInfo()
+}
+
+const handyMPExtensionDisable = (
+    args: ActionHandlerArgs<ActionHandyMPExtensionDisable>,
+    client: Client,
+) => {
+    if (!client.lobby) return
+
+    client.lobby.handyAllowMPExtension.set(client.id, false)
+    client.lobby.broadcastLobbyInfo()
+}
+
 export const actionHandlers = {
 	username: usernameAction,
 	createLobby: createLobbyAction,
@@ -749,4 +771,6 @@ export const actionHandlers = {
 	tcgBet: tcgBetAction,
 	tcgPlayerStatus: tcgPlayerStatusAction,
 	tcgEndTurn: tcgEndTurnAction,
+    handyMPExtensionEnable: handyMPExtensionEnable,
+    handyMPExtensionDisable: handyMPExtensionDisable,
 } satisfies Partial<ActionHandlers>;
