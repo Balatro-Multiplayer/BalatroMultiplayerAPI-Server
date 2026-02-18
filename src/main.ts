@@ -34,6 +34,8 @@ import type {
 	ActionTcgPlayerStatusRequest,
 	ActionTcgEndTurn,
 	ActionModdedRequest,
+    ActionHandyMPExtensionEnable,
+    ActionHandyMPExtensionDisable,
 } from './actions.js'
 import { InsaneInt } from './InsaneInt.js'
 
@@ -386,6 +388,18 @@ const server = createServer((socket) => {
 					case 'moddedAction':
 						actionHandlers.moddedAction(
 							actionArgs as ActionHandlerArgs<ActionModdedRequest>,
+							client,
+						)
+						break
+					case 'handyMPExtensionEnable':
+						actionHandlers.handyMPExtensionEnable(
+							actionArgs as ActionHandlerArgs<ActionHandyMPExtensionEnable>,
+							client,
+						)
+						break
+					case 'handyMPExtensionDisable':
+						actionHandlers.handyMPExtensionDisable(
+							actionArgs as ActionHandlerArgs<ActionHandyMPExtensionDisable>,
 							client,
 						)
 						break
