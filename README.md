@@ -73,6 +73,7 @@ end)
 ### Notes
 
 - `modId` should match the mod's SMODS ID
+- Your mod must have an SMODS priority higher than `10000000` so that the Multiplayer mod (and `MP.register_mod_action`) is loaded before your mod's init runs
 - `MP.register_mod_action` must be called at mod init time (top-level in your mod file) so `SMODS.current_mod` is available
 - `MP.ACTIONS.modded` can be called at runtime with any `modId`, allowing cross-mod communication
 - The server performs no validation on mod-specific fields; it is purely a relay
