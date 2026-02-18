@@ -64,6 +64,8 @@ export type ActionTcgCompatible = { action: 'tcg_compatible' }
 export type ActionTcgStartGame = { action: 'tcgStartGame', damage: number, starting: boolean }
 export type ActionTcgPlayerStatus = { action: 'tcgPlayerStatus', [key: string]: unknown }
 export type ActionTcgStartTurn = { action: 'tcgStartTurn', [key: string]: unknown }
+// Modded Actions
+export type ActionModded = { action: 'moddedAction', modId: string, modAction: string, target?: 'nemesis' | 'all', [key: string]: unknown }
 export type ActionServerToClient =
 	| ActionConnected
 	| ActionError
@@ -104,6 +106,7 @@ export type ActionServerToClient =
 	| ActionTcgStartGame
 	| ActionTcgPlayerStatus
 	| ActionTcgStartTurn
+	| ActionModded
 // Client to Server
 export type ActionUsername = { action: 'username'; username: string; modHash: string }
 export type ActionCreateLobby = { action: 'createLobby'; gameMode: GameMode }
@@ -157,6 +160,7 @@ export type ActionStartTcgBetting = { action: 'startTcgBetting' }
 export type ActionTcgBet = { action: 'tcgBet', bet: number }
 export type ActionTcgPlayerStatusRequest = { action: 'tcgPlayerStatus', [key: string]: unknown }
 export type ActionTcgEndTurn = { action: 'tcgEndTurn', [key: string]: unknown }
+export type ActionModdedRequest = { action: 'moddedAction', modId: string, modAction: string, target?: 'nemesis' | 'all', [key: string]: unknown }
 export type ActionClientToServer =
 	| ActionUsername
 	| ActionCreateLobby
@@ -205,6 +209,7 @@ export type ActionClientToServer =
 	| ActionTcgBet
 	| ActionTcgPlayerStatusRequest
 	| ActionTcgEndTurn
+	| ActionModdedRequest
 // Utility actions
 export type ActionKeepAlive = { action: 'keepAlive' }
 export type ActionKeepAliveAck = { action: 'keepAliveAck' }

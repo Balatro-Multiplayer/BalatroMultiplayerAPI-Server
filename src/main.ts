@@ -33,6 +33,7 @@ import type {
 	ActionTcgBet,
 	ActionTcgPlayerStatusRequest,
 	ActionTcgEndTurn,
+	ActionModdedRequest,
 } from './actions.js'
 import { InsaneInt } from './InsaneInt.js'
 
@@ -379,6 +380,12 @@ const server = createServer((socket) => {
 					case 'tcgEndTurn':
 						actionHandlers.tcgEndTurn(
 							actionArgs as ActionHandlerArgs<ActionTcgEndTurn>,
+							client,
+						)
+						break
+					case 'moddedAction':
+						actionHandlers.moddedAction(
+							actionArgs as ActionHandlerArgs<ActionModdedRequest>,
 							client,
 						)
 						break

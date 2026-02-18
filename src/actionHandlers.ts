@@ -30,6 +30,8 @@ import type {
 	ActionTcgBet,
 	ActionTcgPlayerStatusRequest,
 	ActionTcgEndTurn,
+	ActionModded,
+	ActionModdedRequest,
 } from "./actions.js";
 import { generateSeed } from "./utils.js";
 
@@ -702,6 +704,25 @@ const tcgEndTurnAction = (
 	});
 };
 
+const moddedAction = (
+	args: ActionHandlerArgs<ActionModdedRequest>,
+	client: Client,
+) => {
+	const [lobby, enemy] = getEnemy(client);
+	if (!lobby || !enemy) return;
+
+	const target = args.target as string | undefined;
+	const { target: _, ...rest } = args;
+	const message = { action: "moddedAction" as const, ...rest } as ActionModded;
+	const relayTarget = target ?? "nemesis";
+
+	if (relayTarget === "all") {
+		lobby.broadcastAction(message);
+	} else {
+		enemy.sendAction(message);
+	}
+};
+
 export const actionHandlers = {
 	username: usernameAction,
 	createLobby: createLobbyAction,
@@ -749,4 +770,5 @@ export const actionHandlers = {
 	tcgBet: tcgBetAction,
 	tcgPlayerStatus: tcgPlayerStatusAction,
 	tcgEndTurn: tcgEndTurnAction,
+	moddedAction: moddedAction,
 } satisfies Partial<ActionHandlers>;
