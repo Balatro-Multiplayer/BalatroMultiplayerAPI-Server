@@ -40,7 +40,7 @@ The modded action system allows third-party mods to use the server as a relay wi
 
 ### Client-Side API
 
-**Sending** (at runtime):
+**Sending**:
 
 Key-Values inside the third parameter are custom parameters that will be forwarded to the recipient and can have any non-reserved key
 
@@ -52,7 +52,7 @@ MP.ACTIONS.modded("MyMod", "syncState", { hp = 20, damage = 5 })
 MP.ACTIONS.modded("MyMod", "announce", { message = "hello" }, "all")
 ```
 
-**Receiving** (at mod init time, top-level):
+**Receiving**:
 
 ```lua
 function your_mod_sync_state(data)
@@ -61,8 +61,11 @@ function your_mod_sync_state(data)
     do_something(data.from, data.hp)
 end
 
--- SMODS.current_mod.id is captured automatically during init
+-- If registered during your mod's initialization then SMODS.current_mod.id is captured automatically
 MP.register_mod_action("syncState", your_mod_sync_state)
+
+-- When registering outside of your mod's initialization pass your mod ID as the third parameter
+MP.register_mod_action("syncState", your_mod_sync_state, "MyMod")
 ```
 
 ### Wire Format
@@ -81,11 +84,27 @@ MP.register_mod_action("syncState", your_mod_sync_state)
 }
 ```
 
+### Registering Action Handlers
+
+There are two ways to register handlers depending on your mod's SMODS priority.
+
+**During initialization (recommended):** If your mod has an SMODS priority higher than `10000000` (the Multiplayer mod's priority), `MP.register_mod_action` will be available when your mod loads. In this case your mod ID is captured automatically from `SMODS.current_mod`:
+
+```lua
+-- Top-level in your mod file, no mod ID needed
+MP.register_mod_action("syncState", your_handler)
+```
+
+**Deferred registration:** If your mod requires a specific priority lower than Multiplayer's, the register function won't be available at init time. You can register your handlers later (e.g. in a callback or event) by passing your mod ID explicitly as the third parameter:
+
+```lua
+MP.register_mod_action("syncState", your_handler, "MyMod")
+```
+
+Be careful with deferred registration — if an opponent sends a modded action before your handler is registered, it will be silently dropped. Ensure your handlers are registered before any gameplay begins.
+
 ### Notes
 
-- `modId` should match the mod's SMODS ID
-- Your mod must have an SMODS priority higher than `10000000` so that the Multiplayer mod (and `MP.register_mod_action`) is loaded before your mod's init runs
-- `MP.register_mod_action` must be called at mod init time (top-level in your mod file) so `SMODS.current_mod` is available
 - `MP.ACTIONS.modded` can be called at runtime with any `modId`, allowing cross-mod communication
 - The server performs no validation on mod-specific fields; it is purely a relay
 - Avoid using `action`, `modId`, `modAction`, `from`, or `target` as custom parameter names to prevent collisions
