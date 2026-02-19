@@ -34,12 +34,16 @@ The modded action system allows third-party mods to use the server as a relay wi
 
 1. Client sends `moddedAction` with a `modId`, `modAction`, and arbitrary extra fields
 2. Server validates the client is in a lobby
-3. Server forwards the message to the target (`"nemesis"` for opponent only, `"all"` for both players)
-4. The `target` field is stripped before relay; all other fields are forwarded as-is
+3. Server attaches a `from` field (`"host"` or `"guest"`) identifying the sender
+4. Server forwards the message to the target (`"nemesis"` for opponent only, `"all"` for both players)
+5. The `target` field is stripped before relay; all other fields are forwarded as-is
 
 ### Client-Side API
 
 **Sending** (at runtime):
+
+Key-Values inside the third parameter are custom parameters that will be forwarded to the recipient and can have any non-reserved key
+
 ```lua
 -- Send to opponent (default)
 MP.ACTIONS.modded("MyMod", "syncState", { hp = 20, damage = 5 })
@@ -49,15 +53,21 @@ MP.ACTIONS.modded("MyMod", "announce", { message = "hello" }, "all")
 ```
 
 **Receiving** (at mod init time, top-level):
+
 ```lua
+function your_mod_sync_state(data)
+    -- data.modId, data.modAction, data.from, and all custom fields are available
+    -- data.from is "host" or "guest" (set by the server)
+    do_something(data.from, data.hp)
+end
+
 -- SMODS.current_mod.id is captured automatically during init
-MP.register_mod_action("syncState", function(data)
-    -- data.modId, data.modAction, and all custom fields are available
-    update_state(data.hp, data.damage)
-end)
+MP.register_mod_action("syncState", your_mod_sync_state)
 ```
 
 ### Wire Format
+
+*Includes the custom hp and damage parameters from the above examples*
 
 ```json
 {
@@ -65,6 +75,7 @@ end)
     "modId": "MyMod",
     "modAction": "syncState",
     "target": "nemesis",
+    "from": "host",
     "hp": 20,
     "damage": 5
 }
@@ -77,7 +88,7 @@ end)
 - `MP.register_mod_action` must be called at mod init time (top-level in your mod file) so `SMODS.current_mod` is available
 - `MP.ACTIONS.modded` can be called at runtime with any `modId`, allowing cross-mod communication
 - The server performs no validation on mod-specific fields; it is purely a relay
-- Avoid using `action`, `modId`, `modAction`, or `target` as custom parameter names to prevent collisions
+- Avoid using `action`, `modId`, `modAction`, `from`, or `target` as custom parameter names to prevent collisions
 
 ## Built In Actions
 

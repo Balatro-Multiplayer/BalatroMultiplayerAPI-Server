@@ -67,7 +67,7 @@ export type ActionTcgStartGame = { action: 'tcgStartGame', damage: number, start
 export type ActionTcgPlayerStatus = { action: 'tcgPlayerStatus', [key: string]: unknown }
 export type ActionTcgStartTurn = { action: 'tcgStartTurn', [key: string]: unknown }
 // Modded Actions
-export type ActionModded = { action: 'moddedAction', modId: string, modAction: string, target?: 'nemesis' | 'all', [key: string]: unknown }
+export type ActionModded = { action: 'moddedAction', modId: string, modAction: string, from: 'host' | 'guest', target?: 'nemesis' | 'all', [key: string]: unknown }
 export type ActionServerToClient =
 	| ActionConnected
 	| ActionError

@@ -715,7 +715,8 @@ const moddedAction = (
 
 	const target = args.target as string | undefined;
 	const { target: _, ...rest } = args;
-	const message = { action: "moddedAction" as const, ...rest } as ActionModded;
+	const from = lobby.host?.id === client.id ? "host" : "guest";
+	const message = { action: "moddedAction" as const, from, ...rest } as ActionModded;
 	const relayTarget = target ?? "nemesis";
 
 	if (relayTarget === "all") {
