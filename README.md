@@ -95,13 +95,24 @@ There are two ways to register handlers depending on your mod's SMODS priority.
 MP.register_mod_action("syncState", your_handler)
 ```
 
-**Deferred registration:** If your mod requires a specific priority lower than Multiplayer's, the register function won't be available at init time. You can register your handlers later (e.g. in a callback or event) by passing your mod ID explicitly as the third parameter:
+**Deferred registration:** If your mod requires a specific priority lower than Multiplayer's, `MP.register_mod_action` won't be available at init time. You'll need to register your handlers later by passing your mod ID explicitly as the third parameter. One approach is to poll for the function's existence with an event:
 
 ```lua
-MP.register_mod_action("syncState", your_handler, "MyMod")
+G.E_MANAGER:add_event(Event({
+    blockable = false,
+    blocking = false,
+    no_delete = true,
+    func = function()
+        if not MP or not MP.register_mod_action then return false end
+        MP.register_mod_action("syncState", your_handler, "MyMod")
+        return true
+    end,
+}))
 ```
 
-Be careful with deferred registration — if an opponent sends a modded action before your handler is registered, it will be silently dropped. Ensure your handlers are registered before any gameplay begins.
+This event runs every frame without interfering with game events, and self-removes the moment registration succeeds. Since Multiplayer loads during SMODS init, this will resolve before the main menu appears.
+
+Be careful with deferred registration — if an opponent sends a modded action before your handler is registered, it will be silently dropped.
 
 ### Notes
 
