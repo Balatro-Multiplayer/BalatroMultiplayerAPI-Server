@@ -134,11 +134,18 @@ const readyBlindAction = (client: Client) => {
 
 	if (!client.firstReady && !enemy?.isReady && !enemy?.firstReady) {
 		client.firstReady = true;
+		if (lobby) lobby.firstReadyAt = Date.now();
 		client.sendAction({ action: "speedrun" });
 	}
 
 	// TODO: Refactor for more than two players
 	if (client.lobby?.host?.isReady && client.lobby.guest?.isReady) {
+		// Grant speedrun to second player if within 30s of the first
+		if (lobby?.firstReadyAt && (Date.now() - lobby.firstReadyAt) <= 30000) {
+			client.sendAction({ action: "speedrun" });
+		}
+		lobby!.firstReadyAt = null;
+
 		// Reset ready status for next blind
 		client.lobby.host.isReady = false;
 		client.lobby.guest.isReady = false;

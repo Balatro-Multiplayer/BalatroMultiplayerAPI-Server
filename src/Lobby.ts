@@ -37,6 +37,7 @@ class Lobby {
 	options: { [key: string]: any };
 	tcgBets: Map<string, number>;
     handyAllowMPExtension: Map<string, boolean>;
+	firstReadyAt: number | null;
 
 	// Attrition is the default game mode
 	constructor(host: Client, gameMode: GameMode = "attrition") {
@@ -51,6 +52,7 @@ class Lobby {
 		this.options = {};
 		this.tcgBets = new Map();
         this.handyAllowMPExtension = new Map();
+		this.firstReadyAt = null;
 
 		host.setLobby(this);
 		host.isReadyLobby = false;
@@ -196,6 +198,7 @@ class Lobby {
 			this.guest.skips = 0;
 		}
 		this.tcgBets.clear();
+		this.firstReadyAt = null;
 	}
 }
 
