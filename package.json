@@ -1,22 +1,37 @@
 {
-	"version": "0.2.12-MULTIPLAYER",
+	"name": "balatro-multiplayer-api-server",
+	"version": "1.0.0",
+	"type": "module",
 	"scripts": {
-		"build-servers": "node build.js",
 		"build": "tsc",
 		"dev": "tsx watch src/main.ts",
-		"start": "node ./dist/main.js"
+		"start": "node dist/main.js",
+		"migrate": "tsx src/db/migrate.ts",
+		"generate": "drizzle-kit generate",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"lint": "biome check .",
+		"format": "biome format --write ."
 	},
 	"dependencies": {
-		"net": "^1.0.2",
-		"uuid": "^9.0.1"
+		"drizzle-orm": "^0.38.0",
+		"express": "^5.0.0",
+		"express-rate-limit": "^8.2.1",
+		"jsonwebtoken": "^9.0.0",
+		"mqtt": "^5.10.0",
+		"pg": "^8.13.0"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^1.6.1",
-		"@types/node": "^20.11.27",
-		"@types/uuid": "^9.0.8",
-		"esbuild": "^0.24.0",
-		"tsx": "^4.7.1",
-		"typescript": "^5.4.2"
-	},
-	"type": "module"
+		"@biomejs/biome": "^1.9.0",
+		"@types/express": "^5.0.0",
+		"@types/jsonwebtoken": "^9.0.0",
+		"@types/node": "^22.0.0",
+		"@types/pg": "^8.11.0",
+		"@types/supertest": "^6.0.0",
+		"drizzle-kit": "^0.30.0",
+		"supertest": "^7.0.0",
+		"tsx": "^4.19.0",
+		"typescript": "^5.7.0",
+		"vitest": "^3.0.0"
+	}
 }

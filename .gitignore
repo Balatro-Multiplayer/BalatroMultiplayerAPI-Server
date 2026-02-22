@@ -1,7 +1,7 @@
-node_modules
+node_modules/
+dist/
+drizzle/
 .env
-dist
-.vscode
-releases
-.vs
-logs
+*.log
+.vscode/
+.vs/

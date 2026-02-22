@@ -1,13 +1,69 @@
 services:
-  socket:
+  emqx:
+    image: emqx/emqx:5.8
+    container_name: bmp-emqx
+    ports:
+      - "1883:1883"
+      - "8083:8083"
+      - "18083:18083"
+    environment:
+      EMQX_NAME: bmp-emqx
+    volumes:
+      - ./emqx/cluster.hocon:/opt/emqx/etc/cluster.hocon:ro
+      - emqx-data:/opt/emqx/data
+      - emqx-log:/opt/emqx/log
+    healthcheck:
+      test: ["CMD", "emqx", "ctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: bmp-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bmp
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  api:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: bmp-api
     ports:
       - "8788:8788"
-      - "49484:8788"
     environment:
+      PORT: 8788
       NODE_ENV: development
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/bmp
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: 24h
+      STEAM_WEB_API_KEY: ${STEAM_WEB_API_KEY}
+      STEAM_APP_ID: "2379780"
+      EMQX_BROKER_URL: mqtt://emqx:1883
+      EMQX_SYSTEM_CLIENT_ID: bmp-api-server
+      EMQX_SYSTEM_USERNAME: bmp-system
+      EMQX_SYSTEM_PASSWORD: ${EMQX_SYSTEM_PASSWORD}
+    depends_on:
+      emqx:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
-    volumes:
-      - ./logs:/logs
+
+volumes:
+  emqx-data:
+  emqx-log:
+  pg-data:

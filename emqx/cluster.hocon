@@ -1,0 +1,62 @@
+authentication = [
+  {
+    mechanism = password_based
+    backend = http
+    enable = true
+    method = post
+    url = "http://api:8788/emqx/auth"
+    body {
+      clientid = "${clientid}"
+      username = "${username}"
+      password = "${password}"
+      peerhost = "${peerhost}"
+    }
+    headers {
+      "Content-Type" = "application/json"
+    }
+    pool_size = 8
+    connect_timeout = "5s"
+    request_timeout = "5s"
+  }
+]
+
+authorization {
+  no_match = deny
+  deny_action = disconnect
+  cache {
+    enable = true
+    max_size = 1024
+    ttl = "30s"
+  }
+  sources = [
+    {
+      type = http
+      enable = true
+      method = post
+      url = "http://api:8788/emqx/authz"
+      body {
+        clientid = "${clientid}"
+        username = "${username}"
+        topic = "${topic}"
+        action = "${action}"
+        peerhost = "${peerhost}"
+      }
+      headers {
+        "Content-Type" = "application/json"
+      }
+      pool_size = 8
+      connect_timeout = "5s"
+      request_timeout = "5s"
+    }
+  ]
+}
+
+listeners.tcp.default {
+  bind = "0.0.0.0:1883"
+  max_connections = 10240
+}
+
+listeners.ws.default {
+  bind = "0.0.0.0:8083"
+  max_connections = 10240
+}
