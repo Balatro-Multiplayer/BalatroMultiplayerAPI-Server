@@ -60,3 +60,13 @@ listeners.ws.default {
   bind = "0.0.0.0:8083"
   max_connections = 10240
 }
+
+listeners.ssl.default {
+  bind = "0.0.0.0:8883"
+  max_connections = 10240
+  ssl_options {
+    certfile = "/opt/emqx/etc/certs/emqxsl-cert.pem"
+    keyfile = "/opt/emqx/etc/certs/emqxsl-key.pem"
+    verify = verify_none
+  }
+}

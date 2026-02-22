@@ -34,7 +34,7 @@ export async function validateSteamTicket(
 	}
 
 	const data = (await response.json()) as SteamAuthResponse
-	if (data.response.params.result !== 'OK') {
+	if (!data.response?.params || data.response.params.result !== 'OK') {
 		throw new AppError('Invalid Steam ticket', 401)
 	}
 
