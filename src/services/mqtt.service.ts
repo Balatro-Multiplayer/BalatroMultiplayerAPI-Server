@@ -67,6 +67,18 @@ class MqttService {
 		})
 	}
 
+	async publishToPlayer(
+		playerId: string,
+		subtopic: string,
+		payload: Record<string, unknown>,
+	): Promise<void> {
+		const topic = `player/${playerId}/${subtopic}`
+		await this.publish(topic, JSON.stringify(payload), {
+			qos: 1,
+			retain: false,
+		})
+	}
+
 	async cleanupLobbyTopics(lobbyCode: string): Promise<void> {
 		const retainedTopics = [`lobby/${lobbyCode}/metadata`]
 

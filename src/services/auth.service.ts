@@ -147,6 +147,33 @@ export async function authenticateWithDiscord(
 	return { session, token: signSessionJwt(session) }
 }
 
+// --- Refresh token auth (player ID based) ---
+
+export async function authenticateWithPlayerId(
+	playerId: string,
+	username: string,
+) {
+	let session = getSession(playerId)
+	if (session) {
+		session.username = username
+		await playerDb.updateUsername(session.playerId, username)
+		return { session, token: signSessionJwt(session) }
+	}
+
+	const dbPlayer = await playerDb.findPlayerById(playerId)
+	if (!dbPlayer) {
+		throw new AppError('Player not found', 401)
+	}
+
+	session = createSession(username, {
+		id: dbPlayer.id,
+		steamId: dbPlayer.steamId ?? undefined,
+		discordId: dbPlayer.discordId ?? undefined,
+	})
+	await playerDb.updateUsername(dbPlayer.id, username)
+	return { session, token: signSessionJwt(session) }
+}
+
 // --- Linking ---
 
 export async function linkSteamToPlayer(playerId: string, steamId: string) {

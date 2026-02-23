@@ -74,6 +74,18 @@ export async function authorizeAction(
 	const { clientid, topic, action } = body
 
 	const parts = topic.split('/')
+
+	// Player notification topics: player/{playerId}/#
+	// Players can subscribe to their own topics; only server (superuser) publishes
+	if (parts[0] === 'player' && parts.length >= 3) {
+		const topicPlayerId = parts[1]
+		if (action === 'subscribe') {
+			return { result: topicPlayerId === clientid ? 'allow' : 'deny' }
+		}
+		// Non-superuser clients cannot publish to player topics
+		return { result: 'deny' }
+	}
+
 	if (parts[0] !== 'lobby' || parts.length < 3) {
 		return { result: 'deny' }
 	}

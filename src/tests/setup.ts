@@ -12,10 +12,19 @@ vi.mock('../services/mqtt.service.js', () => ({
 		connect: vi.fn().mockResolvedValue(undefined),
 		publishEvent: vi.fn().mockResolvedValue(undefined),
 		publishMetadata: vi.fn().mockResolvedValue(undefined),
+		publishToPlayer: vi.fn().mockResolvedValue(undefined),
 		cleanupLobbyTopics: vi.fn().mockResolvedValue(undefined),
 		cleanupPlayerState: vi.fn().mockResolvedValue(undefined),
 		disconnect: vi.fn().mockResolvedValue(undefined),
 	},
+}))
+
+// Mock the refresh-token service — no real DB in tests
+vi.mock('../services/refresh-token.service.js', () => ({
+	issueRefreshToken: vi.fn().mockResolvedValue('mock-refresh-token'),
+	redeemRefreshToken: vi.fn().mockResolvedValue(null),
+	revokeAllTokens: vi.fn().mockResolvedValue(undefined),
+	cleanupExpiredTokens: vi.fn().mockResolvedValue(0),
 }))
 
 // Mock the database — no real PostgreSQL in tests

@@ -34,6 +34,22 @@ export const players = pgTable(
 	],
 )
 
+export const refreshTokens = pgTable(
+	'refresh_tokens',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		playerId: uuid('player_id')
+			.notNull()
+			.references(() => players.id, { onDelete: 'cascade' }),
+		tokenHash: text('token_hash').notNull(),
+		expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(table) => [uniqueIndex('refresh_tokens_hash_idx').on(table.tokenHash)],
+)
+
 export const gameResults = pgTable('game_results', {
 	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
 	lobbyCode: varchar('lobby_code', { length: 5 }).notNull(),

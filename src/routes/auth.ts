@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit'
 import { authenticate } from '../middleware/authenticate.js'
 import {
 	authenticateWithDiscord,
+	authenticateWithPlayerId,
 	authenticateWithSteam,
 	generateLinkState,
 	getDiscordAuthUrl,
@@ -12,6 +13,8 @@ import {
 	validateSteamTicket,
 	verifyLinkState,
 } from '../services/auth.service.js'
+import { issueRefreshToken, redeemRefreshToken } from '../services/refresh-token.service.js'
+import { mqttService } from '../services/mqtt.service.js'
 import { AppError } from '../utils/errors.js'
 
 const router = Router()
@@ -41,9 +44,48 @@ router.post('/steam', async (req, res, next) => {
 
 		const { steamId } = await validateSteamTicket(ticket)
 		const { session, token } = await authenticateWithSteam(steamId, username)
+		const refreshToken = await issueRefreshToken(session.playerId)
 
 		res.json({
 			token,
+			refreshToken,
+			player: {
+				id: session.playerId,
+				username: session.username,
+				steamId: session.steamId,
+				discordId: session.discordId,
+			},
+		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.post('/refresh', async (req, res, next) => {
+	try {
+		const { refreshToken, username } = req.body
+
+		if (!refreshToken || typeof refreshToken !== 'string') {
+			throw new AppError('Missing or invalid refresh token', 400)
+		}
+		if (!username || typeof username !== 'string') {
+			throw new AppError('Missing or invalid username', 400)
+		}
+
+		const playerId = await redeemRefreshToken(refreshToken)
+		if (!playerId) {
+			throw new AppError('Invalid or expired refresh token', 401)
+		}
+
+		const { session, token } = await authenticateWithPlayerId(
+			playerId,
+			username,
+		)
+		const newRefreshToken = await issueRefreshToken(session.playerId)
+
+		res.json({
+			token,
+			refreshToken: newRefreshToken,
 			player: {
 				id: session.playerId,
 				username: session.username,
@@ -75,20 +117,21 @@ router.get('/discord/callback', async (req, res, next) => {
 		if (state) {
 			const playerId = verifyLinkState(state)
 			if (playerId) {
-				const { session, token } = await linkDiscordToPlayer(
-					playerId,
+				await linkDiscordToPlayer(playerId, discordId)
+
+				// Notify game client via MQTT
+				await mqttService.publishToPlayer(playerId, 'account/discord_linked', {
 					discordId,
-				)
-				res.json({
-					linked: true,
-					token,
-					player: {
-						id: session.playerId,
-						username: session.username,
-						steamId: session.steamId,
-						discordId: session.discordId,
-					},
+					username,
 				})
+
+				res.setHeader('Content-Type', 'text/html')
+				res.send(`<!DOCTYPE html>
+<html><head><title>Discord Linked</title>
+<style>body{font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#1a1a2e;color:#e0e0e0}
+.card{text-align:center;padding:2rem;border-radius:12px;background:#16213e;box-shadow:0 4px 20px rgba(0,0,0,0.3)}
+h1{color:#5865f2;margin-bottom:0.5rem}p{color:#a0a0b0}</style>
+</head><body><div class="card"><h1>Discord Linked!</h1><p>You can close this tab and return to the game.</p></div></body></html>`)
 				return
 			}
 		}
@@ -140,9 +183,10 @@ router.post('/link/steam', authenticate, async (req, res, next) => {
 	}
 })
 
-router.get('/link/discord', authenticate, (req, res) => {
+router.post('/link/discord', authenticate, (req, res) => {
 	const state = generateLinkState(req.player!.playerId)
-	res.redirect(getDiscordAuthUrl(state))
+	const url = getDiscordAuthUrl(state)
+	res.json({ url })
 })
 
 export default router
