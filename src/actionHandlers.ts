@@ -8,6 +8,7 @@ import type {
 	ActionHandlerArgs,
 	ActionHandlers,
 	ActionJoinLobby,
+	ActionRejoinLobby,
 	ActionMagnet,
 	ActionMagnetResponse,
 	ActionPlayHand,
@@ -75,6 +76,32 @@ const leaveLobbyAction = (client: Client) => {
 	client.lobby?.leave(client);
 };
 
+/** Called when a client's TCP connection drops (not voluntary) */
+const disconnectFromLobbyAction = (client: Client) => {
+	client.lobby?.disconnect(client);
+};
+
+const rejoinLobbyAction = (
+	{ code, reconnectToken }: ActionHandlerArgs<ActionRejoinLobby>,
+	client: Client,
+) => {
+	const lobby = Lobby.get(code);
+	if (!lobby) {
+		client.sendAction({
+			action: "error",
+			message: "Lobby no longer exists.",
+		});
+		return;
+	}
+
+	if (!lobby.rejoin(client, reconnectToken)) {
+		client.sendAction({
+			action: "error",
+			message: "Could not rejoin lobby. Token invalid or slot expired.",
+		});
+	}
+};
+
 const lobbyInfoAction = (client: Client) => {
 	client.lobby?.broadcastLobbyInfo();
 };
@@ -112,6 +139,7 @@ const startGameAction = (client: Client) => {
 		? Number.parseInt(lobby.options.starting_lives)
 		: GameModes[lobby.gameMode].startingLives;
 
+	lobby.isInGame = true;
 	lobby.broadcastAction({
 		action: "startGame",
 		deck: "c_multiplayer_1",
@@ -310,7 +338,7 @@ const setAnteAction = (
 };
 
 // TODO: Fix this
-const serverVersion = "0.2.12-MULTIPLAYER";
+const serverVersion = "0.3.0-MULTIPLAYER";
 /** Verifies the client version and allows connection if it matches the server's */
 const versionAction = (
 	{ version }: ActionHandlerArgs<ActionVersion>,
@@ -757,6 +785,7 @@ export const actionHandlers = {
 	username: usernameAction,
 	createLobby: createLobbyAction,
 	joinLobby: joinLobbyAction,
+	rejoinLobby: rejoinLobbyAction,
 	lobbyInfo: lobbyInfoAction,
 	leaveLobby: leaveLobbyAction,
 	readyLobby: readyLobbyAction,
@@ -804,3 +833,6 @@ export const actionHandlers = {
     handyMPExtensionEnable: handyMPExtensionEnable,
     handyMPExtensionDisable: handyMPExtensionDisable,
 } satisfies Partial<ActionHandlers>;
+
+/** Server-internal handler for connection drops (not a client action) */
+export { disconnectFromLobbyAction };

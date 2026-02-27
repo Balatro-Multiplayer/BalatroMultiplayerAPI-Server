@@ -1,4 +1,5 @@
 import { type AddressInfo } from 'node:net'
+import { randomBytes } from 'node:crypto'
 import { v4 as uuidv4 } from 'uuid'
 import type Lobby from './Lobby.js'
 import type { ActionServerToClient } from './actions.js'
@@ -7,7 +8,7 @@ import { InsaneInt } from './InsaneInt.js'
 type SendFn = (action: ActionServerToClient) => void
 type CloseConnFn = () => void
 
-/* biome-ignore lint/complexity/noBannedTypes: 
+/* biome-ignore lint/complexity/noBannedTypes:
 	This is how the net module does it */
 type Address = AddressInfo | {}
 
@@ -18,6 +19,8 @@ class Client {
 	address: Address
 	sendAction: SendFn
 	closeConnection: CloseConnFn
+	/** Token used to verify identity when reconnecting to a lobby */
+	reconnectToken: string
 
 	// Game info
 	username = 'Guest'
@@ -45,6 +48,7 @@ class Client {
 		this.address = address
 		this.sendAction = send
 		this.closeConnection = closeConnection
+		this.reconnectToken = randomBytes(16).toString('hex')
 	}
 
 	setLocation = (location: string) => {

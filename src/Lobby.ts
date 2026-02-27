@@ -6,7 +6,7 @@ import type {
 	GameMode,
 } from "./actions.js";
 
-const Lobbies = new Map();
+export const Lobbies = new Map<string, Lobby>();
 
 const generateUniqueLobbyCode = (): string => {
 	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -28,6 +28,15 @@ export const getEnemy = (client: Client): [Lobby | null, Client | null] => {
 	return [lobby, null]
 }
 
+/** How long to keep a disconnected player's slot reserved (ms) */
+const RECONNECT_GRACE_PERIOD = 60000;
+
+interface DisconnectedSlot {
+	reconnectToken: string;
+	role: 'host' | 'guest';
+	timer: ReturnType<typeof setTimeout>;
+}
+
 class Lobby {
 	code: string;
 	host: Client | null;
@@ -38,6 +47,10 @@ class Lobby {
 	tcgBets: Map<string, number>;
     handyAllowMPExtension: Map<string, boolean>;
 	firstReadyAt: number | null;
+	/** Tracks disconnected players awaiting reconnection */
+	disconnectedSlot: DisconnectedSlot | null = null;
+	/** Whether a game is currently in progress */
+	isInGame = false;
 
 	// Attrition is the default game mode
 	constructor(host: Client, gameMode: GameMode = "attrition") {
@@ -60,6 +73,7 @@ class Lobby {
 			action: "joinedLobby",
 			code: this.code,
 			type: this.gameMode,
+			reconnectToken: host.reconnectToken,
 		});
 	}
 
@@ -67,7 +81,14 @@ class Lobby {
 		return Lobbies.get(code);
 	};
 
+	/** Voluntary leave — no grace period */
 	leave = (client: Client) => {
+		// Clear any pending reconnect slot for this lobby
+		if (this.disconnectedSlot) {
+			clearTimeout(this.disconnectedSlot.timer);
+			this.disconnectedSlot = null;
+		}
+
 		if (this.host?.id === client.id) {
 			this.host = this.guest;
 			this.guest = null;
@@ -76,6 +97,7 @@ class Lobby {
 		}
 
 		client.setLobby(null);
+		this.isInGame = false;
 		if (this.host === null) {
 			Lobbies.delete(this.code);
 		} else {
@@ -87,6 +109,83 @@ class Lobby {
 			this.resetPlayers();
 			this.broadcastLobbyInfo();
 		}
+	};
+
+	/** Connection lost — use grace period if game is in progress */
+	disconnect = (client: Client) => {
+		const isHost = this.host?.id === client.id;
+		const isGuest = this.guest?.id === client.id;
+		if (!isHost && !isGuest) return;
+
+		// If no game in progress or no other player, do a regular leave
+		if (!this.isInGame || (isHost && !this.guest) || (isGuest && !this.host)) {
+			this.leave(client);
+			return;
+		}
+
+		const role = isHost ? 'host' : 'guest';
+		const enemy = isHost ? this.guest : this.host;
+
+		// Reserve the slot with a grace period
+		console.log(`Player ${client.id} disconnected from lobby ${this.code}, reserving slot for ${RECONNECT_GRACE_PERIOD / 1000}s`)
+
+		this.disconnectedSlot = {
+			reconnectToken: client.reconnectToken,
+			role,
+			timer: setTimeout(() => {
+				// Grace period expired, do a full leave
+				console.log(`Reconnect grace period expired for lobby ${this.code}`)
+				this.disconnectedSlot = null;
+				this.leave(client);
+			}, RECONNECT_GRACE_PERIOD),
+		};
+
+		// Remove the client from the slot but keep the lobby alive
+		if (isHost) {
+			this.host = null;
+		} else {
+			this.guest = null;
+		}
+		client.setLobby(null);
+
+		// Notify the remaining player
+		enemy?.sendAction({ action: "enemyDisconnected" });
+	};
+
+	/** Reconnecting client reclaims their slot */
+	rejoin = (newClient: Client, reconnectToken: string): boolean => {
+		if (!this.disconnectedSlot || this.disconnectedSlot.reconnectToken !== reconnectToken) {
+			return false;
+		}
+
+		const { role, timer } = this.disconnectedSlot;
+		clearTimeout(timer);
+		this.disconnectedSlot = null;
+
+		// Place the new client in the correct slot
+		if (role === 'host') {
+			this.host = newClient;
+		} else {
+			this.guest = newClient;
+		}
+
+		newClient.setLobby(this);
+		this.handyAllowMPExtension.set(newClient.id, false);
+
+		// Send rejoin confirmation with new reconnect token
+		newClient.sendAction({
+			action: "rejoinedLobby",
+			code: this.code,
+			type: this.gameMode,
+			reconnectToken: newClient.reconnectToken,
+		});
+
+		// Notify the other player
+		const enemy = role === 'host' ? this.guest : this.host;
+		enemy?.sendAction({ action: "enemyReconnected" });
+
+		this.broadcastLobbyInfo();
+		return true;
 	};
 
 	join = (client: Client) => {
@@ -107,6 +206,7 @@ class Lobby {
 			action: "joinedLobby",
 			code: this.code,
 			type: this.gameMode,
+			reconnectToken: client.reconnectToken,
 		});
 		client.sendAction({ action: "lobbyOptions", gamemode: this.gameMode, ...this.options });
 		this.broadcastLobbyInfo();
@@ -183,6 +283,7 @@ class Lobby {
 	};
 
 	resetPlayers = () => {
+		this.isInGame = false;
 		if (this.host) {
 			this.host.isReady = false;
 			this.host.resetBlocker();

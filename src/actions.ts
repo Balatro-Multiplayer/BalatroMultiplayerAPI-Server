@@ -1,7 +1,10 @@
 // Server to Client
 export type ActionConnected = { action: 'connected' }
 export type ActionError = { action: 'error'; message: string }
-export type ActionJoinedLobby = { action: 'joinedLobby'; code: string; type: GameMode }
+export type ActionJoinedLobby = { action: 'joinedLobby'; code: string; type: GameMode; reconnectToken?: string }
+export type ActionRejoinedLobby = { action: 'rejoinedLobby'; code: string; type: GameMode; reconnectToken: string }
+export type ActionEnemyDisconnected = { action: 'enemyDisconnected' }
+export type ActionEnemyReconnected = { action: 'enemyReconnected' }
 export type ActionLobbyInfo = {
 	action: 'lobbyInfo'
 	host: string
@@ -72,6 +75,9 @@ export type ActionServerToClient =
 	| ActionConnected
 	| ActionError
 	| ActionJoinedLobby
+	| ActionRejoinedLobby
+	| ActionEnemyDisconnected
+	| ActionEnemyReconnected
 	| ActionLobbyInfo
 	| ActionStopGame
 	| ActionStartGame
@@ -165,6 +171,7 @@ export type ActionTcgPlayerStatusRequest = { action: 'tcgPlayerStatus', [key: st
 export type ActionTcgEndTurn = { action: 'tcgEndTurn', [key: string]: unknown }
 export type ActionModdedRequest = { action: 'moddedAction', modId: string, modAction: string, target?: 'nemesis' | 'all', [key: string]: unknown }
 // Handy Actions (Client to Server)
+export type ActionRejoinLobby = { action: 'rejoinLobby'; code: string; reconnectToken: string }
 export type ActionHandyMPExtensionEnable = { action: 'handyMPExtensionEnable', [key: string]: unknown }
 export type ActionHandyMPExtensionDisable = { action: 'handyMPExtensionDisable', [key: string]: unknown }
 export type ActionClientToServer =
@@ -216,6 +223,7 @@ export type ActionClientToServer =
 	| ActionTcgPlayerStatusRequest
 	| ActionTcgEndTurn
 	| ActionModdedRequest
+	| ActionRejoinLobby
     | ActionHandyMPExtensionEnable
     | ActionHandyMPExtensionDisable
 // Utility actions

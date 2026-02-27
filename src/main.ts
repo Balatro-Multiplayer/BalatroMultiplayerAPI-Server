@@ -1,6 +1,7 @@
 import { Socket, createServer } from 'node:net'
 import Client from './Client.js'
-import { actionHandlers } from './actionHandlers.js'
+import { actionHandlers, disconnectFromLobbyAction } from './actionHandlers.js'
+import { Lobbies } from './Lobby.js'
 import type {
 	Action,
 	ActionClientToServer,
@@ -34,6 +35,7 @@ import type {
 	ActionTcgPlayerStatusRequest,
 	ActionTcgEndTurn,
 	ActionModdedRequest,
+	ActionRejoinLobby,
     ActionHandyMPExtensionEnable,
     ActionHandyMPExtensionDisable,
 } from './actions.js'
@@ -42,11 +44,11 @@ import { InsaneInt } from './InsaneInt.js'
 const PORT = 8788
 
 /** The amount of milliseconds we wait before sending the initial keepalive packet  */
-const KEEP_ALIVE_INITIAL_TIMEOUT = 5000
+const KEEP_ALIVE_INITIAL_TIMEOUT = 15000
 /** The amount of milliseconds we wait after sending a new retry packet  */
-const KEEP_ALIVE_RETRY_TIMEOUT = 2500
+const KEEP_ALIVE_RETRY_TIMEOUT = 5000
 /** The amount of retries we do before we declare the socket dead */
-const KEEP_ALIVE_RETRY_COUNT = 3
+const KEEP_ALIVE_RETRY_COUNT = 4
 
 interface BigIntWithToJSON {
 	prototype: {
@@ -95,7 +97,7 @@ export const serializeAction = (action: Action): string => {
 
 const sendActionToSocket =
 	(socket: Socket) => (action: ActionServerToClient) => {
-		if (!socket) {
+		if (!socket || socket.destroyed) {
 			return
 		}
 
@@ -117,6 +119,8 @@ const server = createServer((socket) => {
 	// Do not wait for packets to buffer, helps
 	// improve latency between responses
 	socket.setNoDelay()
+	// Enable OS-level TCP keepalive as secondary dead connection detection
+	socket.setKeepAlive(true, 10000)
 
 	const client = new Client(socket.address(), sendActionToSocket(socket), socket.end)
 	client.sendAction({ action: 'connected' })
@@ -157,7 +161,7 @@ const server = createServer((socket) => {
 		const messages = data.toString().split('\n')
 
 		for (const msg of messages) {
-			if (!msg) return
+			if (!msg) continue
 			try {
 				const message: ActionClientToServer | ActionUtility = JSON.parse(msg)
 				const { action, ...actionArgs } = message
@@ -198,6 +202,12 @@ const server = createServer((socket) => {
 					case 'joinLobby':
 						actionHandlers.joinLobby(
 							actionArgs as ActionHandlerArgs<ActionJoinLobby>,
+							client,
+						)
+						break
+					case 'rejoinLobby':
+						actionHandlers.rejoinLobby(
+							actionArgs as ActionHandlerArgs<ActionRejoinLobby>,
 							client,
 						)
 						break
@@ -417,7 +427,7 @@ const server = createServer((socket) => {
 
 	socket.on('end', () => {
 		console.log(`Client disconnected ${client.id}`)
-		actionHandlers.leaveLobby?.(client)
+		disconnectFromLobbyAction(client)
 	})
 
 	socket.on(
@@ -434,11 +444,64 @@ const server = createServer((socket) => {
 			} else {
 				console.error('An unexpected error occurred:', err)
 			}
-			actionHandlers.leaveLobby?.(client)
+			disconnectFromLobbyAction(client)
 		},
 	)
 })
 
 server.listen(PORT, '0.0.0.0', () => {
 	console.log(`Server listening on port ${PORT}`)
+})
+
+// Admin server for sending messages to players
+const ADMIN_PORT = 8789
+
+const adminServer = createServer((socket) => {
+	socket.on('data', (data) => {
+		const messages = data.toString().split('\n')
+		for (const msg of messages) {
+			if (!msg) continue
+			try {
+				const { message, lobby_code, is_host } = JSON.parse(msg)
+
+				if (!message || typeof message !== 'string') {
+					socket.end(JSON.stringify({ success: false, error: 'Missing message' }) + '\n')
+					return
+				}
+
+				const errorAction = { action: 'error' as const, message }
+				let recipients = 0
+
+				if (lobby_code) {
+					const lobby = Lobbies.get(lobby_code)
+					if (!lobby) {
+						socket.end(JSON.stringify({ success: false, error: 'Lobby not found' }) + '\n')
+						return
+					}
+
+					if (is_host === true) {
+						if (lobby.host) { lobby.host.sendAction(errorAction); recipients++ }
+					} else if (is_host === false) {
+						if (lobby.guest) { lobby.guest.sendAction(errorAction); recipients++ }
+					} else {
+						if (lobby.host) { lobby.host.sendAction(errorAction); recipients++ }
+						if (lobby.guest) { lobby.guest.sendAction(errorAction); recipients++ }
+					}
+				} else {
+					for (const lobby of Lobbies.values()) {
+						if (lobby.host) { lobby.host.sendAction(errorAction); recipients++ }
+						if (lobby.guest) { lobby.guest.sendAction(errorAction); recipients++ }
+					}
+				}
+
+				socket.end(JSON.stringify({ success: true, recipients }) + '\n')
+			} catch (error) {
+				socket.end(JSON.stringify({ success: false, error: 'Invalid JSON' }) + '\n')
+			}
+		}
+	})
+})
+
+adminServer.listen(ADMIN_PORT, '127.0.0.1', () => {
+	console.log(`Admin server listening on 127.0.0.1:${ADMIN_PORT}`)
 })
