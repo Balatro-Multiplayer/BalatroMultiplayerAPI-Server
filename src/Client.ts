@@ -101,6 +101,14 @@ class Client {
 	setSkips = (skips: number) => {
 		this.skips = skips
 	}
+
+	/** Adopt the connection from another Client (used on reconnect) */
+	replaceConnection = (other: Client) => {
+		this.address = other.address
+		this.sendAction = other.sendAction
+		this.closeConnection = other.closeConnection
+		this.reconnectToken = other.reconnectToken
+	}
 }
 
 export default Client

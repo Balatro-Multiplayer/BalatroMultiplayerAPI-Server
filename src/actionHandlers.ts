@@ -84,7 +84,7 @@ const disconnectFromLobbyAction = (client: Client) => {
 const rejoinLobbyAction = (
 	{ code, reconnectToken }: ActionHandlerArgs<ActionRejoinLobby>,
 	client: Client,
-) => {
+): Client | undefined => {
 	const lobby = Lobby.get(code);
 	if (!lobby) {
 		client.sendAction({
@@ -94,12 +94,15 @@ const rejoinLobbyAction = (
 		return;
 	}
 
-	if (!lobby.rejoin(client, reconnectToken)) {
+	const restoredClient = lobby.rejoin(client, reconnectToken);
+	if (!restoredClient) {
 		client.sendAction({
 			action: "error",
 			message: "Could not rejoin lobby. Token invalid or slot expired.",
 		});
+		return;
 	}
+	return restoredClient;
 };
 
 const lobbyInfoAction = (client: Client) => {

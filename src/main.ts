@@ -122,7 +122,7 @@ const server = createServer((socket) => {
 	// Enable OS-level TCP keepalive as secondary dead connection detection
 	socket.setKeepAlive(true, 10000)
 
-	const client = new Client(socket.address(), sendActionToSocket(socket), socket.end)
+	let client = new Client(socket.address(), sendActionToSocket(socket), socket.end)
 	client.sendAction({ action: 'connected' })
 	client.sendAction({ action: 'version' })
 
@@ -205,12 +205,14 @@ const server = createServer((socket) => {
 							client,
 						)
 						break
-					case 'rejoinLobby':
-						actionHandlers.rejoinLobby(
+					case 'rejoinLobby': {
+						const restored = actionHandlers.rejoinLobby(
 							actionArgs as ActionHandlerArgs<ActionRejoinLobby>,
 							client,
 						)
+						if (restored) client = restored
 						break
+					}
 					case 'lobbyInfo':
 						actionHandlers.lobbyInfo(client)
 						break
