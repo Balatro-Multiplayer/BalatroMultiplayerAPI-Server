@@ -56,7 +56,6 @@ export async function authenticateWithSteam(
 		await playerDb.updateUsername(session.playerId, username)
 		return { session, token: signSessionJwt(session) }
 	}
-
 	const dbPlayer = await playerDb.findPlayerBySteamId(steamId)
 	if (dbPlayer) {
 		session = createSession(username, {

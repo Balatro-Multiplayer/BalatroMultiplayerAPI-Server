@@ -61,40 +61,6 @@ listeners.ws.default {
   max_connections = 10240
 }
 
-rule_engine {
-  rules {
-    "bmp_client_disconnected" {
-      enable = true
-      sql = "SELECT clientid, username, reason, disconnected_at, event FROM \"$events/client_disconnected\""
-      actions = ["webhook:bmp_disconnect_hook"]
-    }
-  }
-}
-
-actions {
-  webhook {
-    bmp_disconnect_hook {
-      connector = bmp_http_connector
-      parameters {
-        path = "/emqx/webhook"
-        method = post
-        body = "${.}"
-        headers { "content-type" = "application/json" }
-      }
-      resource_opts { request_ttl = "5s" }
-    }
-  }
-}
-
-connectors {
-  http {
-    bmp_http_connector {
-      url = "http://api:8788"
-      connect_timeout = "5s"
-      pool_size = 4
-    }
-  }
-}
 
 listeners.ssl.default {
   bind = "0.0.0.0:8883"

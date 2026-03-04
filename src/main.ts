@@ -5,6 +5,7 @@ import { env } from './env.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import router from './routes/index.js'
 import { clearAllGracePeriods } from './services/grace-period.service.js'
+import { provisionEmqxWebhook } from './services/emqx-provision.service.js'
 import { mqttService } from './services/mqtt.service.js'
 import { startSessionCleanup, stopSessionCleanup } from './state/index.js'
 
@@ -47,6 +48,7 @@ async function shutdown() {
 async function start() {
 	try {
 		await mqttService.connect()
+		await provisionEmqxWebhook()
 
 		startSessionCleanup()
 
