@@ -6,6 +6,7 @@ export interface PlayerRecord {
 	id: string
 	steamId: string | null
 	discordId: string | null
+	discordUsername: string | null
 	username: string
 }
 
@@ -67,10 +68,21 @@ export async function linkSteam(
 export async function linkDiscord(
 	playerId: string,
 	discordId: string,
+	discordUsername?: string,
 ): Promise<void> {
 	await db
 		.update(players)
-		.set({ discordId, updatedAt: new Date() })
+		.set({ discordId, discordUsername: discordUsername ?? null, updatedAt: new Date() })
+		.where(eq(players.id, playerId))
+}
+
+export async function updateDiscordUsername(
+	playerId: string,
+	discordUsername: string,
+): Promise<void> {
+	await db
+		.update(players)
+		.set({ discordUsername, updatedAt: new Date() })
 		.where(eq(players.id, playerId))
 }
 

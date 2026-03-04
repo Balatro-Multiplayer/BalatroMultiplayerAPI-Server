@@ -16,6 +16,7 @@ export const players = pgTable(
 		id: uuid('id').primaryKey().defaultRandom(),
 		steamId: text('steam_id'),
 		discordId: text('discord_id'),
+		discordUsername: varchar('discord_username', { length: 64 }),
 		username: varchar('username', { length: 64 }).notNull(),
 		createdAt: timestamp('created_at', { withTimezone: true })
 			.notNull()

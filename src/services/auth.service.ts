@@ -62,6 +62,7 @@ export async function authenticateWithSteam(
 			id: dbPlayer.id,
 			steamId: dbPlayer.steamId ?? undefined,
 			discordId: dbPlayer.discordId ?? undefined,
+			discordUsername: dbPlayer.discordUsername ?? undefined,
 		})
 		await playerDb.updateUsername(dbPlayer.id, username)
 		return { session, token: signSessionJwt(session) }
@@ -133,6 +134,7 @@ export async function authenticateWithDiscord(
 		session.username = username
 		session.discordUsername = username
 		await playerDb.updateUsername(session.playerId, username)
+		await playerDb.updateDiscordUsername(session.playerId, username)
 		return { session, token: signSessionJwt(session) }
 	}
 
@@ -145,6 +147,7 @@ export async function authenticateWithDiscord(
 			discordUsername: username,
 		})
 		await playerDb.updateUsername(dbPlayer.id, username)
+		await playerDb.updateDiscordUsername(dbPlayer.id, username)
 		return { session, token: signSessionJwt(session) }
 	}
 
@@ -177,6 +180,7 @@ export async function authenticateWithPlayerId(
 		id: dbPlayer.id,
 		steamId: dbPlayer.steamId ?? undefined,
 		discordId: dbPlayer.discordId ?? undefined,
+		discordUsername: dbPlayer.discordUsername ?? undefined,
 	})
 	await playerDb.updateUsername(dbPlayer.id, username)
 	return { session, token: signSessionJwt(session) }
@@ -226,7 +230,7 @@ export async function linkDiscordToPlayer(playerId: string, discordId: string, d
 
 	linkProvider(session, 'discord', discordId)
 	if (discordUsername) session.discordUsername = discordUsername
-	await playerDb.linkDiscord(playerId, discordId)
+	await playerDb.linkDiscord(playerId, discordId, discordUsername)
 
 	return { session, token: signSessionJwt(session) }
 }
