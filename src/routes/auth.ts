@@ -75,6 +75,7 @@ router.post('/steam', async (req, res, next) => {
 				username: session.username,
 				steamId: session.steamId ?? null,
 				discordId: session.discordId ?? null,
+				discordUsername: session.discordUsername ?? null,
 				lobbyCode: session.lobbyCode ?? null,
 				isTemp: isTemp || undefined,
 			},
@@ -145,6 +146,7 @@ router.post('/refresh', async (req, res, next) => {
 				username: session.username,
 				steamId: session.steamId,
 				discordId: session.discordId,
+				discordUsername: session.discordUsername ?? null,
 				lobbyCode: session.lobbyCode ?? null,
 			},
 		})
@@ -172,7 +174,7 @@ router.get('/discord/callback', async (req, res, next) => {
 		if (state) {
 			const playerId = verifyLinkState(state)
 			if (playerId) {
-				await linkDiscordToPlayer(playerId, discordId)
+				await linkDiscordToPlayer(playerId, discordId, username)
 
 				// Notify game client via MQTT
 				await mqttService.publishToPlayer(playerId, 'account/discord_linked', {
@@ -202,6 +204,7 @@ h1{color:#5865f2;margin-bottom:0.5rem}p{color:#a0a0b0}</style>
 				username: session.username,
 				steamId: session.steamId,
 				discordId: session.discordId,
+				discordUsername: session.discordUsername ?? null,
 				lobbyCode: session.lobbyCode ?? null,
 			},
 		})

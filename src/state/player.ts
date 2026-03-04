@@ -5,17 +5,19 @@ export class PlayerSession {
 	public username: string
 	public steamId?: string
 	public discordId?: string
+	public discordUsername?: string
 	public lobbyCode?: string
 	public readonly connectedAt: Date
 
 	constructor(
 		username: string,
-		opts?: { id?: string; steamId?: string; discordId?: string },
+		opts?: { id?: string; steamId?: string; discordId?: string; discordUsername?: string },
 	) {
 		this.playerId = opts?.id ?? randomUUID()
 		this.username = username
 		this.steamId = opts?.steamId
 		this.discordId = opts?.discordId
+		this.discordUsername = opts?.discordUsername
 		this.connectedAt = new Date()
 	}
 }

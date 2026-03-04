@@ -132,6 +132,7 @@ export async function authenticateWithDiscord(
 	if (session) {
 		await cancelGracePeriod(session.playerId)
 		session.username = username
+		session.discordUsername = username
 		await playerDb.updateUsername(session.playerId, username)
 		return { session, token: signSessionJwt(session) }
 	}
@@ -142,12 +143,13 @@ export async function authenticateWithDiscord(
 			id: dbPlayer.id,
 			steamId: dbPlayer.steamId ?? undefined,
 			discordId: dbPlayer.discordId ?? undefined,
+			discordUsername: username,
 		})
 		await playerDb.updateUsername(dbPlayer.id, username)
 		return { session, token: signSessionJwt(session) }
 	}
 
-	session = createSession(username, { discordId })
+	session = createSession(username, { discordId, discordUsername: username })
 	await playerDb.createPlayer({ id: session.playerId, username, discordId })
 
 	return { session, token: signSessionJwt(session) }
@@ -212,7 +214,7 @@ export async function linkSteamToPlayer(playerId: string, steamId: string) {
 	return { session, token: signSessionJwt(session) }
 }
 
-export async function linkDiscordToPlayer(playerId: string, discordId: string) {
+export async function linkDiscordToPlayer(playerId: string, discordId: string, discordUsername?: string) {
 	const session = getSession(playerId)
 	if (!session) {
 		throw new AppError('Player session not found', 401)
@@ -224,6 +226,7 @@ export async function linkDiscordToPlayer(playerId: string, discordId: string) {
 	}
 
 	linkProvider(session, 'discord', discordId)
+	if (discordUsername) session.discordUsername = discordUsername
 	await playerDb.linkDiscord(playerId, discordId)
 
 	return { session, token: signSessionJwt(session) }
