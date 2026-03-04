@@ -126,9 +126,10 @@ export async function authorizeAction(
 			const statePlayerId = parts[3]
 
 			if (action === 'subscribe') {
-				// Any lobby member can read any player's state
-				// Support wildcard subscribe: lobby/{code}/players/+/state
-				return { result: 'allow' }
+				// Players can only read their own state (privacy)
+				// Wildcard subscribe (players/+/state) is denied for regular clients
+				// Spectators/privileged access can be granted in the future
+				return { result: statePlayerId === clientid ? 'allow' : 'deny' }
 			}
 			if (action === 'publish') {
 				// Players can only write their own state

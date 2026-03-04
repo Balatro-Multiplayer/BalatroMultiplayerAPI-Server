@@ -203,7 +203,19 @@ describe('emqx-auth.service', () => {
 		})
 
 		describe('player state topic', () => {
-			it('allows any member to subscribe to any player state', async () => {
+			it('allows a player to subscribe to their own state', async () => {
+				setupLobbyWithPlayer('ABCDE', 'host1', 'guest1')
+
+				const result = await authorizeAction({
+					...base,
+					clientid: 'guest1',
+					topic: 'lobby/ABCDE/players/guest1/state',
+					action: 'subscribe',
+				})
+				expect(result.result).toBe('allow')
+			})
+
+			it('denies subscribing to another player state', async () => {
 				setupLobbyWithPlayer('ABCDE', 'host1', 'guest1')
 
 				const result = await authorizeAction({
@@ -212,7 +224,19 @@ describe('emqx-auth.service', () => {
 					topic: 'lobby/ABCDE/players/host1/state',
 					action: 'subscribe',
 				})
-				expect(result.result).toBe('allow')
+				expect(result.result).toBe('deny')
+			})
+
+			it('denies wildcard subscribe to all player states', async () => {
+				setupLobbyWithPlayer('ABCDE', 'host1', 'guest1')
+
+				const result = await authorizeAction({
+					...base,
+					clientid: 'guest1',
+					topic: 'lobby/ABCDE/players/+/state',
+					action: 'subscribe',
+				})
+				expect(result.result).toBe('deny')
 			})
 
 			it('allows a player to publish their own state', async () => {
