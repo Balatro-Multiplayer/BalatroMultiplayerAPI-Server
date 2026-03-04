@@ -7,6 +7,8 @@ export interface PlayerRecord {
 	steamId: string | null
 	discordId: string | null
 	discordUsername: string | null
+	useDiscordName: boolean
+	preferredJoker: string
 	username: string
 }
 
@@ -79,7 +81,17 @@ export async function linkDiscord(
 export async function unlinkDiscord(playerId: string): Promise<void> {
 	await db
 		.update(players)
-		.set({ discordId: null, discordUsername: null, updatedAt: new Date() })
+		.set({ discordId: null, discordUsername: null, useDiscordName: false, updatedAt: new Date() })
+		.where(eq(players.id, playerId))
+}
+
+export async function updateUseDiscordName(
+	playerId: string,
+	useDiscordName: boolean,
+): Promise<void> {
+	await db
+		.update(players)
+		.set({ useDiscordName, updatedAt: new Date() })
 		.where(eq(players.id, playerId))
 }
 
@@ -90,6 +102,16 @@ export async function updateDiscordUsername(
 	await db
 		.update(players)
 		.set({ discordUsername, updatedAt: new Date() })
+		.where(eq(players.id, playerId))
+}
+
+export async function updatePreferredJoker(
+	playerId: string,
+	preferredJoker: string,
+): Promise<void> {
+	await db
+		.update(players)
+		.set({ preferredJoker, updatedAt: new Date() })
 		.where(eq(players.id, playerId))
 }
 

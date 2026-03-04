@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import {
+	boolean,
 	integer,
 	jsonb,
 	pgTable,
@@ -17,6 +18,8 @@ export const players = pgTable(
 		steamId: text('steam_id'),
 		discordId: text('discord_id'),
 		discordUsername: varchar('discord_username', { length: 64 }),
+		useDiscordName: boolean('use_discord_name').notNull().default(false),
+		preferredJoker: varchar('preferred_joker', { length: 64 }).notNull().default('j_joker'),
 		username: varchar('username', { length: 64 }).notNull(),
 		createdAt: timestamp('created_at', { withTimezone: true })
 			.notNull()

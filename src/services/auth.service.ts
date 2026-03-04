@@ -64,6 +64,8 @@ export async function authenticateWithSteam(
 			steamId: dbPlayer.steamId ?? undefined,
 			discordId: dbPlayer.discordId ?? undefined,
 			discordUsername: dbPlayer.discordUsername ?? undefined,
+			useDiscordName: dbPlayer.useDiscordName,
+			preferredJoker: dbPlayer.preferredJoker,
 		})
 		await playerDb.updateUsername(dbPlayer.id, username)
 		return { session, token: signSessionJwt(session) }
@@ -146,6 +148,8 @@ export async function authenticateWithDiscord(
 			steamId: dbPlayer.steamId ?? undefined,
 			discordId: dbPlayer.discordId ?? undefined,
 			discordUsername: username,
+			useDiscordName: dbPlayer.useDiscordName,
+			preferredJoker: dbPlayer.preferredJoker,
 		})
 		await playerDb.updateUsername(dbPlayer.id, username)
 		await playerDb.updateDiscordUsername(dbPlayer.id, username)
@@ -182,6 +186,8 @@ export async function authenticateWithPlayerId(
 		steamId: dbPlayer.steamId ?? undefined,
 		discordId: dbPlayer.discordId ?? undefined,
 		discordUsername: dbPlayer.discordUsername ?? undefined,
+		useDiscordName: dbPlayer.useDiscordName,
+		preferredJoker: dbPlayer.preferredJoker,
 	})
 	await playerDb.updateUsername(dbPlayer.id, username)
 	return { session, token: signSessionJwt(session) }
@@ -243,7 +249,36 @@ export async function unlinkDiscordFromPlayer(playerId: string) {
 	}
 
 	unlinkProvider(session, 'discord')
+	session.useDiscordName = false
 	await playerDb.unlinkDiscord(playerId)
+
+	return { session, token: signSessionJwt(session) }
+}
+
+export async function setUseDiscordName(playerId: string, value: boolean) {
+	const session = getSession(playerId)
+	if (!session) {
+		throw new AppError('Player session not found', 401)
+	}
+
+	if (value && !session.discordId) {
+		throw new AppError('Discord account not linked', 400)
+	}
+
+	session.useDiscordName = value
+	await playerDb.updateUseDiscordName(playerId, value)
+
+	return { session, token: signSessionJwt(session) }
+}
+
+export async function setPreferredJoker(playerId: string, value: string) {
+	const session = getSession(playerId)
+	if (!session) {
+		throw new AppError('Player session not found', 401)
+	}
+
+	session.preferredJoker = value
+	await playerDb.updatePreferredJoker(playerId, value)
 
 	return { session, token: signSessionJwt(session) }
 }

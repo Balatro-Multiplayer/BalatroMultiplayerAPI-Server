@@ -10,6 +10,8 @@ import {
 	getDiscordAuthUrl,
 	linkDiscordToPlayer,
 	linkSteamToPlayer,
+	setPreferredJoker,
+	setUseDiscordName,
 	unlinkDiscordFromPlayer,
 	validateDiscordCode,
 	validateSteamTicket,
@@ -33,6 +35,21 @@ function lobbyPayload(session: PlayerSession) {
 		maxPlayers: lobby.maxPlayers,
 		metadata: lobby.metadata,
 		isHost: lobby.hostId === session.playerId,
+	}
+}
+
+function playerPayload(session: PlayerSession, extra?: { isTemp?: boolean }) {
+	return {
+		id: session.playerId,
+		username: session.username,
+		displayName: session.getDisplayName(),
+		useDiscordName: session.useDiscordName,
+		preferredJoker: session.preferredJoker,
+		steamId: session.steamId ?? null,
+		discordId: session.discordId ?? null,
+		discordUsername: session.discordUsername ?? null,
+		lobbyCode: session.lobbyCode ?? null,
+		...(extra?.isTemp ? { isTemp: true } : {}),
 	}
 }
 
@@ -71,15 +88,7 @@ router.post('/steam', async (req, res, next) => {
 			token,
 			refreshToken,
 			lobby: lobbyPayload(session),
-			player: {
-				id: session.playerId,
-				username: session.username,
-				steamId: session.steamId ?? null,
-				discordId: session.discordId ?? null,
-				discordUsername: session.discordUsername ?? null,
-				lobbyCode: session.lobbyCode ?? null,
-				isTemp: isTemp || undefined,
-			},
+			player: playerPayload(session, { isTemp: isTemp || undefined }),
 		})
 	} catch (err) {
 		next(err)
@@ -103,13 +112,7 @@ router.post('/dev', (req, res, next) => {
 		res.json({
 			token,
 			refreshToken: null,
-			player: {
-				id: session.playerId,
-				username: session.username,
-				steamId: null,
-				discordId: null,
-				isTemp: true,
-			},
+			player: playerPayload(session, { isTemp: true }),
 		})
 	} catch (err) {
 		next(err)
@@ -142,14 +145,7 @@ router.post('/refresh', async (req, res, next) => {
 			token,
 			refreshToken: newRefreshToken,
 			lobby: lobbyPayload(session),
-			player: {
-				id: session.playerId,
-				username: session.username,
-				steamId: session.steamId,
-				discordId: session.discordId,
-				discordUsername: session.discordUsername ?? null,
-				lobbyCode: session.lobbyCode ?? null,
-			},
+			player: playerPayload(session),
 		})
 	} catch (err) {
 		next(err)
@@ -200,14 +196,7 @@ h1{color:#5865f2;margin-bottom:0.5rem}p{color:#a0a0b0}</style>
 		res.json({
 			token,
 			lobby: lobbyPayload(session),
-			player: {
-				id: session.playerId,
-				username: session.username,
-				steamId: session.steamId,
-				discordId: session.discordId,
-				discordUsername: session.discordUsername ?? null,
-				lobbyCode: session.lobbyCode ?? null,
-			},
+			player: playerPayload(session),
 		})
 	} catch (err) {
 		next(err)
@@ -232,12 +221,7 @@ router.post('/link/steam', authenticate, async (req, res, next) => {
 
 		res.json({
 			token,
-			player: {
-				id: session.playerId,
-				username: session.username,
-				steamId: session.steamId,
-				discordId: session.discordId,
-			},
+			player: playerPayload(session),
 		})
 	} catch (err) {
 		next(err)
@@ -258,14 +242,54 @@ router.post('/unlink/discord', authenticate, async (req, res, next) => {
 
 		res.json({
 			token,
-			player: {
-				id: session.playerId,
-				username: session.username,
-				steamId: session.steamId,
-				discordId: session.discordId ?? null,
-				discordUsername: session.discordUsername ?? null,
-				lobbyCode: session.lobbyCode ?? null,
-			},
+			player: playerPayload(session),
+		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+// --- Preferences ---
+
+router.post('/preferences/display-name', authenticate, async (req, res, next) => {
+	try {
+		const { useDiscordName } = req.body
+		if (typeof useDiscordName !== 'boolean') {
+			throw new AppError('Missing or invalid useDiscordName (boolean)', 400)
+		}
+
+		const { session, token } = await setUseDiscordName(req.player!.playerId, useDiscordName)
+
+		await mqttService.publishToPlayer(req.player!.playerId, 'account/display_name_changed', {
+			displayName: session.getDisplayName(),
+			useDiscordName: session.useDiscordName,
+		})
+
+		res.json({
+			token,
+			player: playerPayload(session),
+		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.post('/preferences/joker', authenticate, async (req, res, next) => {
+	try {
+		const { preferredJoker } = req.body
+		if (!preferredJoker || typeof preferredJoker !== 'string') {
+			throw new AppError('Missing or invalid preferredJoker (string)', 400)
+		}
+
+		const { session, token } = await setPreferredJoker(req.player!.playerId, preferredJoker)
+
+		await mqttService.publishToPlayer(req.player!.playerId, 'account/preferred_joker_changed', {
+			preferredJoker: session.preferredJoker,
+		})
+
+		res.json({
+			token,
+			player: playerPayload(session),
 		})
 	} catch (err) {
 		next(err)

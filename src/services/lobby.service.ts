@@ -84,7 +84,7 @@ export async function joinLobby(player: JwtPayload, code: string) {
 		type: 'player_joined',
 		lobbyCode: lobby.code,
 		playerId: player.playerId,
-		username: player.username,
+		username: session.getDisplayName(),
 		timestamp: new Date().toISOString(),
 	})
 
@@ -116,7 +116,7 @@ export async function leaveLobby(player: JwtPayload, code: string) {
 		type: 'player_left',
 		lobbyCode: lobby.code,
 		playerId: player.playerId,
-		username: player.username,
+		username: session.getDisplayName(),
 		timestamp: new Date().toISOString(),
 	})
 
@@ -171,7 +171,7 @@ export function getLobbyPlayers(code: string) {
 
 	return Array.from(lobby.players.values()).map((p) => ({
 		id: p.playerId,
-		username: p.username,
+		displayName: p.getDisplayName(),
 		isAway: isInGracePeriod(p.playerId),
 	}))
 }
