@@ -55,6 +55,8 @@ export interface LobbyEvent {
 		| 'lobby_closed'
 		| 'host_changed'
 		| 'metadata_changed'
+		| 'player_disconnected'
+		| 'player_reconnected'
 	lobbyCode: string
 	playerId?: string
 	username?: string

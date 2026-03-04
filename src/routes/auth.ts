@@ -18,6 +18,22 @@ import { issueRefreshToken, redeemRefreshToken } from '../services/refresh-token
 import { mqttService } from '../services/mqtt.service.js'
 import { env } from '../env.js'
 import { AppError } from '../utils/errors.js'
+import { getLobby } from '../state/index.js'
+import type { PlayerSession } from '../state/index.js'
+
+function lobbyPayload(session: PlayerSession) {
+	if (!session.lobbyCode) return undefined
+	const lobby = getLobby(session.lobbyCode)
+	if (!lobby) return undefined
+	return {
+		code: lobby.code,
+		modId: lobby.modId,
+		hostId: lobby.hostId,
+		maxPlayers: lobby.maxPlayers,
+		metadata: lobby.metadata,
+		isHost: lobby.hostId === session.playerId,
+	}
+}
 
 const router = Router()
 
@@ -53,11 +69,13 @@ router.post('/steam', async (req, res, next) => {
 		res.json({
 			token,
 			refreshToken,
+			lobby: lobbyPayload(session),
 			player: {
 				id: session.playerId,
 				username: session.username,
 				steamId: session.steamId ?? null,
 				discordId: session.discordId ?? null,
+				lobbyCode: session.lobbyCode ?? null,
 				isTemp: isTemp || undefined,
 			},
 		})
@@ -121,11 +139,13 @@ router.post('/refresh', async (req, res, next) => {
 		res.json({
 			token,
 			refreshToken: newRefreshToken,
+			lobby: lobbyPayload(session),
 			player: {
 				id: session.playerId,
 				username: session.username,
 				steamId: session.steamId,
 				discordId: session.discordId,
+				lobbyCode: session.lobbyCode ?? null,
 			},
 		})
 	} catch (err) {
@@ -176,11 +196,13 @@ h1{color:#5865f2;margin-bottom:0.5rem}p{color:#a0a0b0}</style>
 
 		res.json({
 			token,
+			lobby: lobbyPayload(session),
 			player: {
 				id: session.playerId,
 				username: session.username,
 				steamId: session.steamId,
 				discordId: session.discordId,
+				lobbyCode: session.lobbyCode ?? null,
 			},
 		})
 	} catch (err) {

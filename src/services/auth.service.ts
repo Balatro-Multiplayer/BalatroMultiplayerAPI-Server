@@ -14,6 +14,7 @@ import type {
 	SteamAuthResponse,
 } from '../types/index.js'
 import { AppError } from '../utils/errors.js'
+import { cancelGracePeriod } from './grace-period.service.js'
 import * as playerDb from './player.service.js'
 
 // --- Steam ---
@@ -50,6 +51,7 @@ export async function authenticateWithSteam(
 		if (env.NODE_ENV !== 'production') {
 			return authenticateAsTemp(username)
 		}
+		await cancelGracePeriod(session.playerId)
 		session.username = username
 		await playerDb.updateUsername(session.playerId, username)
 		return { session, token: signSessionJwt(session) }
@@ -128,6 +130,7 @@ export async function authenticateWithDiscord(
 ) {
 	let session = findByProvider('discord', discordId)
 	if (session) {
+		await cancelGracePeriod(session.playerId)
 		session.username = username
 		await playerDb.updateUsername(session.playerId, username)
 		return { session, token: signSessionJwt(session) }
@@ -158,6 +161,7 @@ export async function authenticateWithPlayerId(
 ) {
 	let session = getSession(playerId)
 	if (session) {
+		await cancelGracePeriod(session.playerId)
 		session.username = username
 		await playerDb.updateUsername(session.playerId, username)
 		return { session, token: signSessionJwt(session) }

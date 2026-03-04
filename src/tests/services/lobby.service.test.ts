@@ -199,8 +199,8 @@ describe('lobby.service', () => {
 			const players = getLobbyPlayers(lobby.code)
 			expect(players).toEqual(
 				expect.arrayContaining([
-					{ id: 'host1', username: 'Alice' },
-					{ id: 'guest1', username: 'Bob' },
+					{ id: 'host1', username: 'Alice', isAway: false },
+					{ id: 'guest1', username: 'Bob', isAway: false },
 				]),
 			)
 		})

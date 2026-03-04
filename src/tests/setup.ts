@@ -72,6 +72,10 @@ beforeEach(async () => {
 	const authService = await import('../services/auth.service.js')
 	authService.linkStateNonces.clear()
 
+	// Clear grace periods
+	const gracePeriod = await import('../services/grace-period.service.js')
+	gracePeriod.clearAllGracePeriods()
+
 	vi.clearAllMocks()
 
 	// Re-apply playerDb mock implementations (vi.restoreAllMocks in tests may reset them)

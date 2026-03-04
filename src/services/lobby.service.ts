@@ -8,6 +8,10 @@ import type { JwtPayload } from '../types/index.js'
 import { AppError } from '../utils/errors.js'
 import { generateLobbyCode } from '../utils/lobby-code.js'
 import { signJwt } from './auth.service.js'
+import {
+	cancelGracePeriodSilently,
+	isInGracePeriod,
+} from './grace-period.service.js'
 import { mqttService } from './mqtt.service.js'
 
 export async function createLobby(
@@ -88,6 +92,8 @@ export async function joinLobby(player: JwtPayload, code: string) {
 }
 
 export async function leaveLobby(player: JwtPayload, code: string) {
+	cancelGracePeriodSilently(player.playerId)
+
 	const session = getSession(player.playerId)
 	if (!session) {
 		throw new AppError('Player session not found', 401)
@@ -166,6 +172,7 @@ export function getLobbyPlayers(code: string) {
 	return Array.from(lobby.players.values()).map((p) => ({
 		id: p.playerId,
 		username: p.username,
+		isAway: isInGracePeriod(p.playerId),
 	}))
 }
 

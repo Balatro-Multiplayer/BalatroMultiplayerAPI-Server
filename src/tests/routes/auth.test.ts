@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
 import { createTestApp } from './app.js'
 import { env } from '../../env.js'
+import { lobbies, sessions } from '../../state/index.js'
+import { Lobby } from '../../state/lobby.js'
 
 const app = createTestApp()
 const originalNodeEnv = env.NODE_ENV
@@ -56,6 +58,63 @@ describe('POST /api/auth/steam', () => {
 		expect(res.body.player.id).toBeDefined()
 		expect(res.body.player.username).toBe('Alice')
 		expect(res.body.player.steamId).toBe('76561198012345')
+		expect(res.body.player.lobbyCode).toBeNull()
+		expect(res.body.lobby).toBeUndefined()
+	})
+
+	it('includes lobby data when player is in a lobby', async () => {
+		// Use production mode so authenticateWithSteam reuses the existing session
+		;(env as { NODE_ENV: string }).NODE_ENV = 'production'
+
+		const steamResponse = () =>
+			new Response(
+				JSON.stringify({
+					response: {
+						params: {
+							result: 'OK',
+							steamid: '76561198099999',
+							ownersteamid: '76561198099999',
+							vacbanned: false,
+							publisherbanned: false,
+						},
+					},
+				}),
+				{ status: 200 },
+			)
+		vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+			Promise.resolve(steamResponse()),
+		)
+
+		// First auth to create the session
+		const firstRes = await request(app)
+			.post('/api/auth/steam')
+			.send({ ticket: 'valid-hex', username: 'Reconnector' })
+
+		const playerId = firstRes.body.player.id
+
+		// Put the player into a lobby
+		const session = sessions.get(playerId)!
+		const lobby = new Lobby('RECON', 'test-mod', playerId)
+		lobby.addPlayer(session)
+		lobbies.set('RECON', lobby)
+
+		// Re-auth (simulates reconnect)
+		const res = await request(app)
+			.post('/api/auth/steam')
+			.send({ ticket: 'valid-hex', username: 'Reconnector' })
+
+		expect(res.status).toBe(200)
+		expect(res.body.player.lobbyCode).toBe('RECON')
+		expect(res.body.lobby).toBeDefined()
+		expect(res.body.lobby.code).toBe('RECON')
+		expect(res.body.lobby.modId).toBe('test-mod')
+		expect(res.body.lobby.hostId).toBe(playerId)
+		expect(res.body.lobby.isHost).toBe(true)
+
+		// Cleanup
+		lobby.removePlayer(playerId)
+		lobbies.delete('RECON')
+		;(env as { NODE_ENV: string }).NODE_ENV = originalNodeEnv
 	})
 
 	it('returns error for invalid Steam ticket', async () => {

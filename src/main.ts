@@ -4,6 +4,7 @@ import { pool } from './db/index.js'
 import { env } from './env.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import router from './routes/index.js'
+import { clearAllGracePeriods } from './services/grace-period.service.js'
 import { mqttService } from './services/mqtt.service.js'
 import { startSessionCleanup, stopSessionCleanup } from './state/index.js'
 
@@ -25,6 +26,7 @@ async function shutdown() {
 	console.log('[server] Shutting down gracefully...')
 
 	stopSessionCleanup()
+	clearAllGracePeriods()
 
 	if (server) {
 		await new Promise<void>((resolve) => {
