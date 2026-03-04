@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+	authenticateAsTemp,
 	authenticateWithSteam,
 	authenticateWithDiscord,
 	generateLinkState,
@@ -72,12 +73,16 @@ describe('auth.service', () => {
 			expect(decoded?.playerId).toBe(session.playerId)
 		})
 
-		it('reuses existing in-memory session on re-auth', async () => {
+		it('returns temp account for duplicate steam ID in dev mode', async () => {
 			const first = await authenticateWithSteam('steam1', 'Alice')
 			const second = await authenticateWithSteam('steam1', 'AliceV2')
 
-			expect(first.session).toBe(second.session)
-			expect(second.session.username).toBe('AliceV2')
+			expect(first.session).not.toBe(second.session)
+			expect(first.session.steamId).toBe('steam1')
+			expect(second.session.steamId).toBeUndefined()
+
+			const decoded = verifyJwt(second.token)
+			expect(decoded?.isTemp).toBe(true)
 		})
 
 		it('restores from DB when not in memory', async () => {
@@ -106,16 +111,13 @@ describe('auth.service', () => {
 			).rejects.toThrow('DB connection failed')
 		})
 
-		it('propagates DB errors from updateUsername', async () => {
-			// Create existing in-memory session
+		it('does not call updateUsername for duplicate steam in dev mode', async () => {
 			await authenticateWithSteam('steam1', 'Alice')
-			vi.mocked(playerDb.updateUsername).mockRejectedValueOnce(
-				new Error('DB write failed'),
-			)
+			vi.mocked(playerDb.updateUsername).mockClear()
 
-			await expect(
-				authenticateWithSteam('steam1', 'AliceV2'),
-			).rejects.toThrow('DB write failed')
+			await authenticateWithSteam('steam1', 'AliceV2')
+
+			expect(playerDb.updateUsername).not.toHaveBeenCalled()
 		})
 	})
 
@@ -249,6 +251,44 @@ describe('auth.service', () => {
 			await expect(
 				linkDiscordToPlayer(session.playerId, 'disc1'),
 			).rejects.toThrow('DB write failed')
+		})
+	})
+
+	describe('authenticateAsTemp', () => {
+		it('creates a session with random UUID and no providers', () => {
+			const { session, token } = authenticateAsTemp('DevUser')
+
+			expect(session.playerId).toBeDefined()
+			expect(session.username).toBe('DevUser')
+			expect(session.steamId).toBeUndefined()
+			expect(session.discordId).toBeUndefined()
+			expect(sessions.has(session.playerId)).toBe(true)
+
+			const decoded = verifyJwt(token)
+			expect(decoded?.playerId).toBe(session.playerId)
+			expect(decoded?.isTemp).toBe(true)
+		})
+
+		it('creates unique player IDs for each call', () => {
+			const first = authenticateAsTemp('Dev1')
+			const second = authenticateAsTemp('Dev2')
+
+			expect(first.session.playerId).not.toBe(second.session.playerId)
+		})
+
+		it('does not populate provider indexes', () => {
+			authenticateAsTemp('DevUser')
+
+			expect(steamIndex.size).toBe(0)
+			expect(discordIndex.size).toBe(0)
+		})
+
+		it('does not call any playerDb functions', () => {
+			authenticateAsTemp('DevUser')
+
+			expect(playerDb.createPlayer).not.toHaveBeenCalled()
+			expect(playerDb.updateUsername).not.toHaveBeenCalled()
+			expect(playerDb.findPlayerBySteamId).not.toHaveBeenCalled()
 		})
 	})
 

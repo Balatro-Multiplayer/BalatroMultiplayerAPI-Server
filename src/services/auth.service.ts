@@ -47,6 +47,9 @@ export async function authenticateWithSteam(
 ) {
 	let session = findByProvider('steam', steamId)
 	if (session) {
+		if (env.NODE_ENV !== 'production') {
+			return authenticateAsTemp(username)
+		}
 		session.username = username
 		await playerDb.updateUsername(session.playerId, username)
 		return { session, token: signSessionJwt(session) }
@@ -172,6 +175,18 @@ export async function authenticateWithPlayerId(
 	})
 	await playerDb.updateUsername(dbPlayer.id, username)
 	return { session, token: signSessionJwt(session) }
+}
+
+// --- Dev-mode temporary account ---
+
+export function authenticateAsTemp(username: string) {
+	const session = createSession(username)
+	const token = signJwt({
+		playerId: session.playerId,
+		username: session.username,
+		isTemp: true,
+	})
+	return { session, token }
 }
 
 // --- Linking ---

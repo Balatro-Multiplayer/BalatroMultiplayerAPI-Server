@@ -2,6 +2,7 @@ export interface JwtPayload {
 	playerId: string
 	username: string
 	lobbyCode?: string
+	isTemp?: boolean
 }
 
 export interface SteamAuthResponse {

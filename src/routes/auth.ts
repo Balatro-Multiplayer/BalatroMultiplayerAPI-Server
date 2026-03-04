@@ -2,6 +2,7 @@ import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
 import { authenticate } from '../middleware/authenticate.js'
 import {
+	authenticateAsTemp,
 	authenticateWithDiscord,
 	authenticateWithPlayerId,
 	authenticateWithSteam,
@@ -15,6 +16,7 @@ import {
 } from '../services/auth.service.js'
 import { issueRefreshToken, redeemRefreshToken } from '../services/refresh-token.service.js'
 import { mqttService } from '../services/mqtt.service.js'
+import { env } from '../env.js'
 import { AppError } from '../utils/errors.js'
 
 const router = Router()
@@ -25,6 +27,7 @@ const authRateLimiter = rateLimit({
 	standardHeaders: 'draft-7',
 	legacyHeaders: false,
 	message: { error: 'Too many auth requests, please try again later' },
+	skip: () => env.NODE_ENV !== 'production',
 })
 
 router.use(authRateLimiter)
@@ -44,7 +47,8 @@ router.post('/steam', async (req, res, next) => {
 
 		const { steamId } = await validateSteamTicket(ticket)
 		const { session, token } = await authenticateWithSteam(steamId, username)
-		const refreshToken = await issueRefreshToken(session.playerId)
+		const isTemp = !session.steamId
+		const refreshToken = isTemp ? null : await issueRefreshToken(session.playerId)
 
 		res.json({
 			token,
@@ -52,8 +56,39 @@ router.post('/steam', async (req, res, next) => {
 			player: {
 				id: session.playerId,
 				username: session.username,
-				steamId: session.steamId,
-				discordId: session.discordId,
+				steamId: session.steamId ?? null,
+				discordId: session.discordId ?? null,
+				isTemp: isTemp || undefined,
+			},
+		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.post('/dev', (req, res, next) => {
+	try {
+		if (env.NODE_ENV === 'production') {
+			res.status(404).json({ error: 'Not found' })
+			return
+		}
+
+		const { username } = req.body
+		if (!username || typeof username !== 'string') {
+			throw new AppError('Missing or invalid username', 400)
+		}
+
+		const { session, token } = authenticateAsTemp(username)
+
+		res.json({
+			token,
+			refreshToken: null,
+			player: {
+				id: session.playerId,
+				username: session.username,
+				steamId: null,
+				discordId: null,
+				isTemp: true,
 			},
 		})
 	} catch (err) {
