@@ -6,6 +6,7 @@ import {
 	findByProvider,
 	getSession,
 	linkProvider,
+	unlinkProvider,
 } from '../state/index.js'
 import type {
 	DiscordTokenResponse,
@@ -231,6 +232,18 @@ export async function linkDiscordToPlayer(playerId: string, discordId: string, d
 	linkProvider(session, 'discord', discordId)
 	if (discordUsername) session.discordUsername = discordUsername
 	await playerDb.linkDiscord(playerId, discordId, discordUsername)
+
+	return { session, token: signSessionJwt(session) }
+}
+
+export async function unlinkDiscordFromPlayer(playerId: string) {
+	const session = getSession(playerId)
+	if (!session) {
+		throw new AppError('Player session not found', 401)
+	}
+
+	unlinkProvider(session, 'discord')
+	await playerDb.unlinkDiscord(playerId)
 
 	return { session, token: signSessionJwt(session) }
 }

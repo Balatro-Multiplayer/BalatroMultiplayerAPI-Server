@@ -76,6 +76,13 @@ export async function linkDiscord(
 		.where(eq(players.id, playerId))
 }
 
+export async function unlinkDiscord(playerId: string): Promise<void> {
+	await db
+		.update(players)
+		.set({ discordId: null, discordUsername: null, updatedAt: new Date() })
+		.where(eq(players.id, playerId))
+}
+
 export async function updateDiscordUsername(
 	playerId: string,
 	discordUsername: string,

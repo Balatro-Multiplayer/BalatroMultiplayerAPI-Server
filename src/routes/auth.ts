@@ -10,6 +10,7 @@ import {
 	getDiscordAuthUrl,
 	linkDiscordToPlayer,
 	linkSteamToPlayer,
+	unlinkDiscordFromPlayer,
 	validateDiscordCode,
 	validateSteamTicket,
 	verifyLinkState,
@@ -247,6 +248,28 @@ router.post('/link/discord', authenticate, (req, res) => {
 	const state = generateLinkState(req.player!.playerId)
 	const url = getDiscordAuthUrl(state)
 	res.json({ url })
+})
+
+router.post('/unlink/discord', authenticate, async (req, res, next) => {
+	try {
+		const { session, token } = await unlinkDiscordFromPlayer(req.player!.playerId)
+
+		await mqttService.publishToPlayer(req.player!.playerId, 'account/discord_unlinked', {})
+
+		res.json({
+			token,
+			player: {
+				id: session.playerId,
+				username: session.username,
+				steamId: session.steamId,
+				discordId: session.discordId ?? null,
+				discordUsername: session.discordUsername ?? null,
+				lobbyCode: session.lobbyCode ?? null,
+			},
+		})
+	} catch (err) {
+		next(err)
+	}
 })
 
 export default router

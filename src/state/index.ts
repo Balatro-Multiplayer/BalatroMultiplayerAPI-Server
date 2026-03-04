@@ -44,6 +44,20 @@ export function linkProvider(
 	}
 }
 
+export function unlinkProvider(
+	session: PlayerSession,
+	provider: 'steam' | 'discord',
+): void {
+	if (provider === 'steam') {
+		if (session.steamId) steamIndex.delete(session.steamId)
+		session.steamId = undefined
+	} else {
+		if (session.discordId) discordIndex.delete(session.discordId)
+		session.discordId = undefined
+		session.discordUsername = undefined
+	}
+}
+
 export function getSession(playerId: string): PlayerSession | undefined {
 	return sessions.get(playerId)
 }
