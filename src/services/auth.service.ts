@@ -14,6 +14,7 @@ import type {
 	JwtPayload,
 	SteamAuthResponse,
 } from '../types/index.js'
+import { isValidJoker } from '../constants/jokers.js'
 import { AppError } from '../utils/errors.js'
 import { cancelGracePeriod } from './grace-period.service.js'
 import * as playerDb from './player.service.js'
@@ -275,6 +276,10 @@ export async function setPreferredJoker(playerId: string, value: string) {
 	const session = getSession(playerId)
 	if (!session) {
 		throw new AppError('Player session not found', 401)
+	}
+
+	if (!isValidJoker(value)) {
+		throw new AppError('Invalid joker ID', 400)
 	}
 
 	session.preferredJoker = value
