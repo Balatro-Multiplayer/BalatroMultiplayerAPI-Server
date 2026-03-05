@@ -54,6 +54,16 @@ export const ALL_VALID_JOKERS: ReadonlySet<string> = new Set([
 	...PRIVILEGED_JOKERS,
 ])
 
-export function isValidJoker(id: string): boolean {
-	return ALL_VALID_JOKERS.has(id)
+export const PRIVILEGE_JOKERS: ReadonlyMap<string, string> = new Map([
+	['bean', 'j_turtle_bean'],
+	['vagabond', 'j_vagabond'],
+	['sizaak', 'j_dusk'],
+])
+
+export function isValidJoker(id: string, privileges: string[] = []): boolean {
+	if (ALL_VALID_JOKERS.has(id)) return true
+	for (const priv of privileges) {
+		if (PRIVILEGE_JOKERS.get(priv) === id) return true
+	}
+	return false
 }

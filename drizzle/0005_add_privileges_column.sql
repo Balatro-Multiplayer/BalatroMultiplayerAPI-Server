@@ -1,0 +1,1 @@
+ALTER TABLE "players" ADD COLUMN "privileges" text[] DEFAULT '{}'::text[] NOT NULL;

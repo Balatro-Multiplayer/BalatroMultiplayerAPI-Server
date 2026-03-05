@@ -9,6 +9,7 @@ export interface PlayerRecord {
 	discordUsername: string | null
 	useDiscordName: boolean
 	preferredJoker: string
+	privileges: string[]
 	steamName: string
 }
 

@@ -1,0 +1,1 @@
+ALTER TABLE "players" ADD COLUMN "use_discord_name" boolean DEFAULT false NOT NULL;

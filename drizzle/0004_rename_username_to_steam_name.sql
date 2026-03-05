@@ -1,0 +1,1 @@
+ALTER TABLE "players" RENAME COLUMN "username" TO "steam_name";

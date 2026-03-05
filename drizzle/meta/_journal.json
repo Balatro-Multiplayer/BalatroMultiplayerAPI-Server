@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1771800849269,
+      "tag": "0000_chubby_darkhawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1772663621879,
+      "tag": "0001_fine_speed_demon",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772665864541,
+      "tag": "0002_wise_hellion",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1772666917128,
+      "tag": "0003_thick_doctor_octopus",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772841600000,
+      "tag": "0004_rename_username_to_steam_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1772928000000,
+      "tag": "0005_add_privileges_column",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1772928060000,
+      "tag": "0006_seed_privileged_players",
+      "breakpoints": true
+    }
+  ]
+}

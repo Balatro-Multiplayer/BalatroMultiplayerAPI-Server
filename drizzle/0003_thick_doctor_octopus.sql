@@ -1,0 +1,1 @@
+ALTER TABLE "players" ADD COLUMN "preferred_joker" varchar(64) DEFAULT 'j_joker' NOT NULL;

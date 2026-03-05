@@ -8,6 +8,7 @@ export class PlayerSession {
 	public discordUsername?: string
 	public useDiscordName: boolean
 	public preferredJoker: string
+	public privileges: string[]
 	public lobbyCode?: string
 	public readonly connectedAt: Date
 
@@ -20,6 +21,7 @@ export class PlayerSession {
 			discordUsername?: string
 			useDiscordName?: boolean
 			preferredJoker?: string
+			privileges?: string[]
 		},
 	) {
 		this.playerId = opts?.id ?? randomUUID()
@@ -29,6 +31,7 @@ export class PlayerSession {
 		this.discordUsername = opts?.discordUsername
 		this.useDiscordName = opts?.useDiscordName ?? false
 		this.preferredJoker = opts?.preferredJoker ?? 'j_joker'
+		this.privileges = opts?.privileges ?? []
 		this.connectedAt = new Date()
 	}
 

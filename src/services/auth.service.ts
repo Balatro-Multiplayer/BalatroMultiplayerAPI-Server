@@ -67,6 +67,7 @@ export async function authenticateWithSteam(
 			discordUsername: dbPlayer.discordUsername ?? undefined,
 			useDiscordName: dbPlayer.useDiscordName,
 			preferredJoker: dbPlayer.preferredJoker,
+			privileges: dbPlayer.privileges,
 		})
 		await playerDb.updateSteamName(dbPlayer.id, steamName)
 		return { session, token: signSessionJwt(session) }
@@ -151,6 +152,7 @@ export async function authenticateWithDiscord(
 			discordUsername: discordName,
 			useDiscordName: dbPlayer.useDiscordName,
 			preferredJoker: dbPlayer.preferredJoker,
+			privileges: dbPlayer.privileges,
 		})
 		await playerDb.updateSteamName(dbPlayer.id, discordName)
 		await playerDb.updateDiscordUsername(dbPlayer.id, discordName)
@@ -189,6 +191,7 @@ export async function authenticateWithPlayerId(
 		discordUsername: dbPlayer.discordUsername ?? undefined,
 		useDiscordName: dbPlayer.useDiscordName,
 		preferredJoker: dbPlayer.preferredJoker,
+		privileges: dbPlayer.privileges,
 	})
 	await playerDb.updateSteamName(dbPlayer.id, steamName)
 	return { session, token: signSessionJwt(session) }
@@ -278,7 +281,7 @@ export async function setPreferredJoker(playerId: string, value: string) {
 		throw new AppError('Player session not found', 401)
 	}
 
-	if (!isValidJoker(value)) {
+	if (!isValidJoker(value, session.privileges)) {
 		throw new AppError('Invalid joker ID', 400)
 	}
 
