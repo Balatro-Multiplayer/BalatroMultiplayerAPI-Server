@@ -41,7 +41,7 @@ function lobbyPayload(session: PlayerSession) {
 function playerPayload(session: PlayerSession, extra?: { isTemp?: boolean }) {
 	return {
 		id: session.playerId,
-		username: session.username,
+		steamName: session.steamName,
 		displayName: session.getDisplayName(),
 		useDiscordName: session.useDiscordName,
 		preferredJoker: session.preferredJoker,
@@ -70,17 +70,17 @@ router.use(authRateLimiter)
 
 router.post('/steam', async (req, res, next) => {
 	try {
-		const { ticket, username } = req.body
+		const { ticket, steamName } = req.body
 
 		if (!ticket || typeof ticket !== 'string') {
 			throw new AppError('Missing or invalid Steam ticket', 400)
 		}
-		if (!username || typeof username !== 'string') {
-			throw new AppError('Missing or invalid username', 400)
+		if (!steamName || typeof steamName !== 'string') {
+			throw new AppError('Missing or invalid steamName', 400)
 		}
 
 		const { steamId } = await validateSteamTicket(ticket)
-		const { session, token } = await authenticateWithSteam(steamId, username)
+		const { session, token } = await authenticateWithSteam(steamId, steamName)
 		const isTemp = !session.steamId
 		const refreshToken = isTemp ? null : await issueRefreshToken(session.playerId)
 
@@ -102,12 +102,12 @@ router.post('/dev', (req, res, next) => {
 			return
 		}
 
-		const { username } = req.body
-		if (!username || typeof username !== 'string') {
-			throw new AppError('Missing or invalid username', 400)
+		const { steamName } = req.body
+		if (!steamName || typeof steamName !== 'string') {
+			throw new AppError('Missing or invalid steamName', 400)
 		}
 
-		const { session, token } = authenticateAsTemp(username)
+		const { session, token } = authenticateAsTemp(steamName)
 
 		res.json({
 			token,
@@ -121,13 +121,13 @@ router.post('/dev', (req, res, next) => {
 
 router.post('/refresh', async (req, res, next) => {
 	try {
-		const { refreshToken, username } = req.body
+		const { refreshToken, steamName } = req.body
 
 		if (!refreshToken || typeof refreshToken !== 'string') {
 			throw new AppError('Missing or invalid refresh token', 400)
 		}
-		if (!username || typeof username !== 'string') {
-			throw new AppError('Missing or invalid username', 400)
+		if (!steamName || typeof steamName !== 'string') {
+			throw new AppError('Missing or invalid steamName', 400)
 		}
 
 		const playerId = await redeemRefreshToken(refreshToken)
@@ -137,7 +137,7 @@ router.post('/refresh', async (req, res, next) => {
 
 		const { session, token } = await authenticateWithPlayerId(
 			playerId,
-			username,
+			steamName,
 		)
 		const newRefreshToken = await issueRefreshToken(session.playerId)
 
@@ -165,18 +165,18 @@ router.get('/discord/callback', async (req, res, next) => {
 		}
 
 		const state = req.query.state as string | undefined
-		const { discordId, username } = await validateDiscordCode(code)
+		const { discordId, discordName } = await validateDiscordCode(code)
 
 		// If state is present, this is a link operation
 		if (state) {
 			const playerId = verifyLinkState(state)
 			if (playerId) {
-				await linkDiscordToPlayer(playerId, discordId, username)
+				await linkDiscordToPlayer(playerId, discordId, discordName)
 
 				// Notify game client via MQTT
 				await mqttService.publishToPlayer(playerId, 'account/discord_linked', {
 					discordId,
-					username,
+					discordName,
 				})
 
 				res.setHeader('Content-Type', 'text/html')
@@ -191,7 +191,7 @@ h1{color:#5865f2;margin-bottom:0.5rem}p{color:#a0a0b0}</style>
 		}
 
 		// Otherwise, normal auth
-		const { session, token } = await authenticateWithDiscord(discordId, username)
+		const { session, token } = await authenticateWithDiscord(discordId, discordName)
 
 		res.json({
 			token,

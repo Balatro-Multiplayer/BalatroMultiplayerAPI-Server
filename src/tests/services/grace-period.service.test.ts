@@ -13,10 +13,10 @@ import { createSession, getLobby, lobbies } from '../../state/index.js'
 import { Lobby } from '../../state/lobby.js'
 
 function setupLobbyWithPlayers(
-	...players: { id: string; username: string }[]
+	...players: { id: string; steamName: string }[]
 ): Lobby {
 	const [host, ...guests] = players
-	const sessions = players.map((p) => createSession(p.username, { id: p.id }))
+	const sessions = players.map((p) => createSession(p.steamName, { id: p.id }))
 
 	const lobby = new Lobby('TESTLB', 'test-mod', host.id)
 	for (const session of sessions) {
@@ -35,8 +35,8 @@ describe('grace-period.service', () => {
 	describe('startGracePeriod', () => {
 		it('publishes player_disconnected event', async () => {
 			setupLobbyWithPlayers(
-				{ id: 'host1', username: 'Alice' },
-				{ id: 'player1', username: 'Bob' },
+				{ id: 'host1', steamName: 'Alice' },
+				{ id: 'player1', steamName: 'Bob' },
 			)
 
 			await startGracePeriod('player1')
@@ -46,7 +46,7 @@ describe('grace-period.service', () => {
 				expect.objectContaining({
 					type: 'player_disconnected',
 					playerId: 'player1',
-					username: 'Bob',
+					displayName: 'Bob',
 				}),
 			)
 			expect(isInGracePeriod('player1')).toBe(true)
@@ -69,8 +69,8 @@ describe('grace-period.service', () => {
 
 		it('is idempotent — starting twice does not duplicate', async () => {
 			setupLobbyWithPlayers(
-				{ id: 'host1', username: 'Alice' },
-				{ id: 'player1', username: 'Bob' },
+				{ id: 'host1', steamName: 'Alice' },
+				{ id: 'player1', steamName: 'Bob' },
 			)
 
 			await startGracePeriod('player1')
@@ -81,8 +81,8 @@ describe('grace-period.service', () => {
 
 		it('transfers host immediately when host disconnects', async () => {
 			setupLobbyWithPlayers(
-				{ id: 'host1', username: 'Alice' },
-				{ id: 'player1', username: 'Bob' },
+				{ id: 'host1', steamName: 'Alice' },
+				{ id: 'player1', steamName: 'Bob' },
 			)
 
 			await startGracePeriod('host1')
@@ -107,7 +107,7 @@ describe('grace-period.service', () => {
 		})
 
 		it('does not transfer host if no non-away players available', async () => {
-			setupLobbyWithPlayers({ id: 'host1', username: 'Alice' })
+			setupLobbyWithPlayers({ id: 'host1', steamName: 'Alice' })
 
 			await startGracePeriod('host1')
 
@@ -117,9 +117,9 @@ describe('grace-period.service', () => {
 
 		it('skips away players when finding next host', async () => {
 			setupLobbyWithPlayers(
-				{ id: 'host1', username: 'Alice' },
-				{ id: 'player1', username: 'Bob' },
-				{ id: 'player2', username: 'Charlie' },
+				{ id: 'host1', steamName: 'Alice' },
+				{ id: 'player1', steamName: 'Bob' },
+				{ id: 'player2', steamName: 'Charlie' },
 			)
 
 			// Put player1 in grace period first
@@ -137,8 +137,8 @@ describe('grace-period.service', () => {
 	describe('cancelGracePeriod', () => {
 		it('publishes player_reconnected event', async () => {
 			setupLobbyWithPlayers(
-				{ id: 'host1', username: 'Alice' },
-				{ id: 'player1', username: 'Bob' },
+				{ id: 'host1', steamName: 'Alice' },
+				{ id: 'player1', steamName: 'Bob' },
 			)
 
 			await startGracePeriod('player1')
@@ -153,7 +153,7 @@ describe('grace-period.service', () => {
 				expect.objectContaining({
 					type: 'player_reconnected',
 					playerId: 'player1',
-					username: 'Bob',
+					displayName: 'Bob',
 				}),
 			)
 		})
@@ -167,8 +167,8 @@ describe('grace-period.service', () => {
 	describe('expireGracePeriod', () => {
 		it('removes player from lobby and publishes player_left', async () => {
 			setupLobbyWithPlayers(
-				{ id: 'host1', username: 'Alice' },
-				{ id: 'player1', username: 'Bob' },
+				{ id: 'host1', steamName: 'Alice' },
+				{ id: 'player1', steamName: 'Bob' },
 			)
 
 			await startGracePeriod('player1')
@@ -194,7 +194,7 @@ describe('grace-period.service', () => {
 		})
 
 		it('closes lobby when last grace period expires', async () => {
-			setupLobbyWithPlayers({ id: 'host1', username: 'Alice' })
+			setupLobbyWithPlayers({ id: 'host1', steamName: 'Alice' })
 
 			await startGracePeriod('host1')
 			vi.mocked(mqttService.publishEvent).mockClear()
@@ -215,9 +215,9 @@ describe('grace-period.service', () => {
 
 		it('transfers host if expired player was still host', async () => {
 			setupLobbyWithPlayers(
-				{ id: 'host1', username: 'Alice' },
-				{ id: 'player1', username: 'Bob' },
-				{ id: 'player2', username: 'Charlie' },
+				{ id: 'host1', steamName: 'Alice' },
+				{ id: 'player1', steamName: 'Bob' },
+				{ id: 'player2', steamName: 'Charlie' },
 			)
 
 			// Both disconnect, host first
@@ -241,8 +241,8 @@ describe('grace-period.service', () => {
 	describe('cancelGracePeriodSilently', () => {
 		it('clears timer without publishing events', async () => {
 			setupLobbyWithPlayers(
-				{ id: 'host1', username: 'Alice' },
-				{ id: 'player1', username: 'Bob' },
+				{ id: 'host1', steamName: 'Alice' },
+				{ id: 'player1', steamName: 'Bob' },
 			)
 
 			await startGracePeriod('player1')
@@ -263,9 +263,9 @@ describe('grace-period.service', () => {
 	describe('clearAllGracePeriods', () => {
 		it('clears all active grace periods', async () => {
 			setupLobbyWithPlayers(
-				{ id: 'host1', username: 'Alice' },
-				{ id: 'player1', username: 'Bob' },
-				{ id: 'player2', username: 'Charlie' },
+				{ id: 'host1', steamName: 'Alice' },
+				{ id: 'player1', steamName: 'Bob' },
+				{ id: 'player2', steamName: 'Charlie' },
 			)
 
 			await startGracePeriod('player1')

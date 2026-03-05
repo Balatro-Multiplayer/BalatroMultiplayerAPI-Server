@@ -56,7 +56,7 @@ export class Lobby {
 			metadata: this.metadata,
 			players: Array.from(this.players.values()).map((p) => ({
 				id: p.playerId,
-				username: p.username,
+				displayName: p.getDisplayName(),
 			})),
 		}
 	}

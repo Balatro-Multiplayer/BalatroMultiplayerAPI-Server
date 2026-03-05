@@ -6,9 +6,9 @@ import { createSession } from '../../state/index.js'
 
 const app = createTestApp()
 
-function authHeader(playerId: string, username: string, lobbyCode?: string) {
-	createSession(username, { id: playerId })
-	const token = signJwt({ playerId, username, lobbyCode })
+function authHeader(playerId: string, steamName: string, lobbyCode?: string) {
+	createSession(steamName, { id: playerId })
+	const token = signJwt({ playerId, steamName, lobbyCode })
 	return `Bearer ${token}`
 }
 
@@ -189,8 +189,8 @@ describe('lobby routes', () => {
 			expect(playersRes.body.players).toHaveLength(2)
 			expect(playersRes.body.players).toEqual(
 				expect.arrayContaining([
-					expect.objectContaining({ id: 'host1', username: 'Alice' }),
-					expect.objectContaining({ id: 'guest1', username: 'Bob' }),
+					expect.objectContaining({ id: 'host1', displayName: 'Alice' }),
+					expect.objectContaining({ id: 'guest1', displayName: 'Bob' }),
 				]),
 			)
 		})

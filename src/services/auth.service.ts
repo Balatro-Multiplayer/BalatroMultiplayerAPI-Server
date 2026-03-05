@@ -46,21 +46,21 @@ export async function validateSteamTicket(
 
 export async function authenticateWithSteam(
 	steamId: string,
-	username: string,
+	steamName: string,
 ) {
 	let session = findByProvider('steam', steamId)
 	if (session) {
 		if (env.NODE_ENV !== 'production') {
-			return authenticateAsTemp(username)
+			return authenticateAsTemp(steamName)
 		}
 		await cancelGracePeriod(session.playerId)
-		session.username = username
-		await playerDb.updateUsername(session.playerId, username)
+		session.steamName = steamName
+		await playerDb.updateSteamName(session.playerId, steamName)
 		return { session, token: signSessionJwt(session) }
 	}
 	const dbPlayer = await playerDb.findPlayerBySteamId(steamId)
 	if (dbPlayer) {
-		session = createSession(username, {
+		session = createSession(steamName, {
 			id: dbPlayer.id,
 			steamId: dbPlayer.steamId ?? undefined,
 			discordId: dbPlayer.discordId ?? undefined,
@@ -68,12 +68,12 @@ export async function authenticateWithSteam(
 			useDiscordName: dbPlayer.useDiscordName,
 			preferredJoker: dbPlayer.preferredJoker,
 		})
-		await playerDb.updateUsername(dbPlayer.id, username)
+		await playerDb.updateSteamName(dbPlayer.id, steamName)
 		return { session, token: signSessionJwt(session) }
 	}
 
-	session = createSession(username, { steamId })
-	await playerDb.createPlayer({ id: session.playerId, username, steamId })
+	session = createSession(steamName, { steamId })
+	await playerDb.createPlayer({ id: session.playerId, steamName, steamId })
 
 	return { session, token: signSessionJwt(session) }
 }
@@ -93,7 +93,7 @@ export function getDiscordAuthUrl(state?: string): string {
 
 export async function validateDiscordCode(
 	code: string,
-): Promise<{ discordId: string; username: string }> {
+): Promise<{ discordId: string; discordName: string }> {
 	const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -124,41 +124,41 @@ export async function validateDiscordCode(
 
 	return {
 		discordId: user.id,
-		username: user.global_name ?? user.username,
+		discordName: user.global_name ?? user.username,
 	}
 }
 
 export async function authenticateWithDiscord(
 	discordId: string,
-	username: string,
+	discordName: string,
 ) {
 	let session = findByProvider('discord', discordId)
 	if (session) {
 		await cancelGracePeriod(session.playerId)
-		session.username = username
-		session.discordUsername = username
-		await playerDb.updateUsername(session.playerId, username)
-		await playerDb.updateDiscordUsername(session.playerId, username)
+		session.steamName = discordName
+		session.discordUsername = discordName
+		await playerDb.updateSteamName(session.playerId, discordName)
+		await playerDb.updateDiscordUsername(session.playerId, discordName)
 		return { session, token: signSessionJwt(session) }
 	}
 
 	const dbPlayer = await playerDb.findPlayerByDiscordId(discordId)
 	if (dbPlayer) {
-		session = createSession(username, {
+		session = createSession(discordName, {
 			id: dbPlayer.id,
 			steamId: dbPlayer.steamId ?? undefined,
 			discordId: dbPlayer.discordId ?? undefined,
-			discordUsername: username,
+			discordUsername: discordName,
 			useDiscordName: dbPlayer.useDiscordName,
 			preferredJoker: dbPlayer.preferredJoker,
 		})
-		await playerDb.updateUsername(dbPlayer.id, username)
-		await playerDb.updateDiscordUsername(dbPlayer.id, username)
+		await playerDb.updateSteamName(dbPlayer.id, discordName)
+		await playerDb.updateDiscordUsername(dbPlayer.id, discordName)
 		return { session, token: signSessionJwt(session) }
 	}
 
-	session = createSession(username, { discordId, discordUsername: username })
-	await playerDb.createPlayer({ id: session.playerId, username, discordId })
+	session = createSession(discordName, { discordId, discordUsername: discordName })
+	await playerDb.createPlayer({ id: session.playerId, steamName: discordName, discordId })
 
 	return { session, token: signSessionJwt(session) }
 }
@@ -167,13 +167,13 @@ export async function authenticateWithDiscord(
 
 export async function authenticateWithPlayerId(
 	playerId: string,
-	username: string,
+	steamName: string,
 ) {
 	let session = getSession(playerId)
 	if (session) {
 		await cancelGracePeriod(session.playerId)
-		session.username = username
-		await playerDb.updateUsername(session.playerId, username)
+		session.steamName = steamName
+		await playerDb.updateSteamName(session.playerId, steamName)
 		return { session, token: signSessionJwt(session) }
 	}
 
@@ -182,7 +182,7 @@ export async function authenticateWithPlayerId(
 		throw new AppError('Player not found', 401)
 	}
 
-	session = createSession(username, {
+	session = createSession(steamName, {
 		id: dbPlayer.id,
 		steamId: dbPlayer.steamId ?? undefined,
 		discordId: dbPlayer.discordId ?? undefined,
@@ -190,17 +190,17 @@ export async function authenticateWithPlayerId(
 		useDiscordName: dbPlayer.useDiscordName,
 		preferredJoker: dbPlayer.preferredJoker,
 	})
-	await playerDb.updateUsername(dbPlayer.id, username)
+	await playerDb.updateSteamName(dbPlayer.id, steamName)
 	return { session, token: signSessionJwt(session) }
 }
 
 // --- Dev-mode temporary account ---
 
-export function authenticateAsTemp(username: string) {
-	const session = createSession(username)
+export function authenticateAsTemp(steamName: string) {
+	const session = createSession(steamName)
 	const token = signJwt({
 		playerId: session.playerId,
-		username: session.username,
+		steamName: session.steamName,
 		isTemp: true,
 	})
 	return { session, token }
@@ -353,12 +353,12 @@ export function verifyLinkState(state: string): string | null {
 
 function signSessionJwt(session: {
 	playerId: string
-	username: string
+	steamName: string
 	lobbyCode?: string
 }): string {
 	return signJwt({
 		playerId: session.playerId,
-		username: session.username,
+		steamName: session.steamName,
 		lobbyCode: session.lobbyCode,
 	})
 }

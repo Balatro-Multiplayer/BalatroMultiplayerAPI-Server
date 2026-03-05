@@ -9,7 +9,7 @@ export interface PlayerRecord {
 	discordUsername: string | null
 	useDiscordName: boolean
 	preferredJoker: string
-	username: string
+	steamName: string
 }
 
 export async function findPlayerBySteamId(
@@ -41,7 +41,7 @@ export async function findPlayerById(
 
 export async function createPlayer(data: {
 	id: string
-	username: string
+	steamName: string
 	steamId?: string
 	discordId?: string
 }): Promise<PlayerRecord> {
@@ -49,7 +49,7 @@ export async function createPlayer(data: {
 		.insert(players)
 		.values({
 			id: data.id,
-			username: data.username,
+			steamName: data.steamName,
 			steamId: data.steamId ?? null,
 			discordId: data.discordId ?? null,
 		})
@@ -115,12 +115,12 @@ export async function updatePreferredJoker(
 		.where(eq(players.id, playerId))
 }
 
-export async function updateUsername(
+export async function updateSteamName(
 	playerId: string,
-	username: string,
+	steamName: string,
 ): Promise<void> {
 	await db
 		.update(players)
-		.set({ username, updatedAt: new Date() })
+		.set({ steamName, updatedAt: new Date() })
 		.where(eq(players.id, playerId))
 }

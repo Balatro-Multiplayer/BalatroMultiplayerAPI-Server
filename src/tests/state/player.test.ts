@@ -9,9 +9,9 @@ describe('PlayerSession', () => {
 		)
 	})
 
-	it('initializes with username', () => {
+	it('initializes with steam name', () => {
 		const session = new PlayerSession('Alice')
-		expect(session.username).toBe('Alice')
+		expect(session.steamName).toBe('Alice')
 	})
 
 	it('accepts optional steamId and discordId', () => {

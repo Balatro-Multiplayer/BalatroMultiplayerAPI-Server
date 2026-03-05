@@ -24,7 +24,7 @@ describe('EMQX webhook routes', () => {
 
 		it('allows player with valid JWT and session', async () => {
 			createSession('Alice', { id: 'steam1' })
-			const token = signJwt({ playerId: 'steam1', username: 'Alice' })
+			const token = signJwt({ playerId: 'steam1', steamName: 'Alice' })
 
 			const res = await request(app)
 				.post('/emqx/auth')

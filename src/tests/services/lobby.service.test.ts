@@ -12,9 +12,9 @@ import { createSession, lobbies, sessions } from '../../state/index.js'
 import type { JwtPayload } from '../../types/index.js'
 import { verifyJwt } from '../../services/auth.service.js'
 
-function makePlayer(id: string, username: string): JwtPayload {
-	createSession(username, { id })
-	return { playerId: id, username }
+function makePlayer(id: string, steamName: string): JwtPayload {
+	createSession(steamName, { id })
+	return { playerId: id, steamName }
 }
 
 describe('lobby.service', () => {
@@ -34,7 +34,7 @@ describe('lobby.service', () => {
 		})
 
 		it('throws if player session does not exist', async () => {
-			const player = { playerId: 'nobody', username: 'Ghost' }
+			const player = { playerId: 'nobody', steamName: 'Ghost' }
 			await expect(createLobby(player, 'mod1')).rejects.toThrow(
 				'Player session not found',
 			)
@@ -199,8 +199,8 @@ describe('lobby.service', () => {
 			const players = getLobbyPlayers(lobby.code)
 			expect(players).toEqual(
 				expect.arrayContaining([
-					{ id: 'host1', username: 'Alice', isAway: false },
-					{ id: 'guest1', username: 'Bob', isAway: false },
+					{ id: 'host1', displayName: 'Alice', isAway: false },
+					{ id: 'guest1', displayName: 'Bob', isAway: false },
 				]),
 			)
 		})

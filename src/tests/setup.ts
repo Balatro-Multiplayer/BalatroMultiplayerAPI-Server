@@ -48,11 +48,15 @@ vi.mock('../services/player.service.js', () => ({
 		id: 'mock-id',
 		steamId: null,
 		discordId: null,
-		username: 'mock',
+		steamName: 'mock',
 	}),
 	linkSteam: vi.fn().mockResolvedValue(undefined),
 	linkDiscord: vi.fn().mockResolvedValue(undefined),
-	updateUsername: vi.fn().mockResolvedValue(undefined),
+	unlinkDiscord: vi.fn().mockResolvedValue(undefined),
+	updateSteamName: vi.fn().mockResolvedValue(undefined),
+	updateDiscordUsername: vi.fn().mockResolvedValue(undefined),
+	updateUseDiscordName: vi.fn().mockResolvedValue(undefined),
+	updatePreferredJoker: vi.fn().mockResolvedValue(undefined),
 }))
 
 // Reset in-memory state between tests
@@ -87,9 +91,13 @@ beforeEach(async () => {
 		id: 'mock-id',
 		steamId: null,
 		discordId: null,
-		username: 'mock',
+		steamName: 'mock',
 	})
 	vi.mocked(playerDb.linkSteam).mockResolvedValue(undefined)
 	vi.mocked(playerDb.linkDiscord).mockResolvedValue(undefined)
-	vi.mocked(playerDb.updateUsername).mockResolvedValue(undefined)
+	vi.mocked(playerDb.unlinkDiscord).mockResolvedValue(undefined)
+	vi.mocked(playerDb.updateSteamName).mockResolvedValue(undefined)
+	vi.mocked(playerDb.updateDiscordUsername).mockResolvedValue(undefined)
+	vi.mocked(playerDb.updateUseDiscordName).mockResolvedValue(undefined)
+	vi.mocked(playerDb.updatePreferredJoker).mockResolvedValue(undefined)
 })

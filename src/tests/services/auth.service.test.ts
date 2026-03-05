@@ -24,7 +24,7 @@ import * as playerDb from '../../services/player.service.js'
 describe('auth.service', () => {
 	describe('signJwt / verifyJwt', () => {
 		it('signs and verifies a JWT round-trip', () => {
-			const payload = { playerId: 'p1', username: 'Alice' }
+			const payload = { playerId: 'p1', steamName: 'Alice' }
 			const token = signJwt(payload)
 
 			expect(typeof token).toBe('string')
@@ -37,7 +37,7 @@ describe('auth.service', () => {
 		it('includes lobbyCode when provided', () => {
 			const payload = {
 				playerId: 'p1',
-				username: 'Alice',
+				steamName: 'Alice',
 				lobbyCode: 'ABCDE',
 			}
 			const token = signJwt(payload)
@@ -50,7 +50,7 @@ describe('auth.service', () => {
 		})
 
 		it('returns null for tampered token', () => {
-			const token = signJwt({ playerId: 'p1', username: 'Alice' })
+			const token = signJwt({ playerId: 'p1', steamName: 'Alice' })
 			const tampered = `${token}x`
 			expect(verifyJwt(tampered)).toBeNull()
 		})
@@ -64,7 +64,7 @@ describe('auth.service', () => {
 			)
 
 			expect(session.playerId).toBeDefined()
-			expect(session.username).toBe('Alice')
+			expect(session.steamName).toBe('Alice')
 			expect(session.steamId).toBe('steam1')
 			expect(sessions.has(session.playerId)).toBe(true)
 			expect(findByProvider('steam', 'steam1')).toBe(session)
@@ -90,7 +90,7 @@ describe('auth.service', () => {
 				id: 'db-player-id',
 				steamId: 'steam1',
 				discordId: 'disc1',
-				username: 'OldName',
+				steamName: 'OldName',
 			})
 
 			const { session } = await authenticateWithSteam('steam1', 'Alice')
@@ -98,7 +98,7 @@ describe('auth.service', () => {
 			expect(session.playerId).toBe('db-player-id')
 			expect(session.steamId).toBe('steam1')
 			expect(session.discordId).toBe('disc1')
-			expect(session.username).toBe('Alice')
+			expect(session.steamName).toBe('Alice')
 		})
 
 		it('propagates DB errors from createPlayer', async () => {
@@ -111,13 +111,13 @@ describe('auth.service', () => {
 			).rejects.toThrow('DB connection failed')
 		})
 
-		it('does not call updateUsername for duplicate steam in dev mode', async () => {
+		it('does not call updateSteamName for duplicate steam in dev mode', async () => {
 			await authenticateWithSteam('steam1', 'Alice')
-			vi.mocked(playerDb.updateUsername).mockClear()
+			vi.mocked(playerDb.updateSteamName).mockClear()
 
 			await authenticateWithSteam('steam1', 'AliceV2')
 
-			expect(playerDb.updateUsername).not.toHaveBeenCalled()
+			expect(playerDb.updateSteamName).not.toHaveBeenCalled()
 		})
 	})
 
@@ -129,7 +129,7 @@ describe('auth.service', () => {
 			)
 
 			expect(session.playerId).toBeDefined()
-			expect(session.username).toBe('Bob')
+			expect(session.steamName).toBe('Bob')
 			expect(session.discordId).toBe('disc1')
 			expect(findByProvider('discord', 'disc1')).toBe(session)
 
@@ -142,7 +142,7 @@ describe('auth.service', () => {
 			const second = await authenticateWithDiscord('disc1', 'BobV2')
 
 			expect(first.session).toBe(second.session)
-			expect(second.session.username).toBe('BobV2')
+			expect(second.session.steamName).toBe('BobV2')
 		})
 
 		it('restores from DB when not in memory', async () => {
@@ -150,7 +150,7 @@ describe('auth.service', () => {
 				id: 'db-player-id',
 				steamId: 'steam1',
 				discordId: 'disc1',
-				username: 'OldName',
+				steamName: 'OldName',
 			})
 
 			const { session } = await authenticateWithDiscord('disc1', 'Bob')
@@ -259,7 +259,7 @@ describe('auth.service', () => {
 			const { session, token } = authenticateAsTemp('DevUser')
 
 			expect(session.playerId).toBeDefined()
-			expect(session.username).toBe('DevUser')
+			expect(session.steamName).toBe('DevUser')
 			expect(session.steamId).toBeUndefined()
 			expect(session.discordId).toBeUndefined()
 			expect(sessions.has(session.playerId)).toBe(true)
@@ -287,7 +287,7 @@ describe('auth.service', () => {
 			authenticateAsTemp('DevUser')
 
 			expect(playerDb.createPlayer).not.toHaveBeenCalled()
-			expect(playerDb.updateUsername).not.toHaveBeenCalled()
+			expect(playerDb.updateSteamName).not.toHaveBeenCalled()
 			expect(playerDb.findPlayerBySteamId).not.toHaveBeenCalled()
 		})
 	})
@@ -379,7 +379,7 @@ describe('auth.service', () => {
 		it('returns null for a regular JWT (wrong purpose)', () => {
 			const regularToken = signJwt({
 				playerId: 'player-123',
-				username: 'Alice',
+				steamName: 'Alice',
 			})
 			expect(verifyLinkState(regularToken)).toBeNull()
 		})

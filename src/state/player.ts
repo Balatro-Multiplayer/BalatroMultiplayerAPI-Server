@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 export class PlayerSession {
 	public readonly playerId: string
-	public username: string
+	public steamName: string
 	public steamId?: string
 	public discordId?: string
 	public discordUsername?: string
@@ -12,7 +12,7 @@ export class PlayerSession {
 	public readonly connectedAt: Date
 
 	constructor(
-		username: string,
+		steamName: string,
 		opts?: {
 			id?: string
 			steamId?: string
@@ -23,7 +23,7 @@ export class PlayerSession {
 		},
 	) {
 		this.playerId = opts?.id ?? randomUUID()
-		this.username = username
+		this.steamName = steamName
 		this.steamId = opts?.steamId
 		this.discordId = opts?.discordId
 		this.discordUsername = opts?.discordUsername
@@ -36,6 +36,6 @@ export class PlayerSession {
 		if (this.useDiscordName && this.discordUsername) {
 			return this.discordUsername
 		}
-		return this.username
+		return this.steamName
 	}
 }

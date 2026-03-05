@@ -19,7 +19,7 @@ describe('state helpers', () => {
 		it('creates a session with a generated ID', () => {
 			const session = createSession('Alice', { steamId: 'steam1' })
 			expect(session.playerId).toBeDefined()
-			expect(session.username).toBe('Alice')
+			expect(session.steamName).toBe('Alice')
 			expect(session.steamId).toBe('steam1')
 			expect(sessions.has(session.playerId)).toBe(true)
 		})

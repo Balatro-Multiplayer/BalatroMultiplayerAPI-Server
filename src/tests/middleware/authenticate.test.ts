@@ -50,12 +50,12 @@ describe('authenticate middleware', () => {
 	})
 
 	it('populates req.player and calls next for valid JWT', () => {
-		const token = signJwt({ playerId: 'steam1', username: 'Alice' })
+		const token = signJwt({ playerId: 'steam1', steamName: 'Alice' })
 		const { req, res, next } = mockReqRes(`Bearer ${token}`)
 
 		authenticate(req, res, next)
 
-		expect(req.player).toMatchObject({ playerId: 'steam1', username: 'Alice' })
+		expect(req.player).toMatchObject({ playerId: 'steam1', steamName: 'Alice' })
 		expect(next).toHaveBeenCalled()
 		expect(res.status).not.toHaveBeenCalled()
 	})

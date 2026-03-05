@@ -10,10 +10,10 @@ export const steamIndex = new Map<string, string>()
 export const discordIndex = new Map<string, string>()
 
 export function createSession(
-	username: string,
+	steamName: string,
 	opts?: { id?: string; steamId?: string; discordId?: string; discordUsername?: string; useDiscordName?: boolean; preferredJoker?: string },
 ): PlayerSession {
-	const session = new PlayerSession(username, opts)
+	const session = new PlayerSession(steamName, opts)
 	sessions.set(session.playerId, session)
 	if (opts?.steamId) steamIndex.set(opts.steamId, session.playerId)
 	if (opts?.discordId) discordIndex.set(opts.discordId, session.playerId)

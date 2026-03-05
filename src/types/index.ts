@@ -1,6 +1,6 @@
 export interface JwtPayload {
 	playerId: string
-	username: string
+	steamName: string
 	lobbyCode?: string
 	isTemp?: boolean
 }
@@ -59,7 +59,7 @@ export interface LobbyEvent {
 		| 'player_reconnected'
 	lobbyCode: string
 	playerId?: string
-	username?: string
+	displayName?: string
 	data?: Record<string, unknown>
 	timestamp: string
 }

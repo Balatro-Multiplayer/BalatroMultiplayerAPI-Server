@@ -16,19 +16,19 @@ describe('POST /api/auth/steam', () => {
 	it('returns 400 when ticket is missing', async () => {
 		const res = await request(app)
 			.post('/api/auth/steam')
-			.send({ username: 'Alice' })
+			.send({ steamName: 'Alice' })
 
 		expect(res.status).toBe(400)
 		expect(res.body.error).toMatch(/ticket/)
 	})
 
-	it('returns 400 when username is missing', async () => {
+	it('returns 400 when steamName is missing', async () => {
 		const res = await request(app)
 			.post('/api/auth/steam')
 			.send({ ticket: 'abc123' })
 
 		expect(res.status).toBe(400)
-		expect(res.body.error).toMatch(/username/)
+		expect(res.body.error).toMatch(/steamName/)
 	})
 
 	it('returns token and player for valid Steam ticket', async () => {
@@ -51,12 +51,12 @@ describe('POST /api/auth/steam', () => {
 
 		const res = await request(app)
 			.post('/api/auth/steam')
-			.send({ ticket: 'valid-hex', username: 'Alice' })
+			.send({ ticket: 'valid-hex', steamName: 'Alice' })
 
 		expect(res.status).toBe(200)
 		expect(res.body.token).toBeDefined()
 		expect(res.body.player.id).toBeDefined()
-		expect(res.body.player.username).toBe('Alice')
+		expect(res.body.player.steamName).toBe('Alice')
 		expect(res.body.player.steamId).toBe('76561198012345')
 		expect(res.body.player.lobbyCode).toBeNull()
 		expect(res.body.lobby).toBeUndefined()
@@ -88,7 +88,7 @@ describe('POST /api/auth/steam', () => {
 		// First auth to create the session
 		const firstRes = await request(app)
 			.post('/api/auth/steam')
-			.send({ ticket: 'valid-hex', username: 'Reconnector' })
+			.send({ ticket: 'valid-hex', steamName: 'Reconnector' })
 
 		const playerId = firstRes.body.player.id
 
@@ -101,7 +101,7 @@ describe('POST /api/auth/steam', () => {
 		// Re-auth (simulates reconnect)
 		const res = await request(app)
 			.post('/api/auth/steam')
-			.send({ ticket: 'valid-hex', username: 'Reconnector' })
+			.send({ ticket: 'valid-hex', steamName: 'Reconnector' })
 
 		expect(res.status).toBe(200)
 		expect(res.body.player.lobbyCode).toBe('RECON')
@@ -137,7 +137,7 @@ describe('POST /api/auth/steam', () => {
 
 		const res = await request(app)
 			.post('/api/auth/steam')
-			.send({ ticket: 'bad', username: 'Alice' })
+			.send({ ticket: 'bad', steamName: 'Alice' })
 
 		expect(res.status).toBe(401)
 	})
@@ -150,25 +150,25 @@ describe('POST /api/auth/dev', () => {
 		;(env as { NODE_ENV: string }).NODE_ENV = originalNodeEnv
 	})
 
-	it('returns 400 when username is missing', async () => {
+	it('returns 400 when steamName is missing', async () => {
 		const res = await request(devApp)
 			.post('/api/auth/dev')
 			.send({})
 
 		expect(res.status).toBe(400)
-		expect(res.body.error).toMatch(/username/)
+		expect(res.body.error).toMatch(/steamName/)
 	})
 
-	it('returns token and temp player for valid username', async () => {
+	it('returns token and temp player for valid steamName', async () => {
 		const res = await request(devApp)
 			.post('/api/auth/dev')
-			.send({ username: 'DevPlayer' })
+			.send({ steamName: 'DevPlayer' })
 
 		expect(res.status).toBe(200)
 		expect(res.body.token).toBeDefined()
 		expect(res.body.refreshToken).toBeNull()
 		expect(res.body.player.id).toBeDefined()
-		expect(res.body.player.username).toBe('DevPlayer')
+		expect(res.body.player.steamName).toBe('DevPlayer')
 		expect(res.body.player.steamId).toBeNull()
 		expect(res.body.player.discordId).toBeNull()
 		expect(res.body.player.isTemp).toBe(true)
@@ -177,7 +177,7 @@ describe('POST /api/auth/dev', () => {
 	it('creates a valid session that works with EMQX auth', async () => {
 		const authRes = await request(devApp)
 			.post('/api/auth/dev')
-			.send({ username: 'DevPlayer' })
+			.send({ steamName: 'DevPlayer' })
 
 		const playerId = authRes.body.player.id
 		const token = authRes.body.token
@@ -200,7 +200,7 @@ describe('POST /api/auth/dev', () => {
 
 		const res = await request(devApp)
 			.post('/api/auth/dev')
-			.send({ username: 'DevPlayer' })
+			.send({ steamName: 'DevPlayer' })
 
 		expect(res.status).toBe(404)
 		expect(res.body.error).toBe('Not found')

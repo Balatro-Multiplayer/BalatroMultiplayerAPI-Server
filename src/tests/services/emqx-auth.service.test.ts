@@ -7,8 +7,8 @@ import {
 import { signJwt } from '../../services/auth.service.js'
 import { Lobby, createSession, lobbies } from '../../state/index.js'
 
-function makeToken(playerId: string, username = 'Test') {
-	return signJwt({ playerId, username })
+function makeToken(playerId: string, steamName = 'Test') {
+	return signJwt({ playerId, steamName })
 }
 
 function setupLobbyWithPlayer(

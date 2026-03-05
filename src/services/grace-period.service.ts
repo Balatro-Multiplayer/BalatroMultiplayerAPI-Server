@@ -6,7 +6,7 @@ const GRACE_PERIOD_MS = 2 * 60 * 1000 // 2 minutes
 interface GracePeriodEntry {
 	playerId: string
 	lobbyCode: string
-	username: string
+	displayName: string
 	disconnectedAt: Date
 	timer: ReturnType<typeof setTimeout>
 }
@@ -44,7 +44,7 @@ export async function startGracePeriod(playerId: string): Promise<void> {
 	gracePeriods.set(playerId, {
 		playerId,
 		lobbyCode: session.lobbyCode,
-		username: session.username,
+		displayName: session.getDisplayName(),
 		disconnectedAt: new Date(),
 		timer,
 	})
@@ -53,7 +53,7 @@ export async function startGracePeriod(playerId: string): Promise<void> {
 		type: 'player_disconnected',
 		lobbyCode: session.lobbyCode,
 		playerId,
-		username: session.username,
+		displayName: session.getDisplayName(),
 		timestamp: new Date().toISOString(),
 	})
 }
@@ -69,7 +69,7 @@ export async function cancelGracePeriod(playerId: string): Promise<boolean> {
 		type: 'player_reconnected',
 		lobbyCode: entry.lobbyCode,
 		playerId: entry.playerId,
-		username: entry.username,
+		displayName: entry.displayName,
 		timestamp: new Date().toISOString(),
 	})
 
@@ -96,7 +96,7 @@ async function expireGracePeriod(playerId: string): Promise<void> {
 		type: 'player_left',
 		lobbyCode: entry.lobbyCode,
 		playerId: entry.playerId,
-		username: entry.username,
+		displayName: entry.displayName,
 		timestamp: new Date().toISOString(),
 	})
 
