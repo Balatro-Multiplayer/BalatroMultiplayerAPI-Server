@@ -209,6 +209,41 @@ export function authenticateAsTemp(steamName: string) {
 	return { session, token }
 }
 
+// --- Dev-mode impersonation ---
+
+export async function impersonatePlayer(opts: {
+	playerId?: string
+	steamId?: string
+	discordId?: string
+	steamName?: string
+}) {
+	let dbPlayer = opts.playerId
+		? await playerDb.findPlayerById(opts.playerId)
+		: opts.steamId
+			? await playerDb.findPlayerBySteamId(opts.steamId)
+			: opts.discordId
+				? await playerDb.findPlayerByDiscordId(opts.discordId)
+				: opts.steamName
+					? await playerDb.findPlayerBySteamName(opts.steamName)
+					: null
+
+	if (!dbPlayer) {
+		throw new AppError('Player not found', 404)
+	}
+
+	const session = createSession(dbPlayer.steamName, {
+		id: dbPlayer.id,
+		steamId: dbPlayer.steamId ?? undefined,
+		discordId: dbPlayer.discordId ?? undefined,
+		discordUsername: dbPlayer.discordUsername ?? undefined,
+		useDiscordName: dbPlayer.useDiscordName,
+		preferredJoker: dbPlayer.preferredJoker,
+		privileges: dbPlayer.privileges,
+	})
+
+	return { session, token: signSessionJwt(session) }
+}
+
 // --- Linking ---
 
 export async function linkSteamToPlayer(playerId: string, steamId: string) {

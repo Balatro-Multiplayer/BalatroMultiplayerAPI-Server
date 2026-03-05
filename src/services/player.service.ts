@@ -40,6 +40,15 @@ export async function findPlayerById(
 	return row ?? null
 }
 
+export async function findPlayerBySteamName(
+	steamName: string,
+): Promise<PlayerRecord | null> {
+	const row = await db.query.players.findFirst({
+		where: eq(players.steamName, steamName),
+	})
+	return row ?? null
+}
+
 export async function createPlayer(data: {
 	id: string
 	steamName: string

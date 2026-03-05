@@ -31,37 +31,16 @@ export const STANDARD_JOKERS: ReadonlySet<string> = new Set([
 	'j_odd_todd',
 ])
 
-export const PRIVILEGED_JOKERS: ReadonlySet<string> = new Set([
-	'j_hack',
-	'j_vagabond',
-	'j_hologram',
-	'j_photograph',
-	'j_hallucination',
-	'j_baseball',
-	'j_sock_and_buskin',
-	'j_blueprint',
-	'j_brainstorm',
-	'j_invisible',
-	'j_chicot',
-	'j_perkeo',
-	'j_triboulet',
-	'j_yorick',
-	'j_caino',
-])
-
-export const ALL_VALID_JOKERS: ReadonlySet<string> = new Set([
-	...STANDARD_JOKERS,
-	...PRIVILEGED_JOKERS,
-])
 
 export const PRIVILEGE_JOKERS: ReadonlyMap<string, string> = new Map([
+	['virtualized', 'j_perkeo'],
 	['bean', 'j_turtle_bean'],
 	['vagabond', 'j_vagabond'],
 	['sizaak', 'j_dusk'],
 ])
 
 export function isValidJoker(id: string, privileges: string[] = []): boolean {
-	if (ALL_VALID_JOKERS.has(id)) return true
+	if (STANDARD_JOKERS.has(id)) return true
 	for (const priv of privileges) {
 		if (PRIVILEGE_JOKERS.get(priv) === id) return true
 	}

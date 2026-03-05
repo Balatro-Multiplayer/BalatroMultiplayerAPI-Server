@@ -6,6 +6,7 @@ import {
 	authenticateWithDiscord,
 	authenticateWithPlayerId,
 	authenticateWithSteam,
+	impersonatePlayer,
 	generateLinkState,
 	getDiscordAuthUrl,
 	linkDiscordToPlayer,
@@ -23,6 +24,7 @@ import { env } from '../env.js'
 import { AppError } from '../utils/errors.js'
 import { getLobby } from '../state/index.js'
 import type { PlayerSession } from '../state/index.js'
+import { buildPrivilegeTable } from '../constants/privileges.js'
 
 function lobbyPayload(session: PlayerSession) {
 	if (!session.lobbyCode) return undefined
@@ -49,6 +51,7 @@ function playerPayload(session: PlayerSession, extra?: { isTemp?: boolean }) {
 		discordId: session.discordId ?? null,
 		discordUsername: session.discordUsername ?? null,
 		lobbyCode: session.lobbyCode ?? null,
+		privileges: buildPrivilegeTable(session.privileges),
 		...(extra?.isTemp ? { isTemp: true } : {}),
 	}
 }
@@ -113,6 +116,31 @@ router.post('/dev', (req, res, next) => {
 			token,
 			refreshToken: null,
 			player: playerPayload(session, { isTemp: true }),
+		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.post('/dev/impersonate', async (req, res, next) => {
+	try {
+		if (env.NODE_ENV === 'production') {
+			res.status(404).json({ error: 'Not found' })
+			return
+		}
+
+		const { playerId, steamId, discordId, steamName } = req.body
+		if (!playerId && !steamId && !discordId && !steamName) {
+			throw new AppError('Provide playerId, steamId, discordId, or steamName', 400)
+		}
+
+		const { session, token } = await impersonatePlayer({ playerId, steamId, discordId, steamName })
+
+		res.json({
+			token,
+			refreshToken: null,
+			lobby: lobbyPayload(session),
+			player: playerPayload(session),
 		})
 	} catch (err) {
 		next(err)
