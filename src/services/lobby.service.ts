@@ -72,6 +72,10 @@ export async function joinLobby(player: JwtPayload, code: string) {
 		throw new AppError('Already in this lobby', 409)
 	}
 
+	if (lobby.isFull) {
+		throw new AppError('Lobby is full', 409)
+	}
+
 	lobby.addPlayer(session)
 
 	const token = signJwt({
