@@ -37,6 +37,11 @@ function lobbyPayload(session: PlayerSession) {
 		maxPlayers: lobby.maxPlayers,
 		metadata: lobby.metadata,
 		isHost: lobby.hostId === session.playerId,
+		players: Array.from(lobby.players.values()).map((p) => ({
+			id: p.playerId,
+			displayName: p.getDisplayName(),
+			preferredJoker: p.preferredJoker,
+		})),
 	}
 }
 
@@ -293,6 +298,13 @@ router.post('/preferences/display-name', authenticate, async (req, res, next) =>
 			useDiscordName: session.useDiscordName,
 		})
 
+		if (session.lobbyCode) {
+			await mqttService.publishPlayerInfo(session.lobbyCode, session.playerId, {
+				displayName: session.getDisplayName(),
+				preferredJoker: session.preferredJoker,
+			})
+		}
+
 		res.json({
 			token,
 			player: playerPayload(session),
@@ -314,6 +326,13 @@ router.post('/preferences/joker', authenticate, async (req, res, next) => {
 		await mqttService.publishToPlayer(req.player!.playerId, 'account/preferred_joker_changed', {
 			preferredJoker: session.preferredJoker,
 		})
+
+		if (session.lobbyCode) {
+			await mqttService.publishPlayerInfo(session.lobbyCode, session.playerId, {
+				displayName: session.getDisplayName(),
+				preferredJoker: session.preferredJoker,
+			})
+		}
 
 		res.json({
 			token,

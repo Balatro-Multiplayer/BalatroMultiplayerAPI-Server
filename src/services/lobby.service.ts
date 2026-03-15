@@ -44,6 +44,11 @@ export async function createLobby(
 	lobby.addPlayer(session)
 	lobbies.set(code, lobby)
 
+	await mqttService.publishPlayerInfo(lobby.code, player.playerId, {
+		displayName: session.getDisplayName(),
+		preferredJoker: session.preferredJoker,
+	})
+
 	const token = signJwt({
 		playerId: player.playerId,
 		steamName: player.steamName,
@@ -77,6 +82,11 @@ export async function joinLobby(player: JwtPayload, code: string) {
 	}
 
 	lobby.addPlayer(session)
+
+	await mqttService.publishPlayerInfo(lobby.code, player.playerId, {
+		displayName: session.getDisplayName(),
+		preferredJoker: session.preferredJoker,
+	})
 
 	const token = signJwt({
 		playerId: player.playerId,
@@ -114,6 +124,7 @@ export async function leaveLobby(player: JwtPayload, code: string) {
 
 	lobby.removePlayer(player.playerId)
 
+	await mqttService.clearPlayerInfo(lobby.code, player.playerId)
 	await mqttService.cleanupPlayerState(lobby.code, player.playerId)
 
 	await mqttService.publishEvent(lobby.code, {
@@ -131,7 +142,7 @@ export async function leaveLobby(player: JwtPayload, code: string) {
 				lobbyCode: lobby.code,
 				timestamp: new Date().toISOString(),
 			})
-			await mqttService.cleanupLobbyTopics(lobby.code)
+			await mqttService.cleanupLobbyTopics(lobby.code, [player.playerId])
 			lobbies.delete(lobby.code)
 		} else {
 			const newHostId = lobby.players.keys().next().value!
@@ -147,7 +158,7 @@ export async function leaveLobby(player: JwtPayload, code: string) {
 	}
 
 	if (lobby.isEmpty) {
-		await mqttService.cleanupLobbyTopics(lobby.code)
+		await mqttService.cleanupLobbyTopics(lobby.code, [player.playerId])
 		lobbies.delete(lobby.code)
 	}
 
@@ -176,6 +187,7 @@ export function getLobbyPlayers(code: string) {
 	return Array.from(lobby.players.values()).map((p) => ({
 		id: p.playerId,
 		displayName: p.getDisplayName(),
+		preferredJoker: p.preferredJoker,
 		isAway: isInGracePeriod(p.playerId),
 	}))
 }

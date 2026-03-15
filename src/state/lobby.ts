@@ -57,6 +57,7 @@ export class Lobby {
 			players: Array.from(this.players.values()).map((p) => ({
 				id: p.playerId,
 				displayName: p.getDisplayName(),
+				preferredJoker: p.preferredJoker,
 			})),
 		}
 	}

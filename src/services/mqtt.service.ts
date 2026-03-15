@@ -79,12 +79,42 @@ class MqttService {
 		})
 	}
 
-	async cleanupLobbyTopics(lobbyCode: string): Promise<void> {
+	async cleanupLobbyTopics(
+		lobbyCode: string,
+		playerIds?: string[],
+	): Promise<void> {
 		const retainedTopics = [`lobby/${lobbyCode}/metadata`]
+
+		if (playerIds) {
+			for (const id of playerIds) {
+				retainedTopics.push(`lobby/${lobbyCode}/players/${id}/info`)
+				retainedTopics.push(`lobby/${lobbyCode}/players/${id}/state`)
+			}
+		}
 
 		for (const topic of retainedTopics) {
 			await this.publish(topic, '', { qos: 1, retain: true })
 		}
+	}
+
+	async publishPlayerInfo(
+		lobbyCode: string,
+		playerId: string,
+		info: { displayName: string; preferredJoker: string },
+	): Promise<void> {
+		const topic = `lobby/${lobbyCode}/players/${playerId}/info`
+		await this.publish(topic, JSON.stringify(info), {
+			qos: 1,
+			retain: true,
+		})
+	}
+
+	async clearPlayerInfo(
+		lobbyCode: string,
+		playerId: string,
+	): Promise<void> {
+		const topic = `lobby/${lobbyCode}/players/${playerId}/info`
+		await this.publish(topic, '', { qos: 1, retain: true })
 	}
 
 	async cleanupPlayerState(

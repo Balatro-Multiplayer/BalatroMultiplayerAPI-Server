@@ -39,6 +39,11 @@ router.post('/', async (req, res, next) => {
 				maxPlayers: lobby.maxPlayers,
 				metadata: lobby.metadata,
 				isHost: true,
+				players: Array.from(lobby.players.values()).map((p) => ({
+					id: p.playerId,
+					displayName: p.getDisplayName(),
+					preferredJoker: p.preferredJoker,
+				})),
 			},
 		})
 	} catch (err) {
@@ -60,6 +65,11 @@ router.post('/:code/join', async (req, res, next) => {
 				maxPlayers: lobby.maxPlayers,
 				metadata: lobby.metadata,
 				isHost: lobby.hostId === req.player!.playerId,
+				players: Array.from(lobby.players.values()).map((p) => ({
+					id: p.playerId,
+					displayName: p.getDisplayName(),
+					preferredJoker: p.preferredJoker,
+				})),
 			},
 		})
 	} catch (err) {
@@ -89,6 +99,11 @@ router.get('/:code', async (req, res, next) => {
 				maxPlayers: lobby.maxPlayers,
 				metadata: lobby.metadata,
 				isHost: lobby.hostId === req.player!.playerId,
+				players: Array.from(lobby.players.values()).map((p) => ({
+					id: p.playerId,
+					displayName: p.getDisplayName(),
+					preferredJoker: p.preferredJoker,
+				})),
 			},
 		})
 	} catch (err) {
