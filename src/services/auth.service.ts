@@ -16,6 +16,7 @@ import type {
 } from '../types/index.js'
 import { isValidJoker } from '../constants/jokers.js'
 import { AppError } from '../utils/errors.js'
+import { hashProviderId } from '../utils/hash.js'
 import { cancelGracePeriod } from './grace-period.service.js'
 import * as playerDb from './player.service.js'
 
@@ -48,7 +49,9 @@ export async function authenticateWithSteam(
 	steamId: string,
 	steamName: string,
 ) {
-	let session = findByProvider('steam', steamId)
+	const steamIdHash = hashProviderId(steamId)
+
+	let session = findByProvider('steam', steamIdHash)
 	if (session) {
 		if (env.NODE_ENV !== 'production') {
 			return authenticateAsTemp(steamName)
@@ -58,12 +61,13 @@ export async function authenticateWithSteam(
 		await playerDb.updateSteamName(session.playerId, steamName)
 		return { session, token: signSessionJwt(session) }
 	}
-	const dbPlayer = await playerDb.findPlayerBySteamId(steamId)
+
+	const dbPlayer = await playerDb.findPlayerBySteamIdHash(steamIdHash)
 	if (dbPlayer) {
 		session = createSession(steamName, {
 			id: dbPlayer.id,
-			steamId: dbPlayer.steamId ?? undefined,
-			discordId: dbPlayer.discordId ?? undefined,
+			steamIdHash: dbPlayer.steamIdHash ?? undefined,
+			discordIdHash: dbPlayer.discordIdHash ?? undefined,
 			discordUsername: dbPlayer.discordUsername ?? undefined,
 			useDiscordName: dbPlayer.useDiscordName,
 			preferredJoker: dbPlayer.preferredJoker,
@@ -73,8 +77,8 @@ export async function authenticateWithSteam(
 		return { session, token: signSessionJwt(session) }
 	}
 
-	session = createSession(steamName, { steamId })
-	await playerDb.createPlayer({ id: session.playerId, steamName, steamId })
+	session = createSession(steamName, { steamIdHash })
+	await playerDb.createPlayer({ id: session.playerId, steamName, steamIdHash })
 
 	return { session, token: signSessionJwt(session) }
 }
@@ -133,7 +137,9 @@ export async function authenticateWithDiscord(
 	discordId: string,
 	discordName: string,
 ) {
-	let session = findByProvider('discord', discordId)
+	const discordIdHash = hashProviderId(discordId)
+
+	let session = findByProvider('discord', discordIdHash)
 	if (session) {
 		await cancelGracePeriod(session.playerId)
 		session.steamName = discordName
@@ -143,12 +149,12 @@ export async function authenticateWithDiscord(
 		return { session, token: signSessionJwt(session) }
 	}
 
-	const dbPlayer = await playerDb.findPlayerByDiscordId(discordId)
+	const dbPlayer = await playerDb.findPlayerByDiscordIdHash(discordIdHash)
 	if (dbPlayer) {
 		session = createSession(discordName, {
 			id: dbPlayer.id,
-			steamId: dbPlayer.steamId ?? undefined,
-			discordId: dbPlayer.discordId ?? undefined,
+			steamIdHash: dbPlayer.steamIdHash ?? undefined,
+			discordIdHash: dbPlayer.discordIdHash ?? undefined,
 			discordUsername: discordName,
 			useDiscordName: dbPlayer.useDiscordName,
 			preferredJoker: dbPlayer.preferredJoker,
@@ -159,8 +165,8 @@ export async function authenticateWithDiscord(
 		return { session, token: signSessionJwt(session) }
 	}
 
-	session = createSession(discordName, { discordId, discordUsername: discordName })
-	await playerDb.createPlayer({ id: session.playerId, steamName: discordName, discordId })
+	session = createSession(discordName, { discordIdHash, discordUsername: discordName })
+	await playerDb.createPlayer({ id: session.playerId, steamName: discordName, discordIdHash })
 
 	return { session, token: signSessionJwt(session) }
 }
@@ -186,8 +192,8 @@ export async function authenticateWithPlayerId(
 
 	session = createSession(steamName, {
 		id: dbPlayer.id,
-		steamId: dbPlayer.steamId ?? undefined,
-		discordId: dbPlayer.discordId ?? undefined,
+		steamIdHash: dbPlayer.steamIdHash ?? undefined,
+		discordIdHash: dbPlayer.discordIdHash ?? undefined,
 		discordUsername: dbPlayer.discordUsername ?? undefined,
 		useDiscordName: dbPlayer.useDiscordName,
 		preferredJoker: dbPlayer.preferredJoker,
@@ -220,9 +226,9 @@ export async function impersonatePlayer(opts: {
 	let dbPlayer = opts.playerId
 		? await playerDb.findPlayerById(opts.playerId)
 		: opts.steamId
-			? await playerDb.findPlayerBySteamId(opts.steamId)
+			? await playerDb.findPlayerBySteamIdHash(hashProviderId(opts.steamId))
 			: opts.discordId
-				? await playerDb.findPlayerByDiscordId(opts.discordId)
+				? await playerDb.findPlayerByDiscordIdHash(hashProviderId(opts.discordId))
 				: opts.steamName
 					? await playerDb.findPlayerBySteamName(opts.steamName)
 					: null
@@ -233,8 +239,8 @@ export async function impersonatePlayer(opts: {
 
 	const session = createSession(dbPlayer.steamName, {
 		id: dbPlayer.id,
-		steamId: dbPlayer.steamId ?? undefined,
-		discordId: dbPlayer.discordId ?? undefined,
+		steamIdHash: dbPlayer.steamIdHash ?? undefined,
+		discordIdHash: dbPlayer.discordIdHash ?? undefined,
 		discordUsername: dbPlayer.discordUsername ?? undefined,
 		useDiscordName: dbPlayer.useDiscordName,
 		preferredJoker: dbPlayer.preferredJoker,
@@ -252,13 +258,15 @@ export async function linkSteamToPlayer(playerId: string, steamId: string) {
 		throw new AppError('Player session not found', 401)
 	}
 
-	const existing = findByProvider('steam', steamId)
+	const steamIdHash = hashProviderId(steamId)
+
+	const existing = findByProvider('steam', steamIdHash)
 	if (existing && existing.playerId !== playerId) {
 		throw new AppError('Steam account already linked to another player', 409)
 	}
 
-	linkProvider(session, 'steam', steamId)
-	await playerDb.linkSteam(playerId, steamId)
+	linkProvider(session, 'steam', steamIdHash)
+	await playerDb.linkSteam(playerId, steamIdHash)
 
 	return { session, token: signSessionJwt(session) }
 }
@@ -269,14 +277,16 @@ export async function linkDiscordToPlayer(playerId: string, discordId: string, d
 		throw new AppError('Player session not found', 401)
 	}
 
-	const existing = findByProvider('discord', discordId)
+	const discordIdHash = hashProviderId(discordId)
+
+	const existing = findByProvider('discord', discordIdHash)
 	if (existing && existing.playerId !== playerId) {
 		throw new AppError('Discord account already linked to another player', 409)
 	}
 
-	linkProvider(session, 'discord', discordId)
+	linkProvider(session, 'discord', discordIdHash)
 	if (discordUsername) session.discordUsername = discordUsername
-	await playerDb.linkDiscord(playerId, discordId, discordUsername)
+	await playerDb.linkDiscord(playerId, discordIdHash, discordUsername)
 
 	return { session, token: signSessionJwt(session) }
 }
@@ -300,7 +310,7 @@ export async function setUseDiscordName(playerId: string, value: boolean) {
 		throw new AppError('Player session not found', 401)
 	}
 
-	if (value && !session.discordId) {
+	if (value && !session.discordIdHash) {
 		throw new AppError('Discord account not linked', 400)
 	}
 

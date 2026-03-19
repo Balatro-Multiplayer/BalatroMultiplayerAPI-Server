@@ -15,13 +15,15 @@ export const players = pgTable(
 	'players',
 	{
 		id: uuid('id').primaryKey().defaultRandom(),
-		steamId: text('steam_id'),
-		discordId: text('discord_id'),
+		steamIdHash: text('steam_id_hash'),
+		discordIdHash: text('discord_id_hash'),
 		discordUsername: varchar('discord_username', { length: 64 }),
 		useDiscordName: boolean('use_discord_name').notNull().default(false),
 		preferredJoker: varchar('preferred_joker', { length: 64 }).notNull().default('j_joker'),
 		privileges: text('privileges').array().notNull().default(sql`'{}'::text[]`),
 		steamName: varchar('steam_name', { length: 64 }).notNull(),
+		chatEnabled: boolean('chat_enabled').notNull().default(false),
+		chatBlocked: boolean('chat_blocked').notNull().default(false),
 		createdAt: timestamp('created_at', { withTimezone: true })
 			.notNull()
 			.defaultNow(),
@@ -30,12 +32,12 @@ export const players = pgTable(
 			.defaultNow(),
 	},
 	(table) => [
-		uniqueIndex('players_steam_id_idx')
-			.on(table.steamId)
-			.where(sql`steam_id IS NOT NULL`),
-		uniqueIndex('players_discord_id_idx')
-			.on(table.discordId)
-			.where(sql`discord_id IS NOT NULL`),
+		uniqueIndex('players_steam_id_hash_idx')
+			.on(table.steamIdHash)
+			.where(sql`steam_id_hash IS NOT NULL`),
+		uniqueIndex('players_discord_id_hash_idx')
+			.on(table.discordIdHash)
+			.where(sql`discord_id_hash IS NOT NULL`),
 	],
 )
 
@@ -68,8 +70,15 @@ export const gameResults = pgTable('game_results', {
 export const chatLogs = pgTable('chat_logs', {
 	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
 	lobbyCode: varchar('lobby_code', { length: 5 }).notNull(),
+	// UUID of the sender at send time; pseudonymized to deleted_user_{hash} on account deletion
 	playerId: text('player_id').notNull(),
+	// Hashed Steam ID (steam_id_hash) — survives account deletion for moderation purposes
+	moderationId: text('moderation_id'),
 	message: text('message').notNull(),
+	flagged: boolean('flagged').notNull().default(false),
+	// NULL for flagged/reported messages; set to sentAt + 30 days otherwise
+	expiresAt: timestamp('expires_at', { withTimezone: true }),
+	moderationVerdict: jsonb('moderation_verdict'),
 	sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
 })
 

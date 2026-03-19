@@ -5,27 +5,27 @@ import { PlayerSession } from './player.js'
 export const lobbies = new Map<string, Lobby>()
 export const sessions = new Map<string, PlayerSession>()
 
-// Provider ID → playerId lookup indexes
+// Hashed provider ID → playerId lookup indexes
 export const steamIndex = new Map<string, string>()
 export const discordIndex = new Map<string, string>()
 
 export function createSession(
 	steamName: string,
-	opts?: { id?: string; steamId?: string; discordId?: string; discordUsername?: string; useDiscordName?: boolean; preferredJoker?: string; privileges?: string[] },
+	opts?: { id?: string; steamIdHash?: string; discordIdHash?: string; discordUsername?: string; useDiscordName?: boolean; preferredJoker?: string; privileges?: string[] },
 ): PlayerSession {
 	const session = new PlayerSession(steamName, opts)
 	sessions.set(session.playerId, session)
-	if (opts?.steamId) steamIndex.set(opts.steamId, session.playerId)
-	if (opts?.discordId) discordIndex.set(opts.discordId, session.playerId)
+	if (opts?.steamIdHash) steamIndex.set(opts.steamIdHash, session.playerId)
+	if (opts?.discordIdHash) discordIndex.set(opts.discordIdHash, session.playerId)
 	return session
 }
 
 export function findByProvider(
 	provider: 'steam' | 'discord',
-	providerId: string,
+	idHash: string,
 ): PlayerSession | undefined {
 	const index = provider === 'steam' ? steamIndex : discordIndex
-	const playerId = index.get(providerId)
+	const playerId = index.get(idHash)
 	if (!playerId) return undefined
 	return sessions.get(playerId)
 }
@@ -33,14 +33,14 @@ export function findByProvider(
 export function linkProvider(
 	session: PlayerSession,
 	provider: 'steam' | 'discord',
-	providerId: string,
+	idHash: string,
 ): void {
 	if (provider === 'steam') {
-		session.steamId = providerId
-		steamIndex.set(providerId, session.playerId)
+		session.steamIdHash = idHash
+		steamIndex.set(idHash, session.playerId)
 	} else {
-		session.discordId = providerId
-		discordIndex.set(providerId, session.playerId)
+		session.discordIdHash = idHash
+		discordIndex.set(idHash, session.playerId)
 	}
 }
 
@@ -49,11 +49,11 @@ export function unlinkProvider(
 	provider: 'steam' | 'discord',
 ): void {
 	if (provider === 'steam') {
-		if (session.steamId) steamIndex.delete(session.steamId)
-		session.steamId = undefined
+		if (session.steamIdHash) steamIndex.delete(session.steamIdHash)
+		session.steamIdHash = undefined
 	} else {
-		if (session.discordId) discordIndex.delete(session.discordId)
-		session.discordId = undefined
+		if (session.discordIdHash) discordIndex.delete(session.discordIdHash)
+		session.discordIdHash = undefined
 		session.discordUsername = undefined
 	}
 }
@@ -69,8 +69,8 @@ export function getLobby(code: string): Lobby | undefined {
 export function removeSession(playerId: string): void {
 	const session = sessions.get(playerId)
 	if (session) {
-		if (session.steamId) steamIndex.delete(session.steamId)
-		if (session.discordId) discordIndex.delete(session.discordId)
+		if (session.steamIdHash) steamIndex.delete(session.steamIdHash)
+		if (session.discordIdHash) discordIndex.delete(session.discordIdHash)
 	}
 	sessions.delete(playerId)
 }

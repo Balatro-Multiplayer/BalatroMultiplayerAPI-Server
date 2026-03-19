@@ -52,8 +52,7 @@ function playerPayload(session: PlayerSession, extra?: { isTemp?: boolean }) {
 		displayName: session.getDisplayName(),
 		useDiscordName: session.useDiscordName,
 		preferredJoker: session.preferredJoker,
-		steamId: session.steamId ?? null,
-		discordId: session.discordId ?? null,
+		discordLinked: session.discordIdHash != null,
 		discordUsername: session.discordUsername ?? null,
 		lobbyCode: session.lobbyCode ?? null,
 		privileges: buildPrivilegeTable(session.privileges),
@@ -89,7 +88,7 @@ router.post('/steam', async (req, res, next) => {
 
 		const { steamId } = await validateSteamTicket(ticket)
 		const { session, token } = await authenticateWithSteam(steamId, steamName)
-		const isTemp = !session.steamId
+		const isTemp = !session.steamIdHash
 		const refreshToken = isTemp ? null : await issueRefreshToken(session.playerId)
 
 		res.json({
@@ -208,7 +207,6 @@ router.get('/discord/callback', async (req, res, next) => {
 
 				// Notify game client via MQTT
 				await mqttService.publishToPlayer(playerId, 'account/discord_linked', {
-					discordId,
 					discordName,
 				})
 

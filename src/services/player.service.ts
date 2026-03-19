@@ -4,29 +4,31 @@ import { players } from '../db/schema.js'
 
 export interface PlayerRecord {
 	id: string
-	steamId: string | null
-	discordId: string | null
+	steamIdHash: string | null
+	discordIdHash: string | null
 	discordUsername: string | null
 	useDiscordName: boolean
 	preferredJoker: string
 	privileges: string[]
 	steamName: string
+	chatEnabled: boolean
+	chatBlocked: boolean
 }
 
-export async function findPlayerBySteamId(
-	steamId: string,
+export async function findPlayerBySteamIdHash(
+	steamIdHash: string,
 ): Promise<PlayerRecord | null> {
 	const row = await db.query.players.findFirst({
-		where: eq(players.steamId, steamId),
+		where: eq(players.steamIdHash, steamIdHash),
 	})
 	return row ?? null
 }
 
-export async function findPlayerByDiscordId(
-	discordId: string,
+export async function findPlayerByDiscordIdHash(
+	discordIdHash: string,
 ): Promise<PlayerRecord | null> {
 	const row = await db.query.players.findFirst({
-		where: eq(players.discordId, discordId),
+		where: eq(players.discordIdHash, discordIdHash),
 	})
 	return row ?? null
 }
@@ -52,16 +54,16 @@ export async function findPlayerBySteamName(
 export async function createPlayer(data: {
 	id: string
 	steamName: string
-	steamId?: string
-	discordId?: string
+	steamIdHash?: string
+	discordIdHash?: string
 }): Promise<PlayerRecord> {
 	const [row] = await db
 		.insert(players)
 		.values({
 			id: data.id,
 			steamName: data.steamName,
-			steamId: data.steamId ?? null,
-			discordId: data.discordId ?? null,
+			steamIdHash: data.steamIdHash ?? null,
+			discordIdHash: data.discordIdHash ?? null,
 		})
 		.returning()
 	return row
@@ -69,29 +71,29 @@ export async function createPlayer(data: {
 
 export async function linkSteam(
 	playerId: string,
-	steamId: string,
+	steamIdHash: string,
 ): Promise<void> {
 	await db
 		.update(players)
-		.set({ steamId, updatedAt: new Date() })
+		.set({ steamIdHash, updatedAt: new Date() })
 		.where(eq(players.id, playerId))
 }
 
 export async function linkDiscord(
 	playerId: string,
-	discordId: string,
+	discordIdHash: string,
 	discordUsername?: string,
 ): Promise<void> {
 	await db
 		.update(players)
-		.set({ discordId, discordUsername: discordUsername ?? null, updatedAt: new Date() })
+		.set({ discordIdHash, discordUsername: discordUsername ?? null, updatedAt: new Date() })
 		.where(eq(players.id, playerId))
 }
 
 export async function unlinkDiscord(playerId: string): Promise<void> {
 	await db
 		.update(players)
-		.set({ discordId: null, discordUsername: null, useDiscordName: false, updatedAt: new Date() })
+		.set({ discordIdHash: null, discordUsername: null, useDiscordName: false, updatedAt: new Date() })
 		.where(eq(players.id, playerId))
 }
 

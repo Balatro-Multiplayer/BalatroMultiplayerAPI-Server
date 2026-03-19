@@ -57,7 +57,6 @@ describe('POST /api/auth/steam', () => {
 		expect(res.body.token).toBeDefined()
 		expect(res.body.player.id).toBeDefined()
 		expect(res.body.player.steamName).toBe('Alice')
-		expect(res.body.player.steamId).toBe('76561198012345')
 		expect(res.body.player.lobbyCode).toBeNull()
 		expect(res.body.lobby).toBeUndefined()
 	})
@@ -169,8 +168,8 @@ describe('POST /api/auth/dev', () => {
 		expect(res.body.refreshToken).toBeNull()
 		expect(res.body.player.id).toBeDefined()
 		expect(res.body.player.steamName).toBe('DevPlayer')
-		expect(res.body.player.steamId).toBeNull()
-		expect(res.body.player.discordId).toBeNull()
+		expect(res.body.player.steamLinked).toBe(false)
+		expect(res.body.player.discordLinked).toBe(false)
 		expect(res.body.player.isTemp).toBe(true)
 	})
 

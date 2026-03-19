@@ -33,4 +33,6 @@ export const env = {
 	EMQX_SYSTEM_CLIENT_ID: optional('EMQX_SYSTEM_CLIENT_ID', 'bmp-api-server'),
 	EMQX_SYSTEM_USERNAME: optional('EMQX_SYSTEM_USERNAME', 'bmp-system'),
 	EMQX_SYSTEM_PASSWORD: required('EMQX_SYSTEM_PASSWORD'),
+
+	PLAYER_ID_SALT: required('PLAYER_ID_SALT'),
 } as const
