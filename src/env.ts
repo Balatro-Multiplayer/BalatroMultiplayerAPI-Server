@@ -35,4 +35,6 @@ export const env = {
 	EMQX_SYSTEM_PASSWORD: required('EMQX_SYSTEM_PASSWORD'),
 
 	PLAYER_ID_SALT: required('PLAYER_ID_SALT'),
+
+	ADMIN_SECRET: required('ADMIN_SECRET'),
 } as const

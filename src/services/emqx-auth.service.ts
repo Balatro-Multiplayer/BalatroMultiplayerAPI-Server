@@ -1,5 +1,6 @@
 import { env } from '../env.js'
 import { getLobby, getSession } from '../state/index.js'
+import { getConfig } from '../state/config.js'
 import type { EmqxAuthRequest, EmqxAuthzRequest } from '../types/index.js'
 import { verifyJwt } from './auth.service.js'
 
@@ -48,9 +49,9 @@ export async function authenticateClient(
 		return { result: 'allow', is_superuser: true }
 	}
 
-	// Validate JWT from password field
+	// Validate JWT from password field — reject purpose-scoped tokens (e.g. tos-accept)
 	const payload = verifyJwt(body.password)
-	if (!payload) {
+	if (!payload || payload.purpose) {
 		return { result: 'deny', is_superuser: false }
 	}
 
@@ -62,6 +63,12 @@ export async function authenticateClient(
 	// Verify an active session exists
 	const session = getSession(payload.playerId)
 	if (!session) {
+		return { result: 'deny', is_superuser: false }
+	}
+
+	// Enforce ToS: player must have accepted the current server ToS version
+	const { tosVersion } = getConfig()
+	if (session.tosAcceptedVersion < tosVersion) {
 		return { result: 'deny', is_superuser: false }
 	}
 
@@ -83,6 +90,13 @@ export async function authorizeAction(
 			return { result: topicPlayerId === clientid ? 'allow' : 'deny' }
 		}
 		// Non-superuser clients cannot publish to player topics
+		return { result: 'deny' }
+	}
+
+	// Global notification topics: bmp/notifications/+
+	// Any authenticated client may subscribe; only the server (superuser) publishes.
+	if (parts[0] === 'bmp' && parts[1] === 'notifications') {
+		if (action === 'subscribe') return { result: 'allow' }
 		return { result: 'deny' }
 	}
 

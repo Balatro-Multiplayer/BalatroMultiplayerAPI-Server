@@ -47,8 +47,15 @@
     {
       "idx": 6,
       "version": "7",
-      "when": 1772928060000,
-      "tag": "0006_seed_privileged_players",
+      "when": 1772928120000,
+      "tag": "0006_hash_player_ids_and_chat_prep",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1742400000000,
+      "tag": "0007_tos_versioning_and_mod_versions",
       "breakpoints": true
     }
   ]

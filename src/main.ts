@@ -8,6 +8,7 @@ import { clearAllGracePeriods } from './services/grace-period.service.js'
 import { provisionEmqxWebhook } from './services/emqx-provision.service.js'
 import { mqttService } from './services/mqtt.service.js'
 import { startSessionCleanup, stopSessionCleanup } from './state/index.js'
+import { loadConfigFromDb } from './state/config.js'
 
 const app = express()
 
@@ -47,6 +48,7 @@ async function shutdown() {
 
 async function start() {
 	try {
+		await loadConfigFromDb()
 		await mqttService.connect()
 		await provisionEmqxWebhook()
 

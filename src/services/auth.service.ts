@@ -19,6 +19,7 @@ import { AppError } from '../utils/errors.js'
 import { hashProviderId } from '../utils/hash.js'
 import { cancelGracePeriod } from './grace-period.service.js'
 import * as playerDb from './player.service.js'
+import { getConfig } from '../state/config.js'
 
 // --- Steam ---
 
@@ -53,9 +54,6 @@ export async function authenticateWithSteam(
 
 	let session = findByProvider('steam', steamIdHash)
 	if (session) {
-		if (env.NODE_ENV !== 'production') {
-			return authenticateAsTemp(steamName)
-		}
 		await cancelGracePeriod(session.playerId)
 		session.steamName = steamName
 		await playerDb.updateSteamName(session.playerId, steamName)
@@ -72,13 +70,13 @@ export async function authenticateWithSteam(
 			useDiscordName: dbPlayer.useDiscordName,
 			preferredJoker: dbPlayer.preferredJoker,
 			privileges: dbPlayer.privileges,
+			tosAcceptedVersion: dbPlayer.tosAcceptedVersion,
 		})
 		await playerDb.updateSteamName(dbPlayer.id, steamName)
 		return { session, token: signSessionJwt(session) }
 	}
 
 	session = createSession(steamName, { steamIdHash })
-	await playerDb.createPlayer({ id: session.playerId, steamName, steamIdHash })
 
 	return { session, token: signSessionJwt(session) }
 }
@@ -159,6 +157,7 @@ export async function authenticateWithDiscord(
 			useDiscordName: dbPlayer.useDiscordName,
 			preferredJoker: dbPlayer.preferredJoker,
 			privileges: dbPlayer.privileges,
+			tosAcceptedVersion: dbPlayer.tosAcceptedVersion,
 		})
 		await playerDb.updateSteamName(dbPlayer.id, discordName)
 		await playerDb.updateDiscordUsername(dbPlayer.id, discordName)
@@ -198,6 +197,7 @@ export async function authenticateWithPlayerId(
 		useDiscordName: dbPlayer.useDiscordName,
 		preferredJoker: dbPlayer.preferredJoker,
 		privileges: dbPlayer.privileges,
+		tosAcceptedVersion: dbPlayer.tosAcceptedVersion,
 	})
 	await playerDb.updateSteamName(dbPlayer.id, steamName)
 	return { session, token: signSessionJwt(session) }
@@ -245,6 +245,7 @@ export async function impersonatePlayer(opts: {
 		useDiscordName: dbPlayer.useDiscordName,
 		preferredJoker: dbPlayer.preferredJoker,
 		privileges: dbPlayer.privileges,
+		tosAcceptedVersion: dbPlayer.tosAcceptedVersion,
 	})
 
 	return { session, token: signSessionJwt(session) }
@@ -350,6 +351,42 @@ export function verifyJwt(token: string): JwtPayload | null {
 	} catch {
 		return null
 	}
+}
+
+// --- ToS version gate ---
+
+export function signTosPendingToken(playerId: string): string {
+	return jwt.sign({ playerId, purpose: 'tos-accept' }, env.JWT_SECRET, { expiresIn: '10m' })
+}
+
+export function verifyTosPendingToken(token: string): string | null {
+	try {
+		const decoded = jwt.verify(token, env.JWT_SECRET) as { playerId: string; purpose: string }
+		if (decoded.purpose !== 'tos-accept') return null
+		return decoded.playerId
+	} catch {
+		return null
+	}
+}
+
+export async function acceptTos(playerId: string) {
+	const { tosVersion } = getConfig()
+
+	const session = getSession(playerId)
+	if (!session) throw new AppError('Session not found', 401)
+
+	const dbPlayer = await playerDb.findPlayerById(playerId)
+	if (!dbPlayer) {
+		await playerDb.createPlayer({
+			id: session.playerId,
+			steamName: session.steamName,
+			steamIdHash: session.steamIdHash,
+		})
+	}
+
+	await playerDb.updateTosAcceptedVersion(playerId, tosVersion)
+	session.tosAcceptedVersion = tosVersion
+	return { session, token: signSessionJwt(session) }
 }
 
 // --- Discord link CSRF protection ---

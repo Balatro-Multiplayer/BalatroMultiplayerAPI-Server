@@ -3,6 +3,7 @@ export interface JwtPayload {
 	steamName: string
 	lobbyCode?: string
 	isTemp?: boolean
+	purpose?: string
 }
 
 export interface SteamAuthResponse {

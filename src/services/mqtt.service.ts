@@ -1,6 +1,7 @@
 import mqtt from 'mqtt'
 import { env } from '../env.js'
 import type { LobbyEvent } from '../types/index.js'
+import type { ModConfig } from '../state/config.js'
 
 class MqttService {
 	private client: mqtt.MqttClient | null = null
@@ -77,6 +78,14 @@ class MqttService {
 			qos: 1,
 			retain: false,
 		})
+	}
+
+	async publishModUpdate(mods: ModConfig[]): Promise<void> {
+		await this.publish(
+			'bmp/notifications/mod-updates',
+			JSON.stringify({ mods, timestamp: new Date().toISOString() }),
+			{ qos: 1, retain: true },
+		)
 	}
 
 	async cleanupLobbyTopics(

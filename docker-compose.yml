@@ -19,6 +19,8 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    networks:
+      - bmp
 
   postgres:
     image: postgres:16-alpine
@@ -37,6 +39,8 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
+    networks:
+      - bmp
 
   api:
     build:
@@ -45,27 +49,22 @@ services:
     container_name: bmp-api
     ports:
       - "8788:8788"
+    env_file: .env
     environment:
-      PORT: 8788
-      NODE_ENV: development
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/bmp
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRES_IN: 24h
-      STEAM_WEB_API_KEY: ${STEAM_WEB_API_KEY}
-      STEAM_APP_ID: "2379780"
-      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
-      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
-      DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-http://localhost:8788/api/auth/discord/callback}
       EMQX_BROKER_URL: mqtt://emqx:1883
-      EMQX_SYSTEM_CLIENT_ID: bmp-api-server
-      EMQX_SYSTEM_USERNAME: bmp-system
-      EMQX_SYSTEM_PASSWORD: ${EMQX_SYSTEM_PASSWORD}
     depends_on:
       emqx:
         condition: service_healthy
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - bmp
+
+networks:
+  bmp:
+    name: bmp
 
 volumes:
   emqx-data:

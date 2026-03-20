@@ -13,6 +13,7 @@ export interface PlayerRecord {
 	steamName: string
 	chatEnabled: boolean
 	chatBlocked: boolean
+	tosAcceptedVersion: number
 }
 
 export async function findPlayerBySteamIdHash(
@@ -134,5 +135,15 @@ export async function updateSteamName(
 	await db
 		.update(players)
 		.set({ steamName, updatedAt: new Date() })
+		.where(eq(players.id, playerId))
+}
+
+export async function updateTosAcceptedVersion(
+	playerId: string,
+	version: number,
+): Promise<void> {
+	await db
+		.update(players)
+		.set({ tosAcceptedVersion: version, updatedAt: new Date() })
 		.where(eq(players.id, playerId))
 }

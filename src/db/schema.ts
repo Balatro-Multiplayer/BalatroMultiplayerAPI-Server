@@ -24,6 +24,7 @@ export const players = pgTable(
 		steamName: varchar('steam_name', { length: 64 }).notNull(),
 		chatEnabled: boolean('chat_enabled').notNull().default(false),
 		chatBlocked: boolean('chat_blocked').notNull().default(false),
+		tosAcceptedVersion: integer('tos_accepted_version').notNull().default(0),
 		createdAt: timestamp('created_at', { withTimezone: true })
 			.notNull()
 			.defaultNow(),
@@ -89,6 +90,26 @@ export const actionLogs = pgTable('action_logs', {
 	actionType: varchar('action_type', { length: 128 }).notNull(),
 	payload: jsonb('payload').notNull(),
 	createdAt: timestamp('created_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+})
+
+// Singleton row (id = 1) holding server-wide config values.
+export const serverConfig = pgTable('server_config', {
+	id: integer('id').primaryKey().default(1),
+	tosVersion: integer('tos_version').notNull().default(1),
+	updatedAt: timestamp('updated_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+})
+
+// One row per official mod — version string and download URL.
+export const modVersions = pgTable('mod_versions', {
+	modId: varchar('mod_id', { length: 64 }).primaryKey(),
+	displayName: varchar('display_name', { length: 64 }).notNull(),
+	version: varchar('version', { length: 32 }).notNull().default('0.0.0'),
+	downloadUrl: text('download_url').notNull(),
+	updatedAt: timestamp('updated_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),
 })

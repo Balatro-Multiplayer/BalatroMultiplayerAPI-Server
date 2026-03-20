@@ -2,6 +2,7 @@ import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
 import { authenticate } from '../middleware/authenticate.js'
 import {
+	acceptTos,
 	authenticateAsTemp,
 	authenticateWithDiscord,
 	authenticateWithPlayerId,
@@ -13,11 +14,14 @@ import {
 	linkSteamToPlayer,
 	setPreferredJoker,
 	setUseDiscordName,
+	signTosPendingToken,
 	unlinkDiscordFromPlayer,
 	validateDiscordCode,
 	validateSteamTicket,
 	verifyLinkState,
+	verifyTosPendingToken,
 } from '../services/auth.service.js'
+import { getConfig } from '../state/config.js'
 import { issueRefreshToken, redeemRefreshToken } from '../services/refresh-token.service.js'
 import { mqttService } from '../services/mqtt.service.js'
 import { env } from '../env.js'
@@ -60,6 +64,18 @@ function playerPayload(session: PlayerSession, extra?: { isTemp?: boolean }) {
 	}
 }
 
+function configPayload() {
+	return getConfig()
+}
+
+function tosGate(session: PlayerSession): { tosRequired: true; tosUpdate: boolean; token: string } | null {
+	const { tosVersion } = getConfig()
+	if (session.tosAcceptedVersion < tosVersion) {
+		return { tosRequired: true, tosUpdate: session.tosAcceptedVersion > 0, token: signTosPendingToken(session.playerId) }
+	}
+	return null
+}
+
 const router = Router()
 
 const authRateLimiter = rateLimit({
@@ -89,6 +105,13 @@ router.post('/steam', async (req, res, next) => {
 		const { steamId } = await validateSteamTicket(ticket)
 		const { session, token } = await authenticateWithSteam(steamId, steamName)
 		const isTemp = !session.steamIdHash
+
+		const gate = isTemp ? null : tosGate(session)
+		if (gate) {
+			res.json(gate)
+			return
+		}
+
 		const refreshToken = isTemp ? null : await issueRefreshToken(session.playerId)
 
 		res.json({
@@ -96,6 +119,7 @@ router.post('/steam', async (req, res, next) => {
 			refreshToken,
 			lobby: lobbyPayload(session),
 			player: playerPayload(session, { isTemp: isTemp || undefined }),
+			serverConfig: configPayload(),
 		})
 	} catch (err) {
 		next(err)
@@ -171,6 +195,14 @@ router.post('/refresh', async (req, res, next) => {
 			playerId,
 			steamName,
 		)
+
+		const gate = tosGate(session)
+		if (gate) {
+			const newRefreshToken = await issueRefreshToken(session.playerId)
+			res.json({ ...gate, refreshToken: newRefreshToken })
+			return
+		}
+
 		const newRefreshToken = await issueRefreshToken(session.playerId)
 
 		res.json({
@@ -178,6 +210,32 @@ router.post('/refresh', async (req, res, next) => {
 			refreshToken: newRefreshToken,
 			lobby: lobbyPayload(session),
 			player: playerPayload(session),
+			serverConfig: configPayload(),
+		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.post('/accept-tos', async (req, res, next) => {
+	try {
+		const authHeader = req.headers.authorization
+		const pendingToken =
+			authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
+		if (!pendingToken) throw new AppError('Missing pending token', 401)
+
+		const playerId = verifyTosPendingToken(pendingToken)
+		if (!playerId) throw new AppError('Invalid or expired ToS token', 401)
+
+		const { session, token } = await acceptTos(playerId)
+		const refreshToken = await issueRefreshToken(session.playerId)
+
+		res.json({
+			token,
+			refreshToken,
+			lobby: lobbyPayload(session),
+			player: playerPayload(session),
+			serverConfig: configPayload(),
 		})
 	} catch (err) {
 		next(err)
