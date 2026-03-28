@@ -13,6 +13,9 @@
 		"lint": "biome check .",
 		"format": "biome format --write ."
 	},
+	"optionalDependencies": {
+		"@v-rtualized/bmp-internal": "latest"
+	},
 	"dependencies": {
 		"drizzle-orm": "^0.38.0",
 		"express": "^5.0.0",

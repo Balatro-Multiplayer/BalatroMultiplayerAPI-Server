@@ -52,7 +52,7 @@ async function start() {
 		await loadConfigFromDb()
 
 		// Load private features if available (not present in public builds)
-		const privatePath: string = './private/index.js'
+		const privatePath: string = '@v-rtualized/bmp-internal'
 		try {
 			const { registerPrivate } = await import(privatePath) as PrivateModule
 			await registerPrivate(app)
