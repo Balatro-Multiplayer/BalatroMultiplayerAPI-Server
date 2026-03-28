@@ -1,4 +1,5 @@
 import express from 'express'
+import type { Express, Request, Response } from 'express'
 import type { Server } from 'node:http'
 import { pool } from './db/index.js'
 import { env } from './env.js'
@@ -14,13 +15,11 @@ const app = express()
 
 app.use(express.json())
 
-app.get('/health', (_req, res) => {
+app.get('/health', (_req: Request, res: Response) => {
 	res.json({ status: 'ok' })
 })
 
 app.use(router)
-
-app.use(errorHandler)
 
 let server: Server
 
@@ -46,9 +45,23 @@ async function shutdown() {
 	process.exit(0)
 }
 
+type PrivateModule = { registerPrivate: (app: Express) => Promise<void> }
+
 async function start() {
 	try {
 		await loadConfigFromDb()
+
+		// Load private features if available (not present in public builds)
+		const privatePath: string = './private/index.js'
+		try {
+			const { registerPrivate } = await import(privatePath) as PrivateModule
+			await registerPrivate(app)
+		} catch {
+			// running without private features
+		}
+
+		app.use(errorHandler)
+
 		await mqttService.connect()
 		await provisionEmqxWebhook()
 
