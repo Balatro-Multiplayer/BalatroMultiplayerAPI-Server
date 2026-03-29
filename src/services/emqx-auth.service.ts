@@ -133,22 +133,38 @@ export async function authorizeAction(
 		}
 
 		case 'players': {
-			// lobby/{code}/players/{playerId}/state
-			if (parts.length < 5 || parts[4] !== 'state') {
+			// lobby/{code}/players/{playerId}/{subtype}
+			if (parts.length < 5) return { result: 'deny' }
+			const targetPlayerId = parts[3]
+			const subtype = parts[4]
+
+			if (subtype === 'state') {
+				if (action === 'subscribe') {
+					// Players can only read their own state (privacy)
+					return { result: targetPlayerId === clientid ? 'allow' : 'deny' }
+				}
+				if (action === 'publish') {
+					return { result: targetPlayerId === clientid ? 'allow' : 'deny' }
+				}
+			}
+
+			if (subtype === 'info') {
+				// Server publishes retained info; any lobby member may subscribe
+				if (action === 'subscribe') return { result: 'allow' }
 				return { result: 'deny' }
 			}
-			const statePlayerId = parts[3]
 
-			if (action === 'subscribe') {
-				// Players can only read their own state (privacy)
-				// Wildcard subscribe (players/+/state) is denied for regular clients
-				// Spectators/privileged access can be granted in the future
-				return { result: statePlayerId === clientid ? 'allow' : 'deny' }
+			if (subtype === 'actions') {
+				if (action === 'subscribe') {
+					// Any lobby member may subscribe (including wildcard players/+/actions)
+					return { result: 'allow' }
+				}
+				if (action === 'publish') {
+					// Players may only publish to their own action topic
+					return { result: targetPlayerId === clientid ? 'allow' : 'deny' }
+				}
 			}
-			if (action === 'publish') {
-				// Players can only write their own state
-				return { result: statePlayerId === clientid ? 'allow' : 'deny' }
-			}
+
 			break
 		}
 
