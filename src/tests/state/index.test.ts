@@ -17,27 +17,27 @@ import {
 describe('state helpers', () => {
 	describe('createSession', () => {
 		it('creates a session with a generated ID', () => {
-			const session = createSession('Alice', { steamId: 'steam1' })
+			const session = createSession('Alice', { steamIdHash: 'steam1' })
 			expect(session.playerId).toBeDefined()
 			expect(session.steamName).toBe('Alice')
-			expect(session.steamId).toBe('steam1')
+			expect(session.steamIdHash).toBe('steam1')
 			expect(sessions.has(session.playerId)).toBe(true)
 		})
 
-		it('indexes steam ID', () => {
-			const session = createSession('Alice', { steamId: 'steam1' })
+		it('indexes steam ID hash', () => {
+			const session = createSession('Alice', { steamIdHash: 'steam1' })
 			expect(steamIndex.get('steam1')).toBe(session.playerId)
 		})
 
-		it('indexes discord ID', () => {
-			const session = createSession('Alice', { discordId: 'disc1' })
+		it('indexes discord ID hash', () => {
+			const session = createSession('Alice', { discordIdHash: 'disc1' })
 			expect(discordIndex.get('disc1')).toBe(session.playerId)
 		})
 
 		it('indexes both when provided', () => {
 			const session = createSession('Alice', {
-				steamId: 'steam1',
-				discordId: 'disc1',
+				steamIdHash: 'steam1',
+				discordIdHash: 'disc1',
 			})
 			expect(steamIndex.get('steam1')).toBe(session.playerId)
 			expect(discordIndex.get('disc1')).toBe(session.playerId)
@@ -45,13 +45,13 @@ describe('state helpers', () => {
 	})
 
 	describe('findByProvider', () => {
-		it('finds session by steam ID', () => {
-			const session = createSession('Alice', { steamId: 'steam1' })
+		it('finds session by steam ID hash', () => {
+			const session = createSession('Alice', { steamIdHash: 'steam1' })
 			expect(findByProvider('steam', 'steam1')).toBe(session)
 		})
 
-		it('finds session by discord ID', () => {
-			const session = createSession('Alice', { discordId: 'disc1' })
+		it('finds session by discord ID hash', () => {
+			const session = createSession('Alice', { discordIdHash: 'disc1' })
 			expect(findByProvider('discord', 'disc1')).toBe(session)
 		})
 
@@ -62,19 +62,19 @@ describe('state helpers', () => {
 
 	describe('linkProvider', () => {
 		it('links steam to an existing session', () => {
-			const session = createSession('Alice', { discordId: 'disc1' })
+			const session = createSession('Alice', { discordIdHash: 'disc1' })
 			linkProvider(session, 'steam', 'steam1')
 
-			expect(session.steamId).toBe('steam1')
+			expect(session.steamIdHash).toBe('steam1')
 			expect(steamIndex.get('steam1')).toBe(session.playerId)
 			expect(findByProvider('steam', 'steam1')).toBe(session)
 		})
 
 		it('links discord to an existing session', () => {
-			const session = createSession('Alice', { steamId: 'steam1' })
+			const session = createSession('Alice', { steamIdHash: 'steam1' })
 			linkProvider(session, 'discord', 'disc1')
 
-			expect(session.discordId).toBe('disc1')
+			expect(session.discordIdHash).toBe('disc1')
 			expect(discordIndex.get('disc1')).toBe(session.playerId)
 		})
 	})
@@ -93,8 +93,8 @@ describe('state helpers', () => {
 	describe('removeSession', () => {
 		it('removes session and cleans up indexes', () => {
 			const session = createSession('Alice', {
-				steamId: 'steam1',
-				discordId: 'disc1',
+				steamIdHash: 'steam1',
+				discordIdHash: 'disc1',
 			})
 
 			removeSession(session.playerId)
@@ -130,7 +130,7 @@ describe('state helpers', () => {
 
 	describe('cleanupExpiredSessions', () => {
 		it('removes sessions older than TTL', () => {
-			const session = createSession('Alice', { steamId: 'steam1' })
+			const session = createSession('Alice', { steamIdHash: 'steam1' })
 			// Backdate connectedAt to exceed the 24h default TTL
 			;(session as any).connectedAt = new Date(
 				Date.now() - 25 * 60 * 60 * 1000,
@@ -144,7 +144,7 @@ describe('state helpers', () => {
 		})
 
 		it('does not remove active sessions', () => {
-			const session = createSession('Alice', { steamId: 'steam1' })
+			const session = createSession('Alice', { steamIdHash: 'steam1' })
 			// connectedAt is "now" which is within TTL
 
 			const removed = cleanupExpiredSessions()
@@ -154,7 +154,7 @@ describe('state helpers', () => {
 		})
 
 		it('skips sessions in a lobby even if expired', () => {
-			const session = createSession('Alice', { steamId: 'steam1' })
+			const session = createSession('Alice', { steamIdHash: 'steam1' })
 			;(session as any).connectedAt = new Date(
 				Date.now() - 25 * 60 * 60 * 1000,
 			)
@@ -168,8 +168,8 @@ describe('state helpers', () => {
 
 		it('cleans up provider indexes for removed sessions', () => {
 			const session = createSession('Alice', {
-				steamId: 'steam1',
-				discordId: 'disc1',
+				steamIdHash: 'steam1',
+				discordIdHash: 'disc1',
 			})
 			;(session as any).connectedAt = new Date(
 				Date.now() - 25 * 60 * 60 * 1000,
@@ -182,12 +182,12 @@ describe('state helpers', () => {
 		})
 
 		it('handles mixed expired and active sessions', () => {
-			const expired = createSession('Expired', { steamId: 'steam1' })
+			const expired = createSession('Expired', { steamIdHash: 'steam1' })
 			;(expired as any).connectedAt = new Date(
 				Date.now() - 25 * 60 * 60 * 1000,
 			)
 
-			const active = createSession('Active', { steamId: 'steam2' })
+			const active = createSession('Active', { steamIdHash: 'steam2' })
 
 			const removed = cleanupExpiredSessions()
 

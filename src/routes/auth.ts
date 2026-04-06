@@ -26,9 +26,10 @@ import { issueRefreshToken, redeemRefreshToken } from '../services/refresh-token
 import { mqttService } from '../services/mqtt.service.js'
 import { env } from '../env.js'
 import { AppError } from '../utils/errors.js'
-import { getLobby } from '../state/index.js'
+import { getLobby, getSession } from '../state/index.js'
 import type { PlayerSession } from '../state/index.js'
 import { buildPrivilegeTable } from '../constants/privileges.js'
+import { updateChatStatus } from '../services/player.service.js'
 
 function lobbyPayload(session: PlayerSession) {
 	if (!session.lobbyCode) return undefined
@@ -60,6 +61,8 @@ function playerPayload(session: PlayerSession, extra?: { isTemp?: boolean }) {
 		discordUsername: session.discordUsername ?? null,
 		lobbyCode: session.lobbyCode ?? null,
 		privileges: buildPrivilegeTable(session.privileges),
+		chatEnabled: session.chatEnabled,
+		chatBlocked: session.chatBlocked,
 		...(extra?.isTemp ? { isTemp: true } : {}),
 	}
 }
@@ -365,6 +368,49 @@ router.post('/preferences/display-name', authenticate, async (req, res, next) =>
 			token,
 			player: playerPayload(session),
 		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.post('/chat/enable', authenticate, async (req, res, next) => {
+	try {
+		const session = getSession(req.player!.playerId)
+		if (!session) throw new AppError('Session not found', 401)
+
+		// Blocked players cannot re-submit age verification
+		if (session.chatBlocked) throw new AppError('Chat access is permanently restricted', 403)
+		// Already enabled — no-op
+		if (session.chatEnabled) {
+			res.json({ player: playerPayload(session) })
+			return
+		}
+
+		const { birthYear, birthMonth, birthDay } = req.body
+		if (
+			typeof birthYear !== 'number' ||
+			typeof birthMonth !== 'number' ||
+			typeof birthDay !== 'number'
+		) {
+			throw new AppError('Missing or invalid birthdate fields (birthYear, birthMonth, birthDay)', 400)
+		}
+
+		// Compute age — birthdate is never stored
+		const today = new Date()
+		let age = today.getFullYear() - birthYear
+		const monthDiff = today.getMonth() + 1 - birthMonth
+		if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDay)) {
+			age--
+		}
+
+		const chatEnabled = age >= 16
+		const chatBlocked = !chatEnabled
+
+		await updateChatStatus(session.playerId, chatEnabled, chatBlocked)
+		session.chatEnabled = chatEnabled
+		session.chatBlocked = chatBlocked
+
+		res.json({ player: playerPayload(session) })
 	} catch (err) {
 		next(err)
 	}

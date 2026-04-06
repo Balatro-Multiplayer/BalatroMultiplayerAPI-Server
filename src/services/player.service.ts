@@ -147,3 +147,14 @@ export async function updateTosAcceptedVersion(
 		.set({ tosAcceptedVersion: version, updatedAt: new Date() })
 		.where(eq(players.id, playerId))
 }
+
+export async function updateChatStatus(
+	playerId: string,
+	chatEnabled: boolean,
+	chatBlocked: boolean,
+): Promise<void> {
+	await db
+		.update(players)
+		.set({ chatEnabled, chatBlocked, updatedAt: new Date() })
+		.where(eq(players.id, playerId))
+}

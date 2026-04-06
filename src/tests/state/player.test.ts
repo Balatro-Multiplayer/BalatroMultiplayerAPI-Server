@@ -14,13 +14,13 @@ describe('PlayerSession', () => {
 		expect(session.steamName).toBe('Alice')
 	})
 
-	it('accepts optional steamId and discordId', () => {
+	it('accepts optional steamIdHash and discordIdHash', () => {
 		const session = new PlayerSession('Alice', {
-			steamId: 'steam123',
-			discordId: 'discord456',
+			steamIdHash: 'steam123',
+			discordIdHash: 'discord456',
 		})
-		expect(session.steamId).toBe('steam123')
-		expect(session.discordId).toBe('discord456')
+		expect(session.steamIdHash).toBe('steam123')
+		expect(session.discordIdHash).toBe('discord456')
 	})
 
 	it('starts with no lobby code', () => {

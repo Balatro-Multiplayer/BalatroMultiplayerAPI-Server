@@ -126,6 +126,19 @@ class MqttService {
 		await this.publish(topic, '', { qos: 1, retain: true })
 	}
 
+	async publishChatMessage(
+		lobbyCode: string,
+		playerId: string,
+		displayName: string,
+		message: string,
+	): Promise<void> {
+		const topic = `lobby/${lobbyCode}/chat/${playerId}`
+		await this.publish(topic, JSON.stringify({ message, displayName, playerId }), {
+			qos: 1,
+			retain: false,
+		})
+	}
+
 	async cleanupPlayerState(
 		lobbyCode: string,
 		playerId: string,

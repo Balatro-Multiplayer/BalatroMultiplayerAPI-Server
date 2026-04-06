@@ -11,7 +11,7 @@ export const discordIndex = new Map<string, string>()
 
 export function createSession(
 	steamName: string,
-	opts?: { id?: string; steamIdHash?: string; discordIdHash?: string; discordUsername?: string; useDiscordName?: boolean; preferredJoker?: string; privileges?: string[]; tosAcceptedVersion?: number },
+	opts?: { id?: string; steamIdHash?: string; discordIdHash?: string; discordUsername?: string; useDiscordName?: boolean; preferredJoker?: string; privileges?: string[]; tosAcceptedVersion?: number; chatEnabled?: boolean; chatBlocked?: boolean },
 ): PlayerSession {
 	const session = new PlayerSession(steamName, opts)
 	sessions.set(session.playerId, session)

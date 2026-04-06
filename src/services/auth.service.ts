@@ -71,6 +71,8 @@ export async function authenticateWithSteam(
 			preferredJoker: dbPlayer.preferredJoker,
 			privileges: dbPlayer.privileges,
 			tosAcceptedVersion: dbPlayer.tosAcceptedVersion,
+			chatEnabled: dbPlayer.chatEnabled,
+			chatBlocked: dbPlayer.chatBlocked,
 		})
 		await playerDb.updateSteamName(dbPlayer.id, steamName)
 		return { session, token: signSessionJwt(session) }
@@ -158,6 +160,8 @@ export async function authenticateWithDiscord(
 			preferredJoker: dbPlayer.preferredJoker,
 			privileges: dbPlayer.privileges,
 			tosAcceptedVersion: dbPlayer.tosAcceptedVersion,
+			chatEnabled: dbPlayer.chatEnabled,
+			chatBlocked: dbPlayer.chatBlocked,
 		})
 		await playerDb.updateSteamName(dbPlayer.id, discordName)
 		await playerDb.updateDiscordUsername(dbPlayer.id, discordName)
@@ -198,6 +202,8 @@ export async function authenticateWithPlayerId(
 		preferredJoker: dbPlayer.preferredJoker,
 		privileges: dbPlayer.privileges,
 		tosAcceptedVersion: dbPlayer.tosAcceptedVersion,
+		chatEnabled: dbPlayer.chatEnabled,
+		chatBlocked: dbPlayer.chatBlocked,
 	})
 	await playerDb.updateSteamName(dbPlayer.id, steamName)
 	return { session, token: signSessionJwt(session) }
@@ -246,6 +252,8 @@ export async function impersonatePlayer(opts: {
 		preferredJoker: dbPlayer.preferredJoker,
 		privileges: dbPlayer.privileges,
 		tosAcceptedVersion: dbPlayer.tosAcceptedVersion,
+		chatEnabled: dbPlayer.chatEnabled,
+		chatBlocked: dbPlayer.chatBlocked,
 	})
 
 	return { session, token: signSessionJwt(session) }

@@ -1,5 +1,5 @@
 import { db } from '../db/index.js'
-import { serverConfig, modVersions } from '../db/schema.js'
+import { serverConfig, modVersions, chatAllowlist } from '../db/schema.js'
 
 export interface ModConfig {
 	modId: string
@@ -11,9 +11,10 @@ export interface ModConfig {
 export interface AppConfig {
 	tosVersion: number
 	mods: ModConfig[]
+	chatAllowlist: Set<string>
 }
 
-let _config: AppConfig = { tosVersion: 1, mods: [] }
+let _config: AppConfig = { tosVersion: 1, mods: [], chatAllowlist: new Set() }
 
 export function getConfig(): AppConfig {
 	return _config
@@ -41,7 +42,10 @@ export async function loadConfigFromDb(): Promise<AppConfig> {
 		downloadUrl: row.downloadUrl,
 	}))
 
-	const config: AppConfig = { tosVersion, mods }
+	const allowlistRows = await db.select().from(chatAllowlist)
+	const chatAllowlistSet = new Set(allowlistRows.map((r) => r.message))
+
+	const config: AppConfig = { tosVersion, mods, chatAllowlist: chatAllowlistSet }
 	setConfig(config)
 	return config
 }

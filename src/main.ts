@@ -1,7 +1,9 @@
 import express from 'express'
 import type { Express, Request, Response } from 'express'
 import type { Server } from 'node:http'
-import { pool } from './db/index.js'
+import { pool, db } from './db/index.js'
+import { flaggedMessages } from './db/schema.js'
+import { lt } from 'drizzle-orm'
 import { env } from './env.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import router from './routes/index.js'
@@ -45,6 +47,14 @@ async function shutdown() {
 	process.exit(0)
 }
 
+async function purgeExpiredFlaggedMessages() {
+	try {
+		await db.delete(flaggedMessages).where(lt(flaggedMessages.expiresAt, new Date()))
+	} catch (err) {
+		console.error('[cleanup] Failed to purge expired flagged messages:', err)
+	}
+}
+
 type PrivateModule = { registerPrivate: (app: Express) => Promise<void> }
 
 async function start() {
@@ -66,6 +76,9 @@ async function start() {
 		await provisionEmqxWebhook()
 
 		startSessionCleanup()
+
+		void purgeExpiredFlaggedMessages()
+		setInterval(() => void purgeExpiredFlaggedMessages(), 60 * 60 * 1000)
 
 		server = app.listen(env.PORT, () => {
 			console.log(`[server] API server listening on port ${env.PORT}`)

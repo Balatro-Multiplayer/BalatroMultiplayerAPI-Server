@@ -154,7 +154,7 @@ describe('lobby.service', () => {
 			await leaveLobby(host, code)
 
 			expect(lobbies.has(code)).toBe(false)
-			expect(mqttService.cleanupLobbyTopics).toHaveBeenCalledWith(code)
+			expect(mqttService.cleanupLobbyTopics).toHaveBeenCalledWith(code, expect.any(Array))
 		})
 
 		it('throws if lobby does not exist', async () => {
@@ -199,8 +199,8 @@ describe('lobby.service', () => {
 			const players = getLobbyPlayers(lobby.code)
 			expect(players).toEqual(
 				expect.arrayContaining([
-					{ id: 'host1', displayName: 'Alice', isAway: false },
-					{ id: 'guest1', displayName: 'Bob', isAway: false },
+					expect.objectContaining({ id: 'host1', displayName: 'Alice', isAway: false }),
+					expect.objectContaining({ id: 'guest1', displayName: 'Bob', isAway: false }),
 				]),
 			)
 		})

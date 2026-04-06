@@ -22,6 +22,7 @@
 		"express-rate-limit": "^8.2.1",
 		"jsonwebtoken": "^9.0.0",
 		"mqtt": "^5.10.0",
+		"obscenity": "^0.4.6",
 		"pg": "^8.13.0"
 	},
 	"devDependencies": {

@@ -4,37 +4,6 @@ import { getConfig } from '../state/config.js'
 import type { EmqxAuthRequest, EmqxAuthzRequest } from '../types/index.js'
 import { verifyJwt } from './auth.service.js'
 
-// --- Chat rate limiting ---
-
-const CHAT_WINDOW_MS = 5000
-const CHAT_MAX_MESSAGES = 5
-
-// playerId → array of timestamps
-export const chatTimestamps = new Map<string, number[]>()
-
-function isChatRateLimited(playerId: string): boolean {
-	const now = Date.now()
-	let timestamps = chatTimestamps.get(playerId)
-
-	if (!timestamps) {
-		timestamps = []
-		chatTimestamps.set(playerId, timestamps)
-	}
-
-	// Remove timestamps outside the window
-	const cutoff = now - CHAT_WINDOW_MS
-	while (timestamps.length > 0 && timestamps[0] <= cutoff) {
-		timestamps.shift()
-	}
-
-	if (timestamps.length >= CHAT_MAX_MESSAGES) {
-		return true
-	}
-
-	timestamps.push(now)
-	return false
-}
-
 // --- EMQX Authentication ---
 
 export async function authenticateClient(
@@ -185,23 +154,15 @@ export async function authorizeAction(
 		}
 
 		case 'chat': {
-			// lobby/{code}/chat/{senderPlayerId}
-			if (parts.length < 4) return { result: 'deny' }
-			const chatSenderId = parts[3]
-
 			if (action === 'subscribe') {
-				// Any lobby member can read chat
-				// Support wildcard subscribe: lobby/{code}/chat/+
+				const session = getSession(clientid)
+				if (!session || !session.chatEnabled || session.chatBlocked) {
+					return { result: 'deny' }
+				}
 				return { result: 'allow' }
 			}
-			if (action === 'publish') {
-				// Players can only publish to their own chat subtopic
-				if (chatSenderId !== clientid) return { result: 'deny' }
-				// Rate limit chat messages
-				if (isChatRateLimited(clientid)) return { result: 'deny' }
-				return { result: 'allow' }
-			}
-			break
+			// publish: only the system server (superuser) may publish to chat topics
+			return { result: 'deny' }
 		}
 
 		default:

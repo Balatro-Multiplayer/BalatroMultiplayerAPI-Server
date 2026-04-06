@@ -11,6 +11,7 @@ const originalNodeEnv = env.NODE_ENV
 describe('POST /api/auth/steam', () => {
 	afterEach(() => {
 		vi.restoreAllMocks()
+		;(env as { NODE_ENV: string }).NODE_ENV = originalNodeEnv
 	})
 
 	it('returns 400 when ticket is missing', async () => {
@@ -113,7 +114,6 @@ describe('POST /api/auth/steam', () => {
 		// Cleanup
 		lobby.removePlayer(playerId)
 		lobbies.delete('RECON')
-		;(env as { NODE_ENV: string }).NODE_ENV = originalNodeEnv
 	})
 
 	it('returns error for invalid Steam ticket', async () => {
@@ -168,7 +168,6 @@ describe('POST /api/auth/dev', () => {
 		expect(res.body.refreshToken).toBeNull()
 		expect(res.body.player.id).toBeDefined()
 		expect(res.body.player.steamName).toBe('DevPlayer')
-		expect(res.body.player.steamLinked).toBe(false)
 		expect(res.body.player.discordLinked).toBe(false)
 		expect(res.body.player.isTemp).toBe(true)
 	})

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
 	authenticateClient,
 	authorizeAction,
-	chatTimestamps,
 } from '../../services/emqx-auth.service.js'
 import { signJwt } from '../../services/auth.service.js'
 import { Lobby, createSession, lobbies } from '../../state/index.js'
@@ -20,7 +19,22 @@ function setupLobbyWithPlayer(
 	lobbies.set(code, lobby)
 
 	for (const id of [hostId, ...playerIds]) {
-		const session = createSession(`User_${id}`, { id })
+		const session = createSession(`User_${id}`, { id, tosAcceptedVersion: 1 })
+		lobby.addPlayer(session)
+	}
+	return lobby
+}
+
+function setupLobbyWithChatPlayers(
+	code: string,
+	hostId: string,
+	...playerIds: string[]
+) {
+	const lobby = new Lobby(code, 'test_mod', hostId)
+	lobbies.set(code, lobby)
+
+	for (const id of [hostId, ...playerIds]) {
+		const session = createSession(`User_${id}`, { id, tosAcceptedVersion: 1, chatEnabled: true })
 		lobby.addPlayer(session)
 	}
 	return lobby
@@ -39,7 +53,7 @@ describe('emqx-auth.service', () => {
 		})
 
 		it('allows a player with valid JWT and matching session', async () => {
-			createSession('Alice', { id: 'steam1' })
+			createSession('Alice', { id: 'steam1', tosAcceptedVersion: 1 })
 			const token = makeToken('steam1')
 
 			const result = await authenticateClient({
@@ -62,7 +76,7 @@ describe('emqx-auth.service', () => {
 		})
 
 		it('denies when clientid does not match JWT playerId', async () => {
-			createSession('Alice', { id: 'steam1' })
+			createSession('Alice', { id: 'steam1', tosAcceptedVersion: 1 })
 			const token = makeToken('steam1')
 
 			const result = await authenticateClient({
@@ -315,8 +329,8 @@ describe('emqx-auth.service', () => {
 		})
 
 		describe('chat topic', () => {
-			it('allows any member to subscribe to any chat', async () => {
-				setupLobbyWithPlayer('ABCDE', 'host1', 'guest1')
+			it('allows a chat-enabled member to subscribe', async () => {
+				setupLobbyWithChatPlayers('ABCDE', 'host1', 'guest1')
 
 				const result = await authorizeAction({
 					...base,
@@ -327,76 +341,29 @@ describe('emqx-auth.service', () => {
 				expect(result.result).toBe('allow')
 			})
 
-			it('allows a player to publish to their own chat', async () => {
-				setupLobbyWithPlayer('ABCDE', 'host1')
-
-				const result = await authorizeAction({
-					...base,
-					clientid: 'host1',
-					topic: 'lobby/ABCDE/chat/host1',
-					action: 'publish',
-				})
-				expect(result.result).toBe('allow')
-			})
-
-			it('denies publishing to another player chat', async () => {
-				setupLobbyWithPlayer('ABCDE', 'host1', 'guest1')
+			it('denies subscribe when chatEnabled is false', async () => {
+				setupLobbyWithPlayer('ABCDE', 'host1', 'guest1') // chatEnabled defaults to false
 
 				const result = await authorizeAction({
 					...base,
 					clientid: 'guest1',
 					topic: 'lobby/ABCDE/chat/host1',
-					action: 'publish',
+					action: 'subscribe',
 				})
 				expect(result.result).toBe('deny')
 			})
 
-			it('rate limits chat after 5 messages in 5 seconds', async () => {
-				setupLobbyWithPlayer('ABCDE', 'host1')
+			it('denies all client publish to chat (server-only)', async () => {
+				setupLobbyWithChatPlayers('ABCDE', 'host1')
 
-				const req = {
+				const result = await authorizeAction({
 					...base,
 					clientid: 'host1',
 					topic: 'lobby/ABCDE/chat/host1',
-					action: 'publish' as const,
-				}
-
-				// First 5 should be allowed
-				for (let i = 0; i < 5; i++) {
-					const result = await authorizeAction(req)
-					expect(result.result).toBe('allow')
-				}
-
-				// 6th should be denied
-				const result = await authorizeAction(req)
+					action: 'publish',
+				})
+				// Chat is published by the server via the API, not directly by clients
 				expect(result.result).toBe('deny')
-			})
-
-			it('allows chat again after rate limit window passes', async () => {
-				setupLobbyWithPlayer('ABCDE', 'host1')
-
-				const req = {
-					...base,
-					clientid: 'host1',
-					topic: 'lobby/ABCDE/chat/host1',
-					action: 'publish' as const,
-				}
-
-				// Fill up the rate limit
-				for (let i = 0; i < 5; i++) {
-					await authorizeAction(req)
-				}
-
-				// Manually expire the timestamps
-				const timestamps = chatTimestamps.get('host1')!
-				const past = Date.now() - 6000
-				for (let i = 0; i < timestamps.length; i++) {
-					timestamps[i] = past
-				}
-
-				// Should be allowed again
-				const result = await authorizeAction(req)
-				expect(result.result).toBe('allow')
 			})
 		})
 

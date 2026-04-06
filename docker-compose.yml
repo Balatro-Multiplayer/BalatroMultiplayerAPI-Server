@@ -42,6 +42,30 @@ services:
     networks:
       - bmp
 
+  moderation:
+    build:
+      context: ./moderation-service
+      dockerfile: Dockerfile
+    container_name: bmp-moderation
+    ports:
+      - "8001:8001"
+    environment:
+      TOXICITY_THRESHOLD: "0.7"
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 8G
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - bmp
+
   api:
     build:
       context: .
@@ -53,10 +77,13 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/bmp
       EMQX_BROKER_URL: mqtt://emqx:1883
+      MODERATION_SERVICE_URL: http://moderation:8001
     depends_on:
       emqx:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      moderation:
         condition: service_healthy
     restart: unless-stopped
     networks:

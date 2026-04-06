@@ -14,6 +14,10 @@ import {
 } from './grace-period.service.js'
 import { mqttService } from './mqtt.service.js'
 
+function destroyLobby(code: string): void {
+	lobbies.delete(code)
+}
+
 export async function createLobby(
 	player: JwtPayload,
 	modId: string,
@@ -143,7 +147,7 @@ export async function leaveLobby(player: JwtPayload, code: string) {
 				timestamp: new Date().toISOString(),
 			})
 			await mqttService.cleanupLobbyTopics(lobby.code, [player.playerId])
-			lobbies.delete(lobby.code)
+			destroyLobby(lobby.code)
 		} else {
 			const newHostId = lobby.players.keys().next().value!
 			lobby.hostId = newHostId
@@ -159,7 +163,7 @@ export async function leaveLobby(player: JwtPayload, code: string) {
 
 	if (lobby.isEmpty) {
 		await mqttService.cleanupLobbyTopics(lobby.code, [player.playerId])
-		lobbies.delete(lobby.code)
+		destroyLobby(lobby.code)
 	}
 
 	const token = signJwt({

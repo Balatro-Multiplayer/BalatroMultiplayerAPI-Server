@@ -102,7 +102,7 @@ describe('Lobby', () => {
 			hostId: 'host123',
 			maxPlayers: 8,
 			metadata: { ante: 1 },
-			players: [{ id: 'p1', displayName: 'Alice' }],
+			players: [{ id: 'p1', displayName: 'Alice', preferredJoker: 'j_joker' }],
 		})
 	})
 

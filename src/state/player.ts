@@ -13,6 +13,9 @@ export class PlayerSession {
 	public lobbyCode?: string
 	public readonly connectedAt: Date
 
+	public chatEnabled: boolean
+	public chatBlocked: boolean
+
 	constructor(
 		steamName: string,
 		opts?: {
@@ -24,6 +27,8 @@ export class PlayerSession {
 			preferredJoker?: string
 			privileges?: string[]
 			tosAcceptedVersion?: number
+			chatEnabled?: boolean
+			chatBlocked?: boolean
 		},
 	) {
 		this.playerId = opts?.id ?? randomUUID()
@@ -35,6 +40,8 @@ export class PlayerSession {
 		this.preferredJoker = opts?.preferredJoker ?? 'j_joker'
 		this.privileges = opts?.privileges ?? []
 		this.tosAcceptedVersion = opts?.tosAcceptedVersion ?? 0
+		this.chatEnabled = opts?.chatEnabled ?? false
+		this.chatBlocked = opts?.chatBlocked ?? false
 		this.connectedAt = new Date()
 	}
 
