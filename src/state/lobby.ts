@@ -24,6 +24,7 @@ export class Lobby {
 		public readonly modId: string,
 		public hostId: string,
 		public readonly maxPlayers: number = 16,
+		public readonly type: 'public' | 'private' = 'private',
 	) {
 		this.createdAt = new Date()
 	}

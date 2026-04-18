@@ -12,6 +12,11 @@ import {
 	cancelGracePeriodSilently,
 	isInGracePeriod,
 } from './grace-period.service.js'
+import {
+	removeGroupQueueForLobby,
+	syncMatchLobbyState,
+	updateGroupQueueOnLobbyJoin,
+} from './matchmaking.service.js'
 import { mqttService } from './mqtt.service.js'
 
 function destroyLobby(code: string): void {
@@ -44,7 +49,7 @@ export async function createLobby(
 		throw new AppError('Failed to generate unique lobby code', 500)
 	}
 
-	const lobby = new Lobby(code, modId, player.playerId, maxPlayers)
+	const lobby = new Lobby(code, modId, player.playerId, maxPlayers, 'private')
 	lobby.addPlayer(session)
 	lobbies.set(code, lobby)
 
@@ -92,6 +97,15 @@ export async function joinLobby(player: JwtPayload, code: string) {
 		preferredJoker: session.preferredJoker,
 	})
 
+	// Update group queue if this private lobby was queued
+	if (lobby.type === 'private') {
+		await updateGroupQueueOnLobbyJoin(lobby.code, player.playerId)
+	}
+
+	if (lobby.type === 'public') {
+		await syncMatchLobbyState(lobby.code)
+	}
+
 	const token = signJwt({
 		playerId: player.playerId,
 		steamName: player.steamName,
@@ -127,6 +141,11 @@ export async function leaveLobby(player: JwtPayload, code: string) {
 	}
 
 	lobby.removePlayer(player.playerId)
+
+	// If a private lobby member leaves and the lobby was queued, dequeue the whole group
+	if (lobby.type === 'private') {
+		removeGroupQueueForLobby(lobby.code)
+	}
 
 	await mqttService.clearPlayerInfo(lobby.code, player.playerId)
 	await mqttService.cleanupPlayerState(lobby.code, player.playerId)
@@ -213,6 +232,10 @@ export async function setMetadata(
 	lobby.metadata = { ...lobby.metadata, ...metadata }
 
 	await mqttService.publishMetadata(lobby.code, lobby.metadata)
+
+	if (lobby.type === 'public') {
+		await syncMatchLobbyState(lobby.code)
+	}
 
 	await mqttService.publishEvent(lobby.code, {
 		type: 'metadata_changed',

@@ -1,9 +1,12 @@
 import { sql } from 'drizzle-orm'
 import {
 	boolean,
+	index,
 	integer,
 	jsonb,
 	pgTable,
+	primaryKey,
+	serial,
 	text,
 	timestamp,
 	uniqueIndex,
@@ -155,4 +158,68 @@ export const reportedLobbyMessages = pgTable('reported_lobby_messages', {
 // Managed via POST /admin/refresh-config after external DB updates.
 export const chatAllowlist = pgTable('chat_allowlist', {
 	message: varchar('message', { length: 200 }).primaryKey(),
+})
+
+export const matchmakingMatches = pgTable('matchmaking_matches', {
+	matchId: varchar('match_id', { length: 36 }).primaryKey(),
+	lobbyCode: varchar('lobby_code', { length: 5 }).notNull().unique(),
+	modId: varchar('mod_id', { length: 128 }).notNull(),
+	gameMode: varchar('game_mode', { length: 128 }).notNull(),
+	players: jsonb('players').notNull(),
+	lobbyState: jsonb('lobby_state').notNull(),
+	status: varchar('status', { length: 32 }).notNull().default('active'),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const matchmakingRatings = pgTable(
+	'matchmaking_ratings',
+	{
+		playerId: uuid('player_id')
+			.notNull()
+			.references(() => players.id),
+		modId: varchar('mod_id', { length: 128 }).notNull(),
+		gameMode: varchar('game_mode', { length: 128 }).notNull(),
+		season: integer('season').notNull(),
+		rating: integer('rating').notNull().default(600),
+		wins: integer('wins').notNull().default(0),
+		losses: integer('losses').notNull().default(0),
+		gamesPlayed: integer('games_played').notNull().default(0),
+		lastMatchAt: timestamp('last_match_at', { withTimezone: true }),
+		decayAppliedAt: timestamp('decay_applied_at', { withTimezone: true }),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.playerId, t.modId, t.gameMode, t.season] }),
+		index('mmr_rating_idx').on(t.modId, t.gameMode, t.season, t.rating),
+	],
+)
+
+export const leaderboardCache = pgTable(
+	'leaderboard_cache',
+	{
+		modId: varchar('mod_id', { length: 128 }).notNull(),
+		gameMode: varchar('game_mode', { length: 128 }).notNull(),
+		season: integer('season').notNull(),
+		rank: integer('rank').notNull(),
+		playerId: uuid('player_id').notNull(),
+		displayName: varchar('display_name', { length: 64 }).notNull(),
+		rating: integer('rating').notNull(),
+		wins: integer('wins').notNull(),
+		losses: integer('losses').notNull(),
+		gamesPlayed: integer('games_played').notNull(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.modId, t.gameMode, t.season, t.rank] }),
+		index('lb_player_idx').on(t.modId, t.gameMode, t.season, t.playerId),
+	],
+)
+
+export const seasons = pgTable('seasons', {
+	id: serial('id').primaryKey(),
+	name: varchar('name', { length: 64 }).notNull(),
+	startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+	endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+	endedAt: timestamp('ended_at', { withTimezone: true }),
 })

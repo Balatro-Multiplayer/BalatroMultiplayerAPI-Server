@@ -8,6 +8,13 @@ import { env } from './env.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import router from './routes/index.js'
 import { clearAllGracePeriods } from './services/grace-period.service.js'
+import {
+	restoreMatchesFromDb,
+	startDailyJob,
+	startMatchmaking,
+	stopDailyJob,
+	stopMatchmaking,
+} from './services/matchmaking.service.js'
 import { provisionEmqxWebhook } from './services/emqx-provision.service.js'
 import { mqttService } from './services/mqtt.service.js'
 import { startSessionCleanup, stopSessionCleanup } from './state/index.js'
@@ -28,6 +35,8 @@ let server: Server
 async function shutdown() {
 	console.log('[server] Shutting down gracefully...')
 
+	stopMatchmaking()
+	stopDailyJob()
 	stopSessionCleanup()
 	clearAllGracePeriods()
 
@@ -74,6 +83,10 @@ async function start() {
 
 		await mqttService.connect()
 		await provisionEmqxWebhook()
+
+		await restoreMatchesFromDb()
+		startMatchmaking()
+		startDailyJob()
 
 		startSessionCleanup()
 

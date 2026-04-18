@@ -90,6 +90,8 @@ export async function authorizeAction(
 		case 'metadata': {
 			if (action === 'subscribe') return { result: 'allow' }
 			if (action === 'publish') {
+				// Public (matchmade) lobbies don't allow client metadata publishing
+				if (lobby.type === 'public') return { result: 'deny' }
 				return { result: lobby.hostId === clientid ? 'allow' : 'deny' }
 			}
 			break

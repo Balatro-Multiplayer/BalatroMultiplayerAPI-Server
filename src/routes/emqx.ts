@@ -5,6 +5,7 @@ import {
 	authorizeAction,
 } from '../services/emqx-auth.service.js'
 import { startGracePeriod } from '../services/grace-period.service.js'
+import { leaveAllQueues } from '../services/matchmaking.service.js'
 import { getSession, removeSession } from '../state/index.js'
 import type { EmqxAuthRequest, EmqxAuthzRequest } from '../types/index.js'
 
@@ -54,6 +55,8 @@ router.post('/webhook', async (req, res) => {
 			res.status(200).json({ result: 'ok' })
 			return
 		}
+
+		leaveAllQueues(clientid)
 
 		if (session.lobbyCode) {
 			await startGracePeriod(clientid)

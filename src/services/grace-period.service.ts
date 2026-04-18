@@ -1,4 +1,5 @@
 import { getSession, getLobby, lobbies, removeSession } from '../state/index.js'
+import { syncMatchLobbyState } from './matchmaking.service.js'
 import { mqttService } from './mqtt.service.js'
 
 const GRACE_PERIOD_MS = 2 * 60 * 1000 // 2 minutes
@@ -33,6 +34,9 @@ export async function startGracePeriod(playerId: string): Promise<void> {
 				playerId: newHostId,
 				timestamp: new Date().toISOString(),
 			})
+			if (lobby.type === 'public') {
+				await syncMatchLobbyState(lobby.code)
+			}
 		}
 	}
 
@@ -121,6 +125,9 @@ async function expireGracePeriod(playerId: string): Promise<void> {
 			playerId: newHostId,
 			timestamp: new Date().toISOString(),
 		})
+		if (lobby.type === 'public') {
+			await syncMatchLobbyState(entry.lobbyCode)
+		}
 	}
 
 	if (lobby.isEmpty) {
