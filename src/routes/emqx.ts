@@ -11,27 +11,55 @@ import type { EmqxAuthRequest, EmqxAuthzRequest } from '../types/index.js'
 
 const router = Router()
 
+const denyAuth = () => ({ result: 'deny', is_superuser: false })
+const denyAuthz = () => ({ result: 'deny' })
+const ok = () => ({ result: 'ok' })
+
 router.post('/auth', async (req, res) => {
 	try {
-		const body = req.body as EmqxAuthRequest
-		const result = await authenticateClient(body)
+		const result = await authenticateClient(req.body as EmqxAuthRequest)
 		res.status(200).json(result)
 	} catch (err) {
 		console.error('[emqx] Auth webhook error:', err)
-		res.status(200).json({ result: 'deny', is_superuser: false })
+		res.status(200).json(denyAuth())
 	}
 })
 
 router.post('/authz', async (req, res) => {
 	try {
-		const body = req.body as EmqxAuthzRequest
-		const result = await authorizeAction(body)
+		const result = await authorizeAction(req.body as EmqxAuthzRequest)
 		res.status(200).json(result)
 	} catch (err) {
 		console.error('[emqx] Authz webhook error:', err)
-		res.status(200).json({ result: 'deny' })
+		res.status(200).json(denyAuthz())
 	}
 })
+
+function isClientDisconnectedEvent(event: string): boolean {
+	return event === 'client.disconnected'
+}
+
+function isSystemClientId(clientid: string): boolean {
+	return clientid === env.EMQX_SYSTEM_CLIENT_ID
+}
+
+async function releasePlayerLobbyOrSession(clientid: string): Promise<void> {
+	const session = getSession(clientid)
+	if (!session) return
+
+	leaveAllQueues(clientid)
+
+	if (session.lobbyCode) {
+		await startGracePeriod(clientid)
+	} else {
+		removeSession(clientid)
+	}
+}
+
+async function handleClientDisconnected(clientid: string): Promise<void> {
+	if (isSystemClientId(clientid)) return
+	await releasePlayerLobbyOrSession(clientid)
+}
 
 router.post('/webhook', async (req, res) => {
 	try {
@@ -40,34 +68,14 @@ router.post('/webhook', async (req, res) => {
 			clientid: string
 		}
 
-		if (event !== 'client.disconnected') {
-			res.status(200).json({ result: 'ok' })
-			return
+		if (isClientDisconnectedEvent(event)) {
+			await handleClientDisconnected(clientid)
 		}
 
-		if (clientid === env.EMQX_SYSTEM_CLIENT_ID) {
-			res.status(200).json({ result: 'ok' })
-			return
-		}
-
-		const session = getSession(clientid)
-		if (!session) {
-			res.status(200).json({ result: 'ok' })
-			return
-		}
-
-		leaveAllQueues(clientid)
-
-		if (session.lobbyCode) {
-			await startGracePeriod(clientid)
-		} else {
-			removeSession(clientid)
-		}
-
-		res.status(200).json({ result: 'ok' })
+		res.status(200).json(ok())
 	} catch (err) {
 		console.error('[emqx] Webhook error:', err)
-		res.status(200).json({ result: 'ok' })
+		res.status(200).json(ok())
 	}
 })
 
