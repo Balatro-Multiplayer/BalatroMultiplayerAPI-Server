@@ -1,0 +1,24 @@
+{
+	"name": "@v-rtualized/bmp-internal",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsx watch src/index.ts"
+	},
+	"publishConfig": {
+		"registry": "https://npm.pkg.github.com",
+		"access": "restricted"
+	},
+	"peerDependencies": {
+		"express": "^5.0.0"
+	},
+	"devDependencies": {
+		"@types/express": "^5.0.0",
+		"@types/node": "^22.0.0",
+		"tsx": "^4.19.0",
+		"typescript": "^5.7.0"
+	}
+}

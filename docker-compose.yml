@@ -10,7 +10,7 @@ services:
     environment:
       EMQX_NAME: bmp-emqx
     volumes:
-      - ./emqx/cluster.hocon:/opt/emqx/etc/cluster.hocon:ro
+      - ./apps/server/emqx/cluster.hocon:/opt/emqx/etc/cluster.hocon:ro
       - emqx-data:/opt/emqx/data
       - emqx-log:/opt/emqx/log
     healthcheck:
@@ -44,7 +44,7 @@ services:
 
   moderation:
     build:
-      context: ./moderation-service
+      context: ./apps/moderation
       dockerfile: Dockerfile
     container_name: bmp-moderation
     ports:
@@ -68,12 +68,12 @@ services:
 
   api:
     build:
-      context: .
+      context: ./apps/server
       dockerfile: Dockerfile
     container_name: bmp-api
     ports:
       - "8788:8788"
-    env_file: .env
+    env_file: ./apps/server/.env
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/bmp
       EMQX_BROKER_URL: mqtt://emqx:1883
@@ -85,6 +85,19 @@ services:
         condition: service_healthy
       moderation:
         condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - bmp
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: bmp-web
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
     restart: unless-stopped
     networks:
       - bmp

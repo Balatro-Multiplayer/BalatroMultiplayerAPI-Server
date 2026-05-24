@@ -1,0 +1,73 @@
+services:
+  emqx:
+    image: emqx/emqx:5.8
+    container_name: bmp-e2e-emqx
+    hostname: emqx
+    ports:
+      - "11883:1883"   # MQTT (test clients connect here)
+    volumes:
+      - ./emqx/cluster.hocon:/opt/emqx/etc/cluster.hocon:ro
+    healthcheck:
+      test: ["CMD", "emqx", "ctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - bmp-e2e
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: bmp-e2e-postgres
+    hostname: postgres
+    ports:
+      - "15432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bmp_e2e
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - bmp-e2e
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bmp-e2e-api
+    hostname: api
+    ports:
+      - "18788:8788"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/bmp_e2e
+      EMQX_BROKER_URL: mqtt://emqx:1883
+      EMQX_SYSTEM_CLIENT_ID: bmp-api-server
+      EMQX_SYSTEM_USERNAME: bmp-system
+      EMQX_SYSTEM_PASSWORD: e2e-emqx-system-password
+      JWT_SECRET: e2e-test-jwt-secret-32chars-long!!
+      STEAM_WEB_API_KEY: e2e-fake-steam-key
+      PLAYER_ID_SALT: e2e-player-id-salt
+      ADMIN_SECRET: e2e-admin-secret
+      NODE_ENV: development
+      PORT: 8788
+    depends_on:
+      emqx:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8788/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+    networks:
+      - bmp-e2e
+
+networks:
+  bmp-e2e:
+    name: bmp-e2e

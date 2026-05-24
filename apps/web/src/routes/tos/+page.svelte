@@ -1,0 +1,376 @@
+<svelte:head>
+	<title>Terms of Service — Balatro Multiplayer</title>
+</svelte:head>
+
+<div class="legal">
+
+<h1>TERMS OF SERVICE</h1>
+<p class="subtitle"><strong>Last updated:</strong> March 18, 2026</p>
+
+<h2>AGREEMENT TO OUR LEGAL TERMS</h2>
+
+<p>We are <strong>Connor Mills</strong>, an individual based in <strong>Canada</strong>, doing business as <strong>Virtualized</strong> ("Company," "we," "us," "our").</p>
+
+<p>We operate the Balatro Multiplayer service, including the multiplayer mod, game server, text chat functionality, and related services hosted at <strong>balatromp.com</strong> (and its subdomains) (collectively, the "Services").</p>
+
+<p><strong>Scope:</strong> The Balatro Multiplayer mod and server software are open-source software licensed under the GNU General Public License v3.0 (GPLv3). These Legal Terms apply exclusively to the instance of the service hosted and operated by us at balatromp.com (and its subdomains). Third parties may operate their own instances of the server software under the terms of the GPLv3 license; such instances are independent services not operated, endorsed, or governed by us, and are subject to their own terms and policies. We accept no responsibility or liability for third-party instances or any data processed by them.</p>
+
+<p>You can contact us by email at <a href="mailto:bmp@virtualized.dev">bmp@virtualized.dev</a> or by mail to Calgary, Alberta, Canada.</p>
+
+<p>These Legal Terms constitute a legally binding agreement made between you, whether personally or on behalf of an entity ("you"), and Connor Mills, concerning your access to and use of the Services. You agree that by accessing the Services, you have read, understood, and agreed to be bound by all of these Legal Terms. IF YOU DO NOT AGREE WITH ALL OF THESE LEGAL TERMS, THEN YOU ARE EXPRESSLY PROHIBITED FROM USING THE SERVICES AND YOU MUST DISCONTINUE USE IMMEDIATELY.</p>
+
+<p>Users will be notified of updates to our legal terms upon their next login. Updated terms will be presented in-app and users must accept the revised terms before continuing to use the service.</p>
+
+<p><strong>Language:</strong> These Legal Terms are provided in English and may be made available in other languages for your convenience. The English language version is the only legally binding version of these Legal Terms. In the event of any conflict or inconsistency between the English version and any translation, the English version shall prevail.</p>
+
+<p>All users who are minors in the jurisdiction in which they reside (generally under the age of 18) must have the permission of, and be directly supervised by, their parent or guardian to use the Services. If you are a minor, you must have your parent or guardian read and agree to these Legal Terms prior to you using the Services.</p>
+
+<p>We recommend that you print a copy of these Legal Terms for your records.</p>
+
+<h2>TABLE OF CONTENTS</h2>
+<div class="toc">
+<p>
+  <a href="#services">1. OUR SERVICES</a><br>
+  <a href="#ip">2. INTELLECTUAL PROPERTY RIGHTS</a><br>
+  <a href="#userreps">3. USER REPRESENTATIONS</a><br>
+  <a href="#userreg">4. USER REGISTRATION</a><br>
+  <a href="#chat">5. TEXT CHAT AND CONTENT MODERATION</a><br>
+  <a href="#software">6. SOFTWARE</a><br>
+  <a href="#prohibited">7. PROHIBITED ACTIVITIES</a><br>
+  <a href="#ugc">8. USER GENERATED CONTRIBUTIONS</a><br>
+  <a href="#license">9. CONTRIBUTION LICENSE</a><br>
+  <a href="#thirdparty">10. THIRD-PARTY AUTHENTICATION AND ACCOUNT LINKING</a><br>
+  <a href="#sitemanage">11. SERVICES MANAGEMENT</a><br>
+  <a href="#ppyes">12. PRIVACY POLICY</a><br>
+  <a href="#deletion">13. ACCOUNT DELETION AND DATA RETENTION</a><br>
+  <a href="#terms">14. TERM AND TERMINATION</a><br>
+  <a href="#modifications">15. MODIFICATIONS AND INTERRUPTIONS</a><br>
+  <a href="#law">16. GOVERNING LAW</a><br>
+  <a href="#disputes">17. DISPUTE RESOLUTION</a><br>
+  <a href="#corrections">18. CORRECTIONS</a><br>
+  <a href="#disclaimer">19. DISCLAIMER</a><br>
+  <a href="#liability">20. LIMITATIONS OF LIABILITY</a><br>
+  <a href="#indemnification">21. INDEMNIFICATION</a><br>
+  <a href="#userdata">22. USER DATA</a><br>
+  <a href="#electronic">23. ELECTRONIC COMMUNICATIONS, TRANSACTIONS, AND SIGNATURES</a><br>
+  <a href="#california">24. CALIFORNIA USERS AND RESIDENTS</a><br>
+  <a href="#misc">25. MISCELLANEOUS</a><br>
+  <a href="#contact">26. CONTACT US</a>
+</p>
+</div>
+
+<h2 id="services">1. OUR SERVICES</h2>
+
+<p>The information provided when using the Services is not intended for distribution to or use by any person or entity in any jurisdiction or country where such distribution or use would be contrary to law or regulation or which would subject us to any registration requirement within such jurisdiction or country. Accordingly, those persons who choose to access the Services from other locations do so on their own initiative and are solely responsible for compliance with local laws, if and to the extent local laws are applicable.</p>
+
+<p>The Services are not tailored to comply with industry-specific regulations (Health Insurance Portability and Accountability Act (HIPAA), Federal Information Security Management Act (FISMA), etc.), so if your interactions would be subjected to such laws, you may not use the Services. You may not use the Services in a way that would violate the Gramm-Leach-Bliley Act (GLBA).</p>
+
+<h2 id="ip">2. INTELLECTUAL PROPERTY RIGHTS</h2>
+
+<h3>Our intellectual property</h3>
+
+<p>The Balatro Multiplayer mod and server source code are licensed under the <strong>GNU General Public License v3.0 (GPLv3)</strong>. Your rights to use, modify, and redistribute the source code are governed by the terms of that license and are not restricted by these Legal Terms.</p>
+
+<p>All other intellectual property rights in the Services, including but not limited to trademarks, service marks, logos, service design, branding, website designs, documentation, databases, and any non-code proprietary content (collectively, the "Content" and "Marks"), remain our exclusive property and are protected by copyright and trademark laws and treaties in the United States and around the world.</p>
+
+<p>The Content and Marks are provided in or through the Services "AS IS" for your personal, non-commercial use only. The GPLv3 license applies solely to the source code and does not grant any rights to our trademarks, logos, or branding.</p>
+
+<h3>Your use of our Services</h3>
+
+<p>Subject to your compliance with these Legal Terms, including the "<a href="#prohibited">PROHIBITED ACTIVITIES</a>" section below, we grant you a non-exclusive, non-transferable, revocable license to:</p>
+<ul>
+  <li>access the Services; and</li>
+  <li>download or print a copy of any portion of the Content to which you have properly gained access,</li>
+</ul>
+<p>solely for your personal, non-commercial use. This license is in addition to, and does not limit, any rights granted to you under the GPLv3 license with respect to the source code.</p>
+
+<p>Except as set out in this section, elsewhere in our Legal Terms, or as permitted by the GPLv3 license with respect to the source code, no part of the Services and no Content or Marks may be copied, reproduced, aggregated, republished, uploaded, posted, publicly displayed, encoded, translated, transmitted, distributed, sold, licensed, or otherwise exploited for any commercial purpose whatsoever, without our express prior written permission.</p>
+
+<p>If you wish to make any use of the Services, Content, or Marks other than as set out in this section or elsewhere in our Legal Terms, please address your request to: <a href="mailto:bmp@virtualized.dev">bmp@virtualized.dev</a>. If we ever grant you the permission to post, reproduce, or publicly display any part of our Services or Content, you must identify us as the owners or licensors of the Services, Content, or Marks and ensure that any copyright or proprietary notice appears or is visible on posting, reproducing, or displaying our Content.</p>
+
+<p>We reserve all rights not expressly granted to you in and to the Services, Content, and Marks, except as granted under the GPLv3 license with respect to the source code.</p>
+
+<p>Any breach of these Intellectual Property Rights (excluding rights granted under the GPLv3 license) will constitute a material breach of our Legal Terms and your right to use our Services will terminate immediately.</p>
+
+<h3>Your submissions and contributions</h3>
+
+<p>Please review this section and the "<a href="#prohibited">PROHIBITED ACTIVITIES</a>" section carefully prior to using our Services to understand the (a) rights you give us and (b) obligations you have when you post or upload any content through the Services.</p>
+
+<p><strong>Submissions:</strong> By directly sending us any question, comment, suggestion, idea, feedback, or other information about the Services ("Submissions"), you agree to assign to us all intellectual property rights in such Submission. You agree that we shall own this Submission and be entitled to its unrestricted use and dissemination for any lawful purpose, commercial or otherwise, without acknowledgment or compensation to you.</p>
+
+<p><strong>Contributions:</strong> The Services may invite you to chat, contribute to, or participate in message boards, online forums, and other functionality during which you may create, submit, post, display, transmit, publish, distribute, or broadcast content and materials to us or through the Services, including but not limited to text, writings, comments, suggestions, personal information, or other material ("Contributions"). Any Submission that is publicly posted shall also be treated as a Contribution.</p>
+
+<p>You understand that Contributions may be viewable by other users of the Services.</p>
+
+<p><strong>When you post Contributions, you grant us a license (including use of your name, trademarks, and logos):</strong> By posting any Contributions, you grant us an unrestricted, unlimited, irrevocable, perpetual, non-exclusive, transferable, royalty-free, fully-paid, worldwide right, and license to: use, copy, reproduce, distribute, sell, resell, publish, broadcast, retitle, store, publicly perform, publicly display, reformat, translate, excerpt (in whole or in part), and exploit your Contributions (including, without limitation, your image, name, and voice) for any purpose, commercial, advertising, or otherwise, to prepare derivative works of, or incorporate into other works, your Contributions, and to sublicense the licenses granted in this section. Our use and distribution may occur in any media formats and through any media channels.</p>
+
+<p>This license includes our use of your name, company name, and franchise name, as applicable, and any of the trademarks, service marks, trade names, logos, and personal and commercial images you provide.</p>
+
+<p><strong>You are responsible for what you post or upload:</strong> By sending us Submissions and/or posting Contributions through any part of the Services, you:</p>
+<ul>
+  <li>confirm that you have read and agree with our "<a href="#prohibited">PROHIBITED ACTIVITIES</a>" and will not post, send, publish, upload, or transmit through the Services any Submission nor post any Contribution that is illegal, harassing, hateful, harmful, defamatory, obscene, bullying, abusive, discriminatory, threatening to any person or group, sexually explicit, false, inaccurate, deceitful, or misleading;</li>
+  <li>to the extent permissible by applicable law, waive any and all moral rights to any such Submission and/or Contribution;</li>
+  <li>warrant that any such Submission and/or Contributions are original to you or that you have the necessary rights and licenses to submit such Submissions and/or Contributions and that you have full authority to grant us the above-mentioned rights in relation to your Submissions and/or Contributions; and</li>
+  <li>warrant and represent that your Submissions and/or Contributions do not constitute confidential information.</li>
+</ul>
+
+<p>You are solely responsible for your Submissions and/or Contributions and you expressly agree to reimburse us for any and all losses that we may suffer because of your breach of (a) this section, (b) any third party's intellectual property rights, or (c) applicable law.</p>
+
+<p><strong>We may remove or edit your Content:</strong> Although we have no obligation to monitor any Contributions, we shall have the right to remove or edit any Contributions at any time without notice if in our reasonable opinion we consider such Contributions harmful or in breach of these Legal Terms. If we remove or edit any such Contributions, we may also suspend or disable your account and report you to the authorities.</p>
+
+<h2 id="userreps">3. USER REPRESENTATIONS</h2>
+
+<p>By using the Services, you represent and warrant that: (1) all registration information you submit will be true, accurate, current, and complete; (2) you will maintain the accuracy of such information and promptly update such registration information as necessary; (3) you have the legal capacity and you agree to comply with these Legal Terms; (4) you are not a minor in the jurisdiction in which you reside, or if a minor, you have received parental permission to use the Services; (5) you will not access the Services through automated or non-human means, whether through a bot, script or otherwise; (6) you will not use the Services for any illegal or unauthorized purpose; and (7) your use of the Services will not violate any applicable law or regulation.</p>
+
+<p>If you provide any information that is untrue, inaccurate, not current, or incomplete, we have the right to suspend or terminate your account and refuse any and all current or future use of the Services (or any portion thereof).</p>
+
+<h2 id="userreg">4. USER REGISTRATION</h2>
+
+<p>You may be required to register to use the Services. Registration is performed through Steam authentication. You are responsible for all use of your account. We reserve the right to remove, reclaim, or change a username you select if we determine, in our sole discretion, that such username is inappropriate, obscene, or otherwise objectionable.</p>
+
+<h2 id="chat">5. TEXT CHAT AND CONTENT MODERATION</h2>
+
+<h3>Chat feature availability</h3>
+
+<p>The text chat feature is an optional, opt-in feature of the Services. Chat is disabled by default for all users. To enable text chat, you must complete a separate activation process in your account settings, which includes providing your date of birth and accepting the chat-specific terms. <strong>You must be at least 16 years of age to use the text chat feature.</strong> If you indicate that you are under 16, text chat will be permanently disabled on your account.</p>
+
+<h3>Scope of chat</h3>
+
+<p>Text chat is available only within multiplayer lobbies. There is no global chat, persistent chat rooms, or direct messaging between users outside of active lobby sessions. Lobbies may be publicly discoverable, but chat is confined to participants within a given lobby.</p>
+
+<h3>Content moderation</h3>
+
+<p>All chat messages are processed by automated content moderation systems before being delivered to other users. These systems may filter, censor, or block messages that violate our community standards, including but not limited to messages containing hate speech, harassment, threats, obscenity, spam, or illegal content. We reserve the right to block or censor messages without prior notice to the sender.</p>
+
+<p>You acknowledge and agree that:</p>
+<ul>
+  <li>Chat messages are transmitted through our servers and are subject to automated filtering and moderation;</li>
+  <li>We may review flagged or reported messages for the purposes of enforcing these Legal Terms and applicable law;</li>
+  <li>We may take action against your account, including warnings, temporary suspensions, or permanent bans, based on violations detected through moderation;</li>
+  <li>There is no expectation of privacy in chat messages sent through the Services. Messages may be reviewed by automated systems and, where necessary, by human moderators.</li>
+</ul>
+
+<h3>Message retention</h3>
+
+<p>Chat messages are stored on our servers for a period of <strong>30 days</strong>, after which they are automatically and permanently deleted. Messages that have been flagged by moderation systems or reported by other users may be retained for a longer period (up to 12 months) for the purposes of investigating violations, enforcing bans, and complying with legal obligations. See our <a href="/privacy">Privacy Policy</a> for full details on data retention.</p>
+
+<h3>Reporting and blocking</h3>
+
+<p>Users may block other users to prevent receiving their messages, and may report users for abusive or illegal behavior. Reports are logged and reviewed. False or malicious reports may result in action against the reporting user's account.</p>
+
+<h3>Illegal content reporting</h3>
+
+<p>We are registered with the National Center for Missing &amp; Exploited Children (NCMEC) CyberTipline. If we become aware of any content that constitutes or appears to constitute child sexual abuse material (CSAM) or child exploitation, we will report it to NCMEC and/or relevant law enforcement authorities and preserve all related evidence as required by law.</p>
+
+<h2 id="software">6. SOFTWARE</h2>
+
+<p>The Balatro Multiplayer mod and server software are open-source software released under the GNU General Public License v3.0 (GPLv3). Your rights to use, copy, modify, and distribute the software are governed by the terms of the GPLv3 license, which can be found at <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">https://www.gnu.org/licenses/gpl-3.0.html</a>. The software is provided "AS IS" without warranty of any kind, either express or implied, as described in the GPLv3 license. You accept any and all risk arising out of use or performance of the software.</p>
+
+<h2 id="prohibited">7. PROHIBITED ACTIVITIES</h2>
+
+<p>You may not access or use the Services for any purpose other than that for which we make the Services available. The Services may not be used in connection with any commercial endeavors except those that are specifically endorsed or approved by us.</p>
+
+<p>As a user of the Services, you agree not to:</p>
+<ul>
+  <li>Systematically retrieve data or other content from the Services to create or compile, directly or indirectly, a collection, compilation, database, or directory without written permission from us.</li>
+  <li>Trick, defraud, or mislead us and other users, especially in any attempt to learn sensitive account information such as user passwords.</li>
+  <li>Circumvent, disable, or otherwise interfere with security-related features of the Services, including features that prevent or restrict the use or copying of any Content or enforce limitations on the use of the Services and/or the Content contained therein.</li>
+  <li>Disparage, tarnish, or otherwise harm, in our opinion, us and/or the Services.</li>
+  <li>Use any information obtained from the Services in order to harass, abuse, or harm another person.</li>
+  <li>Make improper use of our support services or submit false reports of abuse or misconduct.</li>
+  <li>Use the Services in a manner inconsistent with any applicable laws or regulations.</li>
+  <li>Engage in unauthorized framing of or linking to the Services.</li>
+  <li>Upload or transmit (or attempt to upload or to transmit) viruses, Trojan horses, or other material, including excessive use of capital letters and spamming (continuous posting of repetitive text), that interferes with any party's uninterrupted use and enjoyment of the Services or modifies, impairs, disrupts, alters, or interferes with the use, features, functions, operation, or maintenance of the Services.</li>
+  <li>Engage in any automated use of the system, such as using scripts to send comments or messages, or using any data mining, robots, or similar data gathering and extraction tools.</li>
+  <li>Delete the copyright or other proprietary rights notice from any Content.</li>
+  <li>Attempt to impersonate another user or person or use the username of another user.</li>
+  <li>Upload or transmit (or attempt to upload or to transmit) any material that acts as a passive or active information collection or transmission mechanism, including without limitation, clear graphics interchange formats ("gifs"), 1×1 pixels, web bugs, cookies, or other similar devices (sometimes referred to as "spyware" or "passive collection mechanisms" or "pcms").</li>
+  <li>Interfere with, disrupt, or create an undue burden on the Services or the networks or services connected to the Services.</li>
+  <li>Harass, annoy, intimidate, or threaten any of our employees or agents engaged in providing any portion of the Services to you.</li>
+  <li>Attempt to bypass any measures of the Services designed to prevent or restrict access to the Services, or any portion of the Services.</li>
+  <li>Copy or adapt the Services' software in violation of the applicable open-source license terms, or use the source code to misrepresent a third-party service as being officially operated by us.</li>
+  <li>Except as permitted by the GPLv3 license or other applicable law, use the source code or Services to circumvent security measures, authentication systems, or content moderation systems.</li>
+  <li>Except as may be the result of standard search engine or Internet browser usage, use, launch, develop, or distribute any automated system, including without limitation, any spider, robot, cheat utility, scraper, or offline reader that accesses the Services, or use or launch any unauthorized script or other software.</li>
+  <li>Make any unauthorized use of the Services, including collecting usernames and/or email addresses of users by electronic or other means for the purpose of sending unsolicited email, or creating user accounts by automated means or under false pretenses.</li>
+  <li>Use the Services as part of any effort to compete with us or otherwise use the Services and/or the Content for any revenue-generating endeavor or commercial enterprise.</li>
+  <li>Use the Services to advertise or offer to sell goods and services.</li>
+  <li>Sell or otherwise transfer your profile.</li>
+  <li>Misrepresent your age during the chat activation process, including re-attempting the age verification after previously indicating you are under 16.</li>
+  <li>Circumvent or attempt to circumvent chat moderation filters, age restrictions, or user bans.</li>
+  <li>Use the chat feature to share, solicit, or distribute illegal content of any kind, including but not limited to child sexual abuse material.</li>
+</ul>
+
+<h2 id="ugc">8. USER GENERATED CONTRIBUTIONS</h2>
+
+<p>The Services may invite you to chat, contribute to, or participate in blogs, message boards, online forums, and other functionality, and may provide you with the opportunity to create, submit, post, display, transmit, perform, publish, distribute, or broadcast content and materials to us or on the Services, including but not limited to text, writings, comments, suggestions, or personal information or other material (collectively, "Contributions"). Contributions may be viewable by other users of the Services and through third-party websites. As such, any Contributions you transmit may be treated as non-confidential and non-proprietary. When you create or make available any Contributions, you thereby represent and warrant that:</p>
+<ul>
+  <li>The creation, distribution, transmission, public display, or performance, and the accessing, downloading, or copying of your Contributions do not and will not infringe the proprietary rights, including but not limited to the copyright, patent, trademark, trade secret, or moral rights of any third party.</li>
+  <li>You are the creator and owner of or have the necessary licenses, rights, consents, releases, and permissions to use and to authorize us, the Services, and other users of the Services to use your Contributions in any manner contemplated by the Services and these Legal Terms.</li>
+  <li>You have the written consent, release, and/or permission of each and every identifiable individual person in your Contributions to use the name or likeness of each and every such identifiable individual person to enable inclusion and use of your Contributions in any manner contemplated by the Services and these Legal Terms.</li>
+  <li>Your Contributions are not false, inaccurate, or misleading.</li>
+  <li>Your Contributions are not unsolicited or unauthorized advertising, promotional materials, pyramid schemes, chain letters, spam, mass mailings, or other forms of solicitation.</li>
+  <li>Your Contributions are not obscene, lewd, lascivious, filthy, violent, harassing, libelous, slanderous, or otherwise objectionable (as determined by us).</li>
+  <li>Your Contributions do not ridicule, mock, disparage, intimidate, or abuse anyone.</li>
+  <li>Your Contributions are not used to harass or threaten (in the legal sense of those terms) any other person and to promote violence against a specific person or class of people.</li>
+  <li>Your Contributions do not violate any applicable law, regulation, or rule.</li>
+  <li>Your Contributions do not violate the privacy or publicity rights of any third party.</li>
+  <li>Your Contributions do not violate any applicable law concerning child pornography, or otherwise intended to protect the health or well-being of minors.</li>
+  <li>Your Contributions do not include any offensive comments that are connected to race, national origin, gender, sexual preference, or physical handicap.</li>
+  <li>Your Contributions do not otherwise violate, or link to material that violates, any provision of these Legal Terms, or any applicable law or regulation.</li>
+</ul>
+
+<p>Any use of the Services in violation of the foregoing violates these Legal Terms and may result in, among other things, termination or suspension of your rights to use the Services.</p>
+
+<h2 id="license">9. CONTRIBUTION LICENSE</h2>
+
+<p>By posting your Contributions to any part of the Services, you automatically grant, and you represent and warrant that you have the right to grant, to us an unrestricted, unlimited, irrevocable, perpetual, non-exclusive, transferable, royalty-free, fully-paid, worldwide right, and license to host, use, copy, reproduce, disclose, sell, resell, publish, broadcast, retitle, archive, store, cache, publicly perform, publicly display, reformat, translate, transmit, excerpt (in whole or in part), and distribute such Contributions (including, without limitation, your image and voice) for any purpose, commercial, advertising, or otherwise, and to prepare derivative works of, or incorporate into other works, such Contributions, and grant and authorize sublicenses of the foregoing. The use and distribution may occur in any media formats and through any media channels.</p>
+
+<p>This license will apply to any form, media, or technology now known or hereafter developed, and includes our use of your name, company name, and franchise name, as applicable, and any of the trademarks, service marks, trade names, logos, and personal and commercial images you provide. You waive all moral rights in your Contributions, and you warrant that moral rights have not otherwise been asserted in your Contributions.</p>
+
+<p>We do not assert any ownership over your Contributions. You retain full ownership of all of your Contributions and any intellectual property rights or other proprietary rights associated with your Contributions. We are not liable for any statements or representations in your Contributions provided by you in any area on the Services. You are solely responsible for your Contributions to the Services and you expressly agree to exonerate us from any and all responsibility and to refrain from any legal action against us regarding your Contributions.</p>
+
+<p>We have the right, in our sole and absolute discretion, (1) to edit, redact, or otherwise change any Contributions; (2) to re-categorize any Contributions to place them in more appropriate locations on the Services; and (3) to pre-screen or delete any Contributions at any time and for any reason, without notice. We have no obligation to monitor your Contributions.</p>
+
+<h2 id="thirdparty">10. THIRD-PARTY AUTHENTICATION AND ACCOUNT LINKING</h2>
+
+<p><strong>Steam Authentication.</strong> The Services use Steam authentication to create and manage your account. By using the Services, you authorize us to access your Steam account solely for the purpose of verifying your identity and creating your account. We receive only your Steam ID during this process. Your relationship with Valve Corporation and your use of Steam is governed solely by your agreement(s) with Valve. We do not access your Steam friends list, game library, purchase history, email address, or any other Steam account data beyond your Steam ID.</p>
+
+<p><strong>Discord Account Linking.</strong> The Services offer an optional feature to link your account to your Discord account. Discord linking does not provide an alternative login method. It is used solely to associate your game account with your Discord user identity within our Discord server (for example, for role assignment or identity verification). Linking is entirely voluntary and can be removed at any time through your account settings. When you link your Discord account, we store your Discord user ID alongside your game account. If you delete your account, your Discord user ID is deleted, but a non-reversible hashed version of your Discord ID is retained alongside your hashed game account identifier for moderation and ban enforcement purposes (see Section 13 for details).</p>
+
+<p>You may disconnect your account from the Services at any time by requesting account deletion (see Section 13). We will delete all personal data associated with your account in accordance with our <a href="/privacy">Privacy Policy</a>.</p>
+
+<h2 id="sitemanage">11. SERVICES MANAGEMENT</h2>
+
+<p>We reserve the right, but not the obligation, to: (1) monitor the Services for violations of these Legal Terms; (2) take appropriate legal action against anyone who, in our sole discretion, violates the law or these Legal Terms, including without limitation, reporting such user to law enforcement authorities; (3) in our sole discretion and without limitation, refuse, restrict access to, limit the availability of, or disable (to the extent technologically feasible) any of your Contributions or any portion thereof; (4) in our sole discretion and without limitation, notice, or liability, to remove from the Services or otherwise disable all files and content that are excessive in size or are in any way burdensome to our systems; and (5) otherwise manage the Services in a manner designed to protect our rights and property and to facilitate the proper functioning of the Services.</p>
+
+<h2 id="ppyes">12. PRIVACY POLICY</h2>
+
+<p>We care about data privacy and security. Please review our Privacy Policy: <strong><a href="/privacy">/privacy</a></strong>. By using the Services, you agree to be bound by our Privacy Policy, which is incorporated into these Legal Terms. Please be advised the Services are hosted in <strong>Germany</strong>. If you access the Services from any other region of the world with laws or other requirements governing personal data collection, use, or disclosure that differ from applicable laws in Germany, then through your continued use of the Services, you are transferring your data to Germany, and you expressly consent to have your data transferred to and processed in Germany.</p>
+
+<h2 id="deletion">13. ACCOUNT DELETION AND DATA RETENTION</h2>
+
+<p>You may request deletion of your account at any time through the account management interface or by contacting us at <a href="mailto:bmp@virtualized.dev">bmp@virtualized.dev</a>. Upon receiving a valid deletion request, we will delete your account and associated personal data within 30 days.</p>
+
+<h3>What is deleted</h3>
+
+<p>Upon account deletion, we will permanently erase: your display name and profile information, your Discord user ID (if linked), your date of birth (if previously provided for chat activation), all unflagged chat messages, and any other personal data associated with your account.</p>
+
+<h3>What is retained</h3>
+
+<p>In accordance with our legal obligations and legitimate interests, we may retain the following data in pseudonymized form after account deletion:</p>
+<ul>
+  <li><strong>Non-reversible account identifiers and moderation status:</strong> A salted hash of your Steam ID, a salted hash of your IP address, and, if you linked a Discord account, a salted hash of your Discord user ID, along with any associated ban or moderation status. These allow us to enforce bans and prevent banned users from creating new accounts, relinking, or reconnecting from the same network to circumvent sanctions. These identifiers cannot be used to identify you or link back to your Steam profile, Discord profile, or IP address without access to our server-side security key, which is never shared.</li>
+  <li><strong>Flagged or reported chat messages:</strong> Messages that were flagged by our moderation systems or reported by other users may be retained for up to 12 months for the purposes of investigating violations, defending legal claims, and complying with applicable law. Your username in these records will be replaced with a pseudonymous identifier (e.g., "deleted_user_a3f9").</li>
+  <li><strong>Evidence related to CSAM reports:</strong> If content associated with your account was reported to NCMEC or law enforcement, related evidence will be retained for a minimum of one year as required by United States federal law (18 U.S.C. § 2258A).</li>
+  <li><strong>Moderation action logs:</strong> Records of warnings, suspensions, and bans issued to your account may be retained in pseudonymized form for the purposes of community safety and the defense of legal claims.</li>
+</ul>
+
+<p>These retention practices are permitted under GDPR Article 17(3)(b) (compliance with legal obligations) and Article 17(3)(e) (establishment, exercise, or defense of legal claims). Full details are provided in our <a href="/privacy">Privacy Policy</a>.</p>
+
+<h2 id="terms">14. TERM AND TERMINATION</h2>
+
+<p>These Legal Terms shall remain in full force and effect while you use the Services. WITHOUT LIMITING ANY OTHER PROVISION OF THESE LEGAL TERMS, WE RESERVE THE RIGHT TO, IN OUR SOLE DISCRETION AND WITHOUT NOTICE OR LIABILITY, DENY ACCESS TO AND USE OF THE SERVICES (INCLUDING BLOCKING CERTAIN IP ADDRESSES), TO ANY PERSON FOR ANY REASON OR FOR NO REASON, INCLUDING WITHOUT LIMITATION FOR BREACH OF ANY REPRESENTATION, WARRANTY, OR COVENANT CONTAINED IN THESE LEGAL TERMS OR OF ANY APPLICABLE LAW OR REGULATION. WE MAY TERMINATE YOUR USE OR PARTICIPATION IN THE SERVICES OR DELETE YOUR ACCOUNT AND ANY CONTENT OR INFORMATION THAT YOU POSTED AT ANY TIME, WITHOUT WARNING, IN OUR SOLE DISCRETION.</p>
+
+<p>If we terminate or suspend your account for any reason, you are prohibited from registering and creating a new account under your name, a fake or borrowed name, or the name of any third party, even if you may be acting on behalf of the third party. In addition to terminating or suspending your account, we reserve the right to take appropriate legal action, including without limitation pursuing civil, criminal, and injunctive redress.</p>
+
+<h2 id="modifications">15. MODIFICATIONS AND INTERRUPTIONS</h2>
+
+<p>We reserve the right to change, modify, or remove the contents of the Services at any time or for any reason at our sole discretion without notice. However, we have no obligation to update any information on our Services. We will not be liable to you or any third party for any modification, price change, suspension, or discontinuance of the Services.</p>
+
+<p>We cannot guarantee the Services will be available at all times. We may experience hardware, software, or other problems or need to perform maintenance related to the Services, resulting in interruptions, delays, or errors. We reserve the right to change, revise, update, suspend, discontinue, or otherwise modify the Services at any time or for any reason without notice to you. You agree that we have no liability whatsoever for any loss, damage, or inconvenience caused by your inability to access or use the Services during any downtime or discontinuance of the Services. Nothing in these Legal Terms will be construed to obligate us to maintain and support the Services or to supply any corrections, updates, or releases in connection therewith.</p>
+
+<h2 id="law">16. GOVERNING LAW</h2>
+
+<p>These Legal Terms shall be governed by and defined following the laws of Canada. Connor Mills and yourself irrevocably consent that the courts of Canada shall have exclusive jurisdiction to resolve any dispute which may arise in connection with these Legal Terms.</p>
+
+<h2 id="disputes">17. DISPUTE RESOLUTION</h2>
+
+<h3>Informal Negotiations</h3>
+
+<p>To expedite resolution and control the cost of any dispute, controversy, or claim related to these Legal Terms (each a "Dispute" and collectively, the "Disputes") brought by either you or us (individually, a "Party" and collectively, the "Parties"), the Parties agree to first attempt to negotiate any Dispute (except those Disputes expressly provided below) informally for at least thirty (30) days before initiating arbitration. Such informal negotiations commence upon written notice from one Party to the other Party.</p>
+
+<h3>Binding Arbitration</h3>
+
+<p>Any dispute arising out of or in connection with these Legal Terms, including any question regarding its existence, validity, or termination, shall be referred to and finally resolved by the International Commercial Arbitration Court under the European Arbitration Chamber (Belgium, Brussels, Avenue Louise, 146) according to the Rules of this ICAC, which, as a result of referring to it, is considered as the part of this clause. The number of arbitrators shall be one (1). The seat, or legal place, of arbitration shall be Calgary, Canada. The language of the proceedings shall be English. The governing law of these Legal Terms shall be substantive law of Canada.</p>
+
+<h3>Restrictions</h3>
+
+<p>The Parties agree that any arbitration shall be limited to the Dispute between the Parties individually. To the full extent permitted by law, (a) no arbitration shall be joined with any other proceeding; (b) there is no right or authority for any Dispute to be arbitrated on a class-action basis or to utilize class action procedures; and (c) there is no right or authority for any Dispute to be brought in a purported representative capacity on behalf of the general public or any other persons.</p>
+
+<h3>Exceptions to Informal Negotiations and Arbitration</h3>
+
+<p>The Parties agree that the following Disputes are not subject to the above provisions concerning informal negotiations and binding arbitration: (a) any Disputes seeking to enforce or protect, or concerning the validity of, any of the intellectual property rights of a Party; (b) any Dispute related to, or arising from, allegations of theft, piracy, invasion of privacy, or unauthorized use; and (c) any claim for injunctive relief. If this provision is found to be illegal or unenforceable, then neither Party will elect to arbitrate any Dispute falling within that portion of this provision found to be illegal or unenforceable and such Dispute shall be decided by a court of competent jurisdiction within the courts listed for jurisdiction above, and the Parties agree to submit to the personal jurisdiction of that court.</p>
+
+<h2 id="corrections">18. CORRECTIONS</h2>
+
+<p>There may be information on the Services that contains typographical errors, inaccuracies, or omissions, including descriptions, pricing, availability, and various other information. We reserve the right to correct any errors, inaccuracies, or omissions and to change or update the information on the Services at any time, without prior notice.</p>
+
+<h2 id="disclaimer">19. DISCLAIMER</h2>
+
+<p>THE SERVICES ARE PROVIDED ON AN AS-IS AND AS-AVAILABLE BASIS. YOU AGREE THAT YOUR USE OF THE SERVICES WILL BE AT YOUR SOLE RISK. TO THE FULLEST EXTENT PERMITTED BY LAW, WE DISCLAIM ALL WARRANTIES, EXPRESS OR IMPLIED, IN CONNECTION WITH THE SERVICES AND YOUR USE THEREOF, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. WE MAKE NO WARRANTIES OR REPRESENTATIONS ABOUT THE ACCURACY OR COMPLETENESS OF THE SERVICES' CONTENT OR THE CONTENT OF ANY WEBSITES OR MOBILE APPLICATIONS LINKED TO THE SERVICES AND WE WILL ASSUME NO LIABILITY OR RESPONSIBILITY FOR ANY (1) ERRORS, MISTAKES, OR INACCURACIES OF CONTENT AND MATERIALS, (2) PERSONAL INJURY OR PROPERTY DAMAGE, OF ANY NATURE WHATSOEVER, RESULTING FROM YOUR ACCESS TO AND USE OF THE SERVICES, (3) ANY UNAUTHORIZED ACCESS TO OR USE OF OUR SECURE SERVERS AND/OR ANY AND ALL PERSONAL INFORMATION AND/OR FINANCIAL INFORMATION STORED THEREIN, (4) ANY INTERRUPTION OR CESSATION OF TRANSMISSION TO OR FROM THE SERVICES, (5) ANY BUGS, VIRUSES, TROJAN HORSES, OR THE LIKE WHICH MAY BE TRANSMITTED TO OR THROUGH THE SERVICES BY ANY THIRD PARTY, AND/OR (6) ANY ERRORS OR OMISSIONS IN ANY CONTENT AND MATERIALS OR FOR ANY LOSS OR DAMAGE OF ANY KIND INCURRED AS A RESULT OF THE USE OF ANY CONTENT POSTED, TRANSMITTED, OR OTHERWISE MADE AVAILABLE VIA THE SERVICES. WE DO NOT WARRANT, ENDORSE, GUARANTEE, OR ASSUME RESPONSIBILITY FOR ANY PRODUCT OR SERVICE ADVERTISED OR OFFERED BY A THIRD PARTY THROUGH THE SERVICES, ANY HYPERLINKED WEBSITE, OR ANY WEBSITE OR MOBILE APPLICATION FEATURED IN ANY BANNER OR OTHER ADVERTISING, AND WE WILL NOT BE A PARTY TO OR IN ANY WAY BE RESPONSIBLE FOR MONITORING ANY TRANSACTION BETWEEN YOU AND ANY THIRD-PARTY PROVIDERS OF PRODUCTS OR SERVICES. AS WITH THE PURCHASE OF A PRODUCT OR SERVICE THROUGH ANY MEDIUM OR IN ANY ENVIRONMENT, YOU SHOULD USE YOUR BEST JUDGMENT AND EXERCISE CAUTION WHERE APPROPRIATE.</p>
+
+<h2 id="liability">20. LIMITATIONS OF LIABILITY</h2>
+
+<p>IN NO EVENT WILL WE OR OUR DIRECTORS, EMPLOYEES, OR AGENTS BE LIABLE TO YOU OR ANY THIRD PARTY FOR ANY DIRECT, INDIRECT, CONSEQUENTIAL, EXEMPLARY, INCIDENTAL, SPECIAL, OR PUNITIVE DAMAGES, INCLUDING LOST PROFIT, LOST REVENUE, LOSS OF DATA, OR OTHER DAMAGES ARISING FROM YOUR USE OF THE SERVICES, EVEN IF WE HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. NOTWITHSTANDING ANYTHING TO THE CONTRARY CONTAINED HEREIN, OUR LIABILITY TO YOU FOR ANY CAUSE WHATSOEVER AND REGARDLESS OF THE FORM OF THE ACTION, WILL AT ALL TIMES BE LIMITED TO THE AMOUNT PAID, IF ANY, BY YOU TO US DURING THE SIX (6) MONTH PERIOD PRIOR TO ANY CAUSE OF ACTION ARISING. CERTAIN US STATE LAWS AND INTERNATIONAL LAWS DO NOT ALLOW LIMITATIONS ON IMPLIED WARRANTIES OR THE EXCLUSION OR LIMITATION OF CERTAIN DAMAGES. IF THESE LAWS APPLY TO YOU, SOME OR ALL OF THE ABOVE DISCLAIMERS OR LIMITATIONS MAY NOT APPLY TO YOU, AND YOU MAY HAVE ADDITIONAL RIGHTS.</p>
+
+<h2 id="indemnification">21. INDEMNIFICATION</h2>
+
+<p>You agree to defend, indemnify, and hold us harmless, including our subsidiaries, affiliates, and all of our respective officers, agents, partners, and employees, from and against any loss, damage, liability, claim, or demand, including reasonable attorneys' fees and expenses, made by any third party due to or arising out of: (1) your Contributions; (2) use of the Services; (3) breach of these Legal Terms; (4) any breach of your representations and warranties set forth in these Legal Terms; (5) your violation of the rights of a third party, including but not limited to intellectual property rights; or (6) any overt harmful act toward any other user of the Services with whom you connected via the Services. Notwithstanding the foregoing, we reserve the right, at your expense, to assume the exclusive defense and control of any matter for which you are required to indemnify us, and you agree to cooperate, at your expense, with our defense of such claims. We will use reasonable efforts to notify you of any such claim, action, or proceeding which is subject to this indemnification upon becoming aware of it.</p>
+
+<h2 id="userdata">22. USER DATA</h2>
+
+<p>We will maintain certain data that you transmit to the Services for the purpose of managing the performance of the Services, as well as data relating to your use of the Services. Although we perform regular routine backups of data, you are solely responsible for all data that you transmit or that relates to any activity you have undertaken using the Services. You agree that we shall have no liability to you for any loss or corruption of any such data, and you hereby waive any right of action against us arising from any such loss or corruption of such data.</p>
+
+<h2 id="electronic">23. ELECTRONIC COMMUNICATIONS, TRANSACTIONS, AND SIGNATURES</h2>
+
+<p>Visiting the Services, sending us emails, and completing online forms constitute electronic communications. You consent to receive electronic communications, and you agree that all agreements, notices, disclosures, and other communications we provide to you electronically, via email and on the Services, satisfy any legal requirement that such communication be in writing. YOU HEREBY AGREE TO THE USE OF ELECTRONIC SIGNATURES, CONTRACTS, ORDERS, AND OTHER RECORDS, AND TO ELECTRONIC DELIVERY OF NOTICES, POLICIES, AND RECORDS OF TRANSACTIONS INITIATED OR COMPLETED BY US OR VIA THE SERVICES. You hereby waive any rights or requirements under any statutes, regulations, rules, ordinances, or other laws in any jurisdiction which require an original signature or delivery or retention of non-electronic records, or to payments or the granting of credits by any means other than electronic means.</p>
+
+<h2 id="california">24. CALIFORNIA USERS AND RESIDENTS</h2>
+
+<p>If any complaint with us is not satisfactorily resolved, you can contact the Complaint Assistance Unit of the Division of Consumer Services of the California Department of Consumer Affairs in writing at 1625 North Market Blvd., Suite N 112, Sacramento, California 95834 or by telephone at (800) 952-5210 or (916) 445-1254.</p>
+
+<h2 id="misc">25. MISCELLANEOUS</h2>
+
+<p>These Legal Terms and any policies or operating rules posted by us on the Services or in respect to the Services constitute the entire agreement and understanding between you and us. Our failure to exercise or enforce any right or provision of these Legal Terms shall not operate as a waiver of such right or provision. These Legal Terms operate to the fullest extent permissible by law. We may assign any or all of our rights and obligations to others at any time. We shall not be responsible or liable for any loss, damage, delay, or failure to act caused by any cause beyond our reasonable control. If any provision or part of a provision of these Legal Terms is determined to be unlawful, void, or unenforceable, that provision or part of the provision is deemed severable from these Legal Terms and does not affect the validity and enforceability of any remaining provisions. There is no joint venture, partnership, employment or agency relationship created between you and us as a result of these Legal Terms or use of the Services. You agree that these Legal Terms will not be construed against us by virtue of having drafted them. You hereby waive any and all defenses you may have based on the electronic form of these Legal Terms and the lack of signing by the parties hereto to execute these Legal Terms.</p>
+
+<h2 id="contact">26. CONTACT US</h2>
+
+<p>In order to resolve a complaint regarding the Services or to receive further information regarding use of the Services, please contact us at:</p>
+
+<p>
+  <strong>Connor Mills</strong><br>
+  Calgary, Alberta<br>
+  Canada<br>
+  <a href="mailto:bmp@virtualized.dev">bmp@virtualized.dev</a>
+</p>
+
+<hr>
+<p><small>This Terms of Service was generated using <a href="https://termly.io/products/terms-and-conditions-generator/" target="_blank" rel="noopener">Termly's Terms and Conditions Generator</a> and customized for the Balatro Multiplayer service.</small></p>
+
+</div>
+
+<style>
+	.legal {
+		font-family: Arial, sans-serif;
+		color: #595959;
+		font-size: 14px;
+		line-height: 1.6;
+		background: #fff;
+		padding: 2rem;
+		border-radius: 4px;
+	}
+
+	.legal :global(h1) { font-size: 26px; color: #000; margin-bottom: 5px; }
+	.legal :global(h2) { font-size: 19px; color: #000; margin-top: 30px; }
+	.legal :global(h3) { font-size: 17px; color: #000; margin-top: 20px; }
+	.legal :global(.subtitle) { font-size: 14px; color: #595959; margin-bottom: 20px; }
+	.legal :global(a) { color: #3030F1; word-break: break-word; }
+	.legal :global(p) { margin: 10px 0; }
+	.legal :global(ul) { list-style-type: square; padding-left: 1.5rem; }
+	.legal :global(ul > li > ul) { list-style-type: circle; }
+	.legal :global(ul li),
+	.legal :global(ol li) { margin-bottom: 8px; }
+	.legal :global(.toc a) { text-decoration: none; }
+	.legal :global(.toc a:hover) { text-decoration: underline; }
+	.legal :global(hr) { margin: 20px 0; border: none; border-top: 1px solid #ccc; }
+</style>
