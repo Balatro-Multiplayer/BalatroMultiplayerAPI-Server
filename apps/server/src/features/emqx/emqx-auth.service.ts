@@ -1,9 +1,9 @@
-import { env } from '../env.js'
-import { getLobby, getSession } from '../state/index.js'
-import { getConfig } from '../state/config.js'
-import { Lobby } from '../state/lobby.js'
-import type { EmqxAuthRequest, EmqxAuthzRequest } from '../types/index.js'
-import { verifyJwt } from './auth.service.js'
+import { env } from '../../env.js'
+import { getLobby, getSession } from '../../state/index.js'
+import { getConfig } from '../../state/config.js'
+import { Lobby } from '../../state/lobby.js'
+import type { EmqxAuthRequest, EmqxAuthzRequest } from '../../shared/types/index.js'
+import { verifyJwt } from '../auth/auth.service.js'
 
 type Action = 'publish' | 'subscribe'
 type AuthzResult = { result: 'allow' | 'deny' }

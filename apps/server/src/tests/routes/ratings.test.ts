@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
 import { createTestApp } from './app.js'
-import { signJwt } from '../../services/auth.service.js'
+import { signJwt } from '../../features/auth/auth.service.js'
 import { createSession } from '../../state/index.js'
-import { getLeaderboard, getOwnRating } from '../../services/matchmaking.service.js'
+import { getLeaderboard, getOwnRating } from '../../features/matchmaking/matchmaking.service.js'
 
-vi.mock('../../services/matchmaking.service.js', () => ({
+vi.mock('../../features/matchmaking/matchmaking.service.js', () => ({
 	joinQueue: vi.fn(),
 	leaveQueue: vi.fn(),
 	leaveAllQueues: vi.fn(),

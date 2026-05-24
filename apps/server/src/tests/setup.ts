@@ -10,7 +10,7 @@ process.env.PLAYER_ID_SALT = 'test-player-id-salt'
 process.env.ADMIN_SECRET = 'test-admin-secret'
 
 // Mock the MQTT service globally — no real broker in tests
-vi.mock('../services/mqtt.service.js', () => ({
+vi.mock('../infrastructure/mqtt/mqtt.service.js', () => ({
 	mqttService: {
 		connect: vi.fn().mockResolvedValue(undefined),
 		publishEvent: vi.fn().mockResolvedValue(undefined),
@@ -25,8 +25,8 @@ vi.mock('../services/mqtt.service.js', () => ({
 	},
 }))
 
-// Mock the refresh-token service — no real DB in tests
-vi.mock('../services/refresh-token.service.js', () => ({
+// Mock the refresh-token gateway — no real DB in tests
+vi.mock('../infrastructure/gateways/refresh-token.gateway.js', () => ({
 	issueRefreshToken: vi.fn().mockResolvedValue('mock-refresh-token'),
 	redeemRefreshToken: vi.fn().mockResolvedValue(null),
 	revokeAllTokens: vi.fn().mockResolvedValue(undefined),
@@ -34,7 +34,7 @@ vi.mock('../services/refresh-token.service.js', () => ({
 }))
 
 // Mock the database — no real PostgreSQL in tests
-vi.mock('../db/index.js', () => ({
+vi.mock('../infrastructure/db/index.js', () => ({
 	db: {
 		insert: vi.fn().mockReturnValue({
 			values: vi.fn().mockResolvedValue(undefined),
@@ -64,8 +64,8 @@ const mockPlayerRecord = {
 	tosAcceptedVersion: 0,
 }
 
-// Mock player.service — no real DB calls in tests
-vi.mock('../services/player.service.js', () => ({
+// Mock player.gateway — no real DB calls in tests
+vi.mock('../infrastructure/gateways/player.gateway.js', () => ({
 	findPlayerBySteamIdHash: vi.fn().mockResolvedValue(null),
 	findPlayerByDiscordIdHash: vi.fn().mockResolvedValue(null),
 	findPlayerById: vi.fn().mockResolvedValue(null),
@@ -98,11 +98,11 @@ beforeEach(async () => {
 	mm.matchByLobby.clear()
 
 	// Clear CSRF link state nonces
-	const authService = await import('../services/auth.service.js')
+	const authService = await import('../features/auth/auth.service.js')
 	authService.linkStateNonces.clear()
 
 	// Clear grace periods
-	const gracePeriod = await import('../services/grace-period.service.js')
+	const gracePeriod = await import('../infrastructure/mqtt/grace-period.service.js')
 	gracePeriod.clearAllGracePeriods()
 
 	// Reset server config — tosVersion 0 disables TOS gating in tests
@@ -111,7 +111,7 @@ beforeEach(async () => {
 	vi.clearAllMocks()
 
 	// Re-apply playerDb mock implementations (vi.restoreAllMocks in tests may reset them)
-	const playerDb = await import('../services/player.service.js')
+	const playerDb = await import('../infrastructure/gateways/player.gateway.js')
 	vi.mocked(playerDb.findPlayerBySteamIdHash).mockResolvedValue(null)
 	vi.mocked(playerDb.findPlayerByDiscordIdHash).mockResolvedValue(null)
 	vi.mocked(playerDb.findPlayerById).mockResolvedValue(null)

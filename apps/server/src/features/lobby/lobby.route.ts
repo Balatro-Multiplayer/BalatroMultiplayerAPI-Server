@@ -1,10 +1,10 @@
 import { Router } from 'express'
-import { authenticate } from '../middleware/authenticate.js'
-import * as lobbyService from '../services/lobby.service.js'
-import { processAndPublishMessage } from '../services/chat.service.js'
-import { submitReport } from '../services/report.service.js'
-import { getLobby, getSession } from '../state/index.js'
-import { AppError } from '../utils/errors.js'
+import { authenticate } from '../../middleware/authenticate.js'
+import * as lobbyService from './lobby.service.js'
+import { processAndPublishMessage } from '../chat/chat.service.js'
+import { submitReport } from '../../infrastructure/gateways/report.gateway.js'
+import { getLobby, getSession } from '../../state/index.js'
+import { AppError } from '../../shared/utils/errors.js'
 
 const router = Router()
 

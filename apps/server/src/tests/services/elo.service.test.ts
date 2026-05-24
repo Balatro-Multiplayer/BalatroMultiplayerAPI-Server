@@ -10,7 +10,7 @@ import {
 	computeTeam,
 	effectiveK,
 	expectedScore,
-} from '../../services/elo.service.js'
+} from '../../features/matchmaking/elo.service.js'
 
 describe('elo.service', () => {
 	describe('effectiveK', () => {

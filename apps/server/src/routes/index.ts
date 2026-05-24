@@ -1,9 +1,9 @@
 import { Router } from 'express'
-import adminRouter from './admin.js'
-import authRouter from './auth.js'
-import emqxRouter from './emqx.js'
-import lobbiesRouter from './lobbies.js'
-import matchmakingRouter from './matchmaking.js'
+import adminRouter from '../features/admin/admin.route.js'
+import authRouter from '../features/auth/auth.route.js'
+import emqxRouter from '../features/emqx/emqx.route.js'
+import lobbiesRouter from '../features/lobby/lobby.route.js'
+import matchmakingRouter from '../features/matchmaking/matchmaking.route.js'
 
 const router = Router()
 

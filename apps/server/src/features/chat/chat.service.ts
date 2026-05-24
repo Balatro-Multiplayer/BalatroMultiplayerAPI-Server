@@ -1,9 +1,8 @@
 import { RegExpMatcher, englishDataset, englishRecommendedTransformers } from 'obscenity'
-import { db } from '../db/index.js'
-import { flaggedMessages, reportedLobbyMessages } from '../db/schema.js'
-import { getConfig } from '../state/config.js'
-import type { Lobby } from '../state/lobby.js'
-import { mqttService } from './mqtt.service.js'
+import { getConfig } from '../../state/config.js'
+import type { Lobby } from '../../state/lobby.js'
+import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
+import { insertFlaggedMessage, insertReportedLobbyMessage } from '../../infrastructure/gateways/chat.gateway.js'
 
 // --- Message normalization (for allowlist lookup only) ---
 // The original message is always what gets published and logged.
@@ -69,14 +68,7 @@ async function moderateMessage(
 		endIndex: m.endIndex,
 	}))
 
-	const threeMonths = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
-
-	await db.insert(flaggedMessages).values({
-		playerId,
-		message,
-		matches,
-		expiresAt: threeMonths,
-	})
+	await insertFlaggedMessage(playerId, message, matches)
 
 	return { allowed: false }
 }
@@ -110,14 +102,13 @@ export async function processAndPublishMessage(
 
 	// If this lobby is under an active report, persist the message immediately
 	if (lobby.isReported) {
-		await db.insert(reportedLobbyMessages).values({
+		await insertReportedLobbyMessage({
 			lobbyId: lobby.id,
 			lobbyCode: lobby.code,
 			playerId,
 			displayName,
 			message,
 			sentAt,
-			expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
 		})
 	}
 

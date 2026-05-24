@@ -1,24 +1,24 @@
 import express from 'express'
 import type { Express, Request, Response } from 'express'
 import type { Server } from 'node:http'
-import { pool, db } from './db/index.js'
-import { flaggedMessages } from './db/schema.js'
+import { pool, db } from './infrastructure/db/index.js'
+import { flaggedMessages } from './infrastructure/db/schema.js'
 import { lt } from 'drizzle-orm'
 import { env } from './env.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import router from './routes/index.js'
-import { clearAllGracePeriods } from './services/grace-period.service.js'
+import { clearAllGracePeriods } from './infrastructure/mqtt/grace-period.service.js'
 import {
 	restoreMatchesFromDb,
 	startDailyJob,
 	startMatchmaking,
 	stopDailyJob,
 	stopMatchmaking,
-} from './services/matchmaking.service.js'
-import { provisionEmqxWebhook } from './services/emqx-provision.service.js'
-import { mqttService } from './services/mqtt.service.js'
+} from './features/matchmaking/matchmaking.service.js'
+import { provisionEmqxWebhook } from './infrastructure/emqx/emqx-provision.service.js'
+import { mqttService } from './infrastructure/mqtt/mqtt.service.js'
 import { startSessionCleanup, stopSessionCleanup } from './state/index.js'
-import { loadConfigFromDb } from './state/config.js'
+import { loadConfigFromDb } from './infrastructure/gateways/config.gateway.js'
 
 const app = express()
 

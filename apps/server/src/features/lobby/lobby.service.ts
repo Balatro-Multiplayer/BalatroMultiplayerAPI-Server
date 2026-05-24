@@ -3,21 +3,21 @@ import {
 	getLobby,
 	getSession,
 	lobbies,
-} from '../state/index.js'
-import type { JwtPayload } from '../types/index.js'
-import { AppError } from '../utils/errors.js'
-import { generateLobbyCode } from '../utils/lobby-code.js'
-import { signJwt } from './auth.service.js'
+} from '../../state/index.js'
+import type { JwtPayload } from '../../shared/types/index.js'
+import { AppError } from '../../shared/utils/errors.js'
+import { generateLobbyCode } from '../../shared/utils/lobby-code.js'
+import { signJwt } from '../auth/auth.service.js'
 import {
 	cancelGracePeriodSilently,
 	isInGracePeriod,
-} from './grace-period.service.js'
+} from '../../infrastructure/mqtt/grace-period.service.js'
 import {
 	removeGroupQueueForLobby,
 	syncMatchLobbyState,
 	updateGroupQueueOnLobbyJoin,
-} from './matchmaking.service.js'
-import { mqttService } from './mqtt.service.js'
+} from '../matchmaking/matchmaking.service.js'
+import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
 
 function destroyLobby(code: string): void {
 	lobbies.delete(code)

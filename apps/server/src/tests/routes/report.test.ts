@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
 import { createTestApp } from './app.js'
-import { signJwt } from '../../services/auth.service.js'
+import { signJwt } from '../../features/auth/auth.service.js'
 import { createSession } from '../../state/index.js'
 import { getLobby } from '../../state/index.js'
-import * as lobbyService from '../../services/lobby.service.js'
+import * as lobbyService from '../../features/lobby/lobby.service.js'
 
 const app = createTestApp()
 
@@ -131,7 +131,7 @@ describe('POST /api/lobbies/:code/report', () => {
 	})
 
 	it('flushes message buffer to DB on first report', async () => {
-		const { db } = await import('../../db/index.js')
+		const { db } = await import('../../infrastructure/db/index.js')
 		const code = await createLobby('host1', 'Alice')
 
 		// Manually populate the buffer
@@ -151,7 +151,7 @@ describe('POST /api/lobbies/:code/report', () => {
 	})
 
 	it('does not flush buffer again on subsequent reports', async () => {
-		const { db } = await import('../../db/index.js')
+		const { db } = await import('../../infrastructure/db/index.js')
 		const code = await createLobby('host1', 'Alice')
 
 		const lobby = getLobby(code)!

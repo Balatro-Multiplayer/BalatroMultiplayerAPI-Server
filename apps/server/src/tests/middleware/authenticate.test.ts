@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { authenticate } from '../../middleware/authenticate.js'
-import { signJwt } from '../../services/auth.service.js'
+import { signJwt } from '../../features/auth/auth.service.js'
 import type { Request, Response, NextFunction } from 'express'
 
 function mockReqRes(authHeader?: string) {

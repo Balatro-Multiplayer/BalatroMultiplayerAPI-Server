@@ -1,6 +1,6 @@
 import { db } from '../db/index.js'
 import { reports, reportedLobbyMessages } from '../db/schema.js'
-import type { Lobby } from '../state/lobby.js'
+import type { Lobby } from '../../state/lobby.js'
 
 export async function submitReport(
 	lobby: Lobby,

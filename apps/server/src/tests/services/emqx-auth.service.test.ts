@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
 	authenticateClient,
 	authorizeAction,
-} from '../../services/emqx-auth.service.js'
-import { signJwt } from '../../services/auth.service.js'
+} from '../../features/emqx/emqx-auth.service.js'
+import { signJwt } from '../../features/auth/auth.service.js'
 import { Lobby, createSession, lobbies } from '../../state/index.js'
 
 function makeToken(playerId: string, steamName = 'Test') {

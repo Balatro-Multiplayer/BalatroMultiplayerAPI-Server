@@ -1,13 +1,13 @@
 import { Router } from 'express'
-import { env } from '../env.js'
+import { env } from '../../env.js'
 import {
 	authenticateClient,
 	authorizeAction,
-} from '../services/emqx-auth.service.js'
-import { startGracePeriod } from '../services/grace-period.service.js'
-import { leaveAllQueues } from '../services/matchmaking.service.js'
-import { getSession, removeSession } from '../state/index.js'
-import type { EmqxAuthRequest, EmqxAuthzRequest } from '../types/index.js'
+} from './emqx-auth.service.js'
+import { startGracePeriod } from '../../infrastructure/mqtt/grace-period.service.js'
+import { leaveAllQueues } from '../matchmaking/matchmaking.service.js'
+import { getSession, removeSession } from '../../state/index.js'
+import type { EmqxAuthRequest, EmqxAuthzRequest } from '../../shared/types/index.js'
 
 const router = Router()
 

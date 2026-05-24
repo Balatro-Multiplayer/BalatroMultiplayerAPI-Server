@@ -1,4 +1,4 @@
-import type { Match, QueueEntry } from '../types/index.js'
+import type { Match, QueueEntry } from '../shared/types/index.js'
 
 export const queues = new Map<string, QueueEntry[]>()
 export const playerQueues = new Map<string, Set<string>>()

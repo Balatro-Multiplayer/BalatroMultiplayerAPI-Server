@@ -6,7 +6,9 @@
  * volume.  This module ensures they exist every time the server starts.
  */
 
-const EMQX_API = 'http://emqx:18083/api/v5'
+import { env } from '../../env.js'
+
+const EMQX_API = env.EMQX_API_URL
 const EMQX_USER = 'admin'
 const EMQX_PASS = 'public'
 

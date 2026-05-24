@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AppError } from '../../utils/errors.js'
+import { AppError } from '../../shared/utils/errors.js'
 
 describe('AppError', () => {
 	it('creates an error with message and default status 500', () => {

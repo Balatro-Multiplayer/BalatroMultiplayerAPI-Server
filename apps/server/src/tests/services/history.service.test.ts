@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { db } from '../../db/index.js'
-import { logAction, logChat, logGameResult } from '../../services/history.service.js'
+import { db } from '../../infrastructure/db/index.js'
+import { logAction, logChat, logGameResult } from '../../infrastructure/gateways/history.gateway.js'
 
 describe('history.service', () => {
 	describe('logGameResult', () => {

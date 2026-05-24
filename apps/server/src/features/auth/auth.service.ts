@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import jwt from 'jsonwebtoken'
-import { env } from '../env.js'
+import { env } from '../../env.js'
 import {
 	createSession,
 	findByProvider,
@@ -8,20 +8,20 @@ import {
 	linkProvider,
 	unlinkProvider,
 	PlayerSession,
-} from '../state/index.js'
+} from '../../state/index.js'
 import type {
 	DiscordTokenResponse,
 	DiscordUser,
 	JwtPayload,
 	SteamAuthResponse,
-} from '../types/index.js'
-import { isValidJoker } from '../constants/jokers.js'
-import { AppError } from '../utils/errors.js'
-import { hashProviderId } from '../utils/hash.js'
-import { cancelGracePeriod } from './grace-period.service.js'
-import * as playerDb from './player.service.js'
-import type { PlayerRecord } from './player.service.js'
-import { getConfig } from '../state/config.js'
+} from '../../shared/types/index.js'
+import { isValidJoker } from '../../shared/constants/jokers.js'
+import { AppError } from '../../shared/utils/errors.js'
+import { hashProviderId } from '../../shared/utils/hash.js'
+import { cancelGracePeriod } from '../../infrastructure/mqtt/grace-period.service.js'
+import * as playerDb from '../../infrastructure/gateways/player.gateway.js'
+import type { PlayerRecord } from '../../infrastructure/gateways/player.gateway.js'
+import { getConfig } from '../../state/config.js'
 
 type Provider = 'steam' | 'discord'
 type SessionInit = NonNullable<Parameters<typeof createSession>[1]>

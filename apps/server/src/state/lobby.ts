@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { AppError } from '../utils/errors.js'
+import { AppError } from '../shared/utils/errors.js'
 import type { PlayerSession } from './player.js'
 
 export type BufferedMessage = {

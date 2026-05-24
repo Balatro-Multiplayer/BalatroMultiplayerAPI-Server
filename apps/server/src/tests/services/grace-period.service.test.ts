@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mqttService } from '../../services/mqtt.service.js'
+import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
 import {
 	cancelGracePeriod,
 	cancelGracePeriodSilently,
@@ -8,7 +8,7 @@ import {
 	gracePeriods,
 	isInGracePeriod,
 	startGracePeriod,
-} from '../../services/grace-period.service.js'
+} from '../../infrastructure/mqtt/grace-period.service.js'
 import { createSession, getLobby, lobbies } from '../../state/index.js'
 import { Lobby } from '../../state/lobby.js'
 

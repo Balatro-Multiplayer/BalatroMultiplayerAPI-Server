@@ -11,7 +11,7 @@ import {
 	validateSteamTicket,
 	verifyJwt,
 	verifyLinkState,
-} from '../../services/auth.service.js'
+} from '../../features/auth/auth.service.js'
 import {
 	createSession,
 	findByProvider,
@@ -19,8 +19,8 @@ import {
 	steamIndex,
 	discordIndex,
 } from '../../state/index.js'
-import { hashProviderId } from '../../utils/hash.js'
-import * as playerDb from '../../services/player.service.js'
+import { hashProviderId } from '../../shared/utils/hash.js'
+import * as playerDb from '../../infrastructure/gateways/player.gateway.js'
 
 const mockPlayerRecord = {
 	id: 'db-player-id',

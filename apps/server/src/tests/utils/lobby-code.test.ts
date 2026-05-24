@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateLobbyCode } from '../../utils/lobby-code.js'
+import { generateLobbyCode } from '../../shared/utils/lobby-code.js'
 
 describe('generateLobbyCode', () => {
 	it('generates a 6-character code by default', () => {

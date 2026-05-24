@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { createTestApp } from './app.js'
-import { signJwt } from '../../services/auth.service.js'
+import { signJwt } from '../../features/auth/auth.service.js'
 import { createSession } from '../../state/index.js'
 import { matches, matchByLobby, queues, playerQueues } from '../../state/matchmaking.js'
 import { Lobby } from '../../state/lobby.js'
 import { lobbies } from '../../state/index.js'
-import type { Match } from '../../types/index.js'
+import type { Match } from '../../shared/types/index.js'
 
 const app = createTestApp()
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mqttService } from '../../services/mqtt.service.js'
-import { db } from '../../db/index.js'
+import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
+import { db } from '../../infrastructure/db/index.js'
 import {
 	checkSeasonRollover,
 	getQueueStatus,
@@ -14,11 +14,11 @@ import {
 	runMatchmakingCycle,
 	runRankedQueue,
 	updateGroupQueueOnLobbyJoin,
-} from '../../services/matchmaking.service.js'
+} from '../../features/matchmaking/matchmaking.service.js'
 import { matches, matchByLobby, playerQueues, queues } from '../../state/matchmaking.js'
 import { createSession, lobbies, sessions } from '../../state/index.js'
 import { Lobby } from '../../state/lobby.js'
-import type { SoloQueueEntry } from '../../types/index.js'
+import type { SoloQueueEntry } from '../../shared/types/index.js'
 
 function makeSession(id: string, steamName: string) {
 	return createSession(steamName, { id })

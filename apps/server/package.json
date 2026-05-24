@@ -6,7 +6,7 @@
 		"build": "tsc",
 		"dev": "tsx watch src/main.ts",
 		"start": "node dist/main.js",
-		"migrate": "tsx src/db/migrate.ts",
+		"migrate": "tsx src/infrastructure/db/migrate.ts",
 		"generate": "drizzle-kit generate",
 		"test": "vitest run",
 		"test:watch": "vitest",

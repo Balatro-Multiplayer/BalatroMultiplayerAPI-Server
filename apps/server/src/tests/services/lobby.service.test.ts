@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mqttService } from '../../services/mqtt.service.js'
+import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
 import {
 	createLobby,
 	getLobbyInfo,
@@ -7,10 +7,10 @@ import {
 	joinLobby,
 	leaveLobby,
 	setMetadata,
-} from '../../services/lobby.service.js'
+} from '../../features/lobby/lobby.service.js'
 import { createSession, lobbies, sessions } from '../../state/index.js'
-import type { JwtPayload } from '../../types/index.js'
-import { verifyJwt } from '../../services/auth.service.js'
+import type { JwtPayload } from '../../shared/types/index.js'
+import { verifyJwt } from '../../features/auth/auth.service.js'
 
 function makePlayer(id: string, steamName: string): JwtPayload {
 	createSession(steamName, { id })

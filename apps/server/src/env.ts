@@ -30,6 +30,7 @@ export const env = {
 	),
 
 	EMQX_BROKER_URL: optional('EMQX_BROKER_URL', 'mqtt://emqx:1883'),
+	EMQX_API_URL: optional('EMQX_API_URL', 'http://emqx:18083/api/v5'),
 	EMQX_SYSTEM_CLIENT_ID: optional('EMQX_SYSTEM_CLIENT_ID', 'bmp-api-server'),
 	EMQX_SYSTEM_USERNAME: optional('EMQX_SYSTEM_USERNAME', 'bmp-system'),
 	EMQX_SYSTEM_PASSWORD: required('EMQX_SYSTEM_PASSWORD'),

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { env } from '../env.js'
+import { env } from '../../env.js'
 
 /**
  * Deterministically hashes a provider ID (Steam or Discord) with the server-side salt.

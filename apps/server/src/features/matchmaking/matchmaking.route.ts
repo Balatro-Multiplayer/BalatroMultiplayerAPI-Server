@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { authenticate } from '../middleware/authenticate.js'
+import { authenticate } from '../../middleware/authenticate.js'
 import {
 	getLeaderboard,
 	getOwnRating,
@@ -8,10 +8,10 @@ import {
 	leaveAllQueues,
 	leaveQueue,
 	reportResult,
-} from '../services/matchmaking.service.js'
-import { getSession } from '../state/index.js'
-import type { PlacementEntry } from '../types/index.js'
-import { AppError } from '../utils/errors.js'
+} from './matchmaking.service.js'
+import { getSession } from '../../state/index.js'
+import type { PlacementEntry } from '../../shared/types/index.js'
+import { AppError } from '../../shared/utils/errors.js'
 
 const router = Router()
 

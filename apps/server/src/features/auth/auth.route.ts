@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
-import { authenticate } from '../middleware/authenticate.js'
+import { authenticate } from '../../middleware/authenticate.js'
 import {
 	acceptTos,
 	authenticateAsTemp,
@@ -21,17 +21,17 @@ import {
 	validateSteamTicket,
 	verifyLinkState,
 	verifyTosPendingToken,
-} from '../services/auth.service.js'
-import { cancelGracePeriod } from '../services/grace-period.service.js'
-import { getConfig } from '../state/config.js'
-import { issueRefreshToken, redeemRefreshToken } from '../services/refresh-token.service.js'
-import { mqttService } from '../services/mqtt.service.js'
-import { env } from '../env.js'
-import { AppError } from '../utils/errors.js'
-import { getLobby, getSession } from '../state/index.js'
-import type { PlayerSession } from '../state/index.js'
-import { buildPrivilegeTable } from '../constants/privileges.js'
-import { updateChatStatus } from '../services/player.service.js'
+} from './auth.service.js'
+import { cancelGracePeriod } from '../../infrastructure/mqtt/grace-period.service.js'
+import { getConfig } from '../../state/config.js'
+import { issueRefreshToken, redeemRefreshToken } from '../../infrastructure/gateways/refresh-token.gateway.js'
+import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
+import { env } from '../../env.js'
+import { AppError } from '../../shared/utils/errors.js'
+import { getLobby, getSession } from '../../state/index.js'
+import type { PlayerSession } from '../../state/index.js'
+import { buildPrivilegeTable } from '../../shared/constants/privileges.js'
+import { updateChatStatus } from '../../infrastructure/gateways/player.gateway.js'
 
 function lobbyPayload(session: PlayerSession) {
 	if (!session.lobbyCode) return undefined

@@ -1,5 +1,5 @@
-import { getSession, getLobby, lobbies, removeSession } from '../state/index.js'
-import { syncMatchLobbyState } from './matchmaking.service.js'
+import { getSession, getLobby, lobbies, removeSession } from '../../state/index.js'
+import { syncMatchLobbyState } from '../../features/matchmaking/matchmaking.service.js'
 import { mqttService } from './mqtt.service.js'
 
 const GRACE_PERIOD_MS = 2 * 60 * 1000 // 2 minutes

@@ -1,8 +1,9 @@
 import { Router } from 'express'
-import { env } from '../env.js'
-import { AppError } from '../utils/errors.js'
-import { getConfig, loadConfigFromDb } from '../state/config.js'
-import { mqttService } from '../services/mqtt.service.js'
+import { env } from '../../env.js'
+import { AppError } from '../../shared/utils/errors.js'
+import { getConfig } from '../../state/config.js'
+import { loadConfigFromDb } from '../../infrastructure/gateways/config.gateway.js'
+import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
 
 const router = Router()
 

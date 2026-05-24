@@ -1,7 +1,7 @@
 import mqtt from 'mqtt'
-import { env } from '../env.js'
-import type { LobbyEvent } from '../types/index.js'
-import type { ModConfig } from '../state/config.js'
+import { env } from '../../env.js'
+import type { LobbyEvent } from '../../shared/types/index.js'
+import type { ModConfig } from '../../state/config.js'
 
 class MqttService {
 	private client: mqtt.MqttClient | null = null
