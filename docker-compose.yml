@@ -12,13 +12,10 @@ services:
       # survives container redeploys.
       LOG_HASH_DB_PATH: /data/log_hashes.db
     restart: unless-stopped
-    # Cap + rotate container stdout/stderr. Docker's default json-file driver
-    # keeps logs forever; this bounds them to 5 x 20MB = 100MB per container.
-    logging:
-      driver: json-file
-      options:
-        max-size: "20m"
-        max-file: "5"
+    # Container stdout/stderr rotation is handled host-side by logrotate
+    # (deploy/logrotate/balatro-docker: daily, compress after 1 day, keep 30
+    # days). We deliberately leave the json-file driver at its default here so
+    # Docker doesn't also rotate the same files and collide with logrotate.
     volumes:
       - ./logs:/logs
       - ./data:/data
