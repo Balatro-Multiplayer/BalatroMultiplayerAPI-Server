@@ -26,6 +26,7 @@ import type {
 	ActionStartAnteTimer,
 	ActionPauseAnteTimer,
 	ActionSyncClient,
+	ActionSubmitLogHashes,
 	ActionUsername,
 	ActionUtility,
 	ActionVersion,
@@ -363,6 +364,12 @@ const server = createServer((socket) => {
 					case 'syncClient':
 						actionHandlers.syncClient(
 							actionArgs as ActionHandlerArgs<ActionSyncClient>,
+							client,
+						)
+						break
+					case 'submitLogHashes':
+						actionHandlers.submitLogHashes(
+							actionArgs as ActionHandlerArgs<ActionSubmitLogHashes>,
 							client,
 						)
 						break

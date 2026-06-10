@@ -8,6 +8,10 @@ services:
       - "49484:8788"
     environment:
       NODE_ENV: development
+      # Replay-log hash store (better-sqlite3). Lives on the ./data volume so it
+      # survives container redeploys.
+      LOG_HASH_DB_PATH: /data/log_hashes.db
     restart: unless-stopped
     volumes:
       - ./logs:/logs
+      - ./data:/data

@@ -25,6 +25,7 @@ import type {
 	ActionStartAnteTimer,
 	ActionPauseAnteTimer,
 	ActionSyncClient,
+	ActionSubmitLogHashes,
 	ActionUsername,
 	ActionVersion,
 	ActionTcgServerVersion,
@@ -37,6 +38,7 @@ import type {
 	ActionHandyMPExtensionDisable,
 } from "./actions.js";
 import { generateSeed } from "./utils.js";
+import { recordLogHashes } from "./logHashStore.js";
 
 /** Current TCG server version - clients must match this to use TCG features */
 const TCG_SERVER_VERSION = 1;
@@ -139,11 +141,16 @@ const startGameAction = (client: Client) => {
 		? Number.parseInt(lobby.options.starting_lives)
 		: GameModes[lobby.gameMode].startingLives;
 
+	// Remember the authoritative seed so end-of-game log hashes can be keyed by
+	// it (null for different-seeds games, where each client uses its own).
+	const seed = lobby.options.different_seeds ? undefined : generateSeed();
+	lobby.seed = seed ?? null;
+
 	lobby.isInGame = true;
 	lobby.broadcastAction({
 		action: "startGame",
 		deck: "c_multiplayer_1",
-		seed: lobby.options.different_seeds ? undefined : generateSeed(),
+		seed,
 	});
 
 	// Reset players' lives
@@ -782,6 +789,30 @@ const handyMPExtensionDisable = (
 	client.lobby.broadcastLobbyInfo()
 }
 
+/**
+ * Persist a player's end-of-game replay-log fingerprints. The relay just stores
+ * them (keyed by the server seed + lobby/player context); cross-referencing a
+ * presented log against these happens elsewhere. Best-effort and side-effect
+ * only — it never relays anything to the other client.
+ */
+const submitLogHashesAction = (
+	{ carbon, human, seed }: ActionHandlerArgs<ActionSubmitLogHashes>,
+	client: Client,
+) => {
+	const lobby = client.lobby;
+	recordLogHashes({
+		lobbyCode: lobby?.code ?? null,
+		serverSeed: lobby?.seed ?? null,
+		claimedSeed: seed ?? null,
+		gameMode: lobby?.gameMode ?? null,
+		username: client.username ?? null,
+		modHash: client.modHash ?? null,
+		isHost: lobby?.host?.id === client.id,
+		carbonHash: carbon,
+		humanHash: human,
+	});
+};
+
 export const actionHandlers = {
 	username: usernameAction,
 	createLobby: createLobbyAction,
@@ -825,6 +856,7 @@ export const actionHandlers = {
 	pauseAnteTimer: pauseAnteTimerAction,
 	failTimer: failTimerAction,
 	syncClient: syncClientAction,
+	submitLogHashes: submitLogHashesAction,
 	tcgServerVersion: tcgServerVersionAction,
 	startTcgBetting: startTcgBettingAction,
 	tcgBet: tcgBetAction,

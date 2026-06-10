@@ -163,6 +163,7 @@ export type ActionStartAnteTimerRequest = { action: 'startAnteTimer', time: numb
 export type ActionPauseAnteTimerRequest = { action: 'pauseAnteTimer', time: number }
 export type ActionFailTimer = { action: 'failTimer' }
 export type ActionSyncClient = { action: 'syncClient', isCached: boolean }
+export type ActionSubmitLogHashes = { action: 'submitLogHashes', carbon: string, human: string, seed?: string }
 // TCG Actions (Client to Server)
 export type ActionTcgServerVersion = { action: 'tcgServerVersion', version: number }
 export type ActionStartTcgBetting = { action: 'startTcgBetting' }
@@ -217,6 +218,7 @@ export type ActionClientToServer =
 	| ActionPauseAnteTimerRequest
 	| ActionFailTimer
 	| ActionSyncClient
+	| ActionSubmitLogHashes
 	| ActionTcgServerVersion
 	| ActionStartTcgBetting
 	| ActionTcgBet

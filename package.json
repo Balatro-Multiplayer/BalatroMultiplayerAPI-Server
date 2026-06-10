@@ -7,11 +7,13 @@
 		"start": "node ./dist/main.js"
 	},
 	"dependencies": {
+		"better-sqlite3": "^12.10.0",
 		"net": "^1.0.2",
 		"uuid": "^9.0.1"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.6.1",
+		"@types/better-sqlite3": "^7.6.13",
 		"@types/node": "^20.11.27",
 		"@types/uuid": "^9.0.8",
 		"esbuild": "^0.24.0",
