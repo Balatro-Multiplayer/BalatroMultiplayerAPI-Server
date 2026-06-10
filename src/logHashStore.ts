@@ -28,6 +28,10 @@ export interface LogHashRecord {
 	isHost: boolean;
 	carbonHash: string;
 	humanHash: string;
+	/** The full carbon (positional/replay) log block: manifest + action lines +
+	 *  END + CHK. Lets us view/replay any game without the player sending a log.
+	 *  Null if an older client submitted only hashes. */
+	carbonLog: string | null;
 }
 
 const DB_PATH = process.env.LOG_HASH_DB_PATH ?? "./data/log_hashes.db";
@@ -53,12 +57,21 @@ const getDb = (): Database.Database => {
 			mod_hash     TEXT,
 			is_host      INTEGER NOT NULL,
 			carbon_hash  TEXT NOT NULL,
-			human_hash   TEXT NOT NULL
+			human_hash   TEXT NOT NULL,
+			carbon_log   TEXT
 		);
 		CREATE INDEX IF NOT EXISTS idx_log_hashes_server_seed ON log_hashes (server_seed);
 		CREATE INDEX IF NOT EXISTS idx_log_hashes_lobby_code  ON log_hashes (lobby_code);
 		CREATE INDEX IF NOT EXISTS idx_log_hashes_username    ON log_hashes (username);
 	`);
+
+	// Defensive migration: add carbon_log to a table created before it existed.
+	const hasCarbonLog = db
+		.prepare("SELECT 1 FROM pragma_table_info('log_hashes') WHERE name = 'carbon_log'")
+		.get();
+	if (!hasCarbonLog) {
+		db.exec("ALTER TABLE log_hashes ADD COLUMN carbon_log TEXT");
+	}
 
 	return db;
 };
@@ -71,9 +84,9 @@ export const recordLogHashes = (record: LogHashRecord): void => {
 		if (!insertStmt) {
 			insertStmt = database.prepare(`
 				INSERT INTO log_hashes
-					(ts, lobby_code, server_seed, claimed_seed, game_mode, username, mod_hash, is_host, carbon_hash, human_hash)
+					(ts, lobby_code, server_seed, claimed_seed, game_mode, username, mod_hash, is_host, carbon_hash, human_hash, carbon_log)
 				VALUES
-					(@ts, @lobbyCode, @serverSeed, @claimedSeed, @gameMode, @username, @modHash, @isHost, @carbonHash, @humanHash)
+					(@ts, @lobbyCode, @serverSeed, @claimedSeed, @gameMode, @username, @modHash, @isHost, @carbonHash, @humanHash, @carbonLog)
 			`);
 		}
 		insertStmt.run({
@@ -87,6 +100,7 @@ export const recordLogHashes = (record: LogHashRecord): void => {
 			isHost: record.isHost ? 1 : 0,
 			carbonHash: record.carbonHash,
 			humanHash: record.humanHash,
+			carbonLog: record.carbonLog,
 		});
 	} catch (err) {
 		console.error("Failed to record log hashes:", err);

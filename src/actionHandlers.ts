@@ -796,7 +796,7 @@ const handyMPExtensionDisable = (
  * only — it never relays anything to the other client.
  */
 const submitLogHashesAction = (
-	{ carbon, human, seed }: ActionHandlerArgs<ActionSubmitLogHashes>,
+	{ carbon, human, seed, log }: ActionHandlerArgs<ActionSubmitLogHashes>,
 	client: Client,
 ) => {
 	const lobby = client.lobby;
@@ -810,6 +810,7 @@ const submitLogHashesAction = (
 		isHost: lobby?.host?.id === client.id,
 		carbonHash: carbon,
 		humanHash: human,
+		carbonLog: log ?? null,
 	});
 };
 
