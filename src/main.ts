@@ -175,10 +175,20 @@ const server = createServer((socket) => {
 				const { action, ...actionArgs } = message
 
 				if (action !== 'keepAlive' && action !== 'keepAliveAck') {
+					// submitLogHashes carries the full carbon log (can be many KB);
+					// log a compact summary so we don't mirror the whole log into
+					// stdout / docker logs on every game end.
+					const logged =
+						action === 'submitLogHashes'
+							? JSON.stringify({
+									carbon: (actionArgs as { carbon?: string }).carbon,
+									human: (actionArgs as { human?: string }).human,
+									seed: (actionArgs as { seed?: string }).seed,
+									logBytes: (actionArgs as { log?: string }).log?.length ?? 0,
+								})
+							: JSON.stringify(actionArgs)
 					console.log(
-						`${new Date().toISOString()}: Received action ${action} from ${client.id}: ${JSON.stringify(
-							actionArgs,
-						)}`,
+						`${new Date().toISOString()}: Received action ${action} from ${client.id}: ${logged}`,
 					)
 				}
 

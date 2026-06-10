@@ -12,6 +12,13 @@ services:
       # survives container redeploys.
       LOG_HASH_DB_PATH: /data/log_hashes.db
     restart: unless-stopped
+    # Cap + rotate container stdout/stderr. Docker's default json-file driver
+    # keeps logs forever; this bounds them to 5 x 20MB = 100MB per container.
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     volumes:
       - ./logs:/logs
       - ./data:/data
