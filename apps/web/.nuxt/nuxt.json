@@ -1,0 +1,9 @@
+{
+  "_hash": "NpV4RvtRmt_Dr4MBg-X3DGsMlbWGKp4zHeuSncqasI0",
+  "project": {
+    "rootDir": "/home/virtualized/Projects/BMP/BalatroMultiplayerAPI-Server/apps/web"
+  },
+  "versions": {
+    "nuxt": "3.21.8"
+  }
+}

@@ -2,17 +2,22 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-COPY package*.json .npmrc ./
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
-ARG NODE_AUTH_TOKEN
-RUN if [ -n "$NODE_AUTH_TOKEN" ]; then \
-      echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc; \
-    fi
-RUN npm ci
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/internal/package.json ./packages/internal/
+COPY packages/types/package.json ./packages/types/
+COPY apps/server/package.json ./apps/server/
 
-COPY . .
-RUN npm run build
+RUN pnpm install --frozen-lockfile --filter balatro-multiplayer-api-server...
+
+COPY packages/ ./packages/
+COPY apps/server/ ./apps/server/
+
+RUN pnpm --filter @bmp/types build
+RUN pnpm --filter @v-rtualized/bmp-internal build
+RUN pnpm --filter balatro-multiplayer-api-server build
 
 EXPOSE 8788
 
-CMD ["sh", "-c", "npm run migrate && npm run start"]
+CMD ["sh", "-c", "pnpm --filter balatro-multiplayer-api-server migrate && pnpm --filter balatro-multiplayer-api-server start"]

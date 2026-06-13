@@ -42,34 +42,10 @@ services:
     networks:
       - bmp
 
-  moderation:
-    build:
-      context: ./apps/moderation
-      dockerfile: Dockerfile
-    container_name: bmp-moderation
-    ports:
-      - "8001:8001"
-    environment:
-      TOXICITY_THRESHOLD: "0.7"
-    deploy:
-      resources:
-        limits:
-          cpus: "4"
-          memory: 8G
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 60s
-    restart: unless-stopped
-    networks:
-      - bmp
-
   api:
     build:
-      context: ./apps/server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/server/Dockerfile
     container_name: bmp-api
     ports:
       - "8788:8788"
@@ -77,13 +53,12 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/bmp
       EMQX_BROKER_URL: mqtt://emqx:1883
-      MODERATION_SERVICE_URL: http://moderation:8001
+      EMQX_API_URL: http://emqx:18083/api/v5
+      WEB_BASE_URL: ${WEB_BASE_URL:-http://localhost:3000}
     depends_on:
       emqx:
         condition: service_healthy
       postgres:
-        condition: service_healthy
-      moderation:
         condition: service_healthy
     restart: unless-stopped
     networks:
@@ -91,13 +66,16 @@ services:
 
   web:
     build:
-      context: ./apps/web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/web/Dockerfile
     container_name: bmp-web
     ports:
       - "3000:3000"
     environment:
       NODE_ENV: production
+      API_PROXY_TARGET: http://bmp-api:8788
+    depends_on:
+      - api
     restart: unless-stopped
     networks:
       - bmp
