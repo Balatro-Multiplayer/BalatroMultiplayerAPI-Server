@@ -37,6 +37,7 @@ import type {
 	ActionHandyMPExtensionDisable,
 } from "./actions.js";
 import { generateSeed } from "./utils.js";
+import { messages } from "./localization.js";
 
 /** Current TCG server version - clients must match this to use TCG features */
 const TCG_SERVER_VERSION = 1;
@@ -65,7 +66,7 @@ const joinLobbyAction = (
 	if (!newLobby) {
 		client.sendAction({
 			action: "error",
-			message: "Lobby does not exist.",
+			message: messages.lobbyDoesNotExist,
 		});
 		return;
 	}
@@ -89,7 +90,7 @@ const rejoinLobbyAction = (
 	if (!lobby) {
 		client.sendAction({
 			action: "error",
-			message: "Lobby no longer exists.",
+			message: messages.lobbyNoLongerExists,
 		});
 		return;
 	}
@@ -97,7 +98,7 @@ const rejoinLobbyAction = (
 	if (!lobby.rejoin(client, reconnectToken)) {
 		client.sendAction({
 			action: "error",
-			message: "Could not rejoin lobby. Token invalid or slot expired.",
+			message: messages.rejoinFailed,
 		});
 	}
 };
@@ -420,7 +421,7 @@ const versionAction = (
 		) {
 			client.sendAction({
 				action: "error",
-				message: `[WARN] Server expecting version ${serverVersion}`,
+				message: messages.versionMismatch(serverVersion),
 			});
 		}
 	}

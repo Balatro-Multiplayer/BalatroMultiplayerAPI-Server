@@ -1,6 +1,7 @@
 import type Client from "./Client.js";
 import type { InsaneInt } from "./InsaneInt.js";
 import GameModes from "./GameMode.js";
+import { messages } from "./localization.js";
 import type {
 	ActionLobbyInfo,
 	ActionServerToClient,
@@ -249,7 +250,7 @@ class Lobby {
 		if (this.guest) {
 			client.sendAction({
 				action: "error",
-				message: "Lobby is full or does not exist.",
+				message: messages.lobbyFullOrMissing,
 			});
 			return;
 		}
@@ -318,7 +319,7 @@ class Lobby {
 		if (this.host !== client && this.guest !== client) {
 			return client.sendAction({
 				action: "error",
-				message: "Client not in Lobby",
+				message: messages.clientNotInLobby,
 			});
 		}
 

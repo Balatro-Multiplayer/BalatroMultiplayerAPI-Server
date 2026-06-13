@@ -2,6 +2,7 @@ import { Socket, createServer } from 'node:net'
 import Client from './Client.js'
 import { actionHandlers, disconnectFromLobbyAction } from './actionHandlers.js'
 import { Lobbies } from './Lobby.js'
+import { messages as localization } from './localization.js'
 import type {
 	Action,
 	ActionClientToServer,
@@ -425,7 +426,7 @@ const server = createServer((socket) => {
 						break
 				}
 			} catch (error) {
-				const failedToParseError = 'Failed to parse message'
+				const failedToParseError = localization.failedToParseMessage
 				console.error(failedToParseError, error)
 				client.sendAction({
 					action: 'error',
