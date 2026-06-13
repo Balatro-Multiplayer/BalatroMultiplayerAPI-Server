@@ -1,5 +1,8 @@
 import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
+import { db } from '../../infrastructure/db/index.js'
+import { matchmakingRatings, players } from '../../infrastructure/db/schema.js'
+import { eq } from 'drizzle-orm'
 import { authenticate } from '../../middleware/authenticate.js'
 import {
 	acceptTos,
@@ -10,6 +13,8 @@ import {
 	impersonatePlayer,
 	generateLinkState,
 	getDiscordAuthUrl,
+	getSteamOpenIdUrl,
+	getSteamPlayerName,
 	linkDiscordToPlayer,
 	linkSteamToPlayer,
 	setPreferredJoker,
@@ -18,6 +23,7 @@ import {
 	signTosPendingToken,
 	unlinkDiscordFromPlayer,
 	validateDiscordCode,
+	validateSteamOpenIdResponse,
 	validateSteamTicket,
 	verifyLinkState,
 	verifyTosPendingToken,
@@ -28,7 +34,7 @@ import { issueRefreshToken, redeemRefreshToken } from '../../infrastructure/gate
 import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
 import { env } from '../../env.js'
 import { AppError } from '../../shared/utils/errors.js'
-import { getLobby, getSession } from '../../state/index.js'
+import { getLobby, getSession, removeSession } from '../../state/index.js'
 import type { PlayerSession } from '../../state/index.js'
 import { buildPrivilegeTable } from '../../shared/constants/privileges.js'
 import { updateChatStatus } from '../../infrastructure/gateways/player.gateway.js'
@@ -130,6 +136,55 @@ router.post('/steam', async (req, res, next) => {
 		next(err)
 	}
 })
+
+// --- Steam OpenID (web browser flow) ---
+
+router.get('/steam/web', (req, res) => {
+	const callbackUrl = `${env.WEB_BASE_URL.replace(/\/$/, '')}/api/auth/steam/web/callback`
+	res.redirect(getSteamOpenIdUrl(callbackUrl))
+})
+
+router.get('/steam/web/callback', async (req, res, next) => {
+	try {
+		const query = Object.fromEntries(
+			Object.entries(req.query).map(([k, v]) => [k, String(v)]),
+		)
+		const steamId = await validateSteamOpenIdResponse(query)
+		const steamName = await getSteamPlayerName(steamId)
+		const { session, token } = await authenticateWithSteam(steamId, steamName)
+
+		const gate = tosGate(session)
+		if (gate) {
+			res.redirect(`${env.WEB_BASE_URL}/auth/tos?token=${encodeURIComponent(gate.token)}`)
+			return
+		}
+
+		res.redirect(`${env.WEB_BASE_URL}/auth/callback?token=${encodeURIComponent(token)}`)
+	} catch (err) {
+		next(err)
+	}
+})
+
+// --- Web session endpoints ---
+
+router.get('/me', authenticate, (req, res) => {
+	const session = req.player!
+	res.json({
+		id: session.playerId,
+		steamName: session.steamName,
+		displayName: session.displayName ?? session.steamName,
+		useDiscordName: session.useDiscordName ?? false,
+		preferredJoker: session.preferredJoker ?? null,
+		discordLinked: session.discordIdHash != null,
+		discordUsername: session.discordUsername ?? null,
+	})
+})
+
+router.post('/logout', (_req, res) => {
+	res.json({ ok: true })
+})
+
+// ---
 
 router.post('/dev', (req, res, next) => {
 	try {
@@ -258,7 +313,8 @@ router.post('/accept-tos', async (req, res, next) => {
 		const playerId = verifyTosPendingToken(pendingToken)
 		if (!playerId) throw new AppError('Invalid or expired ToS token', 401)
 
-		const { session, token } = await acceptTos(playerId)
+		const chatEligible = typeof req.body.chatEligible === 'boolean' ? req.body.chatEligible : undefined
+		const { session, token } = await acceptTos(playerId, chatEligible)
 		const refreshToken = await issueRefreshToken(session.playerId)
 
 		res.json({
@@ -290,14 +346,19 @@ router.get('/discord/callback', async (req, res, next) => {
 
 		// If state is present, this is a link operation
 		if (state) {
-			const playerId = verifyLinkState(state)
-			if (playerId) {
-				await linkDiscordToPlayer(playerId, discordId, discordName)
+			const linked = verifyLinkState(state)
+			if (linked) {
+				await linkDiscordToPlayer(linked.playerId, discordId, discordName)
 
 				// Notify game client via MQTT
-				await mqttService.publishToPlayer(playerId, 'account/discord_linked', {
+				await mqttService.publishToPlayer(linked.playerId, 'account/discord_linked', {
 					discordName,
 				})
+
+				if (linked.source === 'web') {
+					res.redirect(`${env.WEB_BASE_URL}/account?discord=linked`)
+					return
+				}
 
 				res.setHeader('Content-Type', 'text/html')
 				res.send(`<!DOCTYPE html>
@@ -310,7 +371,7 @@ h1{color:#5865f2;margin-bottom:0.5rem}p{color:#a0a0b0}</style>
 			}
 		}
 
-		// Otherwise, normal auth
+		// Otherwise, normal auth (standalone Discord login)
 		const { session, token } = await authenticateWithDiscord(discordId, discordName)
 
 		res.json({
@@ -349,7 +410,8 @@ router.post('/link/steam', authenticate, async (req, res, next) => {
 })
 
 router.post('/link/discord', authenticate, (req, res) => {
-	const state = generateLinkState(req.player!.playerId)
+	const source = req.query.source as string | undefined
+	const state = generateLinkState(req.player!.playerId, source)
 	const url = getDiscordAuthUrl(state)
 	res.json({ url })
 })
@@ -406,37 +468,15 @@ router.post('/chat/enable', authenticate, async (req, res, next) => {
 		const session = getSession(req.player!.playerId)
 		if (!session) throw new AppError('Session not found', 401)
 
-		// Blocked players cannot re-submit age verification
 		if (session.chatBlocked) throw new AppError('Chat access is permanently restricted', 403)
-		// Already enabled — no-op
 		if (session.chatEnabled) {
 			res.json({ player: playerPayload(session) })
 			return
 		}
 
-		const { birthYear, birthMonth, birthDay } = req.body
-		if (
-			typeof birthYear !== 'number' ||
-			typeof birthMonth !== 'number' ||
-			typeof birthDay !== 'number'
-		) {
-			throw new AppError('Missing or invalid birthdate fields (birthYear, birthMonth, birthDay)', 400)
-		}
-
-		// Compute age — birthdate is never stored
-		const today = new Date()
-		let age = today.getFullYear() - birthYear
-		const monthDiff = today.getMonth() + 1 - birthMonth
-		if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDay)) {
-			age--
-		}
-
-		const chatEnabled = age >= 16
-		const chatBlocked = !chatEnabled
-
-		await updateChatStatus(session.playerId, chatEnabled, chatBlocked)
-		session.chatEnabled = chatEnabled
-		session.chatBlocked = chatBlocked
+		await updateChatStatus(session.playerId, true, false)
+		session.chatEnabled = true
+		session.chatBlocked = false
 
 		res.json({ player: playerPayload(session) })
 	} catch (err) {
@@ -468,6 +508,25 @@ router.post('/preferences/joker', authenticate, async (req, res, next) => {
 			token,
 			player: playerPayload(session),
 		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.delete('/account', authenticate, async (req, res, next) => {
+	try {
+		const playerId = req.player!.playerId
+
+		await db.transaction(async (tx) => {
+			// FK on matchmaking_ratings has no cascade — delete manually first
+			await tx.delete(matchmakingRatings).where(eq(matchmakingRatings.playerId, playerId))
+			await tx.delete(players).where(eq(players.id, playerId))
+			// refresh_tokens cascade on player delete
+		})
+
+		removeSession(playerId)
+
+		res.json({ ok: true })
 	} catch (err) {
 		next(err)
 	}

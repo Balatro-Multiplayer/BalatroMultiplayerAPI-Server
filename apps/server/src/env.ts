@@ -38,4 +38,6 @@ export const env = {
 	PLAYER_ID_SALT: required('PLAYER_ID_SALT'),
 
 	ADMIN_SECRET: required('ADMIN_SECRET'),
+
+	WEB_BASE_URL: optional('WEB_BASE_URL', 'http://localhost:3000'),
 } as const

@@ -1,6 +1,11 @@
 export interface JwtPayload {
 	playerId: string
 	steamName: string
+	displayName?: string
+	useDiscordName?: boolean
+	preferredJoker?: string | null
+	discordIdHash?: string | null
+	discordUsername?: string | null
 	lobbyCode?: string
 	isTemp?: boolean
 	purpose?: string

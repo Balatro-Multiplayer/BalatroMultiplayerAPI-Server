@@ -9,6 +9,7 @@ import {
 	leaveQueue,
 	reportResult,
 } from './matchmaking.service.js'
+import { getCurrentSeason } from '../../infrastructure/gateways/matchmaking.gateway.js'
 import { getSession } from '../../state/index.js'
 import type { PlacementEntry } from '../../shared/types/index.js'
 import { AppError } from '../../shared/utils/errors.js'
@@ -100,16 +101,23 @@ router.post('/matches/:matchId/result', async (req, res, next) => {
 	}
 })
 
-// Get leaderboard
+// Get leaderboard — season is optional, defaults to the active season
 router.get('/leaderboard', async (req, res, next) => {
 	try {
 		const { modId, gameMode, season } = req.query
 		if (!modId || typeof modId !== 'string') throw new AppError('Missing modId', 400)
 		if (!gameMode || typeof gameMode !== 'string') throw new AppError('Missing gameMode', 400)
 
-		const seasonId = season ? Number(season) : undefined
-		if (seasonId === undefined || Number.isNaN(seasonId))
-			throw new AppError('Missing or invalid season', 400)
+		let seasonId: number
+		if (season !== undefined) {
+			const parsed = Number(season)
+			if (Number.isNaN(parsed)) throw new AppError('Invalid season', 400)
+			seasonId = parsed
+		} else {
+			const current = await getCurrentSeason()
+			if (!current) throw new AppError('No active season', 404)
+			seasonId = current.id
+		}
 
 		const data = await getLeaderboard(modId, gameMode, seasonId, req.player!.playerId)
 		res.json(data)
@@ -118,15 +126,23 @@ router.get('/leaderboard', async (req, res, next) => {
 	}
 })
 
-// Get own rating
+// Get own rating — season is optional, defaults to the active season
 router.get('/ratings', async (req, res, next) => {
 	try {
 		const { modId, gameMode, season } = req.query
 		if (!modId || typeof modId !== 'string') throw new AppError('Missing modId', 400)
 		if (!gameMode || typeof gameMode !== 'string') throw new AppError('Missing gameMode', 400)
-		const seasonId = season ? Number(season) : undefined
-		if (seasonId === undefined || Number.isNaN(seasonId))
-			throw new AppError('Missing or invalid season', 400)
+
+		let seasonId: number
+		if (season !== undefined) {
+			const parsed = Number(season)
+			if (Number.isNaN(parsed)) throw new AppError('Invalid season', 400)
+			seasonId = parsed
+		} else {
+			const current = await getCurrentSeason()
+			if (!current) throw new AppError('No active season', 404)
+			seasonId = current.id
+		}
 
 		const data = await getOwnRating(req.player!.playerId, modId, gameMode, seasonId)
 		if (!data) {

@@ -89,6 +89,55 @@ function extractSteamIdFromAuthResponse(data: SteamAuthResponse): string {
 	return data.response.params.steamid
 }
 
+// --- Steam OpenID (web browser flow) ---
+
+const STEAM_OPENID_ENDPOINT = 'https://steamcommunity.com/openid/login'
+const STEAM_ID_REGEX = /^https:\/\/steamcommunity\.com\/openid\/id\/(\d+)$/
+
+export function getSteamOpenIdUrl(returnTo: string): string {
+	const params = new URLSearchParams({
+		'openid.ns': 'http://specs.openid.net/auth/2.0',
+		'openid.mode': 'checkid_setup',
+		'openid.return_to': returnTo,
+		'openid.realm': new URL(returnTo).origin,
+		'openid.identity': 'http://specs.openid.net/auth/2.0/identifier_select',
+		'openid.claimed_id': 'http://specs.openid.net/auth/2.0/identifier_select',
+	})
+	return `${STEAM_OPENID_ENDPOINT}?${params.toString()}`
+}
+
+export async function validateSteamOpenIdResponse(
+	query: Record<string, string>,
+): Promise<string> {
+	const claimedId = query['openid.claimed_id'] ?? ''
+	const match = STEAM_ID_REGEX.exec(claimedId)
+	if (!match) throw new AppError('Invalid Steam OpenID response', 401)
+
+	const verifyParams = new URLSearchParams({ ...query, 'openid.mode': 'check_authentication' })
+	const res = await fetch(STEAM_OPENID_ENDPOINT, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		body: verifyParams.toString(),
+	})
+	const text = await res.text()
+	if (!text.includes('is_valid:true')) throw new AppError('Steam OpenID validation failed', 401)
+
+	return match[1]
+}
+
+export async function getSteamPlayerName(steamId: string): Promise<string> {
+	const url = `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=${env.STEAM_WEB_API_KEY}&steamids=${steamId}`
+	try {
+		const res = await fetch(url)
+		const data = (await res.json()) as { response?: { players?: { personaname?: string }[] } }
+		return data.response?.players?.[0]?.personaname ?? 'Unknown'
+	} catch {
+		return 'Unknown'
+	}
+}
+
+// ---
+
 export async function validateSteamTicket(
 	ticket: string,
 ): Promise<{ steamId: string }> {
@@ -426,7 +475,7 @@ async function ensurePlayerExistsInDb(session: PlayerSession): Promise<void> {
 	})
 }
 
-export async function acceptTos(playerId: string) {
+export async function acceptTos(playerId: string, chatEligible?: boolean) {
 	const { tosVersion } = getConfig()
 
 	const session = getSession(playerId)
@@ -435,6 +484,14 @@ export async function acceptTos(playerId: string) {
 	await ensurePlayerExistsInDb(session)
 	await playerDb.updateTosAcceptedVersion(playerId, tosVersion)
 	session.tosAcceptedVersion = tosVersion
+
+	// chatEligible is computed client-side from birthdate; birthdate is never transmitted.
+	if (chatEligible !== undefined) {
+		await playerDb.updateChatStatus(playerId, chatEligible, false)
+		session.chatEnabled = chatEligible
+		session.chatBlocked = false
+	}
+
 	return sessionAndToken(session)
 }
 
@@ -444,14 +501,15 @@ const LINK_STATE_TTL = 5 * 60 * 1000
 
 export const linkStateNonces = new Map<
 	string,
-	{ playerId: string; expiresAt: number }
+	{ playerId: string; expiresAt: number; source?: string }
 >()
 
-export function generateLinkState(playerId: string): string {
+export function generateLinkState(playerId: string, source?: string): string {
 	const nonce = randomBytes(32).toString('hex')
 	linkStateNonces.set(nonce, {
 		playerId,
 		expiresAt: Date.now() + LINK_STATE_TTL,
+		source,
 	})
 	return jwt.sign({ nonce, purpose: 'discord-link' }, env.JWT_SECRET, {
 		expiresIn: '5m',
@@ -473,7 +531,7 @@ function decodeLinkStateJwt(
 
 function consumeLinkStateNonce(
 	nonce: string,
-): { playerId: string; expiresAt: number } | null {
+): { playerId: string; expiresAt: number; source?: string } | null {
 	const entry = linkStateNonces.get(nonce)
 	if (!entry) return null
 	linkStateNonces.delete(nonce)
@@ -484,7 +542,9 @@ function isLinkStateNonceFresh(entry: { expiresAt: number }): boolean {
 	return Date.now() <= entry.expiresAt
 }
 
-export function verifyLinkState(state: string): string | null {
+export function verifyLinkState(
+	state: string,
+): { playerId: string; source?: string } | null {
 	const decoded = decodeLinkStateJwt(state)
 	if (!decoded || decoded.purpose !== 'discord-link') return null
 
@@ -492,19 +552,20 @@ export function verifyLinkState(state: string): string | null {
 	if (!entry) return null
 	if (!isLinkStateNonceFresh(entry)) return null
 
-	return entry.playerId
+	return { playerId: entry.playerId, source: entry.source }
 }
 
 // --- Helpers ---
 
-function signSessionJwt(session: {
-	playerId: string
-	steamName: string
-	lobbyCode?: string
-}): string {
+function signSessionJwt(session: PlayerSession): string {
 	return signJwt({
 		playerId: session.playerId,
 		steamName: session.steamName,
+		displayName: session.getDisplayName(),
+		useDiscordName: session.useDiscordName,
+		preferredJoker: session.preferredJoker,
+		discordIdHash: session.discordIdHash,
+		discordUsername: session.discordUsername,
 		lobbyCode: session.lobbyCode,
 	})
 }
