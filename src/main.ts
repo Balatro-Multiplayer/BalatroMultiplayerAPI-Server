@@ -42,8 +42,10 @@ import type {
     ActionHandyMPExtensionDisable,
 } from './actions.js'
 import { InsaneInt } from './InsaneInt.js'
+import { ABUSE_CONFIG, ConnectionMeter } from './abuse.js'
+import { isBanned, addBan, removeBan, listBans, startBanAutoReload } from './banStore.js'
 
-const PORT = 8788
+const PORT = Number(process.env.PORT) || 8788
 
 /** Hard cap on the per-connection message buffer. A message is a single
  *  newline-terminated JSON line; the largest legitimate one is an end-of-game
@@ -133,9 +135,25 @@ const server = createServer((socket) => {
 	// Enable OS-level TCP keepalive as secondary dead connection detection
 	socket.setKeepAlive(true, 10000)
 
-	const client = new Client(socket.address(), sendActionToSocket(socket), socket.end)
+	const remoteAddress = socket.remoteAddress ?? ''
+
+	// Reject banned peers (by IP) before allocating any per-connection state.
+	if (isBanned(remoteAddress, null)) {
+		sendActionToSocket(socket)({ action: 'error', message: 'You are banned.' })
+		socket.end()
+		return
+	}
+
+	const client = new Client(
+		socket.address(),
+		sendActionToSocket(socket),
+		socket.end,
+		remoteAddress,
+	)
 	client.sendAction({ action: 'connected' })
 	client.sendAction({ action: 'version' })
+
+	const meter = new ConnectionMeter(remoteAddress)
 
 	// Buffer for incomplete TCP messages
 	let dataBuffer = ''
@@ -172,6 +190,8 @@ const server = createServer((socket) => {
 		retryCount = 0
 		keepAlive.refresh()
 
+		meter.noteBytes(data.length)
+
 		// Buffer incoming data — TCP may split large messages across multiple events
 		dataBuffer += data.toString()
 		// Guard against an unbounded buffer: a client streaming endless data with
@@ -188,8 +208,35 @@ const server = createServer((socket) => {
 		// Keep the last (possibly incomplete) chunk in the buffer
 		dataBuffer = messages.pop() ?? ''
 
+		// No-newline flood guard: the leftover incomplete chunk must never grow
+		// without bound. This is the primary OOM fix and always enforced.
+		if (dataBuffer.length > ABUSE_CONFIG.MAX_BUFFER_BYTES) {
+			const verdict = meter.bufferOverflow()
+			client.sendAction({ action: 'error', message: verdict.reason })
+			dataBuffer = ''
+			socket.end()
+			return
+		}
+
 		for (const msg of messages) {
 			if (!msg) continue
+
+			const verdict = meter.inspectMessage(Buffer.byteLength(msg))
+			if (verdict.kind === 'disconnect') {
+				client.sendAction({ action: 'error', message: verdict.reason })
+				socket.end()
+				return
+			}
+			if (verdict.kind === 'drop') {
+				if (verdict.notify) {
+					client.sendAction({
+						action: 'error',
+						message: 'Rate limit exceeded; message dropped.',
+					})
+				}
+				continue
+			}
+
 			try {
 				const message: ActionClientToServer | ActionUtility = JSON.parse(msg)
 				const { action, ...actionArgs } = message
@@ -478,6 +525,17 @@ const server = createServer((socket) => {
 					message: failedToParseError,
 				})
 			}
+
+			// The username action may have just populated the hardware id; sync it
+			// onto the meter and re-check bans so a banned hwid can't dodge by IP.
+			if (client.connectionId && meter.connId !== client.connectionId) {
+				meter.connId = client.connectionId
+				if (isBanned(client.remoteAddress, client.connectionId)) {
+					client.sendAction({ action: 'error', message: 'You are banned.' })
+					socket.end()
+					return
+				}
+			}
 		}
 	})
 
@@ -507,6 +565,8 @@ const server = createServer((socket) => {
 
 server.listen(PORT, '0.0.0.0', () => {
 	console.log(`Server listening on port ${PORT}`)
+	// Pick up bans added out-of-process (admin_ban.py) without a restart.
+	startBanAutoReload()
 })
 
 // Admin server for sending messages to players
@@ -515,7 +575,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const ADMIN_PORT = 8789
+const ADMIN_PORT = Number(process.env.ADMIN_PORT) || 8789
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ADMIN_PUBLIC_KEY_PATH = resolve(__dirname, '..', '..', '.github', 'admin_public.pem')
@@ -624,6 +684,36 @@ const adminHandlers: Record<string, (parsed: any, socket: import('net').Socket) 
 			lobbies.push(guest ? `${code} - ${host}, ${guest}` : `${code} - ${host}`)
 		}
 		socket.end(JSON.stringify({ success: true, count: lobbies.length, lobbies }) + '\n')
+	},
+
+	ban(parsed, socket) {
+		const { kind, id, ttl_ms, reason } = parsed
+		if ((kind !== 'ip' && kind !== 'conn') || !id || typeof id !== 'string') {
+			socket.end(
+				JSON.stringify({ success: false, error: "kind must be 'ip' or 'conn' and id a string" }) + '\n',
+			)
+			return
+		}
+		// ttl_ms <= 0 (or omitted) means a permanent ban.
+		addBan(kind, id, typeof ttl_ms === 'number' ? ttl_ms : 0, typeof reason === 'string' ? reason : 'admin')
+		socket.end(JSON.stringify({ success: true }) + '\n')
+	},
+
+	unban(parsed, socket) {
+		const { kind, id } = parsed
+		if ((kind !== 'ip' && kind !== 'conn') || !id || typeof id !== 'string') {
+			socket.end(
+				JSON.stringify({ success: false, error: "kind must be 'ip' or 'conn' and id a string" }) + '\n',
+			)
+			return
+		}
+		const removed = removeBan(kind, id)
+		socket.end(JSON.stringify({ success: true, removed }) + '\n')
+	},
+
+	listBans(_parsed, socket) {
+		const bans = listBans()
+		socket.end(JSON.stringify({ success: true, count: bans.length, bans }) + '\n')
 	},
 }
 

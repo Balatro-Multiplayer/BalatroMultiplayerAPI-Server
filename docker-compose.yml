@@ -12,6 +12,13 @@ services:
       # survives container redeploys.
       LOG_HASH_DB_PATH: /data/log_hashes.db
     restart: unless-stopped
+    # Resource caps so an abuse spike that slips past the app-level limits OOM-kills
+    # only this container (which then auto-restarts) instead of taking down the whole
+    # shared host. Idle usage is ~120 MB; 512 MB leaves ample headroom for ~50 live
+    # games. The box is 2 vCPU / ~2 GB shared across ~9 containers.
+    mem_limit: 512m
+    cpus: "1.5"
+    pids_limit: 512
     # Container stdout/stderr rotation is handled host-side by logrotate
     # (deploy/logrotate/balatro-docker: daily, compress after 1 day, keep 30
     # days). We deliberately leave the json-file driver at its default here so
