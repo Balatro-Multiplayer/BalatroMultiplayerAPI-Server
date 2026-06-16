@@ -3,39 +3,40 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 /**
- * Durable store for abuse bans.
+ * Ban enforcement for the relay. There are two independent sources, both read
+ * out of the same SQLite file on the /data volume:
  *
- * Bans are keyed by two independent identifiers so a banned player can't simply
- * hop onto a VPN to dodge it:
- *   - "ip"   — the remote socket address.
- *   - "conn" — the client hardware id (serversideConnectionID), which the mod
- *              derives from the machine and ships inside the `modHash` string.
+ *  1. ABUSE auto-bans (table `bans`) — written by this process when the abuse
+ *     meter escalates. Keyed by two identifiers so a VPN hop doesn't dodge them:
+ *       - "ip"   — the remote socket address.
+ *       - "conn" — the client hardware id (serversideConnectionID), shipped
+ *                  inside the `modHash` string.
+ *     A ban with expires_ts = 0 is permanent; otherwise it lapses at that
+ *     unix-ms instant.
  *
- * A ban with expires_ts = 0 is permanent; otherwise it lapses at that unix-ms
- * instant. The DB shares LOG_HASH_DB_PATH with the replay-log store so it lives
- * on the same mounted /data volume and survives container redeploys.
+ *  2. CENTRAL hard bans (table `central_hard_bans`) — the curated, human-managed
+ *     hard bans from the website (balatromp.com/admin/banned-users). This process
+ *     only READS the table; mp-ban-watcher owns the writes (it syncs the
+ *     `ban_type='hard'` rows from the central Postgres into it). Keyed by the
+ *     lowercased serversideConnectionID. Soft bans never reach here — they stay
+ *     warn-only via mp-ban-watcher.
  *
- * An in-memory cache fronts every lookup so the hot path (one check per inbound
- * connection / username) never touches disk. The DB is the durable backing only.
+ * In-memory structures front every lookup so the hot path (one check per inbound
+ * connection / username) never touches disk; the DB is the durable backing only.
+ * `startBanAutoReload` re-reads both tables periodically so out-of-process writes
+ * (mp-ban-watcher's central sync) take effect without a relay restart.
  */
 
 export type BanKind = "ip" | "conn";
-
-export interface BanRow {
-	kind: BanKind;
-	id: string;
-	reason: string | null;
-	createdTs: number;
-	/** Unix-ms expiry; 0 means permanent. */
-	expiresTs: number;
-}
 
 const DB_PATH = process.env.LOG_HASH_DB_PATH ?? "./data/log_hashes.db";
 
 let db: Database.Database | null = null;
 
-/** key = `${kind}:${id}` -> expiresTs (0 = permanent). */
+/** Abuse auto-bans: key = `${kind}:${id}` -> expiresTs (0 = permanent). */
 const cache = new Map<string, number>();
+/** Central hard bans: lowercased serversideConnectionIDs the website blocked. */
+const centralHard = new Set<string>();
 let loaded = false;
 
 const cacheKey = (kind: BanKind, id: string) => `${kind}:${id}`;
@@ -55,6 +56,13 @@ const getDb = (): Database.Database => {
 			expires_ts INTEGER NOT NULL,
 			PRIMARY KEY (kind, id)
 		);
+		-- Owned/written by mp-ban-watcher; this process only reads it. Created
+		-- defensively so a relay booting before the first sync still reads clean.
+		CREATE TABLE IF NOT EXISTS central_hard_bans (
+			value_lower TEXT PRIMARY KEY,
+			label       TEXT,
+			updated_ts  INTEGER
+		);
 	`);
 
 	return db;
@@ -65,13 +73,24 @@ const getDb = (): Database.Database => {
  *  unbanned. Best-effort. */
 const reload = (logCount = false): void => {
 	try {
-		const rows = getDb()
+		const database = getDb();
+		const rows = database
 			.prepare("SELECT kind, id, expires_ts FROM bans")
 			.all() as { kind: BanKind; id: string; expires_ts: number }[];
 		cache.clear();
 		for (const row of rows) cache.set(cacheKey(row.kind, row.id), row.expires_ts);
+
+		const hardRows = database
+			.prepare("SELECT value_lower FROM central_hard_bans")
+			.all() as { value_lower: string }[];
+		centralHard.clear();
+		for (const row of hardRows) centralHard.add(row.value_lower.toLowerCase());
+
 		loaded = true;
-		if (logCount) console.log(`Loaded ${rows.length} ban(s) from ${DB_PATH}`);
+		if (logCount)
+			console.log(
+				`Loaded ${rows.length} abuse ban(s) + ${hardRows.length} central hard ban(s) from ${DB_PATH}`,
+			);
 	} catch (err) {
 		console.error("Failed to load bans:", err);
 		loaded = true;
@@ -87,9 +106,9 @@ const ensureLoaded = (): void => {
 let reloadTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
- * Periodically re-read the ban table so bans added out-of-process (e.g. by the
- * admin_ban.py script writing straight to the SQLite file) take effect without a
- * relay restart. Mirrors the cache-refresh model the mp-ban-watcher already uses.
+ * Periodically re-read both ban tables so central hard bans synced in by
+ * mp-ban-watcher (and any abuse bans) take effect without a relay restart.
+ * Mirrors the cache-refresh model mp-ban-watcher itself uses for Postgres→Redis.
  */
 export const startBanAutoReload = (
 	intervalMs = Number(process.env.BAN_RELOAD_INTERVAL_MS) || 60_000,
@@ -125,12 +144,14 @@ const isOneBanned = (kind: BanKind, id: string): boolean => {
 };
 
 /**
- * Is this connection banned by either its IP or its hardware id? `connId` may be
- * null early in a connection's life (before the `username` action arrives), in
- * which case only the IP is checked.
+ * Is this connection banned? Checks, in order: a central hard ban on the
+ * hardware id (website-managed), then the local abuse auto-bans by IP and by
+ * hardware id. `connId` may be null early in a connection's life (before the
+ * `username` action arrives), in which case only the IP is checked.
  */
 export const isBanned = (ip: string | undefined, connId: string | null): boolean => {
 	ensureLoaded();
+	if (connId && centralHard.has(connId.toLowerCase())) return true;
 	if (ip && isOneBanned("ip", ip)) return true;
 	if (connId && isOneBanned("conn", connId)) return true;
 	return false;
@@ -174,36 +195,5 @@ export const addBan = (
 		);
 	} catch (err) {
 		console.error("Failed to persist ban:", err);
-	}
-};
-
-/** Lift a ban. Returns true if one was present. */
-export const removeBan = (kind: BanKind, id: string): boolean => {
-	ensureLoaded();
-	const had = cache.has(cacheKey(kind, id));
-	drop(kind, id);
-	return had;
-};
-
-/** All live bans (lapsed ones reaped), newest expiry first-ish. For admin use. */
-export const listBans = (): BanRow[] => {
-	ensureLoaded();
-	try {
-		const rows = getDb()
-			.prepare(
-				"SELECT kind, id, reason, created_ts AS createdTs, expires_ts AS expiresTs FROM bans",
-			)
-			.all() as BanRow[];
-		const now = Date.now();
-		return rows.filter((r) => {
-			if (r.expiresTs !== 0 && r.expiresTs <= now) {
-				drop(r.kind, r.id);
-				return false;
-			}
-			return true;
-		});
-	} catch (err) {
-		console.error("Failed to list bans:", err);
-		return [];
 	}
 };

@@ -43,7 +43,7 @@ import type {
 } from './actions.js'
 import { InsaneInt } from './InsaneInt.js'
 import { ABUSE_CONFIG, ConnectionMeter } from './abuse.js'
-import { isBanned, addBan, removeBan, listBans, startBanAutoReload } from './banStore.js'
+import { isBanned, startBanAutoReload } from './banStore.js'
 
 const PORT = Number(process.env.PORT) || 8788
 
@@ -565,7 +565,7 @@ const server = createServer((socket) => {
 
 server.listen(PORT, '0.0.0.0', () => {
 	console.log(`Server listening on port ${PORT}`)
-	// Pick up bans added out-of-process (admin_ban.py) without a restart.
+	// Pick up central hard bans synced in by mp-ban-watcher without a restart.
 	startBanAutoReload()
 })
 
@@ -684,36 +684,6 @@ const adminHandlers: Record<string, (parsed: any, socket: import('net').Socket) 
 			lobbies.push(guest ? `${code} - ${host}, ${guest}` : `${code} - ${host}`)
 		}
 		socket.end(JSON.stringify({ success: true, count: lobbies.length, lobbies }) + '\n')
-	},
-
-	ban(parsed, socket) {
-		const { kind, id, ttl_ms, reason } = parsed
-		if ((kind !== 'ip' && kind !== 'conn') || !id || typeof id !== 'string') {
-			socket.end(
-				JSON.stringify({ success: false, error: "kind must be 'ip' or 'conn' and id a string" }) + '\n',
-			)
-			return
-		}
-		// ttl_ms <= 0 (or omitted) means a permanent ban.
-		addBan(kind, id, typeof ttl_ms === 'number' ? ttl_ms : 0, typeof reason === 'string' ? reason : 'admin')
-		socket.end(JSON.stringify({ success: true }) + '\n')
-	},
-
-	unban(parsed, socket) {
-		const { kind, id } = parsed
-		if ((kind !== 'ip' && kind !== 'conn') || !id || typeof id !== 'string') {
-			socket.end(
-				JSON.stringify({ success: false, error: "kind must be 'ip' or 'conn' and id a string" }) + '\n',
-			)
-			return
-		}
-		const removed = removeBan(kind, id)
-		socket.end(JSON.stringify({ success: true, removed }) + '\n')
-	},
-
-	listBans(_parsed, socket) {
-		const bans = listBans()
-		socket.end(JSON.stringify({ success: true, count: bans.length, bans }) + '\n')
 	},
 }
 
