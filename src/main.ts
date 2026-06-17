@@ -111,7 +111,13 @@ const sendActionToSocket =
 			)
 		}
 
-		socket.write(`${data}\n`)
+		// Guard against the socket ending between the destroyed check and the
+		// write (race) — a throw/'error' here must not take down the server.
+		try {
+			socket.write(`${data}\n`)
+		} catch (err) {
+			console.warn('Failed to write to client socket (ignored):', (err as Error).message)
+		}
 	}
 
 const server = createServer((socket) => {
@@ -121,6 +127,13 @@ const server = createServer((socket) => {
 	socket.setNoDelay()
 	// Enable OS-level TCP keepalive as secondary dead connection detection
 	socket.setKeepAlive(true, 10000)
+
+	// A client abruptly resetting the connection emits an 'error' event
+	// (e.g. ECONNRESET from the read path); without this listener that becomes
+	// an unhandled error and crashes the whole process. Log and let it close.
+	socket.on('error', (err) => {
+		console.warn('Client connection error (ignored):', err.message)
+	})
 
 	const client = new Client(socket.address(), sendActionToSocket(socket), socket.end)
 	client.sendAction({ action: 'connected' })
@@ -587,6 +600,13 @@ const adminHandlers: Record<string, (parsed: any, socket: import('net').Socket) 
 }
 
 const adminServer = createServer((socket) => {
+	// Without this, an abrupt admin-client disconnect (ECONNRESET) or a
+	// write-after-end emits an unhandled 'error' event that crashes the whole
+	// process. Log and drop the connection instead.
+	socket.on('error', (err) => {
+		console.warn('Admin connection error (ignored):', err.message)
+	})
+
 	socket.on('data', (data) => {
 		const messages = data.toString().split('\n')
 		for (const msg of messages) {
