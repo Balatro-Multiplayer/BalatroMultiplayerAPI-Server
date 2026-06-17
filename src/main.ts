@@ -2,6 +2,7 @@ import { Socket, createServer } from 'node:net'
 import Client from './Client.js'
 import { actionHandlers, disconnectFromLobbyAction } from './actionHandlers.js'
 import { Lobbies } from './Lobby.js'
+import { setModPolicy, fetchRemotePolicy, MOD_POLICY_URL, MOD_POLICY_REFRESH_MS } from './modPolicy.js'
 import type {
 	Action,
 	ActionClientToServer,
@@ -125,6 +126,8 @@ const server = createServer((socket) => {
 	const client = new Client(socket.address(), sendActionToSocket(socket), socket.end)
 	client.sendAction({ action: 'connected' })
 	client.sendAction({ action: 'version' })
+	// Mod policy is sent when the client joins/creates a lobby (see actionHandlers),
+	// not on connect — that's the point it's needed.
 
 	// Buffer for incomplete TCP messages
 	let dataBuffer = ''
@@ -575,6 +578,31 @@ const adminHandlers: Record<string, (parsed: any, socket: import('net').Socket) 
 		socket.end(JSON.stringify(result) + '\n')
 	},
 
+	setModPolicy(parsed, socket) {
+		const { banned, approved } = parsed
+		const isMap = (v: unknown) => v === undefined || (!!v && typeof v === 'object' && !Array.isArray(v))
+		if (!isMap(banned) || !isMap(approved)) {
+			socket.end(JSON.stringify({ success: false, error: 'banned/approved must be objects' }) + '\n')
+			return
+		}
+		const p = setModPolicy({ banned, approved })
+		// Push the new policy to everyone currently in a lobby (they already got it
+		// on connect). New connections pick it up automatically.
+		const result = sendToTargets(undefined, undefined, {
+			action: 'setModPolicy',
+			banned: p.banned,
+			approved: p.approved,
+		})
+		socket.end(
+			JSON.stringify({
+				success: true,
+				banned: Object.keys(p.banned).length,
+				approved: Object.keys(p.approved).length,
+				broadcastRecipients: result.recipients,
+			}) + '\n',
+		)
+	},
+
 	listLobbies(_parsed, socket) {
 		const lobbies: string[] = []
 		for (const [code, lobby] of Lobbies.entries()) {
@@ -623,3 +651,17 @@ const adminServer = createServer((socket) => {
 adminServer.listen(ADMIN_PORT, '127.0.0.1', () => {
 	console.log(`Admin server listening on 127.0.0.1:${ADMIN_PORT}`)
 })
+
+// Keep the in-memory mod policy warm by polling the BalatroMP website. This only
+// refreshes the server's cached copy — clients receive it when they join/create a
+// lobby (see actionHandlers), not on a timer. On fetch failure the current cache
+// (mod_policy.json fallback at boot) is kept.
+{
+	const refresh = async () => {
+		const next = await fetchRemotePolicy(MOD_POLICY_URL)
+		if (next) setModPolicy(next)
+	}
+	refresh() // pull immediately on boot
+	setInterval(refresh, MOD_POLICY_REFRESH_MS)
+	console.log(`Refreshing mod policy cache from ${MOD_POLICY_URL} every ${MOD_POLICY_REFRESH_MS}ms`)
+}

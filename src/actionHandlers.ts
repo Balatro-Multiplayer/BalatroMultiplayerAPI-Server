@@ -2,6 +2,7 @@ import type Client from "./Client.js";
 import GameModes from "./GameMode.js";
 import { InsaneInt } from "./InsaneInt.js";
 import Lobby, { getEnemy } from "./Lobby.js";
+import { getModPolicy } from "./modPolicy.js";
 import type {
 	ActionCreateLobby,
 	ActionEatPizza,
@@ -49,12 +50,21 @@ const usernameAction = (
 	client.setModHash(modHash);
 };
 
+// Send the client the current banned/approved mod policy. Done when a client
+// enters a lobby — that's the point the list matters (you're about to inspect an
+// opponent). The server keeps its copy warm via a background poll of the website.
+const sendModPolicy = (client: Client) => {
+	const { banned, approved } = getModPolicy();
+	client.sendAction({ action: "setModPolicy", banned, approved });
+};
+
 const createLobbyAction = (
 	{ gameMode }: ActionHandlerArgs<ActionCreateLobby>,
 	client: Client,
 ) => {
 	/** Also sets the client lobby to this newly created one */
 	new Lobby(client, gameMode);
+	sendModPolicy(client);
 };
 
 const joinLobbyAction = (
@@ -70,6 +80,7 @@ const joinLobbyAction = (
 		return;
 	}
 	newLobby.join(client);
+	sendModPolicy(client);
 };
 
 const leaveLobbyAction = (client: Client) => {
@@ -99,7 +110,9 @@ const rejoinLobbyAction = (
 			action: "error",
 			message: "Could not rejoin lobby. Token invalid or slot expired.",
 		});
+		return;
 	}
+	sendModPolicy(client);
 };
 
 const lobbyInfoAction = (client: Client) => {

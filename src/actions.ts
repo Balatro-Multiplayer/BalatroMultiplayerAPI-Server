@@ -16,6 +16,8 @@ export type ActionLobbyInfo = {
 	guestReady?: boolean
 	isHost: boolean
 }
+export type ModMap = Record<string, boolean | string | string[]>
+export type ActionSetModPolicy = { action: 'setModPolicy'; banned: ModMap; approved: ModMap }
 export type ActionStopGame = { action: 'stopGame' }
 export type ActionStartGame = {
 	action: 'startGame'
@@ -79,6 +81,7 @@ export type ActionServerToClient =
 	| ActionEnemyDisconnected
 	| ActionEnemyReconnected
 	| ActionLobbyInfo
+	| ActionSetModPolicy
 	| ActionStopGame
 	| ActionStartGame
 	| ActionStartBlind

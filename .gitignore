@@ -5,3 +5,10 @@ dist
 releases
 .vs
 logs
+
+# Local mod-policy fallback (generated locally; the website is the source of truth)
+/mod_policy.json
+
+# Local admin tooling + keypair (dev-only; never commit the private key)
+/admin-local/
+.github/admin_public.pem
