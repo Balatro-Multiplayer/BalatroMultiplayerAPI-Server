@@ -1,9 +1,0 @@
-{
-  "pid": 8134,
-  "startedAt": 1781293156645,
-  "command": "dev",
-  "cwd": "/home/virtualized/Projects/BMP/BalatroMultiplayerAPI-Server/apps/web",
-  "port": 3000,
-  "hostname": "::",
-  "url": "http://localhost:3000"
-}
