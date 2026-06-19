@@ -1,0 +1,396 @@
+---
+title: Standard Ranked
+description: The Standard Ranked ruleset includes Multiplayer cards and balance changes to the base game for competitive play.
+---
+
+
+## Gameplay Changes
+
+- **Comeback money** is only given during PvP blinds (not outside of PvP)
+- **Comeback money** is a flat **$4** regardless of lives lost
+- **Comeback money** is halved to **$2** on Blue stake and above
+
+## Jokers
+
+### Multiplayer Jokers
+
+There are **10 added multiplayer jokers**. All jokers added in the multiplayer mod are designed to **interact with your opponent** and will not show up in single player games.
+
+<div className={'relative overflow-auto'}>
+	<table>
+		<thead>
+		<tr>
+			<th className={'text-center'}>Joker</th>
+			<th>Description</th>
+			<th>Notes</th>
+		</tr>
+		</thead>
+		<tbody>
+		<tr>
+			<td>
+				#### Defensive Joker [toc]
+				<JokerCard name={'Defensive Joker'} img={'/cards/j_mp_defensive_joker.png'}/>
+			</td>
+			<td>
+				<Chips>+125</Chips> Chips for every life less than your <Nemesis>Nemesis</Nemesis>.
+			</td>
+			<td>
+				There is a bug where this joker might appear in single player mode. To fix this, disable the multiplayer
+				mod when playing single player.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Skip-Off [toc]
+				<JokerCard name={'Skip-Off'} img={'/cards/j_mp_skip_off.png'}/>
+			</td>
+			<td>
+				<Hands>+1</Hands> Hands and <Hands>+1</Hands> Discards per additional <Hands>Blind</Hands> skipped compared to your
+				<Nemesis>Nemesis</Nemesis>.
+			</td>
+			<td></td>
+		</tr>
+		<tr>
+			<td>
+				#### Let's Go Gambling [toc]
+				<JokerCard name={'Let\'s Go Gambling'} img={'/cards/j_mp_lets_go_gambling.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span><Chance>1 in 4</Chance> chance for <Xmult>X4</Xmult> Mult and <Money>$10</Money></span>
+					<span><Chance>1 in 4</Chance> chance to give your <Nemesis>Nemesis</Nemesis> <Money> $10</Money> in <Hands>PvP Blind</Hands></span>
+				</div>
+			</td>
+			<td></td>
+		</tr>
+		<tr>
+			<td>
+				#### Speedrun [toc]
+				<JokerCard name={'Speedrun'} img={'/cards/j_mp_speedrun.png'}/>
+			</td>
+			<td>
+				If you reach a <Hands>PvP Blind</Hands> before your <Nemesis>Nemesis</Nemesis>, create a
+				random <Spectral>Spectral</Spectral> card. Must have room.
+			</td>
+			<td>
+				Can now activate for both players if the second player readies within 30 seconds.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Conjoined Joker [toc]
+				<JokerCard name={'Conjoined Joker'} img={'/cards/j_mp_conjoined_joker.png'}/>
+			</td>
+			<td>
+				While in a <Hands>PvP Blind</Hands>, gain
+				<Xmult>X0.5</Xmult> Mult for every <Hands>Hand</Hands>
+				your <Nemesis>Nemesis</Nemesis> has left
+				(Max <Xmult>X3</Xmult> Mult)
+			</td>
+			<td></td>
+		</tr>
+		<tr>
+			<td>
+				#### Penny Pincher [toc]
+				<JokerCard name={'Penny Pincher'} img={'/cards/j_mp_penny_pincher.png'}/>
+			</td>
+			<td>
+				At start of shop, gain
+				<Money>$1</Money> for every <Money>$3</Money> your <Nemesis>Nemesis</Nemesis> spent in the corresponding shop <Hands>last ante</Hands>
+			</td>
+			<td></td>
+		</tr>
+		<tr>
+			<td>
+				#### Taxes [toc]
+				<JokerCard name={'Taxes'} img={'/cards/j_mp_taxes.png'}/>
+			</td>
+			<td>
+				Gains <Mult>+4</Mult> Mult for every card your <Nemesis>Nemesis</Nemesis> <Hands>sold</Hands> since last <Hands>PvP Blind</Hands>,
+				updates when <Hands>PvP Blind</Hands> is selected
+			</td>
+			<td></td>
+		</tr>
+		<tr>
+			<td>
+				#### Pizza [toc]
+				<JokerCard name={'Pizza'} img={'/cards/j_mp_pizza.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>At the end of the next <Hands>PvP Blind</Hands>, consume this Joker and grant <Mult>+1</Mult> discard to you and <Mult>+2</Mult> discards to your <Nemesis>Nemesis</Nemesis> for the ante</span>
+					<span>Eaten after <Hands>PvP Blind</Hands></span>
+				</div>
+			</td>
+			<td></td>
+		</tr>
+		<tr>
+			<td>
+				#### Pacifist [toc]
+				<JokerCard name={'Pacifist'} img={'/cards/j_mp_pacifist.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<Xmult>X10</Xmult> Mult while not in a <Hands>PvP Blind</Hands>
+				</div>
+			</td>
+			<td></td>
+		</tr>
+		</tbody>
+	</table>
+</div>
+
+### Disabled Jokers
+The following jokers are **unavailable** in multiplayer due to their interaction with boss blinds:
+
+<div>
+	<table>
+		<thead>
+		<tr>
+			<th className={'text-center'}>Joker</th>
+			<th>Description</th>
+		</tr>
+		</thead>
+		<tbody>
+		<tr>
+			<td>
+				#### Chicot [toc]
+				<JokerCard name={'Chicot'} img={'/cards/j_chicot.png'} h={4}/>
+			</td>
+			<td>
+				Disables effect of every <Hands>Boss Blind</Hands>
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Matador [toc]
+				<JokerCard name={'Matador'} img={'/cards/j_matador.png'} h={4}/>
+			</td>
+			<td>
+				Earn <Money>$8</Money> if played hand triggers the <Hands>Boss Blind</Hands> ability
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Mr. Bones [toc]
+				<JokerCard name={'Mr. Bones'} img={'/cards/j_mr_bones.png'} h={4}/>
+			</td>
+			<td>
+				Prevents Death if chips scored are at least <Hands>25%</Hands> of required chips.
+				<Mult>Self destructs</Mult>
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Luchador [toc]
+				<JokerCard name={'Luchador'} img={'/cards/j_luchador.png'} h={4}/>
+			</td>
+			<td>
+				Sell this card to disable the current <Hands>Boss Blind</Hands>
+			</td>
+		</tr>
+		</tbody>
+	</table>
+</div>
+
+
+### Modified Jokers
+
+These jokers have been modified from their base game versions.
+
+<div>
+	<table>
+		<thead>
+		<tr>
+			<th className={'text-center'}>Joker</th>
+			<th>Description</th>
+			<th>Notes</th>
+		</tr>
+		</thead>
+		<tbody>
+		<tr>
+			<td>
+				#### Hanging Chad [toc]
+				<JokerCard name={'Hanging Chad'} img={'/cards/j_hanging_chad.png'} h={4}/>
+			</td>
+			<td>
+				Retrigger <Hands>first</Hands> and <Hands>second</Hands> played cards used in
+				scoring <Hands>1</Hands> additional time
+			</td>
+			<td></td>
+		</tr>
+		<tr>
+			<td>
+				#### Seltzer [toc]
+				<JokerCard name={'Seltzer'} img={'/cards/j_selzer.png'} h={4}/>
+			</td>
+			<td>
+				Retrigger all played cards used in scoring for the next <Hands>8</Hands> hands
+			</td>
+			<td>
+				Starts at 8 hands instead of the base game's 10.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Turtle Bean [toc]
+				<JokerCard name={'Bean'} img={'/cards/j_turtle_bean.png'} h={4}/>
+			</td>
+			<td>
+				<Hands>+4</Hands> hand size
+			</td>
+			<td>
+				Starts at 4 hand size instead of the base game's 5.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Golden Ticket [toc]
+				<JokerCard name={'Golden Ticket'} img={'/cards/j_ticket.png'} h={4}/>
+			</td>
+			<td>
+				Played <Hands>Gold</Hands> cards earn <Money>$3</Money> when scored
+			</td>
+			<td>
+				Gives $3 instead of $4. Does not require a Gold card in your deck to appear in the shop. Changed to <Hands>Uncommon</Hands> rarity.
+			</td>
+		</tr>
+		</tbody>
+	</table>
+</div>
+
+## Spectral Cards
+
+<div>
+	<table>
+		<thead>
+		<tr>
+			<th className={'text-center'}>Card</th>
+			<th>Description</th>
+			<th>Notes</th>
+		</tr>
+		</thead>
+		<tbody>
+		<tr>
+			<td>
+				### Ouija [toc]
+				<JokerCard name={'Ouija'} img={'/cards/c_ouija.png'}/>
+			</td>
+			<td>
+				Destroys <Hands>3</Hands> random cards in hand, sets remaining cards to the same <Hands>rank</Hands>
+			</td>
+			<td>
+				Reworked from the base game version.
+			</td>
+		</tr>
+		</tbody>
+	</table>
+</div>
+
+## Planet Cards
+
+<div>
+	<table>
+		<thead>
+		<tr>
+			<th className={'text-center'}>Card</th>
+			<th>Description</th>
+			<th>Notes</th>
+		</tr>
+		</thead>
+		<tbody>
+		<tr>
+			<td>
+				### Asteroid [toc]
+				<JokerCard name={'Asteroid'} img={'/cards/c_asteroid.png'}/>
+			</td>
+			<td>
+				Removes <Hands>one level</Hands> from your <Nemesis>Nemesis</Nemesis>' highest level <Hands>poker hand</Hands>.
+			</td>
+			<td>
+				If your Nemesis has multiple poker hands with the same highest level, the level is removed following
+				this order of priority:
+				- Flush house
+				- Full house
+				- Flush
+				- Pair
+				- High card
+				- Straight flush
+				- Straight
+				- Two pair
+				- Flush five
+				- Five of a kind
+				- Three of a kind
+				- Four of a kind
+
+				The lowest possible level is <Hands>0</Hands>.
+			</td>
+		</tr>
+		</tbody>
+	</table>
+</div>
+
+## Tarot Cards
+
+<div>
+	<table>
+		<thead>
+		<tr>
+			<th className={'text-center'}>Card</th>
+			<th>Description</th>
+			<th>Notes</th>
+		</tr>
+		</thead>
+		<tbody>
+		<tr>
+			<td>
+				### Justice [toc]
+				<JokerCard name={'Justice'} img={'/cards/t_justice.png'}/>
+			</td>
+			<td>
+				This card is **not available** in the Standard Ranked ruleset.
+			</td>
+			<td>
+				Glass cards can only be found in
+				- Standard packs
+				- Spectral cards that spawn cards (Grim, Incantation, and Familiar)
+			</td>
+		</tr>
+		</tbody>
+	</table>
+</div>
+
+
+
+## Enhancements
+
+<div>
+	<table>
+		<thead>
+		<tr>
+			<th className={'text-center'}>Card</th>
+			<th>Description</th>
+			<th>Notes</th>
+		</tr>
+		</thead>
+		<tbody>
+		<tr>
+			<td>
+				### Glass Card [toc]
+				<JokerCard name={'Glass Card'} img={'/cards/e_glass.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span><Xmult>X1.5</Xmult> Mult</span>
+					<span><Chance>1 in 4</Chance> chance to <Hands>destroy</Hands> card after all scoring is finished</span>
+				</div>
+			</td>
+			<td>
+				Glass cards can only be found in
+				- Standard packs
+				- Spectral cards that spawn cards (Grim, Incantation, and Familiar)
+			</td>
+		</tr>
+		</tbody>
+	</table>
+</div>

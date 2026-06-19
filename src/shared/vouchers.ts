@@ -1,0 +1,41 @@
+export interface VoucherInfo {
+  name: string
+  file: string
+}
+
+export const vouchers: { [key: string]: VoucherInfo } = {
+  v_antimatter: { name: 'Antimatter', file: 'v_antimatter.png' },
+  v_blank: { name: 'Blank', file: 'v_blank.png' },
+  v_clearance_sale: { name: 'Clearance Sale', file: 'v_clearance_sale.png' },
+  v_crystal_ball: { name: 'Crystal Ball', file: 'v_crystal_ball.png' },
+  v_directors_cut: { name: "Director's Cut", file: 'v_directors_cut.png' },
+  v_glow_up: { name: 'Glow Up', file: 'v_glow_up.png' },
+  v_grabber: { name: 'Grabber', file: 'v_grabber.png' },
+  v_hieroglyph: { name: 'Hieroglyph', file: 'v_hieroglyph.png' },
+  v_hone: { name: 'Hone', file: 'v_hone.png' },
+  v_illusion: { name: 'Illusion', file: 'v_illusion.png' },
+  v_liquidation: { name: 'Liquidation', file: 'v_liquidation.png' },
+  v_locked: { name: 'Locked', file: 'v_locked.png' },
+  v_magic_trick: { name: 'Magic Trick', file: 'v_magic_trick.png' },
+  v_money_tree: { name: 'Money Tree', file: 'v_money_tree.png' },
+  v_nacho_tong: { name: 'Nacho Tong', file: 'v_nacho_tong.png' },
+  v_observatory: { name: 'Observatory', file: 'v_observatory.png' },
+  v_omen_globe: { name: 'Omen Globe', file: 'v_omen_globe.png' },
+  v_overstock_norm: { name: 'Overstock', file: 'v_overstock_norm.png' },
+  v_overstock_plus: { name: 'Overstock Plus', file: 'v_overstock_plus.png' },
+  v_paint_brush: { name: 'Paint Brush', file: 'v_paint_brush.png' },
+  v_palette: { name: 'Palette', file: 'v_palette.png' },
+  v_petroglyph: { name: 'Petroglyph', file: 'v_petroglyph.png' },
+  v_planet_merchant: { name: 'Planet Merchant', file: 'v_planet_merchant.png' },
+  v_planet_tycoon: { name: 'Planet Tycoon', file: 'v_planet_tycoon.png' },
+  v_recyclomancy: { name: 'Recyclomancy', file: 'v_recyclomancy.png' },
+  v_reroll_glut: { name: 'Reroll Glut', file: 'v_reroll_glut.png' },
+  v_reroll_surplus: { name: 'Reroll Surplus', file: 'v_reroll_surplus.png' },
+  v_retcon: { name: 'Retcon', file: 'v_retcon.png' },
+  v_seed_money: { name: 'Seed Money', file: 'v_seed_money.png' },
+  v_tarot_merchant: { name: 'Tarot Merchant', file: 'v_tarot_merchant.png' },
+  v_tarot_tycoon: { name: 'Tarot Tycoon', file: 'v_tarot_tycoon.png' },
+  v_telescope: { name: 'Telescope', file: 'v_telescope.png' },
+  v_undiscovered: { name: 'Locked', file: 'v_undiscovered.png' },
+  v_wasteful: { name: 'Wasteful', file: 'v_wasteful.png' },
+}
