@@ -1,0 +1,561 @@
+---
+title: Sandbox
+description: Competitive ruleset built around commitment, intuition, and no score preview
+---
+
+## Overview
+
+Sandbox strips away the calculation and asks what's left. No score preview — you play what you feel is enough and find out if you were right. Modified jokers reward commitment over optimization. Reworked spectrals remove permanent penalties. Custom stakes separate sticker types across clean difficulty tiers instead of stacking them all on Gold.
+
+Changes are based on the Standard ruleset.
+
+## Gameplay Changes
+
+- **Score Preview:** Disabled — forces pattern recognition over arithmetic
+- **Comeback Gold Mechanic:** $3 per completed Ante (was $4 per life lost)
+- **Glass Cards:** Justice back in Tarot pool, glass cards break at 1/3 rate (instead of 1 in 4)
+
+## Modified Jokers
+
+<div className={'relative overflow-auto'}>
+	<table>
+		<thead>
+		<tr>
+			<th className={'text-center'}>Joker</th>
+			<th>Old Description</th>
+			<th>New Description</th>
+			<th>Notes</th>
+		</tr>
+		</thead>
+		<tbody>
+		<tr>
+			<td>
+				#### The Order [toc]
+				<JokerCard name={'The Order'} img={'/cards/j_order.png'}/>
+			</td>
+			<td>
+				<Xmult>X3</Xmult> Mult if played hand contains a <Hands>Straight</Hands>
+			</td>
+			<td>
+			<Xmult>X3</Xmult> Mult if played hand contains a <Hands>Straight</Hands>. Gains <Xmult>X0.5</Xmult> Mult for each consecutive <Hands>Straight</Hands> played this round, resets when any other hand is played
+			</td>
+			<td>
+			Scaling momentum reward for committing to straights. Finally viable?
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Loyalty Card [toc]
+				<JokerCard name={'Loyalty Card'} img={'/cards/j_loyalty_card.png'}/>
+			</td>
+			<td>
+				<Xmult>X4</Xmult> Mult every <Hands>6</Hands> hands played
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span><Xmult>X6</Xmult> Mult every <Hands>4</Hands> hands played with selected hand</span>
+					<span>Hand randomized upon purchase</span>
+				</div>
+			</td>
+			<td>
+			Monogamous with one hand type. Loyalty pays better than optimization ever did.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Misprint [toc]
+				<JokerCard name={'Misprint'} img={'/cards/j_misprint.png'}/>
+			</td>
+			<td>
+				<Mult>+0</Mult> to <Mult>+23</Mult> Mult
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span><Mult>-23</Mult> to <Mult>+46</Mult> Mult</span>
+					<span>Mult value revealed on purchase</span>
+					<span>Range doubled by <Hands>Oops All 6s</Hands></span>
+				</div>
+			</td>
+			<td>
+			One roll of the dice when you buy it. At least you know what disappointment you're getting.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Castle [toc]
+				<JokerCard name={'Castle'} img={'/cards/j_castle.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Gains <Chips>+3</Chips> Chips per discarded card of suit</span>
+					<span>Suit changes every round</span>
+				</div>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Gains <Chips>+10</Chips> Chips per discarded card of its suit</span>
+					<span>Suit <Hands>locked</Hands> on purchase</span>
+				</div>
+			</td>
+			<td>
+			Monogamous with its suit. Till death do you part.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Mail-in Rebate [toc]
+				<JokerCard name={'Mail-in Rebate'} img={'/cards/j_mail.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Earn <Money>$5</Money> for each discarded card of rank</span>
+					<span>Rank changes every round</span>
+				</div>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Earn <Money>$5</Money> for each discarded card of rank</span>
+					<span>Rank <Hands>never changes</Hands></span>
+				</div>
+			</td>
+			<td>
+			One rank, forever. Pick your income stream and commit.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Square Joker [toc]
+				<JokerCard name={'Square Joker'} img={'/cards/j_square.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>This Joker gains <Chips>+4</Chips> Chips if played hand has exactly <Hands>4</Hands> cards</span>
+					<span>Starts at <Chips>0</Chips> Chips</span>
+				</div>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>This Joker gains <Chips>+16</Chips> Chips if played hand has exactly <Hands>4</Hands> cards</span>
+					<span>Starts with <Chips>64</Chips> Chips</span>
+					<span><Mult>Only applies with 4-card hands</Mult></span>
+				</div>
+			</td>
+			<td>
+			Actually good now but ONLY with 4-card hands. No cheating.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Throwback [toc]
+				<JokerCard name={'Throwback'} img={'/cards/j_throwback.png'}/>
+			</td>
+			<td>
+				<Xmult>X0.25</Xmult> Mult for each <Hands>Blind</Hands> skipped this run
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span><Xmult>X0.25</Xmult> Base Mult for each <Hands>Blind</Hands> skipped this run</span>
+					<span><Xmult>X0.75</Xmult> additional mult next Blind after skipping</span>
+					<span>Loses <Xmult>X0.75</Xmult> mult when blind not skipped</span>
+				</div>
+			</td>
+			<td>
+			Momentum mechanic - keep skipping or watch it crumble.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Vampire [toc]
+				<JokerCard name={'Vampire'} img={'/cards/j_vampire.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>This Joker gains <Xmult>X0.1</Xmult> Mult per scoring <Hands>Enhanced card</Hands> played</span>
+					<span>Removes enhancement from card</span>
+				</div>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Gains <Xmult>X0.2</Xmult> Mult per scoring <Hands>Enhanced card</Hands> played</span>
+					<span>Played enhanced cards transform into <Hands>Stone</Hands></span>
+					<span>Stone cards give <Money>$3</Money> when played</span>
+				</div>
+			</td>
+			<td>
+			Turns your enhancements into a stone economy. Vampire economist arc.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Steel Joker [toc]
+				<JokerCard name={'Steel Joker'} img={'/cards/j_steel_joker.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Gives <Xmult>X0.2</Xmult> Mult for each <Hands>Steel Card</Hands> in your full deck</span>
+				</div>
+			</td>
+			<td>
+				<Hands>Steel cards</Hands> are <Hands>retriggered</Hands> when played
+			</td>
+			<td>
+			From passive multiplier to active retrigger engine.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Baseball Card [toc]
+				<JokerCard name={'Baseball Card'} img={'/cards/j_baseball.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span><Hands>Uncommon</Hands> Jokers each give <Xmult>X1.5</Xmult> Mult</span>
+				</div>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span><Hands>Uncommon</Hands> Jokers each give <Xmult>X2</Xmult> Mult</span>
+				</div>
+			</td>
+			<td>
+			The change that broke the server. If you know, you know.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Golden Ticket [toc]
+				<JokerCard name={'Golden Ticket'} img={'/cards/j_ticket.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Played <Hands>Gold</Hands> cards earn <Money>$4</Money> when played</span>
+				</div>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Now an <Hands>Uncommon</Hands> card. <Hands>1 in 2</Hands> chance for <Hands>Gold</Hands> cards to earn <Money>$5</Money> when played</span>
+				</div>
+			</td>
+			<td>
+			Risk-reward trade-off: Increases ceiling but adds variance.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Idol [toc]
+				<JokerCard name={'Idol'} img={'/cards/j_idol.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Each played card of specific rank and suit gives <Xmult>X2</Xmult> Mult when scored</span>
+					<span>Card changes every round</span>
+				</div>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+				Split into two variants. Both appear in the shop, but buying one permanently removes the other.
+				<span>**The Zealot** — picks a rank every blind. Every card of that rank scores <Xmult>X1.5</Xmult> Mult</span>
+				<span>**The Collector** — scales with your most common card. Stack duplicates and watch it grow</span>
+				</div>
+			</td>
+			<td>
+			Split into two jealous gods. They don't play nice together.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Hit the Road [toc]
+				<JokerCard name={'Hit the Road'} img={'/cards/j_hit_the_road.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Gains <Xmult>X0.5</Xmult> Mult for every <Hands>Jack</Hands> discarded this round</span>
+					<span>Resets each round</span>
+				</div>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Gains <Xmult>X0.75</Xmult> Mult for every <Hands>Jack</Hands> discarded</span>
+					<Hands>Discarded Jacks are destroyed</Hands>
+				</div>
+			</td>
+			<td>
+				Permanent scaling but Jacks never come back.
+			</td>
+</tr>
+		</tbody>
+	</table>
+</div>
+
+## Spectral Cards
+
+<div className={'relative overflow-auto'}>
+	<table>
+		<thead>
+		<tr>
+			<th className={'text-center'}>Card</th>
+			<th>Old Description</th>
+			<th>New Description</th>
+			<th>Notes</th>
+		</tr>
+		</thead>
+		<tbody>
+		<tr>
+			<td>
+				#### Ouija [toc]
+				<JokerCard name={'Ouija'} img={'/cards/c_ouija.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Converts all cards in hand to a single random <Hands>rank</Hands></span>
+					<span><Hands>-1</Hands> hand size</span>
+				</div>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Destroy <Hands>3</Hands> random cards in hand</span>
+					<span>Then convert all remaining cards to a single random <Hands>rank</Hands></span>
+					<span>No hand size penalty</span>
+				</div>
+			</td>
+			<td>
+			Immolate's chaotic cousin.
+			</td>
+		</tr>
+		<tr>
+			<td>
+				#### Ectoplasm [toc]
+				<JokerCard name={'Ectoplasm'} img={'/cards/c_ectoplasm.png'}/>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Add <Hands>Negative</Hands> to a random <Hands>Joker</Hands></span>
+					<span><Hands>-1</Hands> hand size (increments per use)</span>
+				</div>
+			</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span>Add <Hands>Negative</Hands> to a random <Hands>Joker</Hands></span>
+					<span>Randomly apply one of: <Hands>-1</Hands> hand, <Hands>-1</Hands> discard, or <Hands>-1</Hands> hand size</span>
+					<span>Does NOT increment on repeated use</span>
+				</div>
+			</td>
+			<td>
+			Fixed cost ceiling means you can actually use this repeatedly. RNG penalty type keeps it spicy.
+			</td>
+		</tr>
+		</tbody>
+	</table>
+</div>
+
+## Tags
+
+- **Gambling Tag**: Replaces Rare Tag. 1/2 chance for free Rare Joker next shop
+- **Juggle Tag**: +3 hand size next PvP Blind (changed from affecting next blind to specifically targeting PvP blinds)
+- **Investment Tag**: After defeating Boss Blind, gain $5 + $10 per completed Ante (scales with progression instead of flat $25)
+
+## Extra Credit
+
+Sandbox v3 adds 26 jokers and 1 deck from the [Extra Credit mod](https://github.com/CampfireCollective/ExtraCredit), selected in collaboration with Balatro University. If you have Extra Credit installed, the full EC pool is available in Sandbox.
+
+### Extra Credit Jokers
+
+<div className={'relative overflow-auto'}>
+	<table>
+		<thead>
+		<tr>
+			<th>Joker</th>
+			<th>Rarity</th>
+			<th>Description</th>
+		</tr>
+		</thead>
+		<tbody>
+		<tr>
+			<td>**Forklift**</td>
+			<td>Common</td>
+			<td><Hands>+2</Hands> consumable slots</td>
+		</tr>
+		<tr>
+			<td>**Starfruit**</td>
+			<td>Common</td>
+			<td><Hands>1 in 2</Hands> chance to level up first played hand each round. <Hands>5 uses</Hands>, then self-destructs</td>
+		</tr>
+		<tr>
+			<td>**Espresso**</td>
+			<td>Common</td>
+			<td>Gain <Money>$30</Money> when you skip a Blind, then self-destruct. Payout decreases by <Money>$5</Money> each round. Expires if payout reaches $0</td>
+		</tr>
+		<tr>
+			<td>**Pyromancer**</td>
+			<td>Common</td>
+			<td><Mult>+20</Mult> Mult when remaining hands ≤ remaining discards</td>
+		</tr>
+		<tr>
+			<td>**Lucky 7**</td>
+			<td>Common</td>
+			<td>All scoring cards count as <Hands>Lucky</Hands> when a <Hands>7</Hands> is in the scoring hand</td>
+		</tr>
+		<tr>
+			<td>**Farmer**</td>
+			<td>Common</td>
+			<td>Earn <Money>$2</Money> for each card of <Hands>[suit]</Hands> held in hand at end of round. Suit changes each round</td>
+		</tr>
+		<tr>
+			<td>**Double Rainbow**</td>
+			<td>Uncommon</td>
+			<td>Retrigger all <Hands>Lucky</Hands> cards</td>
+		</tr>
+		<tr>
+			<td>**Candy Necklace**</td>
+			<td>Uncommon</td>
+			<td>Gain a random <Hands>Booster Pack Tag</Hands> when leaving shop. <Hands>5 uses</Hands>, then self-destructs</td>
+		</tr>
+		<tr>
+			<td>**Bobby**</td>
+			<td>Uncommon</td>
+			<td><Hands>-2</Hands> hands, <Hands>+4</Hands> discards at start of each Blind (halved if only 2 hands remaining)</td>
+		</tr>
+		<tr>
+			<td>**Monte Haul**</td>
+			<td>Uncommon</td>
+			<td>After <Hands>1 round</Hands>, sell this joker to gain <Hands>2</Hands> random Joker Tags (Foil, Holo, Poly, Negative, Uncommon, or Rare)</td>
+		</tr>
+		<tr>
+			<td>**Ambrosia**</td>
+			<td>Uncommon</td>
+			<td>Fill consumable slots with <Hands>Spectral</Hands> cards when skipping a Blind. Self-destructs when you sell a Spectral card</td>
+		</tr>
+		<tr>
+			<td>**Clown College**</td>
+			<td>Uncommon</td>
+			<td>Fill consumable slots with <Hands>The Fool</Hands> after defeating Boss Blind</td>
+		</tr>
+		<tr>
+			<td>**Warlock**</td>
+			<td>Uncommon</td>
+			<td><Hands>1 in 7</Hands> chance for played <Hands>Lucky</Hands> cards to be destroyed and spawn a <Hands>Spectral</Hands> card</td>
+		</tr>
+		<tr>
+			<td>**Traffic Light**</td>
+			<td>Uncommon</td>
+			<td><Xmult>X2.5</Xmult> Mult, decreases by <Xmult>X1</Xmult> each hand played, resets to <Xmult>X2.5</Xmult> after reaching <Xmult>X0.5</Xmult></td>
+		</tr>
+		<tr>
+			<td>**Werewolf**</td>
+			<td>Uncommon</td>
+			<td>All <Hands>enhanced</Hands> cards in played hand become <Hands>Wild</Hands> cards</td>
+		</tr>
+		<tr>
+			<td>**Tuxedo**</td>
+			<td>Uncommon</td>
+			<td>Retrigger all cards of <Hands>[suit]</Hands>. Suit changes each round</td>
+		</tr>
+		<tr>
+			<td>**Go Fish**</td>
+			<td>Uncommon</td>
+			<td>Once per round: destroy played cards of rank <Hands>[rank]</Hands> (rank changes each round)</td>
+		</tr>
+		<tr>
+			<td>**Pocket Aces**</td>
+			<td>Uncommon</td>
+			<td>Gain <Money>$2</Money> for each <Hands>Ace</Hands> played. Paid at end of round, resets each Ante</td>
+		</tr>
+		<tr>
+			<td>**Hoarder**</td>
+			<td>Uncommon</td>
+			<td>Gains <Money>$1</Money> sell value whenever you earn money</td>
+		</tr>
+		<tr>
+			<td>**Alloy**</td>
+			<td>Uncommon</td>
+			<td><Hands>Gold</Hands> cards also count as <Hands>Steel</Hands>. <Hands>Steel</Hands> cards also count as <Hands>Gold</Hands></td>
+		</tr>
+		<tr>
+			<td>**Clown Car**</td>
+			<td>Rare</td>
+			<td><Mult>+44</Mult> Mult, but costs <Money>$3</Money> each hand played</td>
+		</tr>
+		<tr>
+			<td>**Chain Lightning**</td>
+			<td>Rare</td>
+			<td><Hands>Mult</Hands> cards give <Xmult>X Mult</Xmult> that chains through consecutive Mult cards. Starts at <Xmult>X1</Xmult>, gains <Xmult>X0.1</Xmult> per Mult card</td>
+		</tr>
+		<tr>
+			<td>**Ship of Theseus**</td>
+			<td>Rare</td>
+			<td>Copy destroyed/broken cards back into deck. Gains <Xmult>X0.4</Xmult> Mult per card copied</td>
+		</tr>
+		<tr>
+			<td>**Jokalisa**</td>
+			<td>Rare</td>
+			<td>Gains <Xmult>X0.1</Xmult> Mult per <Hands>unique enhancement type</Hands> in scoring hand (permanent)</td>
+		</tr>
+		<tr>
+			<td>**Joker of the Year**</td>
+			<td>Rare</td>
+			<td>Retrigger all cards when playing a <Hands>5-card hand</Hands></td>
+		</tr>
+		<tr>
+			<td>**Coupon Sheet**</td>
+			<td>Rare</td>
+			<td>Gain <Hands>Coupon Tag</Hands> and <Hands>Voucher Tag</Hands> after defeating Boss Blind</td>
+		</tr>
+		</tbody>
+	</table>
+</div>
+
+### Extra Credit Deck
+
+<div className={'relative overflow-auto'}>
+	<table>
+		<thead>
+		<tr>
+			<th>Deck</th>
+			<th>Description</th>
+			<th>Notes</th>
+		</tr>
+		</thead>
+		<tbody>
+		<tr>
+			<td>**Echo Deck**</td>
+			<td>
+				<div className={'flex flex-col gap-1'}>
+					<span><Hands>Retrigger</Hands> all playing cards</span>
+					<span><Mult>X1.2</Mult> base Blind size</span>
+					<span>Increases by <Mult>X0.2</Mult> each Ante</span>
+				</div>
+			</td>
+			<td>The Community Favorite.</td>
+		</tr>
+		</tbody>
+	</table>
+</div>
+
+## Stakes
+
+Sandbox runs a custom stake rotation designed for cleaner difficulty progression.
+
+**Available Stakes:**
+- **White Stake** - Base difficulty
+- **Black Stake** - Shop can have Eternal Jokers
+- **Planet Stake** (NEW) - Applies Black Stake effects, plus:
+  - Shop can have Perishable Jokers (debuffed after 5 Rounds)
+  - Required score scales faster for each Ante
+- **Spectral Stake** (NEW) - Applies Planet Stake effects, plus:
+  - Rental Jokers appear in shop
+  - Required score scales faster for each Ante (cumulative with Planet)
+- **Spectral+ Stake** (NEW) - Applies Spectral Stake effects, plus:
+  - Required score scales even faster for each Ante
+
+**Design Notes:**
+Each stake introduces one sticker type (Eternal → Perishable → Rental) with increasingly aggressive ante scaling. Discard reduction from vanilla Blue Stake removed entirely.
+
+---
+
+## Changelog
+
+### Sandbox v3: Gods and Guests
+* Idol removed and replaced with two variants: The Zealot and The Collector
+* Mail-in Rebate nerfed from $8 to $5
+* Golden Ticket from $4 to 1/2 chance for $5, now Uncommon
+* Added Extra Credit with 26 jokers and Echo Deck

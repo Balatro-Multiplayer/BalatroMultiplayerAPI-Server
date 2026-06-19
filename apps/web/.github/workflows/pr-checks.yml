@@ -1,0 +1,27 @@
+name: PR checks
+
+on:
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      - name: Generate docs source
+        run: bunx --bun fumadocs-mdx
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Biome
+        run: bun run check
