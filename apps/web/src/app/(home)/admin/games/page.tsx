@@ -1,36 +1,10 @@
-import { Suspense } from 'react'
-import { GamesClient } from '@/app/(home)/admin/games/games-client'
-import { hasPermission } from '@/lib/permissions'
-import { auth } from '@/server/auth'
-import { createMetadata } from '../../../../../lib/metadata'
-
-export const metadata = createMetadata({
-  title: 'Games',
-  description: 'Browse extracted multiplayer games.',
-  path: '/admin/games',
-  noIndex: true,
-})
-
-export default async function GamesPage() {
-  const session = await auth()
-  const canViewGames = hasPermission(session?.user, 'games.view')
-
-  if (!canViewGames) {
-    return (
-      <div className='mx-auto flex w-[calc(100%-1rem)] max-w-fd-container flex-col py-8'>
-        <div className='prose'>
-          <h1>Forbidden</h1>
-        </div>
-      </div>
-    )
-  }
-
+export default function Page() {
   return (
-    <Suspense>
-      <div className='mx-auto flex w-[calc(100%-1rem)] max-w-fd-container flex-col gap-4 py-8'>
-        <h1 className='font-bold text-3xl'>Games</h1>
-        <GamesClient />
+    <div className='container mx-auto max-w-3xl py-8'>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '48px 24px', border: '2px dashed rgba(255,255,255,0.1)', borderRadius: 12 }}>
+        <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--bal-amber)' }}>Coming Soon</span>
+        <span style={{ fontSize: 12, color: 'var(--bal-gray-mid)' }}>This admin panel is not yet implemented.</span>
       </div>
-    </Suspense>
+    </div>
   )
 }

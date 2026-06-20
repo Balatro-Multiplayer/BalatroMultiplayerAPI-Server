@@ -2,12 +2,14 @@
 
 import Image from 'next/image'
 import type { ElementType } from 'react'
-import slugify from 'slugify'
-
 type JokerCardProps = {
   name: string
   img: string
   h?: number
+}
+
+function toSlug(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 }
 
 export function JokerCard({ name, img, h = 3 }: JokerCardProps) {
@@ -15,7 +17,7 @@ export function JokerCard({ name, img, h = 3 }: JokerCardProps) {
   return (
     <div
       className={'flex scroll-mt-36 flex-col items-center gap-2'}
-      id={`${slugify(name, { lower: true, strict: true })}-toc`}
+      id={`${toSlug(name)}-toc`}
     >
       <Image
         src={img}

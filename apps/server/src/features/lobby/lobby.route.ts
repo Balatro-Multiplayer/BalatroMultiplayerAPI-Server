@@ -5,6 +5,7 @@ import { processAndPublishMessage } from '../chat/chat.service.js'
 import { submitReport } from '../../infrastructure/gateways/report.gateway.js'
 import { getLobby, getSession } from '../../state/index.js'
 import { AppError } from '../../shared/utils/errors.js'
+import { hasActiveBan } from '../../infrastructure/gateways/ban.gateway.js'
 
 const router = Router()
 
@@ -19,10 +20,10 @@ router.post('/', async (req, res, next) => {
 
 		if (
 			maxPlayers !== undefined &&
-			(!Number.isInteger(maxPlayers) || maxPlayers < 2 || maxPlayers > 128)
+			(!Number.isInteger(maxPlayers) || maxPlayers < 1 || maxPlayers > 128)
 		) {
 			throw new AppError(
-				'maxPlayers must be an integer between 2 and 128',
+				'maxPlayers must be an integer between 1 and 128',
 				400,
 			)
 		}
@@ -131,6 +132,10 @@ router.post('/:code/chat', async (req, res, next) => {
 
 		if (!session.chatEnabled || session.chatBlocked) {
 			throw new AppError('Chat is not enabled for this account', 403)
+		}
+
+		if (await hasActiveBan(session.playerId, 'chat')) {
+			throw new AppError('You are banned from chat', 403)
 		}
 
 		const lobby = getLobby(code)

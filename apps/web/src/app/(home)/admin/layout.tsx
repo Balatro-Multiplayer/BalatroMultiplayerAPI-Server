@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { createMetadata } from '../../../../lib/metadata'
+import { createMetadata } from '@/lib/metadata'
 
 export const metadata = createMetadata({
   title: 'Admin',

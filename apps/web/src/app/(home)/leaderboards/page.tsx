@@ -1,100 +1,242 @@
-import { LeaderboardPage } from '@/app/_components/leaderboard'
+'use client'
+
+import { useQuery } from '@tanstack/react-query'
+import { parseAsInteger, parseAsString, useQueryState } from 'nuqs'
+import { Suspense, useState } from 'react'
+import { apiFetch } from '@/lib/api'
 import {
-  getActiveSeasonNumber,
-  getSeasonKey,
-  getSeasonNumber,
-} from '@/server/seasons'
-import type { PaginationOptions } from '@/server/services/leaderboard'
-import { type Season, SeasonSchema } from '@/shared/seasons'
-import { api, HydrateClient } from '@/trpc/server'
-import { createMetadata } from '../../../../lib/metadata'
+  LEADERBOARD_CATEGORIES,
+  firstMode,
+  formatMetric,
+  gameModeKey,
+  getCategory,
+  getMode,
+} from '@/lib/leaderboards'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 
-export const metadata = createMetadata({
-  title: 'Leaderboards',
-  description:
-    'Track ranked, vanilla, smallworld, and legacy Balatro Multiplayer standings across every season.',
-  path: '/leaderboards',
-})
-
-function getDefaultQueueType(snapshots: Array<{ queueType: string }>) {
-  return snapshots[0]?.queueType ?? 'ranked'
+interface Season {
+  id: number
+  name: string
+  startedAt: string
+  endsAt: string | null
+  endedAt: string | null
 }
 
-export default async function Home({
-  searchParams,
-}: {
-  searchParams: Promise<{
-    type?: string
-    season?: string
-    page?: string
-    search?: string
-    minGames?: string
-    maxGames?: string
-    sortBy?: string
-    sortOrder?: string
-  }>
-}) {
-  const params = await searchParams
+interface LeaderboardEntry {
+  rank: number
+  playerId: string
+  displayName: string
+  rating: number
+  wins: number
+  losses: number
+  gamesPlayed: number
+  seasonBest: number | null
+}
 
-  const seasons = await api.seasons.list()
-  const seasonIds = new Set(seasons.map((season) => season.id))
+interface SeasonsResponse {
+  seasons: Season[]
+  current: number | null
+}
 
-  const activeSeasonNumber =
-    seasons.find((s) => s.isActive)?.id ??
-    seasons.at(-1)?.id ??
-    (await getActiveSeasonNumber())
-  const activeSeason = getSeasonKey(activeSeasonNumber)
+interface LeaderboardResponse {
+  season: number
+  modId: string
+  gameMode: string
+  entries: LeaderboardEntry[]
+}
 
-  const requestedSeason =
-    SeasonSchema.safeParse(params.season).success &&
-    params.season !== undefined &&
-    seasonIds.has(getSeasonNumber(params.season as Season) ?? -1)
-      ? (params.season as Season)
-      : activeSeason
-  const selectedSeasonId =
-    getSeasonNumber(requestedSeason) ?? activeSeasonNumber
-  const snapshots = await api.seasons.list_snapshots({
-    seasonId: selectedSeasonId,
+export default function LeaderboardsPage() {
+  // useQueryState() reads search params; wrap in Suspense so static prerender
+  // doesn't bail out of CSR.
+  return (
+    <Suspense fallback={<div className='container py-8 text-muted-foreground'>Loading…</div>}>
+      <LeaderboardsContent />
+    </Suspense>
+  )
+}
+
+function LeaderboardsContent() {
+  const [search, setSearch] = useState('')
+  const [categoryParam, setCategoryParam] = useQueryState(
+    'category',
+    parseAsString.withDefault('speedrun'),
+  )
+  const [modeParam, setModeParam] = useQueryState('mode', parseAsString)
+  const [seasonParam, setSeasonParam] = useQueryState('season', parseAsInteger)
+
+  const category = getCategory(categoryParam)
+  const mode = getMode(category, modeParam)
+
+  const { data: seasonsData } = useQuery<SeasonsResponse>({
+    queryKey: ['seasons'],
+    queryFn: () => apiFetch('/stats/seasons'),
   })
-  const type = snapshots.some((snapshot) => snapshot.queueType === params.type)
-    ? (params.type ?? getDefaultQueueType(snapshots))
-    : getDefaultQueueType(snapshots)
-  const selectedSnapshot =
-    snapshots.find((snapshot) => snapshot.queueType === type) ?? snapshots[0]
-  const season = requestedSeason
-  const page = params.page ? Number.parseInt(params.page, 10) : 1
-  const search = params.search
-  const minGames = params.minGames
-    ? Number.parseInt(params.minGames, 10)
-    : undefined
-  const maxGames = params.maxGames
-    ? Number.parseInt(params.maxGames, 10)
-    : undefined
-  const sortBy = params.sortBy
-  const sortOrder = params.sortOrder as 'asc' | 'desc' | undefined
 
-  if (selectedSnapshot) {
-    await api.leaderboard.get_leaderboard.prefetch({
-      channel_id: selectedSnapshot.queueId,
-      season,
-      page,
-      pageSize: 50,
-      search: search || undefined,
-      minGames,
-      maxGames,
-      sortBy: sortBy as PaginationOptions['sortBy'],
-      sortOrder,
-    })
-  }
+  const seasons = seasonsData?.seasons ?? []
+  const currentSeasonId = seasonsData?.current ?? seasons.at(-1)?.id ?? null
+  const selectedSeason = seasonParam ?? currentSeasonId
+
+  const { data: leaderboardData, isLoading: lbLoading } = useQuery<LeaderboardResponse>({
+    queryKey: ['leaderboard', category.modId, mode.id, selectedSeason],
+    queryFn: () =>
+      apiFetch(
+        `/stats/leaderboard?modId=${encodeURIComponent(category.modId)}&gameMode=${encodeURIComponent(gameModeKey(mode.id))}${selectedSeason != null ? `&season=${selectedSeason}` : ''}`,
+      ),
+    enabled: selectedSeason != null,
+  })
+
+  const entries = leaderboardData?.entries ?? []
+  const filtered = search
+    ? entries.filter((e) => e.displayName.toLowerCase().includes(search.toLowerCase()))
+    : entries
 
   return (
-    <HydrateClient>
-      <LeaderboardPage
-        activeSeason={activeSeason}
-        initialSeason={season}
-        initialSeasons={seasons}
-        initialSnapshots={snapshots}
-      />
-    </HydrateClient>
+    <div className='container py-8 space-y-6'>
+      <div className='space-y-1'>
+        <h1 className='text-3xl font-bold tracking-tight'>Leaderboards</h1>
+        <p className='text-muted-foreground'>Ranked standings by game and mode, per season.</p>
+      </div>
+
+      {/* Category selector (Speedrun / PvP) */}
+      <div className='flex flex-wrap gap-2'>
+        {LEADERBOARD_CATEGORIES.map((c) => (
+          <button
+            key={c.id}
+            type='button'
+            onClick={() => {
+              setCategoryParam(c.id === 'speedrun' ? null : c.id)
+              setModeParam(null)
+            }}
+            className={`rounded-md border px-4 py-2 text-sm font-bold transition-colors ${
+              category.id === c.id
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-muted text-muted-foreground border-border hover:bg-accent'
+            }`}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Mode tabs (depend on category) */}
+      <div className='flex flex-wrap gap-1 border-b border-border'>
+        {category.modes.map((m) => (
+          <button
+            key={m.id}
+            type='button'
+            onClick={() => setModeParam(m.id === firstMode(category).id ? null : m.id)}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              mode.id === m.id
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Season pills */}
+      {seasons.length > 0 && (
+        <div className='flex flex-wrap gap-2'>
+          {seasons.map((s) => (
+            <button
+              key={s.id}
+              type='button'
+              onClick={() => setSeasonParam(s.id === currentSeasonId ? null : s.id)}
+              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                selectedSeason === s.id
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-muted text-muted-foreground border-border hover:bg-accent'
+              }`}
+            >
+              {s.name ?? `Season ${s.id}`}
+              {s.id === currentSeasonId && (
+                <span className='ml-1.5 text-[10px] text-green-400'>LIVE</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Search + table */}
+      <div className='space-y-4'>
+        <Input
+          placeholder='Search players…'
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className='max-w-sm'
+        />
+
+        <Card>
+          <CardHeader>
+            <CardTitle className='text-base'>
+              {category.label} — {mode.label} · Season {selectedSeason ?? '…'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className='p-0'>
+            {lbLoading ? (
+              <p className='p-6 text-sm text-muted-foreground'>Loading…</p>
+            ) : filtered.length === 0 ? (
+              <p className='p-6 text-sm text-muted-foreground'>No entries found.</p>
+            ) : (
+              <div className='overflow-x-auto'>
+                <table className='w-full text-sm'>
+                  <thead>
+                    <tr className='border-b border-border bg-muted/40'>
+                      {['Rank', 'Player', 'Rating', category.metricLabel, 'W', 'L', 'Games'].map(
+                        (h) => (
+                          <th
+                            key={h}
+                            className='px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground'
+                          >
+                            {h}
+                          </th>
+                        ),
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className='divide-y divide-border'>
+                    {filtered.map((entry) => (
+                      <tr key={entry.playerId} className='hover:bg-muted/30 transition-colors'>
+                        <td className='px-4 py-3'>
+                          <RankBadge rank={entry.rank} />
+                        </td>
+                        <td className='px-4 py-3 font-semibold'>
+                          <a
+                            href={`/players/${entry.playerId}`}
+                            className='hover:text-primary transition-colors'
+                          >
+                            {entry.displayName}
+                          </a>
+                        </td>
+                        <td className='px-4 py-3 font-bold text-yellow-400'>
+                          {Math.round(entry.rating)}
+                        </td>
+                        <td className='px-4 py-3 font-semibold text-blue-300'>
+                          {formatMetric(category.metric, entry.seasonBest)}
+                        </td>
+                        <td className='px-4 py-3 text-green-400'>{entry.wins}</td>
+                        <td className='px-4 py-3 text-red-400'>{entry.losses}</td>
+                        <td className='px-4 py-3 text-muted-foreground'>{entry.gamesPlayed}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   )
+}
+
+function RankBadge({ rank }: { rank: number }) {
+  if (rank === 1) return <Badge className='bg-yellow-500/20 text-yellow-400 border-yellow-500/30'>#1</Badge>
+  if (rank === 2) return <Badge className='bg-slate-400/20 text-slate-300 border-slate-400/30'>#2</Badge>
+  if (rank === 3) return <Badge className='bg-amber-700/20 text-amber-500 border-amber-700/30'>#3</Badge>
+  return <span className='text-muted-foreground text-sm'>#{rank}</span>
 }

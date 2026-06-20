@@ -60,6 +60,8 @@ export interface Match {
 	gameMode: string
 	playerIds: string[]
 	createdAt: Date
+	// Set when the host signals the run has begun; basis for server-measured timing.
+	gameStartedAt?: Date
 }
 
 export type MatchmakingEvent =
@@ -105,4 +107,7 @@ export interface PlacementEntry {
 	place: number
 	teamId?: string
 	performance?: number
+	// Optional secondary metric for this player (e.g. PvP final score). Interpreted per the
+	// mod's metrics.config entry; ignored for server-measured boards (e.g. speedrun time).
+	metric?: number
 }

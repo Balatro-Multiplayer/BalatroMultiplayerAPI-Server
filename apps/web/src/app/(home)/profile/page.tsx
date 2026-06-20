@@ -1,0 +1,172 @@
+'use client'
+
+import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { apiFetch } from '@/lib/api'
+import { clearToken, useAuth } from '@/lib/auth'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
+
+export default function ProfilePage() {
+  const { player, pending, isLoggedIn, logout } = useAuth()
+  const router = useRouter()
+  const [deleteConfirm, setDeleteConfirm] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!pending && !isLoggedIn) router.replace('/login')
+  }, [pending, isLoggedIn, router])
+
+  async function handleDeleteAccount() {
+    if (deleteConfirm !== 'DELETE') return
+    setDeleting(true)
+    setError(null)
+    try {
+      await apiFetch('/auth/account', { method: 'DELETE' })
+      clearToken()
+      router.replace('/')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete account')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  if (pending) {
+    return (
+      <div className='container flex min-h-[60vh] items-center justify-center'>
+        <p className='text-muted-foreground'>Loading…</p>
+      </div>
+    )
+  }
+
+  if (!player) return null
+
+  return (
+    <div className='container max-w-2xl py-8 space-y-6'>
+      <h1 className='text-2xl font-bold tracking-tight'>Your Account</h1>
+
+      {/* Profile */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Profile</CardTitle>
+        </CardHeader>
+        <CardContent className='space-y-3'>
+          <InfoRow label='Display Name' value={player.displayName} />
+          <Separator />
+          <InfoRow label='Steam Name' value={player.steamName} />
+          {player.discordLinked && (
+            <>
+              <Separator />
+              <InfoRow label='Discord' value={player.discordUsername ?? 'Linked'} />
+            </>
+          )}
+          {player.preferredJoker && (
+            <>
+              <Separator />
+              <InfoRow label='Preferred Joker' value={player.preferredJoker} />
+            </>
+          )}
+          {player.privileges.length > 0 && (
+            <>
+              <Separator />
+              <InfoRow label='Privileges' value={player.privileges.join(', ')} />
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Discord */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Discord</CardTitle>
+          <CardDescription>
+            Link your Discord account to use your Discord name as your display name.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {player.discordLinked ? (
+            <div className='flex items-center justify-between'>
+              <p className='text-sm'>
+                Linked as <span className='font-semibold'>{player.discordUsername}</span>
+              </p>
+              <a
+                href={`${process.env.NEXT_PUBLIC_API_BASE ?? '/api/proxy'}/auth/unlink/discord`}
+                className='text-sm text-destructive hover:underline underline-offset-4'
+              >
+                Unlink
+              </a>
+            </div>
+          ) : (
+            <a
+              href={`${process.env.NEXT_PUBLIC_API_BASE ?? '/api/proxy'}/auth/link/discord?source=web`}
+              className='inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90'
+              style={{ background: '#5865f2' }}
+            >
+              Link Discord
+            </a>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Sign out */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Session</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button variant='outline' onClick={logout}>
+            Sign Out
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Danger zone */}
+      <Card className='border-destructive/50'>
+        <CardHeader>
+          <CardTitle className='text-destructive'>Danger Zone</CardTitle>
+          <CardDescription>
+            Permanently delete your account and all associated data. This cannot be undone.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className='space-y-4'>
+          <div className='space-y-2'>
+            <Label htmlFor='delete-confirm' className='text-destructive'>
+              Type <span className='font-mono font-bold'>DELETE</span> to confirm
+            </Label>
+            <div className='flex gap-2'>
+              <Input
+                id='delete-confirm'
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                placeholder='DELETE'
+                className='max-w-[160px]'
+              />
+              <Button
+                variant='destructive'
+                onClick={handleDeleteAccount}
+                disabled={deleteConfirm !== 'DELETE' || deleting}
+              >
+                {deleting ? 'Deleting…' : 'Delete Account'}
+              </Button>
+            </div>
+            {error && <p className='text-sm text-destructive'>{error}</p>}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className='flex items-center justify-between text-sm'>
+      <span className='text-muted-foreground'>{label}</span>
+      <span className='font-medium'>{value}</span>
+    </div>
+  )
+}

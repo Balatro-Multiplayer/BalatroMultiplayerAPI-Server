@@ -73,7 +73,8 @@ services:
       - "3000:3000"
     environment:
       NODE_ENV: production
-      API_PROXY_TARGET: http://bmp-api:8788
+      # Server-side proxy target (read by src/env.ts and the /api/proxy route).
+      API_SERVER_URL: http://bmp-api:8788
     depends_on:
       - api
     restart: unless-stopped

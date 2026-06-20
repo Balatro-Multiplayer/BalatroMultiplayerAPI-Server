@@ -1,36 +1,10 @@
-import { redirect } from 'next/navigation'
-import { Suspense } from 'react'
-import { hasPermission } from '@/lib/permissions'
-import { auth } from '@/server/auth'
-import { api, HydrateClient } from '@/trpc/server'
-import { createMetadata } from '../../../../../lib/metadata'
-import { ModerationClient } from './moderation-client'
-
-export const metadata = createMetadata({
-  title: 'Moderation',
-  description: 'Search and manage strikes and bans from the web admin panel.',
-  path: '/admin/moderation',
-  noIndex: true,
-})
-
-export default async function ModerationPage() {
-  const session = await auth()
-  const permissions = session?.user?.permissions ?? []
-
-  if (!hasPermission(session?.user, 'moderation.view')) {
-    redirect('/')
-  }
-
-  await api.moderation.listAllMembers.prefetch({
-    page: 1,
-    limit: 12,
-  })
-
+export default function Page() {
   return (
-    <Suspense>
-      <HydrateClient>
-        <ModerationClient permissions={permissions} />
-      </HydrateClient>
-    </Suspense>
+    <div className='container mx-auto max-w-3xl py-8'>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '48px 24px', border: '2px dashed rgba(255,255,255,0.1)', borderRadius: 12 }}>
+        <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--bal-amber)' }}>Coming Soon</span>
+        <span style={{ fontSize: 12, color: 'var(--bal-gray-mid)' }}>This admin panel is not yet implemented.</span>
+      </div>
+    </div>
   )
 }

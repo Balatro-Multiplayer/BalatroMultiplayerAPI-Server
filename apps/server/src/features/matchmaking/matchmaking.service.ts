@@ -17,6 +17,7 @@ import type {
 } from '../../shared/types/index.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { generateLobbyCode } from '../../shared/utils/lobby-code.js'
+import { hasActiveBan } from '../../infrastructure/gateways/ban.gateway.js'
 import {
 	INITIAL_HIDDEN_RATING,
 	MATCHING_INTERVAL_MS,
@@ -33,6 +34,7 @@ import {
 	applyRatingTransaction,
 	getCurrentSeason,
 	getPlayerCurrentRating,
+	setMatchGameStarted,
 } from '../../infrastructure/gateways/matchmaking.gateway.js'
 import type { StoredLobbyState } from '../../infrastructure/gateways/matchmaking.gateway.js'
 
@@ -101,6 +103,12 @@ export async function joinQueue(
 
 	if (minPlayers < 2) throw new AppError('minPlayers must be at least 2', 400)
 	if (maxPlayers < minPlayers) throw new AppError('maxPlayers must be >= minPlayers', 400)
+
+	// Queue bans block both ranked and casual matchmaking (private lobbies are
+	// unaffected — they never call joinQueue).
+	if (await hasActiveBan(session.playerId, 'queue')) {
+		throw new AppError('You are banned from matchmaking', 403)
+	}
 
 	// Block queueing from inside a matchmade (public) lobby
 	if (session.lobbyCode) {
@@ -667,6 +675,31 @@ export async function restorePlayerMatchSession(session: PlayerSession): Promise
 
 		return
 	}
+}
+
+// ---- Run timing ----
+
+// Host signals the run has begun. Server stamps the start time once (idempotent), which is
+// the basis for server-measured timing leaderboards (e.g. speedrun fastest time).
+export async function markRunStart(
+	session: PlayerSession,
+	matchId: string,
+): Promise<void> {
+	const match = matches.get(matchId)
+	if (!match) throw new AppError('Match not found', 404)
+
+	const lobby = getLobby(match.lobbyCode)
+	if (!lobby) throw new AppError('Lobby not found', 404)
+
+	if (lobby.hostId !== session.playerId) {
+		throw new AppError('Only the match host can start the run', 403)
+	}
+
+	if (match.gameStartedAt) return // already started — keep the first timestamp
+
+	const now = new Date()
+	match.gameStartedAt = now
+	await setMatchGameStarted(matchId, now)
 }
 
 // ---- Result reporting ----

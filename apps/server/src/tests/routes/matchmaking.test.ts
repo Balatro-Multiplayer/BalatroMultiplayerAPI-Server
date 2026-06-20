@@ -342,5 +342,73 @@ describe('matchmaking routes', () => {
 			expect(matches.has('m6')).toBe(false)
 			expect(matchByLobby.has('LOBBY6')).toBe(false)
 		})
+
+		it('returns 400 when a placement metric is negative', async () => {
+			makeMatch('m7', 'LOBBY7', 'p1', ['p1', 'p2'])
+			const res = await request(app)
+				.post('/api/matchmaking/matches/m7/result')
+				.set('Authorization', authHeader('p1', 'Alice'))
+				.send({
+					placements: [
+						{ playerId: 'p1', place: 1, metric: -5 },
+						{ playerId: 'p2', place: 2 },
+					],
+				})
+			expect(res.status).toBe(400)
+		})
+
+		it('returns 400 when a placement metric is not finite', async () => {
+			makeMatch('m8', 'LOBBY8', 'p1', ['p1', 'p2'])
+			const res = await request(app)
+				.post('/api/matchmaking/matches/m8/result')
+				.set('Authorization', authHeader('p1', 'Alice'))
+				.send({
+					placements: [
+						{ playerId: 'p1', place: 1, metric: 'lots' },
+						{ playerId: 'p2', place: 2 },
+					],
+				})
+			expect(res.status).toBe(400)
+		})
+	})
+
+	describe('POST /api/matchmaking/matches/:matchId/start', () => {
+		it('returns 401 without auth', async () => {
+			const res = await request(app).post('/api/matchmaking/matches/some-match/start')
+			expect(res.status).toBe(401)
+		})
+
+		it('returns 404 when match does not exist', async () => {
+			const res = await request(app)
+				.post('/api/matchmaking/matches/nonexistent/start')
+				.set('Authorization', authHeader('p1', 'Alice'))
+			expect(res.status).toBe(404)
+		})
+
+		it('returns 403 when caller is not the match host', async () => {
+			makeMatch('s1', 'START1', 'p1', ['p1', 'p2'])
+			const res = await request(app)
+				.post('/api/matchmaking/matches/s1/start')
+				.set('Authorization', authHeader('p2', 'Bob'))
+			expect(res.status).toBe(403)
+		})
+
+		it('returns 204 and stamps the in-memory start time for the host', async () => {
+			const match = makeMatch('s2', 'START2', 'p1', ['p1', 'p2'])
+			const res = await request(app)
+				.post('/api/matchmaking/matches/s2/start')
+				.set('Authorization', authHeader('p1', 'Alice'))
+			expect(res.status).toBe(204)
+			expect(match.gameStartedAt).toBeInstanceOf(Date)
+		})
+
+		it('keeps the first start time on repeated calls (idempotent)', async () => {
+			const match = makeMatch('s3', 'START3', 'p1', ['p1', 'p2'])
+			const auth = authHeader('p1', 'Alice')
+			await request(app).post('/api/matchmaking/matches/s3/start').set('Authorization', auth)
+			const first = match.gameStartedAt
+			await request(app).post('/api/matchmaking/matches/s3/start').set('Authorization', auth)
+			expect(match.gameStartedAt).toBe(first)
+		})
 	})
 })

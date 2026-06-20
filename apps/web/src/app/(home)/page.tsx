@@ -1,4 +1,3 @@
-import { SiGithub } from '@icons-pack/react-simple-icons'
 import {
   ChevronRight,
   CircleArrowRightIcon,
@@ -8,18 +7,14 @@ import {
 } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { GithubLinks } from '@/app/_components/github-links'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { createMetadata } from '../../../lib/metadata'
 
-export const metadata = createMetadata({
+export const metadata = {
   title: 'Play Balatro Against Your Friends',
   description:
     'Download the Balatro Multiplayer mod, join ranked queues, and play direct matches with your friends.',
-  path: '/',
-})
+}
 
 export default function Home() {
   return (
@@ -422,36 +417,6 @@ export default function Home() {
           </div>
         </section>
       </main>
-      <footer className='border-t py-6 md:py-0'>
-        <div className='container mx-auto flex flex-col items-center justify-between gap-4 md:h-24 md:flex-row'>
-          <p className='text-center text-muted-foreground text-sm leading-loose md:text-left'>
-            &copy; {new Date().getFullYear()} Balatro Multiplayer Mod. All
-            rights reserved. Not affiliated with LocalThunk or Playstack.
-          </p>
-          <nav className='flex items-center gap-4'>
-            <Link
-              href='/docs'
-              className='text-muted-foreground text-sm underline-offset-4 hover:underline'
-            >
-              Documentation
-            </Link>
-            {/*<Link*/}
-            {/*  href='/credits'*/}
-            {/*  className='text-muted-foreground text-sm underline-offset-4 hover:underline'*/}
-            {/*>*/}
-            {/*  Credits*/}
-            {/*</Link>*/}
-            <GithubLinks>
-              <DropdownMenuTrigger asChild>
-                <Button variant='ghost' size='icon'>
-                  <SiGithub className='h-5 w-5' />
-                  <span className='sr-only'>GitHub</span>
-                </Button>
-              </DropdownMenuTrigger>
-            </GithubLinks>
-          </nav>
-        </div>
-      </footer>
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import {
+	bigint,
 	boolean,
 	index,
 	integer,
@@ -98,6 +99,8 @@ export const actionLogs = pgTable('action_logs', {
 })
 
 // Singleton row (id = 1) holding server-wide config values.
+// NOTE: the active season is NOT stored here — it is derived from the seasons
+// table (the row with ended_at IS NULL). See getCurrentSeason().
 export const serverConfig = pgTable('server_config', {
 	id: integer('id').primaryKey().default(1),
 	tosVersion: integer('tos_version').notNull().default(1),
@@ -168,6 +171,9 @@ export const matchmakingMatches = pgTable('matchmaking_matches', {
 	players: jsonb('players').notNull(),
 	lobbyState: jsonb('lobby_state').notNull(),
 	status: varchar('status', { length: 32 }).notNull().default('active'),
+	// Server-stamped moment the run actually began — basis for server-measured
+	// timing leaderboards (e.g. speedrun fastest time). NULL until the host starts.
+	gameStartedAt: timestamp('game_started_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
@@ -185,6 +191,12 @@ export const matchmakingRatings = pgTable(
 		wins: integer('wins').notNull().default(0),
 		losses: integer('losses').notNull().default(0),
 		gamesPlayed: integer('games_played').notNull().default(0),
+		// Secondary per-season personal best, ranked alongside (not instead of) rating.
+		// Meaning is mod-defined (see metrics.config.ts): score for PvP (higher better),
+		// duration in ms for speedrun (lower better). NULL until the player sets one.
+		seasonBest: bigint('season_best', { mode: 'number' }),
+		bestMatchId: varchar('best_match_id', { length: 36 }),
+		bestAt: timestamp('best_at', { withTimezone: true }),
 		lastMatchAt: timestamp('last_match_at', { withTimezone: true }),
 		decayAppliedAt: timestamp('decay_applied_at', { withTimezone: true }),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -208,6 +220,8 @@ export const leaderboardCache = pgTable(
 		wins: integer('wins').notNull(),
 		losses: integer('losses').notNull(),
 		gamesPlayed: integer('games_played').notNull(),
+		// Cached copy of the player's secondary season best for display alongside rank.
+		seasonBest: bigint('season_best', { mode: 'number' }),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => [
@@ -223,3 +237,27 @@ export const seasons = pgTable('seasons', {
 	endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
 	endedAt: timestamp('ended_at', { withTimezone: true }),
 })
+
+// Three-tier moderation bans. One row per ban; a player may hold several active
+// bans of different types simultaneously. A ban is ACTIVE while
+// liftedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now()).
+//   chat    — cannot send chat messages; can still play and queue
+//   queue   — cannot join matchmaking; private lobbies unaffected
+//   account — denied at MQTT CONNECT (game client); website login still works
+export const playerBans = pgTable(
+	'player_bans',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		playerId: uuid('player_id')
+			.notNull()
+			.references(() => players.id, { onDelete: 'cascade' }),
+		banType: text('ban_type').notNull(), // 'chat' | 'queue' | 'account'
+		expiresAt: timestamp('expires_at', { withTimezone: true }), // null = indefinite
+		issuedBy: text('issued_by').notNull(), // moderator display name or 'system'
+		issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
+		reason: text('reason').notNull().default(''),
+		liftedAt: timestamp('lifted_at', { withTimezone: true }), // set when lifted early
+		liftedBy: text('lifted_by'),
+	},
+	(t) => [index('player_bans_player_idx').on(t.playerId)],
+)

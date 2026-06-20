@@ -50,6 +50,24 @@ vi.mock('../infrastructure/db/index.js', () => ({
 	},
 }))
 
+// Mock the ban gateway — no real DB in tests. Default: no active bans.
+// isBanType keeps its real (pure) behaviour so admin-route validation works.
+vi.mock('../infrastructure/gateways/ban.gateway.js', () => ({
+	hasActiveBan: vi.fn().mockResolvedValue(false),
+	getActiveBans: vi.fn().mockResolvedValue([]),
+	listBans: vi.fn().mockResolvedValue([]),
+	insertBan: vi.fn().mockResolvedValue(undefined),
+	liftBan: vi.fn().mockResolvedValue(null),
+	BAN_TYPES: ['chat', 'queue', 'account'],
+	isBanType: (v: unknown) =>
+		v === 'chat' || v === 'queue' || v === 'account',
+}))
+
+// Mock the EMQX admin client — no real broker in tests
+vi.mock('../infrastructure/emqx/emqx-admin.service.js', () => ({
+	kickClient: vi.fn().mockResolvedValue(true),
+}))
+
 const mockPlayerRecord = {
 	id: 'mock-id',
 	steamIdHash: null,
@@ -123,4 +141,10 @@ beforeEach(async () => {
 	vi.mocked(playerDb.updateDiscordUsername).mockResolvedValue(undefined)
 	vi.mocked(playerDb.updateUseDiscordName).mockResolvedValue(undefined)
 	vi.mocked(playerDb.updatePreferredJoker).mockResolvedValue(undefined)
+
+	// Re-apply ban gateway defaults (cleared by vi.clearAllMocks above)
+	const banDb = await import('../infrastructure/gateways/ban.gateway.js')
+	vi.mocked(banDb.hasActiveBan).mockResolvedValue(false)
+	vi.mocked(banDb.getActiveBans).mockResolvedValue([])
+	vi.mocked(banDb.listBans).mockResolvedValue([])
 })

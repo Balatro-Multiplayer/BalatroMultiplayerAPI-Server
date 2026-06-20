@@ -18,6 +18,10 @@ import {
 	computeFFA,
 	computeTeam,
 } from '../../features/matchmaking/elo.service.js'
+import {
+	getMetricConfig,
+	withinMetricBounds,
+} from '../../features/matchmaking/metrics.config.js'
 import type { Match, PlacementEntry } from '../../shared/types/index.js'
 
 export interface RatingRow {
@@ -108,7 +112,7 @@ export async function recomputeLeaderboard(
 
 	await tx.execute(sql`
 		INSERT INTO leaderboard_cache
-			(mod_id, game_mode, season, rank, player_id, display_name, rating, wins, losses, games_played, updated_at)
+			(mod_id, game_mode, season, rank, player_id, display_name, rating, wins, losses, games_played, season_best, updated_at)
 		SELECT
 			${modId}, ${gameMode}, ${seasonId},
 			ROW_NUMBER() OVER (ORDER BY r.rating DESC, r.wins DESC) AS rank,
@@ -119,6 +123,7 @@ export async function recomputeLeaderboard(
 			r.wins,
 			r.losses,
 			r.games_played,
+			r.season_best,
 			NOW()
 		FROM matchmaking_ratings r
 		JOIN players p ON p.id = r.player_id
@@ -195,6 +200,23 @@ export async function updateMatchStatus(
 		.update(matchmakingMatches)
 		.set({ status, updatedAt: new Date() })
 		.where(eq(matchmakingMatches.matchId, matchId))
+}
+
+// Stamp the server-side run-start time. Idempotent: only the first call takes effect, so
+// the measured duration can't be shrunk by re-calling /start.
+export async function setMatchGameStarted(
+	matchId: string,
+	startedAt: Date,
+): Promise<void> {
+	await db
+		.update(matchmakingMatches)
+		.set({ gameStartedAt: startedAt, updatedAt: new Date() })
+		.where(
+			and(
+				eq(matchmakingMatches.matchId, matchId),
+				isNull(matchmakingMatches.gameStartedAt),
+			),
+		)
 }
 
 export async function loadActiveMatches(): Promise<
@@ -357,10 +379,80 @@ export async function applyRatingTransaction(
 			.set({ status: 'resolved', updatedAt: now })
 			.where(eq(matchmakingMatches.matchId, matchId))
 
+		// Secondary personal-best metric (PvP score / speedrun time), upsert-if-better.
+		await applySecondaryMetric(tx, matchId, match, seasonId, placements, now)
+
 		await recomputeLeaderboard(tx, match.modId, match.gameMode, seasonId)
 
 		return updatedRatings
 	})
+}
+
+// Resolve, validate, and upsert each player's secondary personal-best for this match.
+// Runs inside applyRatingTransaction's transaction (rating rows already exist for every
+// placement). For server-measured boards only the finisher (best place) records a value,
+// derived from the server clock; for client-reported boards every placement may record its
+// own value. Implausible values are rejected and logged, never clamped.
+async function applySecondaryMetric(
+	tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+	matchId: string,
+	match: Match,
+	seasonId: number,
+	placements: PlacementEntry[],
+	now: Date,
+): Promise<void> {
+	const cfg = getMetricConfig(match.modId)
+	if (!cfg) return
+
+	let durationMs: number | null = null
+	if (cfg.serverMeasured) {
+		const startRow = await tx
+			.select({ startedAt: matchmakingMatches.gameStartedAt })
+			.from(matchmakingMatches)
+			.where(eq(matchmakingMatches.matchId, matchId))
+			.limit(1)
+		const startedAt = startRow[0]?.startedAt
+		// No run-start signal → can't measure; skip rather than guess.
+		if (startedAt) durationMs = now.getTime() - new Date(startedAt).getTime()
+	}
+
+	const minPlace = Math.min(...placements.map((p) => p.place))
+
+	for (const p of placements) {
+		let value: number | null = null
+		if (cfg.serverMeasured) {
+			if (p.place === minPlace && durationMs !== null) value = durationMs
+		} else if (typeof p.metric === 'number') {
+			value = p.metric
+		}
+		if (value === null) continue
+
+		if (!withinMetricBounds(cfg.kind, value)) {
+			console.warn(
+				`[matchmaking] rejected implausible ${cfg.kind} metric ${value} for player ${p.playerId} (match ${matchId})`,
+			)
+			continue
+		}
+
+		const rounded = Math.round(value)
+		const better =
+			cfg.direction === 'asc'
+				? sql`(${matchmakingRatings.seasonBest} IS NULL OR ${rounded} < ${matchmakingRatings.seasonBest})`
+				: sql`(${matchmakingRatings.seasonBest} IS NULL OR ${rounded} > ${matchmakingRatings.seasonBest})`
+
+		await tx
+			.update(matchmakingRatings)
+			.set({ seasonBest: rounded, bestMatchId: matchId, bestAt: now })
+			.where(
+				and(
+					eq(matchmakingRatings.playerId, p.playerId),
+					eq(matchmakingRatings.modId, match.modId),
+					eq(matchmakingRatings.gameMode, match.gameMode),
+					eq(matchmakingRatings.season, seasonId),
+					better,
+				),
+			)
+	}
 }
 
 export async function getLeaderboard(
@@ -379,12 +471,14 @@ export async function getLeaderboard(
 		rating: number
 		wins: number
 		losses: number
+		seasonBest: number | null
 	}>
 	playerEntry: {
 		rank: number
 		rating: number
 		wins: number
 		losses: number
+		seasonBest: number | null
 	} | null
 }> {
 	const entries = await db
@@ -395,6 +489,7 @@ export async function getLeaderboard(
 			rating: leaderboardCache.rating,
 			wins: leaderboardCache.wins,
 			losses: leaderboardCache.losses,
+			seasonBest: leaderboardCache.seasonBest,
 		})
 		.from(leaderboardCache)
 		.where(
@@ -406,7 +501,9 @@ export async function getLeaderboard(
 		)
 		.orderBy(leaderboardCache.rank)
 
-	let playerEntry: { rank: number; rating: number; wins: number; losses: number } | null = null
+	let playerEntry:
+		| { rank: number; rating: number; wins: number; losses: number; seasonBest: number | null }
+		| null = null
 
 	const cachedEntry = entries.find((e) => e.playerId === playerId)
 	if (cachedEntry) {
@@ -415,6 +512,7 @@ export async function getLeaderboard(
 			rating: cachedEntry.rating,
 			wins: cachedEntry.wins,
 			losses: cachedEntry.losses,
+			seasonBest: cachedEntry.seasonBest,
 		}
 	} else {
 		const ownRating = await db
@@ -423,6 +521,7 @@ export async function getLeaderboard(
 				wins: matchmakingRatings.wins,
 				losses: matchmakingRatings.losses,
 				gamesPlayed: matchmakingRatings.gamesPlayed,
+				seasonBest: matchmakingRatings.seasonBest,
 			})
 			.from(matchmakingRatings)
 			.where(
@@ -451,6 +550,7 @@ export async function getLeaderboard(
 				rating: ownRating[0].rating,
 				wins: ownRating[0].wins,
 				losses: ownRating[0].losses,
+				seasonBest: ownRating[0].seasonBest,
 			}
 		}
 	}
@@ -470,6 +570,7 @@ export async function getOwnRating(
 	gamesPlayed: number
 	isPlacement: boolean
 	placementGamesLeft: number
+	seasonBest: number | null
 } | null> {
 	const rows = await db
 		.select()
@@ -495,6 +596,7 @@ export async function getOwnRating(
 		gamesPlayed: r.gamesPlayed,
 		isPlacement,
 		placementGamesLeft: Math.max(0, PLACEMENT_GAMES - r.gamesPlayed),
+		seasonBest: r.seasonBest,
 	}
 }
 

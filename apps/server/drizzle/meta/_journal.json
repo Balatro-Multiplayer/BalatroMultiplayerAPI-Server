@@ -85,6 +85,34 @@
       "when": 1745040000000,
       "tag": "0011_matchmaking_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1749081600000,
+      "tag": "0012_server_config_current_season",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1781500000000,
+      "tag": "0013_leaderboard_secondary_metrics",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789000000000,
+      "tag": "0014_player_bans",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1789100000000,
+      "tag": "0015_drop_current_season",
+      "breakpoints": true
     }
   ]
 }

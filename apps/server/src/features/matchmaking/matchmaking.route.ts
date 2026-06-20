@@ -7,9 +7,9 @@ import {
 	joinQueue,
 	leaveAllQueues,
 	leaveQueue,
+	markRunStart,
 	reportResult,
 } from './matchmaking.service.js'
-import { getCurrentSeason } from '../../infrastructure/gateways/matchmaking.gateway.js'
 import { getSession } from '../../state/index.js'
 import type { PlacementEntry } from '../../shared/types/index.js'
 import { AppError } from '../../shared/utils/errors.js'
@@ -73,6 +73,19 @@ router.get('/queue', async (req, res, next) => {
 	}
 })
 
+// Mark the run as started (host only) — basis for server-measured timing
+router.post('/matches/:matchId/start', async (req, res, next) => {
+	try {
+		const session = getSession(req.player!.playerId)
+		if (!session) throw new AppError('Session not found', 401)
+
+		await markRunStart(session, req.params.matchId)
+		res.status(204).send()
+	} catch (err) {
+		next(err)
+	}
+})
+
 // Report match result
 router.post('/matches/:matchId/result', async (req, res, next) => {
 	try {
@@ -92,6 +105,8 @@ router.post('/matches/:matchId/result', async (req, res, next) => {
 				throw new AppError('Invalid placement: place must be a positive integer', 400)
 			if (p.performance !== undefined && (typeof p.performance !== 'number' || p.performance < 0 || p.performance > 1))
 				throw new AppError('Invalid placement: performance must be 0.0–1.0', 400)
+			if (p.metric !== undefined && (typeof p.metric !== 'number' || !Number.isFinite(p.metric) || p.metric < 0))
+				throw new AppError('Invalid placement: metric must be a non-negative finite number', 400)
 		}
 
 		await reportResult(session, matchId, placements)
@@ -101,23 +116,16 @@ router.post('/matches/:matchId/result', async (req, res, next) => {
 	}
 })
 
-// Get leaderboard — season is optional, defaults to the active season
+// Get leaderboard — season is required (clients read the active season from /stats/seasons)
 router.get('/leaderboard', async (req, res, next) => {
 	try {
 		const { modId, gameMode, season } = req.query
 		if (!modId || typeof modId !== 'string') throw new AppError('Missing modId', 400)
 		if (!gameMode || typeof gameMode !== 'string') throw new AppError('Missing gameMode', 400)
 
-		let seasonId: number
-		if (season !== undefined) {
-			const parsed = Number(season)
-			if (Number.isNaN(parsed)) throw new AppError('Invalid season', 400)
-			seasonId = parsed
-		} else {
-			const current = await getCurrentSeason()
-			if (!current) throw new AppError('No active season', 404)
-			seasonId = current.id
-		}
+		if (season === undefined) throw new AppError('Missing season', 400)
+		const seasonId = Number(season)
+		if (Number.isNaN(seasonId)) throw new AppError('Invalid season', 400)
 
 		const data = await getLeaderboard(modId, gameMode, seasonId, req.player!.playerId)
 		res.json(data)
@@ -126,23 +134,16 @@ router.get('/leaderboard', async (req, res, next) => {
 	}
 })
 
-// Get own rating — season is optional, defaults to the active season
+// Get own rating — season is required (clients read the active season from /stats/seasons)
 router.get('/ratings', async (req, res, next) => {
 	try {
 		const { modId, gameMode, season } = req.query
 		if (!modId || typeof modId !== 'string') throw new AppError('Missing modId', 400)
 		if (!gameMode || typeof gameMode !== 'string') throw new AppError('Missing gameMode', 400)
 
-		let seasonId: number
-		if (season !== undefined) {
-			const parsed = Number(season)
-			if (Number.isNaN(parsed)) throw new AppError('Invalid season', 400)
-			seasonId = parsed
-		} else {
-			const current = await getCurrentSeason()
-			if (!current) throw new AppError('No active season', 404)
-			seasonId = current.id
-		}
+		if (season === undefined) throw new AppError('Missing season', 400)
+		const seasonId = Number(season)
+		if (Number.isNaN(seasonId)) throw new AppError('Invalid season', 400)
 
 		const data = await getOwnRating(req.player!.playerId, modId, gameMode, seasonId)
 		if (!data) {

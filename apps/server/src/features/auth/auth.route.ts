@@ -37,7 +37,7 @@ import { AppError } from '../../shared/utils/errors.js'
 import { getLobby, getSession, removeSession } from '../../state/index.js'
 import type { PlayerSession } from '../../state/index.js'
 import { buildPrivilegeTable } from '../../shared/constants/privileges.js'
-import { updateChatStatus } from '../../infrastructure/gateways/player.gateway.js'
+import { findPlayerById, updateChatStatus } from '../../infrastructure/gateways/player.gateway.js'
 
 function lobbyPayload(session: PlayerSession) {
 	if (!session.lobbyCode) return undefined
@@ -167,17 +167,23 @@ router.get('/steam/web/callback', async (req, res, next) => {
 
 // --- Web session endpoints ---
 
-router.get('/me', authenticate, (req, res) => {
-	const session = req.player!
-	res.json({
-		id: session.playerId,
-		steamName: session.steamName,
-		displayName: session.displayName ?? session.steamName,
-		useDiscordName: session.useDiscordName ?? false,
-		preferredJoker: session.preferredJoker ?? null,
-		discordLinked: session.discordIdHash != null,
-		discordUsername: session.discordUsername ?? null,
-	})
+router.get('/me', authenticate, async (req, res, next) => {
+	try {
+		const jwt = req.player!
+		const dbPlayer = await findPlayerById(jwt.playerId)
+		res.json({
+			id: jwt.playerId,
+			steamName: jwt.steamName,
+			displayName: jwt.displayName ?? jwt.steamName,
+			useDiscordName: jwt.useDiscordName ?? false,
+			preferredJoker: jwt.preferredJoker ?? null,
+			discordLinked: jwt.discordIdHash != null,
+			discordUsername: jwt.discordUsername ?? null,
+			privileges: dbPlayer?.privileges ?? [],
+		})
+	} catch (err) {
+		next(err)
+	}
 })
 
 router.post('/logout', (_req, res) => {

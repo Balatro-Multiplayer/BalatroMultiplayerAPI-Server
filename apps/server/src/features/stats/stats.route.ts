@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { db } from '../../infrastructure/db/index.js'
-import { leaderboardCache, matchmakingMatches, players } from '../../infrastructure/db/schema.js'
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { leaderboardCache, matchmakingMatches, players, seasons } from '../../infrastructure/db/schema.js'
+import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import { getCurrentSeason } from '../../infrastructure/gateways/matchmaking.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
 
@@ -54,9 +54,9 @@ router.get('/leaderboard', async (req, res, next) => {
 			if (Number.isNaN(parsed)) throw new AppError('Invalid season', 400)
 			seasonId = parsed
 		} else {
-			const current = await getCurrentSeason()
-			if (!current) throw new AppError('No active season', 404)
-			seasonId = current.id
+			const active = await getCurrentSeason()
+			if (!active) throw new AppError('No active season', 404)
+			seasonId = active.id
 		}
 
 		const entries = await db
@@ -68,6 +68,7 @@ router.get('/leaderboard', async (req, res, next) => {
 				wins: leaderboardCache.wins,
 				losses: leaderboardCache.losses,
 				gamesPlayed: leaderboardCache.gamesPlayed,
+				seasonBest: leaderboardCache.seasonBest,
 			})
 			.from(leaderboardCache)
 			.where(
@@ -80,6 +81,99 @@ router.get('/leaderboard', async (req, res, next) => {
 			.orderBy(asc(leaderboardCache.rank))
 
 		res.json({ season: seasonId, modId, gameMode, entries })
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.get('/seasons', async (_req, res, next) => {
+	try {
+		const rows = await db
+			.select({
+				id: seasons.id,
+				name: seasons.name,
+				startedAt: seasons.startedAt,
+				endsAt: seasons.endsAt,
+				endedAt: seasons.endedAt,
+			})
+			.from(seasons)
+			.orderBy(asc(seasons.id))
+
+		const active = await getCurrentSeason()
+		res.json({ seasons: rows, current: active?.id ?? null })
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.get('/players/:id', async (req, res, next) => {
+	try {
+		const { id } = req.params
+		const { modId, gameMode, season } = req.query
+		if (!modId || typeof modId !== 'string') throw new AppError('Missing modId', 400)
+		if (!gameMode || typeof gameMode !== 'string') throw new AppError('Missing gameMode', 400)
+
+		let seasonId: number
+		if (season !== undefined) {
+			const parsed = Number(season)
+			if (Number.isNaN(parsed)) throw new AppError('Invalid season', 400)
+			seasonId = parsed
+		} else {
+			const active = await getCurrentSeason()
+			if (!active) throw new AppError('No active season', 404)
+			seasonId = active.id
+		}
+
+		const [player] = await db
+			.select({
+				id: players.id,
+				steamName: players.steamName,
+				preferredJoker: players.preferredJoker,
+				createdAt: players.createdAt,
+			})
+			.from(players)
+			.where(eq(players.id, id))
+			.limit(1)
+
+		if (!player) throw new AppError('Player not found', 404)
+
+		const [entry] = await db
+			.select({
+				rank: leaderboardCache.rank,
+				displayName: leaderboardCache.displayName,
+				rating: leaderboardCache.rating,
+				wins: leaderboardCache.wins,
+				losses: leaderboardCache.losses,
+				gamesPlayed: leaderboardCache.gamesPlayed,
+				seasonBest: leaderboardCache.seasonBest,
+			})
+			.from(leaderboardCache)
+			.where(
+				and(
+					eq(leaderboardCache.playerId, id),
+					eq(leaderboardCache.modId, modId),
+					eq(leaderboardCache.gameMode, gameMode),
+					eq(leaderboardCache.season, seasonId),
+				)
+			)
+			.limit(1)
+
+		res.json({
+			playerId: player.id,
+			displayName: entry?.displayName ?? player.steamName,
+			steamName: player.steamName,
+			preferredJoker: player.preferredJoker,
+			createdAt: player.createdAt,
+			season: seasonId,
+			modId,
+			gameMode,
+			rank: entry?.rank ?? null,
+			rating: entry?.rating ?? null,
+			wins: entry?.wins ?? null,
+			losses: entry?.losses ?? null,
+			gamesPlayed: entry?.gamesPlayed ?? null,
+			seasonBest: entry?.seasonBest ?? null,
+		})
 	} catch (err) {
 		next(err)
 	}

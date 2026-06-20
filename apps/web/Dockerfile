@@ -1,41 +1,28 @@
-FROM --platform=linux/amd64 imbios/bun-node:latest-current-debian AS deps
+FROM node:22-alpine AS base
 WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
-# Install dependencies based on the preferred package manager
+##### DEPS — install with the full workspace manifest set so pnpm can resolve
+##### the lockfile, but only for the web app's dependency closure.
+FROM base AS build
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps/web/package.json ./apps/web/
+COPY apps/server/package.json ./apps/server/
+COPY packages/types/package.json ./packages/types/
+COPY packages/internal/package.json ./packages/internal/
 
-COPY package.json bun.lock* ./
+RUN pnpm install --frozen-lockfile --filter balatro-multiplayer-web...
 
-RUN bun install --frozen-lockfile;
+COPY apps/web/ ./apps/web/
 
-##### BUILDER
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN pnpm --filter balatro-multiplayer-web build
 
-FROM --platform=linux/amd64 imbios/bun-node:latest-current-debian AS builder
-ARG DATABASE_URL
-ARG NEXT_PUBLIC_CLIENTVAR
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-
-ENV NEXT_TELEMETRY_DISABLED 1
-ENV SKIP_ENV_VALIDATION 1
-RUN SKIP_ENV_VALIDATION=1 bun run build
-
-##### RUNNER
-
-FROM --platform=linux/amd64 imbios/bun-node:latest-current-debian AS runner
-WORKDIR /app
-
-ENV NODE_ENV production
-ENV NEXT_TELEMETRY_DISABLED 1
-
-COPY --from=builder /app/next.config.mjs ./
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./package.json
-
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-
+##### RUNNER — run `next start` from the built app.
+FROM build AS runner
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+WORKDIR /app/apps/web
 EXPOSE 3000
-ENV PORT 3000
-
-CMD ["node", "--expose-gc", "server.js"]
+CMD ["pnpm", "start"]

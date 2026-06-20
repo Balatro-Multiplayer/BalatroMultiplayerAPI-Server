@@ -4,6 +4,7 @@ import { getConfig } from '../../state/config.js'
 import { Lobby } from '../../state/lobby.js'
 import type { EmqxAuthRequest, EmqxAuthzRequest } from '../../shared/types/index.js'
 import { verifyJwt } from '../auth/auth.service.js'
+import { hasActiveBan } from '../../infrastructure/gateways/ban.gateway.js'
 
 type Action = 'publish' | 'subscribe'
 type AuthzResult = { result: 'allow' | 'deny' }
@@ -60,6 +61,13 @@ export async function authenticateClient(
 	}
 
 	if (!hasAcceptedCurrentTos(token.playerId)) {
+		return { result: 'deny', is_superuser: false }
+	}
+
+	// Account bans deny the game-client CONNECT. Website (REST) login is
+	// unaffected — it never reaches this webhook — so a banned player can still
+	// sign in to view/appeal their account (design §22.2).
+	if (await hasActiveBan(token.playerId, 'account')) {
 		return { result: 'deny', is_superuser: false }
 	}
 

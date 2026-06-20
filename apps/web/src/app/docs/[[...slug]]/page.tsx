@@ -21,7 +21,7 @@ import { Xmult } from '@/app/_components/xmult'
 import { Button } from '@/components/ui/button'
 import { env } from '@/env'
 import { CDN_URL } from '@/shared/constants'
-import { metadataImage } from '../../../../lib/metadata'
+import { metadataImage } from '@/lib/metadata'
 import { source } from '../../../../lib/source'
 
 type ImageZoomProps = ComponentProps<typeof ImageZoom>
@@ -72,22 +72,21 @@ export default async function Page(props: {
         <MDX
           components={{
             ...defaultMdxComponents,
-            img: (props) => {
+            img: (props: ComponentProps<'img'>) => {
               const isDev =
                 env.NODE_ENV === 'development' || env.IS_PREVIEW === 'true'
-              const imageProps = props as ImageZoomProps
+              const imageProps = props as unknown as ImageZoomProps
               if (isDev) {
                 return <ImageZoom {...imageProps} />
               }
 
-              const src =
-                typeof imageProps.src === 'string' ? imageProps.src : undefined
+              // MDX always passes a string src; narrow away non-string cases
+              // (Blob/StaticImport) so the value is assignable to ImageZoom.
+              const src = typeof props.src === 'string' ? props.src : undefined
               return (
                 <ImageZoom
                   {...imageProps}
-                  src={
-                    src?.startsWith('/') ? `${CDN_URL}${src}` : imageProps.src
-                  }
+                  src={src?.startsWith('/') ? `${CDN_URL}${src}` : src}
                 />
               )
             },
