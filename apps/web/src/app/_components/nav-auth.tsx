@@ -1,6 +1,6 @@
 'use client'
 
-import { LogIn, User } from 'lucide-react'
+import { LogIn, Shield, User } from 'lucide-react'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
@@ -8,11 +8,13 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
 export function NavAuth() {
-  const { player, isLoggedIn, logout } = useAuth()
+  const { player, isLoggedIn, isAdmin, isModerator, logout } = useAuth()
 
   if (isLoggedIn && player) {
     return (
@@ -27,6 +29,22 @@ export function NavAuth() {
           <DropdownMenuItem asChild>
             <Link href='/profile'>My Account</Link>
           </DropdownMenuItem>
+          {(isAdmin || isModerator) && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className='flex items-center gap-1.5 text-xs text-muted-foreground'>
+                <Shield className='size-3.5' />
+                Admin
+              </DropdownMenuLabel>
+              <DropdownMenuItem asChild>
+                <Link href='/admin/users'>Users &amp; Bans</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href='/admin/logs'>Chat Logs</Link>
+              </DropdownMenuItem>
+            </>
+          )}
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={logout} className='text-destructive focus:text-destructive'>
             Sign Out
           </DropdownMenuItem>

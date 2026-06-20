@@ -140,7 +140,10 @@ router.post('/steam', async (req, res, next) => {
 // --- Steam OpenID (web browser flow) ---
 
 router.get('/steam/web', (req, res) => {
-	const callbackUrl = `${env.WEB_BASE_URL.replace(/\/$/, '')}/api/auth/steam/web/callback`
+	// Steam must redirect back to a browser-reachable URL on the web origin. The
+	// website exposes the API under /api/proxy, so the callback returns through
+	// the proxy (which forwards to /api/auth/steam/web/callback here).
+	const callbackUrl = `${env.WEB_BASE_URL.replace(/\/$/, '')}/api/proxy/auth/steam/web/callback`
 	res.redirect(getSteamOpenIdUrl(callbackUrl))
 })
 
@@ -354,7 +357,7 @@ router.get('/discord/callback', async (req, res, next) => {
 		if (state) {
 			const linked = verifyLinkState(state)
 			if (linked) {
-				await linkDiscordToPlayer(linked.playerId, discordId, discordName)
+				const { token } = await linkDiscordToPlayer(linked.playerId, discordId, discordName)
 
 				// Notify game client via MQTT
 				await mqttService.publishToPlayer(linked.playerId, 'account/discord_linked', {
@@ -362,7 +365,9 @@ router.get('/discord/callback', async (req, res, next) => {
 				})
 
 				if (linked.source === 'web') {
-					res.redirect(`${env.WEB_BASE_URL}/account?discord=linked`)
+					// Hand back a fresh token (now carrying the Discord link) via the
+					// standard web callback so the browser session updates.
+					res.redirect(`${env.WEB_BASE_URL}/auth/callback?token=${encodeURIComponent(token)}`)
 					return
 				}
 

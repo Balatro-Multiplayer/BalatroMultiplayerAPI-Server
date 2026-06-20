@@ -17,6 +17,8 @@ const links = [
 
 export const baseOptions: BaseLayoutProps = {
   links,
+  // No site search — hide the search bar in the header.
+  searchToggle: { enabled: false },
   nav: {
     title: (
       <div className='flex items-center space-x-2'>

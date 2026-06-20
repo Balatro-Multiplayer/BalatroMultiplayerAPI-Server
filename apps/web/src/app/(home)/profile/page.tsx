@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
-import { clearToken, useAuth } from '@/lib/auth'
+import { clearToken, setToken, useAuth } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -11,11 +11,37 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 
 export default function ProfilePage() {
-  const { player, pending, isLoggedIn, logout } = useAuth()
+  const { player, pending, isLoggedIn, logout, fetchMe } = useAuth()
   const router = useRouter()
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Linking is a POST that requires the JWT (sent by apiFetch), so it can't be a
+  // plain <a> navigation. POST → get the Discord OAuth URL → navigate to it.
+  async function handleLinkDiscord() {
+    setError(null)
+    try {
+      const { url } = await apiFetch<{ url: string }>('/auth/link/discord?source=web', {
+        method: 'POST',
+      })
+      window.location.href = url
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start Discord linking')
+    }
+  }
+
+  async function handleUnlinkDiscord() {
+    setError(null)
+    try {
+      // Unlink returns a fresh token (display name may revert); adopt it, then refresh.
+      const res = await apiFetch<{ token?: string }>('/auth/unlink/discord', { method: 'POST' })
+      if (res?.token) setToken(res.token)
+      await fetchMe()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to unlink Discord')
+    }
+  }
 
   useEffect(() => {
     if (!pending && !isLoggedIn) router.replace('/login')
@@ -94,21 +120,23 @@ export default function ProfilePage() {
               <p className='text-sm'>
                 Linked as <span className='font-semibold'>{player.discordUsername}</span>
               </p>
-              <a
-                href={`${process.env.NEXT_PUBLIC_API_BASE ?? '/api/proxy'}/auth/unlink/discord`}
+              <button
+                type='button'
+                onClick={handleUnlinkDiscord}
                 className='text-sm text-destructive hover:underline underline-offset-4'
               >
                 Unlink
-              </a>
+              </button>
             </div>
           ) : (
-            <a
-              href={`${process.env.NEXT_PUBLIC_API_BASE ?? '/api/proxy'}/auth/link/discord?source=web`}
+            <button
+              type='button'
+              onClick={handleLinkDiscord}
               className='inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90'
               style={{ background: '#5865f2' }}
             >
               Link Discord
-            </a>
+            </button>
           )}
         </CardContent>
       </Card>

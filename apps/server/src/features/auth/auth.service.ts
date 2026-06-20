@@ -52,10 +52,16 @@ function dbPlayerToSessionInit(
 	}
 }
 
-function requirePlayerSession(playerId: string): PlayerSession {
-	const session = getSession(playerId)
-	if (!session) throw new AppError('Player session not found', 401)
-	return session
+// Returns the live in-memory session, or rebuilds one from the DB player when the
+// caller has a valid JWT but no active session. This is the normal case for
+// website-only users (the site is stateless JWT) and after an API restart wipes
+// in-memory sessions — account operations must still work from the token alone.
+async function ensureSession(playerId: string): Promise<PlayerSession> {
+	const existing = getSession(playerId)
+	if (existing) return existing
+	const dbPlayer = await playerDb.findPlayerById(playerId)
+	if (!dbPlayer) throw new AppError('Player not found', 404)
+	return createSession(dbPlayer.steamName, dbPlayerToSessionInit(dbPlayer))
 }
 
 function ensureProviderNotLinkedElsewhere(
@@ -371,7 +377,7 @@ export async function impersonatePlayer(opts: {
 // --- Linking ---
 
 export async function linkSteamToPlayer(playerId: string, steamId: string) {
-	const session = requirePlayerSession(playerId)
+	const session = await ensureSession(playerId)
 	const steamIdHash = hashProviderId(steamId)
 	ensureProviderNotLinkedElsewhere('steam', steamIdHash, playerId)
 
@@ -385,7 +391,7 @@ export async function linkDiscordToPlayer(
 	discordId: string,
 	discordUsername?: string,
 ) {
-	const session = requirePlayerSession(playerId)
+	const session = await ensureSession(playerId)
 	const discordIdHash = hashProviderId(discordId)
 	ensureProviderNotLinkedElsewhere('discord', discordIdHash, playerId)
 
@@ -396,7 +402,7 @@ export async function linkDiscordToPlayer(
 }
 
 export async function unlinkDiscordFromPlayer(playerId: string) {
-	const session = requirePlayerSession(playerId)
+	const session = await ensureSession(playerId)
 
 	unlinkProvider(session, 'discord')
 	session.useDiscordName = false
@@ -405,7 +411,7 @@ export async function unlinkDiscordFromPlayer(playerId: string) {
 }
 
 export async function setUseDiscordName(playerId: string, value: boolean) {
-	const session = requirePlayerSession(playerId)
+	const session = await ensureSession(playerId)
 
 	if (value && !session.discordIdHash) {
 		throw new AppError('Discord account not linked', 400)
@@ -417,7 +423,7 @@ export async function setUseDiscordName(playerId: string, value: boolean) {
 }
 
 export async function setPreferredJoker(playerId: string, value: string) {
-	const session = requirePlayerSession(playerId)
+	const session = await ensureSession(playerId)
 
 	if (!isValidJoker(value, session.privileges)) {
 		throw new AppError('Invalid joker ID', 400)
