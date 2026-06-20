@@ -45,6 +45,12 @@ export function NavAuth() {
               <DropdownMenuItem asChild>
                 <Link href='/admin/seasons'>Seasons</Link>
               </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href='/admin/releases'>Releases</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href='/admin/games'>Match History</Link>
+              </DropdownMenuItem>
             </>
           )}
           <DropdownMenuSeparator />

@@ -2,7 +2,7 @@ import { Router } from 'express'
 import type { Request, Response, NextFunction } from 'express'
 import { and, asc, desc, eq, gt, ilike, isNull, ne, or, sql, count } from 'drizzle-orm'
 import { db } from '../../infrastructure/db/index.js'
-import { chatLogs, playerBans, players, reports, reportedLobbyMessages, seasons } from '../../infrastructure/db/schema.js'
+import { chatLogs, matchmakingMatches, playerBans, players, reports, reportedLobbyMessages, seasons } from '../../infrastructure/db/schema.js'
 import { authenticate } from '../../middleware/authenticate.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { insertBan, isBanType, liftBan, listBans } from '../../infrastructure/gateways/ban.gateway.js'
@@ -10,6 +10,17 @@ import { AppError } from '../../shared/utils/errors.js'
 import { getSession } from '../../state/index.js'
 import { kickClient } from '../../infrastructure/emqx/emqx-admin.service.js'
 import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
+import {
+	addBranch,
+	addRelease,
+	deleteBranch,
+	deleteRelease,
+	listBranches,
+	listReleasesAdmin,
+	updateRelease,
+	type ReleaseInput,
+	type SortBy,
+} from '../../infrastructure/gateways/releases.gateway.js'
 
 const router = Router()
 
@@ -355,6 +366,173 @@ router.post('/seasons/:id/end', async (req, res, next) => {
 
 		console.log(`[webadmin] ${req.player!.playerId} ended season ${id}`)
 		res.json({ season: row })
+	} catch (err) {
+		next(err)
+	}
+})
+
+/* ── Matches (match history) ── */
+// Sparse compared to the old log-extracted "games" table — the new backend only
+// records matchmaking matches (no per-card extraction). Player display names are
+// pulled from the lobbyState snapshot when present.
+
+router.get('/matches', async (req, res, next) => {
+	try {
+		const page = Math.max(1, Number(req.query.page ?? 1))
+		const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize ?? 50)))
+		const offset = (page - 1) * pageSize
+
+		const conds = []
+		if (typeof req.query.modId === 'string' && req.query.modId)
+			conds.push(eq(matchmakingMatches.modId, req.query.modId))
+		if (typeof req.query.gameMode === 'string' && req.query.gameMode)
+			conds.push(eq(matchmakingMatches.gameMode, req.query.gameMode))
+		if (typeof req.query.status === 'string' && req.query.status)
+			conds.push(eq(matchmakingMatches.status, req.query.status))
+		const where = conds.length > 0 ? and(...conds) : undefined
+
+		const [{ total }] = await db
+			.select({ total: count() })
+			.from(matchmakingMatches)
+			.where(where)
+
+		const rows = await db
+			.select({
+				matchId: matchmakingMatches.matchId,
+				lobbyCode: matchmakingMatches.lobbyCode,
+				modId: matchmakingMatches.modId,
+				gameMode: matchmakingMatches.gameMode,
+				status: matchmakingMatches.status,
+				players: matchmakingMatches.players,
+				lobbyState: matchmakingMatches.lobbyState,
+				gameStartedAt: matchmakingMatches.gameStartedAt,
+				createdAt: matchmakingMatches.createdAt,
+			})
+			.from(matchmakingMatches)
+			.where(where)
+			.orderBy(desc(matchmakingMatches.createdAt))
+			.limit(pageSize)
+			.offset(offset)
+
+		const data = rows.map((m) => {
+			const ids = Array.isArray(m.players) ? (m.players as string[]) : []
+			const infos =
+				(m.lobbyState as { playerInfos?: Record<string, { displayName?: string }> } | null)
+					?.playerInfos ?? {}
+			return {
+				matchId: m.matchId,
+				lobbyCode: m.lobbyCode,
+				modId: m.modId,
+				gameMode: m.gameMode,
+				status: m.status,
+				gameStartedAt: m.gameStartedAt,
+				createdAt: m.createdAt,
+				playerNames: ids.map((id) => infos[id]?.displayName ?? id),
+			}
+		})
+
+		res.json({ data, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) })
+	} catch (err) {
+		next(err)
+	}
+})
+
+/* ── Releases (launcher) ── */
+
+function parseReleaseBody(body: unknown): ReleaseInput {
+	const b = (body ?? {}) as Record<string, unknown>
+	if (typeof b.name !== 'string' || !b.name.trim()) throw new AppError('name is required', 400)
+	if (typeof b.version !== 'string' || !b.version.trim()) throw new AppError('version is required', 400)
+	if (typeof b.url !== 'string' || !b.url.trim()) throw new AppError('url is required', 400)
+	return {
+		name: b.name.trim(),
+		version: b.version.trim(),
+		url: b.url.trim(),
+		description: typeof b.description === 'string' ? b.description : null,
+		smods_version: typeof b.smods_version === 'string' && b.smods_version.trim() ? b.smods_version.trim() : 'latest',
+		lovely_version: typeof b.lovely_version === 'string' && b.lovely_version.trim() ? b.lovely_version.trim() : 'latest',
+		branchId: Number.isInteger(b.branchId) ? (b.branchId as number) : 1,
+	}
+}
+
+const RELEASE_SORTS: readonly SortBy[] = ['createdAt', 'name', 'version', 'branchName']
+
+router.get('/releases', async (req, res, next) => {
+	try {
+		const page = Math.max(1, Number(req.query.page ?? 1))
+		const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize ?? 50)))
+		const search = typeof req.query.search === 'string' ? req.query.search.trim() : undefined
+		const sortByRaw = typeof req.query.sortBy === 'string' ? req.query.sortBy : 'createdAt'
+		const sortBy = (RELEASE_SORTS as readonly string[]).includes(sortByRaw) ? (sortByRaw as SortBy) : 'createdAt'
+		const sortOrder = req.query.sortOrder === 'asc' ? 'asc' : 'desc'
+		res.json(await listReleasesAdmin({ page, pageSize, search: search || undefined, sortBy, sortOrder }))
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.post('/releases', async (req, res, next) => {
+	try {
+		const release = await addRelease(parseReleaseBody(req.body))
+		console.log(`[webadmin] ${req.player!.playerId} added release ${release!.id} (${release!.name})`)
+		res.status(201).json({ release })
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.put('/releases/:id', async (req, res, next) => {
+	try {
+		const id = Number(req.params.id)
+		if (!Number.isInteger(id)) throw new AppError('Invalid release id', 400)
+		const release = await updateRelease(id, parseReleaseBody(req.body))
+		if (!release) throw new AppError('Release not found', 404)
+		res.json({ release })
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.delete('/releases/:id', async (req, res, next) => {
+	try {
+		const id = Number(req.params.id)
+		if (!Number.isInteger(id)) throw new AppError('Invalid release id', 400)
+		await deleteRelease(id)
+		res.json({ ok: true })
+	} catch (err) {
+		next(err)
+	}
+})
+
+/* ── Branches (launcher release channels) ── */
+
+router.get('/branches', async (_req, res, next) => {
+	try {
+		res.json({ branches: await listBranches() })
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.post('/branches', async (req, res, next) => {
+	try {
+		const { name } = req.body as { name?: unknown }
+		if (typeof name !== 'string' || !name.trim()) throw new AppError('name is required', 400)
+		const branch = await addBranch(name.trim())
+		if (!branch) throw new AppError('Branch already exists', 409)
+		res.status(201).json({ branch })
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.delete('/branches/:id', async (req, res, next) => {
+	try {
+		const id = Number(req.params.id)
+		if (!Number.isInteger(id)) throw new AppError('Invalid branch id', 400)
+		const result = await deleteBranch(id)
+		if (!result.ok) throw new AppError('Branch has releases and cannot be deleted', 409)
+		res.json({ ok: true })
 	} catch (err) {
 		next(err)
 	}

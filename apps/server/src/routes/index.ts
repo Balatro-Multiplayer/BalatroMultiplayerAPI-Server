@@ -4,6 +4,7 @@ import authRouter from '../features/auth/auth.route.js'
 import emqxRouter from '../features/emqx/emqx.route.js'
 import lobbiesRouter from '../features/lobby/lobby.route.js'
 import matchmakingRouter from '../features/matchmaking/matchmaking.route.js'
+import releasesRouter from '../features/releases/releases.route.js'
 import statsRouter from '../features/stats/stats.route.js'
 import webadminRouter from '../features/webadmin/webadmin.route.js'
 
@@ -13,6 +14,7 @@ router.use('/api/auth', authRouter)
 router.use('/api/lobbies', lobbiesRouter)
 router.use('/api/matchmaking', matchmakingRouter)
 router.use('/api/stats', statsRouter)
+router.use('/api/releases', releasesRouter)
 router.use('/api/webadmin', webadminRouter)
 router.use('/emqx', emqxRouter)
 router.use('/admin', adminRouter)

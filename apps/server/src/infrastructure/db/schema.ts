@@ -238,6 +238,34 @@ export const seasons = pgTable('seasons', {
 	endedAt: timestamp('ended_at', { withTimezone: true }),
 })
 
+// Launcher release management (copied from the old site; serves the Balatro
+// Multiplayer Launcher via the public GET /api/releases endpoint).
+export const modBranches = pgTable('mod_branches', {
+	id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
+	name: text('name').notNull().unique(),
+	description: text('description'),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const modReleases = pgTable('mod_release', {
+	id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
+	name: text('name').notNull(),
+	description: text('description'),
+	version: text('version').notNull(),
+	url: text('url').notNull(),
+	smodsVersion: text('smods_version').default('latest'),
+	lovelyVersion: text('lovely_version').default('latest'),
+	branchId: integer('branch_id')
+		.notNull()
+		.default(1)
+		.references(() => modBranches.id),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true })
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+})
+
 // Three-tier moderation bans. One row per ban; a player may hold several active
 // bans of different types simultaneously. A ban is ACTIVE while
 // liftedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now()).
