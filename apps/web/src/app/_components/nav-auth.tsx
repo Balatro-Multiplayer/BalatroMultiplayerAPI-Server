@@ -42,6 +42,9 @@ export function NavAuth() {
               <DropdownMenuItem asChild>
                 <Link href='/admin/logs'>Chat Logs</Link>
               </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href='/admin/seasons'>Seasons</Link>
+              </DropdownMenuItem>
             </>
           )}
           <DropdownMenuSeparator />
