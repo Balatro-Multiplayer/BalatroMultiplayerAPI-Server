@@ -175,6 +175,8 @@
   body {
     @apply bg-background text-foreground;
     -webkit-font-smoothing: none;
+    /* Slight tracking on the pixel font, site-wide (inherited). */
+    letter-spacing: 0.025em;
   }
 
   button:active {

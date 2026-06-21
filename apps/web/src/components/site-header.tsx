@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { MobileMenu } from '@/app/_components/mobile-menu'
 import { NavAuth } from '@/app/_components/nav-auth'
-import { ModeToggle } from '@/components/mode-toggle'
 import { MotionToggle } from '@/components/motion-toggle'
 
 const NAV = [
@@ -58,7 +57,6 @@ export function SiteHeader() {
         <div className='ml-auto flex items-center gap-1'>
           <div className='hidden items-center gap-1 md:flex'>
             <MotionToggle />
-            <ModeToggle />
             <NavAuth />
           </div>
           <MobileMenu className='md:hidden' />

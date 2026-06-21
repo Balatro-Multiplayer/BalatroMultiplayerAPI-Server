@@ -34,7 +34,9 @@ export default function RootLayout({
           <Toaster />
           <QueryProvider>
             <NuqsAdapter>
-              <RootProvider>{children}</RootProvider>
+              {/* Dark-only site: disable next-themes so the hardcoded `dark`
+                  class on <html> always wins (no theme switching). */}
+              <RootProvider theme={{ enabled: false }}>{children}</RootProvider>
             </NuqsAdapter>
           </QueryProvider>
         </div>
