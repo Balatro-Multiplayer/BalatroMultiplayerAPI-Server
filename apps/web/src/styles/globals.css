@@ -189,6 +189,15 @@
     letter-spacing: 0.05em;
   }
 
+  /* Form controls don't inherit letter-spacing by default — force it so button
+     labels (e.g. admin username lists) match the rest of the site. */
+  button,
+  input,
+  select,
+  textarea {
+    letter-spacing: inherit;
+  }
+
   button:active {
     transform: translateY(1px);
   }
