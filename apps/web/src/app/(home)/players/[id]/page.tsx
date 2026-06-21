@@ -134,7 +134,7 @@ export default function PlayerPage() {
       {LEADERBOARD_CATEGORIES.map((category) => (
         <div key={category.id} className='space-y-3'>
           <h2 className='text-lg font-bold tracking-tight'>{category.label}</h2>
-          <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'>
+          <div className='grid grid-cols-1 gap-4 font-readable sm:grid-cols-2 lg:grid-cols-4'>
             {category.modes.map((m) => {
               const data = results.find(
                 (r) => r.board.modId === category.modId && r.board.modeId === m.id,

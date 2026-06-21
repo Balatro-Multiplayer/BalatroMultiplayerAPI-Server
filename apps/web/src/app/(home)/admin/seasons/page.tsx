@@ -41,7 +41,7 @@ interface SeasonsResponse {
 }
 
 function fmt(d: string | null): string {
-  return d ? new Date(d).toLocaleDateString() : '—'
+  return d ? new Date(d).toLocaleDateString() : '-'
 }
 
 export default function AdminSeasonsPage() {
@@ -193,7 +193,7 @@ export default function AdminSeasonsPage() {
           <DialogHeader>
             <DialogTitle>New Season</DialogTitle>
             <DialogDescription>
-              Starts a new season and makes it active — this ends the current
+              Starts a new season and makes it active. This ends the current
               season.
             </DialogDescription>
           </DialogHeader>
@@ -209,7 +209,7 @@ export default function AdminSeasonsPage() {
               />
             </div>
             <div className='space-y-2'>
-              <Label htmlFor='s-ends'>Ends at (optional — defaults to +90 days)</Label>
+              <Label htmlFor='s-ends'>Ends at (optional, defaults to +90 days)</Label>
               <Input
                 id='s-ends'
                 type='date'

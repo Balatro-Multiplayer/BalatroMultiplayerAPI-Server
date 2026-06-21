@@ -93,6 +93,6 @@ export function formatMetric(
   kind: MetricKind,
   value: number | null | undefined,
 ): string {
-  if (value === null || value === undefined) return '—'
+  if (value === null || value === undefined) return '-'
   return kind === 'time' ? formatDuration(value) : Math.round(value).toLocaleString()
 }

@@ -173,7 +173,7 @@ function LeaderboardsContent() {
         <Card>
           <CardHeader>
             <CardTitle className='text-base'>
-              {category.label} — {mode.label} · Season {selectedSeason ?? '…'}
+              {category.label} · {mode.label} · Season {selectedSeason ?? '…'}
             </CardTitle>
           </CardHeader>
           <CardContent className='p-0'>
@@ -183,7 +183,7 @@ function LeaderboardsContent() {
               <p className='p-6 text-sm text-muted-foreground'>No entries found.</p>
             ) : (
               <div className='overflow-x-auto'>
-                <table className='w-full text-sm'>
+                <table className='w-full text-sm font-readable'>
                   <thead>
                     <tr className='border-b border-border bg-muted/40'>
                       {['Rank', 'Player', 'Rating', category.metricLabel, 'W', 'L', 'Games'].map(

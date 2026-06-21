@@ -10,6 +10,9 @@
 @theme {
   --font-m6x11: var(--font-m6x11);
   --font-sans: var(--font-m6x11), 'Courier New', monospace;
+  /* Complementary readable sans for dense informational text (tables, data).
+     Apply with the `font-readable` utility; the pixel font stays for headings. */
+  --font-readable: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 
   /* Authentic Balatro G.C accent colours → Tailwind utilities (text-bal-*, bg-bal-*).
      Used sparingly as highlights on the muted-dark base. */

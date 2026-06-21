@@ -137,7 +137,7 @@ export default function AdminUsersPage() {
         </p>
       </div>
 
-      <div className='grid grid-cols-1 gap-6 lg:grid-cols-[340px_1fr]'>
+      <div className='grid grid-cols-1 gap-6 font-readable lg:grid-cols-[340px_1fr]'>
         {/* Player list */}
         <div className='space-y-3'>
           <Input
@@ -244,7 +244,7 @@ export default function AdminUsersPage() {
                                   </span>
                                 )}
                               </div>
-                              <p className='text-muted-foreground'>{ban.reason || '—'}</p>
+                              <p className='text-muted-foreground'>{ban.reason || 'No reason given'}</p>
                               {ban.expiresAt && (
                                 <p className='text-xs text-muted-foreground'>
                                   until {new Date(ban.expiresAt).toLocaleDateString()}

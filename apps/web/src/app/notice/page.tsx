@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Privacy & Terms Notice — Balatro Multiplayer',
+  title: 'Privacy & Terms Notice',
 }
 
 export default function NoticePage() {

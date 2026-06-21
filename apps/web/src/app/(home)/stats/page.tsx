@@ -80,14 +80,14 @@ export default function StatsPage() {
       {/* Top 10 */}
       <Card>
         <CardHeader>
-          <CardTitle>Top 10 — {SPOTLIGHT.label} · Season {currentSeason ?? '…'}</CardTitle>
+          <CardTitle>Top 10 · {SPOTLIGHT.label} · Season {currentSeason ?? '…'}</CardTitle>
         </CardHeader>
         <CardContent className='p-0'>
           {top10.length === 0 ? (
             <p className='p-6 text-sm text-muted-foreground'>Loading…</p>
           ) : (
             <div className='overflow-x-auto'>
-              <table className='w-full text-sm'>
+              <table className='w-full text-sm font-readable'>
                 <thead>
                   <tr className='border-b border-border bg-muted/40'>
                     {['Rank', 'Player', 'Rating', 'W', 'L'].map((h) => (
@@ -137,7 +137,7 @@ function StatCard({ label, value, color }: { label: string; value: number | unde
     <Card>
       <CardContent className='pt-6 text-center'>
         <div className={`text-4xl font-black ${color}`}>
-          {value !== undefined ? value.toLocaleString() : '—'}
+          {value !== undefined ? value.toLocaleString() : '-'}
         </div>
         <div className='mt-1.5 text-xs uppercase tracking-wider text-muted-foreground'>{label}</div>
       </CardContent>
