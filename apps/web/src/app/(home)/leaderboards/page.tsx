@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { parseAsInteger, parseAsString, useQueryState } from 'nuqs'
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import {
   LEADERBOARD_CATEGORIES,
@@ -71,6 +71,17 @@ function LeaderboardsContent() {
   const [modeParam, setModeParam] = useQueryState('mode', parseAsString)
   const [seasonParam, setSeasonParam] = useQueryState('season', parseAsInteger)
   const [page, setPage] = useState(1)
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+
+  // Debounce the search box, and reset to page 1 when the term changes — the
+  // server searches the whole list, so a match can live on any page.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search)
+      setPage(1)
+    }, 300)
+    return () => clearTimeout(t)
+  }, [search])
 
   const category = getCategory(categoryParam)
   const mode = getMode(category, modeParam)
@@ -85,19 +96,16 @@ function LeaderboardsContent() {
   const selectedSeason = seasonParam ?? currentSeasonId
 
   const { data: leaderboardData, isLoading: lbLoading } = useQuery<LeaderboardResponse>({
-    queryKey: ['leaderboard', category.modId, mode.id, selectedSeason, page],
+    queryKey: ['leaderboard', category.modId, mode.id, selectedSeason, page, debouncedSearch],
     queryFn: () =>
       apiFetch(
-        `/stats/leaderboard?modId=${encodeURIComponent(category.modId)}&gameMode=${encodeURIComponent(gameModeKey(mode.id))}${selectedSeason != null ? `&season=${selectedSeason}` : ''}&page=${page}`,
+        `/stats/leaderboard?modId=${encodeURIComponent(category.modId)}&gameMode=${encodeURIComponent(gameModeKey(mode.id))}${selectedSeason != null ? `&season=${selectedSeason}` : ''}&page=${page}${debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : ''}`,
       ),
     enabled: selectedSeason != null,
     placeholderData: (prev) => prev,
   })
 
   const entries = leaderboardData?.entries ?? []
-  const filtered = search
-    ? entries.filter((e) => e.displayName.toLowerCase().includes(search.toLowerCase()))
-    : entries
 
   return (
     <div className='container py-8 space-y-6'>
@@ -193,7 +201,7 @@ function LeaderboardsContent() {
           <CardContent className='p-0'>
             {lbLoading ? (
               <p className='p-6 text-sm text-muted-foreground'>Loading…</p>
-            ) : filtered.length === 0 ? (
+            ) : entries.length === 0 ? (
               <p className='p-6 text-sm text-muted-foreground'>No entries found.</p>
             ) : (
               <div className='overflow-x-auto'>
@@ -213,7 +221,7 @@ function LeaderboardsContent() {
                     </tr>
                   </thead>
                   <tbody className='divide-y divide-border'>
-                    {filtered.map((entry) => (
+                    {entries.map((entry) => (
                       <tr key={entry.playerId} className='hover:bg-muted/30 transition-colors'>
                         <td className='px-4 py-3'>
                           <RankBadge rank={entry.rank} />
