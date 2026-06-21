@@ -20,6 +20,16 @@
   --color-bal-green: #4bc292;  /* GREEN / CHANCE */
   --color-bal-orange: #ff9a00; /* FILTER / IMPORTANT */
   --color-bal-purple: #8867a5; /* PURPLE */
+
+  /* Shift Tailwind's tracking scale positive so headings (tracking-tight/
+     tighter) keep letter spacing instead of overriding the body with a
+     negative value. */
+  --tracking-tighter: 0.015em;
+  --tracking-tight: 0.02em;
+  --tracking-normal: 0.025em;
+  --tracking-wide: 0.05em;
+  --tracking-wider: 0.08em;
+  --tracking-widest: 0.12em;
 }
 
 /* Balatro colour palette */
@@ -176,7 +186,7 @@
     @apply bg-background text-foreground;
     -webkit-font-smoothing: none;
     /* Slight tracking on the pixel font, site-wide (inherited). */
-    letter-spacing: 0.025em;
+    letter-spacing: 0.05em;
   }
 
   button:active {
