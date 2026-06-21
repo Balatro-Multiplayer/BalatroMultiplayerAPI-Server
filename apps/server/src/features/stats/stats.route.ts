@@ -1,8 +1,15 @@
 import { Router } from 'express'
 import { db } from '../../infrastructure/db/index.js'
-import { leaderboardCache, matchmakingMatches, players, seasons } from '../../infrastructure/db/schema.js'
-import { and, asc, desc, eq, sql } from 'drizzle-orm'
+import {
+	leaderboardCache,
+	matchmakingMatches,
+	matchmakingRatings,
+	players,
+	seasons,
+} from '../../infrastructure/db/schema.js'
+import { and, asc, count, desc, eq, gte, sql } from 'drizzle-orm'
 import { getCurrentSeason } from '../../infrastructure/gateways/matchmaking.gateway.js'
+import { PLACEMENT_GAMES } from '../matchmaking/elo.service.js'
 import { AppError } from '../../shared/utils/errors.js'
 
 const router = Router()
@@ -59,28 +66,65 @@ router.get('/leaderboard', async (req, res, next) => {
 			seasonId = active.id
 		}
 
-		const entries = await db
-			.select({
-				rank: leaderboardCache.rank,
-				playerId: leaderboardCache.playerId,
-				displayName: leaderboardCache.displayName,
-				rating: leaderboardCache.rating,
-				wins: leaderboardCache.wins,
-				losses: leaderboardCache.losses,
-				gamesPlayed: leaderboardCache.gamesPlayed,
-				seasonBest: leaderboardCache.seasonBest,
-			})
-			.from(leaderboardCache)
-			.where(
-				and(
-					eq(leaderboardCache.modId, modId),
-					eq(leaderboardCache.gameMode, gameMode),
-					eq(leaderboardCache.season, seasonId),
-				),
-			)
-			.orderBy(asc(leaderboardCache.rank))
+		// Paginate over the full ranked list (matchmaking_ratings is the source of
+		// truth; leaderboard_cache only holds the top 100). Indexed by
+		// (mod_id, game_mode, season, rating) for ordered paging.
+		const page = Math.max(1, Number(req.query.page ?? 1))
+		const pageSize = Math.min(200, Math.max(1, Number(req.query.pageSize ?? 100)))
+		const offset = (page - 1) * pageSize
 
-		res.json({ season: seasonId, modId, gameMode, entries })
+		const where = and(
+			eq(matchmakingRatings.modId, modId),
+			eq(matchmakingRatings.gameMode, gameMode),
+			eq(matchmakingRatings.season, seasonId),
+			gte(matchmakingRatings.gamesPlayed, PLACEMENT_GAMES),
+		)
+
+		const [{ total }] = await db
+			.select({ total: count() })
+			.from(matchmakingRatings)
+			.where(where)
+
+		const rows = await db
+			.select({
+				playerId: matchmakingRatings.playerId,
+				rating: matchmakingRatings.rating,
+				wins: matchmakingRatings.wins,
+				losses: matchmakingRatings.losses,
+				gamesPlayed: matchmakingRatings.gamesPlayed,
+				seasonBest: matchmakingRatings.seasonBest,
+				steamName: players.steamName,
+				discordUsername: players.discordUsername,
+				useDiscordName: players.useDiscordName,
+			})
+			.from(matchmakingRatings)
+			.innerJoin(players, eq(players.id, matchmakingRatings.playerId))
+			.where(where)
+			.orderBy(desc(matchmakingRatings.rating), desc(matchmakingRatings.wins))
+			.limit(pageSize)
+			.offset(offset)
+
+		const entries = rows.map((r, i) => ({
+			rank: offset + i + 1,
+			playerId: r.playerId,
+			displayName: r.useDiscordName && r.discordUsername ? r.discordUsername : r.steamName,
+			rating: r.rating,
+			wins: r.wins,
+			losses: r.losses,
+			gamesPlayed: r.gamesPlayed,
+			seasonBest: r.seasonBest,
+		}))
+
+		res.json({
+			season: seasonId,
+			modId,
+			gameMode,
+			page,
+			pageSize,
+			total,
+			totalPages: Math.max(1, Math.ceil(total / pageSize)),
+			entries,
+		})
 	} catch (err) {
 		next(err)
 	}

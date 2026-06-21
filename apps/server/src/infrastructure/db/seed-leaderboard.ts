@@ -18,7 +18,7 @@ import { db, pool } from './index.js'
 import { matchmakingRatings, players } from './schema.js'
 import { recomputeLeaderboard } from '../gateways/matchmaking.gateway.js'
 
-const PLAYER_COUNT = 100
+const PLAYER_COUNT = 250
 
 type MetricKind = 'time_ms' | 'score'
 

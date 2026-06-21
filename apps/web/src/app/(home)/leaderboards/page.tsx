@@ -13,6 +13,7 @@ import {
   getMode,
 } from '@/lib/leaderboards'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 
@@ -44,6 +45,10 @@ interface LeaderboardResponse {
   season: number
   modId: string
   gameMode: string
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
   entries: LeaderboardEntry[]
 }
 
@@ -65,6 +70,7 @@ function LeaderboardsContent() {
   )
   const [modeParam, setModeParam] = useQueryState('mode', parseAsString)
   const [seasonParam, setSeasonParam] = useQueryState('season', parseAsInteger)
+  const [page, setPage] = useState(1)
 
   const category = getCategory(categoryParam)
   const mode = getMode(category, modeParam)
@@ -79,12 +85,13 @@ function LeaderboardsContent() {
   const selectedSeason = seasonParam ?? currentSeasonId
 
   const { data: leaderboardData, isLoading: lbLoading } = useQuery<LeaderboardResponse>({
-    queryKey: ['leaderboard', category.modId, mode.id, selectedSeason],
+    queryKey: ['leaderboard', category.modId, mode.id, selectedSeason, page],
     queryFn: () =>
       apiFetch(
-        `/stats/leaderboard?modId=${encodeURIComponent(category.modId)}&gameMode=${encodeURIComponent(gameModeKey(mode.id))}${selectedSeason != null ? `&season=${selectedSeason}` : ''}`,
+        `/stats/leaderboard?modId=${encodeURIComponent(category.modId)}&gameMode=${encodeURIComponent(gameModeKey(mode.id))}${selectedSeason != null ? `&season=${selectedSeason}` : ''}&page=${page}`,
       ),
     enabled: selectedSeason != null,
+    placeholderData: (prev) => prev,
   })
 
   const entries = leaderboardData?.entries ?? []
@@ -108,6 +115,7 @@ function LeaderboardsContent() {
             onClick={() => {
               setCategoryParam(c.id === 'speedrun' ? null : c.id)
               setModeParam(null)
+              setPage(1)
             }}
             className={`rounded-md border px-4 py-2 text-sm font-bold transition-colors ${
               category.id === c.id
@@ -126,7 +134,10 @@ function LeaderboardsContent() {
           <button
             key={m.id}
             type='button'
-            onClick={() => setModeParam(m.id === firstMode(category).id ? null : m.id)}
+            onClick={() => {
+              setModeParam(m.id === firstMode(category).id ? null : m.id)
+              setPage(1)
+            }}
             className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
               mode.id === m.id
                 ? 'border-primary text-foreground'
@@ -145,7 +156,10 @@ function LeaderboardsContent() {
             <button
               key={s.id}
               type='button'
-              onClick={() => setSeasonParam(s.id === currentSeasonId ? null : s.id)}
+              onClick={() => {
+                setSeasonParam(s.id === currentSeasonId ? null : s.id)
+                setPage(1)
+              }}
               className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
                 selectedSeason === s.id
                   ? 'bg-primary text-primary-foreground border-primary'
@@ -229,6 +243,35 @@ function LeaderboardsContent() {
             )}
           </CardContent>
         </Card>
+
+        {(leaderboardData?.totalPages ?? 1) > 1 && (
+          <div className='flex items-center justify-between'>
+            <span className='text-xs text-muted-foreground'>
+              {leaderboardData ? `${leaderboardData.total} ranked players` : ''}
+            </span>
+            <div className='flex items-center gap-2'>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+              >
+                Previous
+              </Button>
+              <span className='text-sm text-muted-foreground'>
+                Page {page} of {leaderboardData?.totalPages ?? 1}
+              </span>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => setPage((p) => Math.min(leaderboardData?.totalPages ?? 1, p + 1))}
+                disabled={page >= (leaderboardData?.totalPages ?? 1)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
