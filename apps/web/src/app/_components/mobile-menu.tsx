@@ -33,7 +33,7 @@ function MobileMenuLink({
     <Link
       href={href}
       onClick={onClick}
-      className='flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-fd-muted-foreground text-sm transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground active:bg-fd-accent/80'
+      className='flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-foreground text-sm transition-colors hover:bg-accent hover:text-accent-foreground active:bg-accent/80'
     >
       {icon}
       {children}
@@ -64,7 +64,7 @@ export function MobileMenu({ className }: { className?: string }) {
             </div>
             <div className='flex flex-col'>
               <span className='font-semibold text-sm'>{player.displayName}</span>
-              <span className='text-fd-muted-foreground text-xs'>Signed in</span>
+              <span className='text-muted-foreground text-xs'>Signed in</span>
             </div>
           </div>
         ) : (
@@ -100,7 +100,7 @@ export function MobileMenu({ className }: { className?: string }) {
             <>
               <Separator />
               <div className='px-3 py-3'>
-                <p className='mb-1 px-3 font-semibold text-fd-muted-foreground text-xs uppercase tracking-wider'>
+                <p className='mb-1 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider'>
                   Account
                 </p>
                 <MobileMenuLink href='/profile' icon={<User className='size-4' />} onClick={close}>
@@ -115,7 +115,7 @@ export function MobileMenu({ className }: { className?: string }) {
             <>
               <Separator />
               <div className='px-3 py-3'>
-                <p className='mb-1 px-3 font-semibold text-fd-muted-foreground text-xs uppercase tracking-wider'>
+                <p className='mb-1 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider'>
                   <Shield className='mr-1 inline size-3' />
                   Admin
                 </p>

@@ -72,8 +72,8 @@ export default function StatsPage() {
 
       {/* Global counters */}
       <div className='grid grid-cols-1 gap-4 sm:grid-cols-3'>
-        <StatCard label='Total Matches' value={stats?.totalMatches} color='text-blue-400' />
-        <StatCard label='Unique Players' value={stats?.uniquePlayers} color='text-green-400' />
+        <StatCard label='Total Matches' value={stats?.totalMatches} color='text-bal-blue' />
+        <StatCard label='Unique Players' value={stats?.uniquePlayers} color='text-bal-green' />
         <StatCard label='Active Players' value={stats?.activePlayers} color='text-primary' />
       </div>
 
@@ -102,9 +102,9 @@ export default function StatsPage() {
                       <td className='px-4 py-3 font-semibold'>
                         <a href={`/players/${e.playerId}`} className='hover:text-primary transition-colors'>{e.displayName}</a>
                       </td>
-                      <td className='px-4 py-3 font-bold text-yellow-400'>{Math.round(e.rating)}</td>
-                      <td className='px-4 py-3 text-green-400'>{e.wins}</td>
-                      <td className='px-4 py-3 text-red-400'>{e.losses}</td>
+                      <td className='px-4 py-3 font-bold text-bal-gold'>{Math.round(e.rating)}</td>
+                      <td className='px-4 py-3 text-bal-green'>{e.wins}</td>
+                      <td className='px-4 py-3 text-bal-red'>{e.losses}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -153,7 +153,7 @@ function ComingSoon({ title, desc }: { title: string; desc: string }) {
       </CardHeader>
       <CardContent>
         <div className='flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-muted/20 py-8 px-6 text-center'>
-          <span className='text-sm font-semibold text-yellow-400'>Coming Soon</span>
+          <span className='text-sm font-semibold text-bal-gold'>Coming Soon</span>
           <span className='text-xs text-muted-foreground'>{desc}</span>
         </div>
       </CardContent>
@@ -162,8 +162,8 @@ function ComingSoon({ title, desc }: { title: string; desc: string }) {
 }
 
 function rankClass(rank: number) {
-  if (rank === 1) return 'text-yellow-400'
+  if (rank === 1) return 'text-bal-gold'
   if (rank === 2) return 'text-slate-300'
-  if (rank === 3) return 'text-amber-500'
+  if (rank === 3) return 'text-bal-orange'
   return 'text-muted-foreground'
 }

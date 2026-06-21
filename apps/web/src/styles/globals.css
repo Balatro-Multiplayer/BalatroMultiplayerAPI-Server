@@ -10,6 +10,16 @@
 @theme {
   --font-m6x11: var(--font-m6x11);
   --font-sans: var(--font-m6x11), 'Courier New', monospace;
+
+  /* Authentic Balatro G.C accent colours → Tailwind utilities (text-bal-*, bg-bal-*).
+     Used sparingly as highlights on the muted-dark base. */
+  --color-bal-red: #fe5f55;    /* MULT / RED */
+  --color-bal-blue: #009dff;   /* CHIPS / BLUE */
+  --color-bal-gold: #eac058;   /* GOLD */
+  --color-bal-money: #f3b958;  /* MONEY */
+  --color-bal-green: #4bc292;  /* GREEN / CHANCE */
+  --color-bal-orange: #ff9a00; /* FILTER / IMPORTANT */
+  --color-bal-purple: #8867a5; /* PURPLE */
 }
 
 /* Balatro colour palette */
@@ -52,39 +62,40 @@
   --bal-gray:        #bcbcbc;
   --bal-gray-mid:    #a6a6a6;
 
-  /* Shadcn semantic tokens → Balatro palette (always-dark) */
+  /* Shadcn semantic tokens — muted dark slate base (Balatro BLACK/L_BLACK),
+     coral primary, bright G.C accents elsewhere. Always-dark. */
   --radius: 0.625rem;
-  --background: #334461;
-  --foreground: #f4f8f9;
-  --card: #4f6367;
-  --card-foreground: #f4f8f9;
-  --popover: #4f6367;
-  --popover-foreground: #f4f8f9;
-  --primary: #fd5f55;
-  --primary-foreground: #f4f8f9;
-  --secondary: #5e7977;
-  --secondary-foreground: #f4f8f9;
-  --muted: #334461;
-  --muted-foreground: #bfc7d5;
-  --accent: #5e7977;
+  --background: #1c2426;
+  --foreground: #eef2f3;
+  --card: #232c2e;
+  --card-foreground: #eef2f3;
+  --popover: #232c2e;
+  --popover-foreground: #eef2f3;
+  --primary: #fe5f55;
+  --primary-foreground: #f7f9fa;
+  --secondary: #2c3739;
+  --secondary-foreground: #eef2f3;
+  --muted: #212a2c;
+  --muted-foreground: #93a3a5;
+  --accent: #313d3f;
   --accent-foreground: #f4f8f9;
-  --destructive: #ec2d33;
-  --border: rgba(0, 0, 0, 0.3);
-  --input: rgba(0, 0, 0, 0.3);
-  --ring: #fd5f55;
-  --chart-1: #fd5f55;
-  --chart-2: #009cfd;
-  --chart-3: #56a786;
-  --chart-4: #fda200;
-  --chart-5: #9879cb;
-  --sidebar: #334461;
-  --sidebar-foreground: #f4f8f9;
-  --sidebar-primary: #fd5f55;
-  --sidebar-primary-foreground: #f4f8f9;
-  --sidebar-accent: #5e7977;
+  --destructive: #e3473d;
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.13);
+  --ring: #fe5f55;
+  --chart-1: #fe5f55;
+  --chart-2: #009dff;
+  --chart-3: #4bc292;
+  --chart-4: #eac058;
+  --chart-5: #8867a5;
+  --sidebar: #1c2426;
+  --sidebar-foreground: #eef2f3;
+  --sidebar-primary: #fe5f55;
+  --sidebar-primary-foreground: #f7f9fa;
+  --sidebar-accent: #313d3f;
   --sidebar-accent-foreground: #f4f8f9;
-  --sidebar-border: rgba(0, 0, 0, 0.3);
-  --sidebar-ring: #fd5f55;
+  --sidebar-border: rgba(255, 255, 255, 0.09);
+  --sidebar-ring: #fe5f55;
 }
 
 @theme inline {

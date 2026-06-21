@@ -117,9 +117,9 @@ export default function PlayerPage() {
       {total > 0 && (
         <div className='space-y-1'>
           <div className='flex justify-between text-xs text-muted-foreground'>
-            <span className='text-green-400'>{winTotal}W</span>
+            <span className='text-bal-green'>{winTotal}W</span>
             <span className='font-semibold'>{winPct}% win rate</span>
-            <span className='text-red-400'>{lossTotal}L</span>
+            <span className='text-bal-red'>{lossTotal}L</span>
           </div>
           <div className='h-2 overflow-hidden rounded-full bg-red-500/30'>
             <div
@@ -195,7 +195,7 @@ function ComingSoon({ title, desc }: { title: string; desc: string }) {
       </CardHeader>
       <CardContent>
         <div className='flex flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-muted/20 py-8 px-6 text-center'>
-          <span className='text-sm font-semibold text-yellow-400'>Coming Soon</span>
+          <span className='text-sm font-semibold text-bal-gold'>Coming Soon</span>
           <span className='text-xs text-muted-foreground'>{desc}</span>
         </div>
       </CardContent>

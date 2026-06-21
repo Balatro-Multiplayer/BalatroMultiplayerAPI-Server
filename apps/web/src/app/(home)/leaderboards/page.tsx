@@ -154,7 +154,7 @@ function LeaderboardsContent() {
             >
               {s.name ?? `Season ${s.id}`}
               {s.id === currentSeasonId && (
-                <span className='ml-1.5 text-[10px] text-green-400'>LIVE</span>
+                <span className='ml-1.5 text-[10px] text-bal-green'>LIVE</span>
               )}
             </button>
           ))}
@@ -212,14 +212,14 @@ function LeaderboardsContent() {
                             {entry.displayName}
                           </a>
                         </td>
-                        <td className='px-4 py-3 font-bold text-yellow-400'>
+                        <td className='px-4 py-3 font-bold text-bal-gold'>
                           {Math.round(entry.rating)}
                         </td>
-                        <td className='px-4 py-3 font-semibold text-blue-300'>
+                        <td className='px-4 py-3 font-semibold text-bal-blue'>
                           {formatMetric(category.metric, entry.seasonBest)}
                         </td>
-                        <td className='px-4 py-3 text-green-400'>{entry.wins}</td>
-                        <td className='px-4 py-3 text-red-400'>{entry.losses}</td>
+                        <td className='px-4 py-3 text-bal-green'>{entry.wins}</td>
+                        <td className='px-4 py-3 text-bal-red'>{entry.losses}</td>
                         <td className='px-4 py-3 text-muted-foreground'>{entry.gamesPlayed}</td>
                       </tr>
                     ))}
@@ -235,8 +235,8 @@ function LeaderboardsContent() {
 }
 
 function RankBadge({ rank }: { rank: number }) {
-  if (rank === 1) return <Badge className='bg-yellow-500/20 text-yellow-400 border-yellow-500/30'>#1</Badge>
+  if (rank === 1) return <Badge className='bg-yellow-500/20 text-bal-gold border-yellow-500/30'>#1</Badge>
   if (rank === 2) return <Badge className='bg-slate-400/20 text-slate-300 border-slate-400/30'>#2</Badge>
-  if (rank === 3) return <Badge className='bg-amber-700/20 text-amber-500 border-amber-700/30'>#3</Badge>
+  if (rank === 3) return <Badge className='bg-amber-700/20 text-bal-orange border-amber-700/30'>#3</Badge>
   return <span className='text-muted-foreground text-sm'>#{rank}</span>
 }

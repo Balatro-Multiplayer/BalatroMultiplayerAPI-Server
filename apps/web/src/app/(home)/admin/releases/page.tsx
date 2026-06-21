@@ -240,7 +240,7 @@ export default function AdminReleasesPage() {
                       href={r.url}
                       target='_blank'
                       rel='noopener noreferrer'
-                      className='block truncate text-blue-400 hover:underline'
+                      className='block truncate text-bal-blue hover:underline'
                       title={r.url}
                     >
                       {r.url}

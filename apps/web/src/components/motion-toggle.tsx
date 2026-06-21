@@ -13,7 +13,7 @@ export function MotionToggle() {
       className='flex items-center gap-1.5 px-1'
       title={reduced ? 'Background motion: off' : 'Background motion: on'}
     >
-      <Zap className='size-4 text-fd-muted-foreground' aria-hidden='true' />
+      <Zap className='size-4 text-muted-foreground' aria-hidden='true' />
       <Switch
         checked={!reduced}
         onCheckedChange={(on) => setReducedMotion(!on)}

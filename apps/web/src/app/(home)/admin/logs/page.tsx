@@ -4,7 +4,18 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 
 interface ChatLog {
   id: number
@@ -35,63 +46,70 @@ export default function AdminLogsPage() {
   const logs = data?.logs ?? []
 
   return (
-    <div className='container mx-auto max-w-5xl space-y-6'>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h1 style={{ color: 'var(--bal-cream)', fontSize: 20, fontWeight: 900, margin: 0 }}>Admin — Chat Logs</h1>
-        <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--bal-teal-gray)', fontSize: 12, cursor: 'pointer' }}>
-          <input type='checkbox' checked={flaggedOnly} onChange={(e) => { setFlaggedOnly(e.target.checked); setPage(1) }} style={{ accentColor: 'var(--bal-coral)' }} />
+    <div className='container max-w-5xl py-8 space-y-6'>
+      <div className='flex items-center justify-between'>
+        <div>
+          <h1 className='text-2xl font-bold tracking-tight'>Chat Logs</h1>
+          <p className='text-sm text-muted-foreground'>Recent chat messages for moderation.</p>
+        </div>
+        <Label className='flex cursor-pointer items-center gap-2 text-sm'>
+          <Checkbox
+            checked={flaggedOnly}
+            onCheckedChange={(c) => {
+              setFlaggedOnly(c === true)
+              setPage(1)
+            }}
+          />
           Flagged only
-        </label>
+        </Label>
       </div>
-      <Card>
-        <CardContent style={{ padding: 0 }}>
-          {logs.length === 0 ? (
-            <p style={{ padding: 24, color: 'var(--bal-teal-gray)' }}>No logs found.</p>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid var(--bal-panel-dark)', background: 'rgba(0,0,0,0.15)' }}>
-                    {['Time', 'Player', 'Message', ''].map((h) => (
-                      <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--bal-gray-mid)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {logs.map((log) => (
-                    <tr key={log.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.1)', background: log.flagged ? 'rgba(253,95,85,0.06)' : undefined }}>
-                      <td style={{ padding: '8px 12px', color: 'var(--bal-gray-mid)', whiteSpace: 'nowrap' }}>{new Date(log.sentAt).toLocaleString()}</td>
-                      <td style={{ padding: '8px 12px' }}>
-                        <a href={`/players/${log.playerId}`} style={{ color: 'var(--bal-blue)', fontSize: 11 }}>{log.playerId.slice(0, 8)}…</a>
-                      </td>
-                      <td style={{ padding: '8px 12px', color: 'var(--bal-teal-gray)', maxWidth: 480, wordBreak: 'break-word' }}>{log.message}</td>
-                      <td style={{ padding: '8px 12px' }}>
-                        {log.flagged && <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--bal-coral)', background: 'rgba(253,95,85,0.12)', borderRadius: 4, padding: '2px 6px' }}>FLAGGED</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button type='button' onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} style={PAGE_BTN}>← Prev</button>
-        <span style={{ color: 'var(--bal-teal-gray)', fontSize: 11, alignSelf: 'center' }}>Page {page}</span>
-        <button type='button' onClick={() => setPage((p) => p + 1)} disabled={(data?.logs.length ?? 0) < 100} style={PAGE_BTN}>Next →</button>
+
+      <div className='overflow-x-auto rounded-lg border border-border'>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Time</TableHead>
+              <TableHead>Player</TableHead>
+              <TableHead>Message</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {logs.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={4} className='text-muted-foreground'>No logs found.</TableCell>
+              </TableRow>
+            ) : (
+              logs.map((log) => (
+                <TableRow key={log.id} className={log.flagged ? 'bg-bal-red/5' : undefined}>
+                  <TableCell className='whitespace-nowrap text-xs text-muted-foreground'>
+                    {new Date(log.sentAt).toLocaleString()}
+                  </TableCell>
+                  <TableCell>
+                    <a href={`/players/${log.playerId}`} className='font-mono text-xs text-bal-blue hover:underline'>
+                      {log.playerId.slice(0, 8)}…
+                    </a>
+                  </TableCell>
+                  <TableCell className='max-w-[480px] break-words'>{log.message}</TableCell>
+                  <TableCell>
+                    {log.flagged && <Badge variant='destructive'>Flagged</Badge>}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <div className='flex items-center justify-end gap-2'>
+        <Button variant='outline' size='sm' onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+          Previous
+        </Button>
+        <span className='text-sm text-muted-foreground'>Page {page}</span>
+        <Button variant='outline' size='sm' onClick={() => setPage((p) => p + 1)} disabled={logs.length < 100}>
+          Next
+        </Button>
       </div>
     </div>
   )
-}
-
-const PAGE_BTN: React.CSSProperties = {
-  background: 'var(--bal-panel)',
-  border: '2px solid var(--bal-panel-dark)',
-  color: 'var(--bal-teal-gray)',
-  borderRadius: 4,
-  padding: '6px 14px',
-  fontFamily: 'inherit',
-  fontSize: 12,
-  cursor: 'pointer',
 }

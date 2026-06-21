@@ -46,7 +46,7 @@ export function SiteHeader() {
                 className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
                   active
                     ? 'font-medium text-foreground'
-                    : 'text-fd-muted-foreground hover:text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {item.label}
