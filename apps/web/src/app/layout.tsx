@@ -3,7 +3,7 @@ import { RootProvider } from 'fumadocs-ui/provider/next'
 import type { Metadata } from 'next'
 import localFont from 'next/font/local'
 import { NuqsAdapter } from 'nuqs/adapters/next/app'
-import { BalatroSwirl } from '@/components/balatro-swirl'
+import { BalatroBackground } from '@/components/balatro-background'
 import { QueryProvider } from '@/components/query-provider'
 import { Toaster } from '@/components/ui/sonner'
 
@@ -29,7 +29,7 @@ export default function RootLayout({
   return (
     <html lang='en' className={`${m6x11.variable} dark`} suppressHydrationWarning>
       <body>
-        <BalatroSwirl />
+        <BalatroBackground />
         <div className='relative z-10'>
           <Toaster />
           <QueryProvider>

@@ -1,12 +1,12 @@
-import { HomeLayout } from 'fumadocs-ui/layouts/home'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
-import { baseOptions } from '@/app/layout.config'
+import { SiteHeader } from '@/components/site-header'
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
-    <>
-      <HomeLayout {...baseOptions}>{children}</HomeLayout>
+    <div className='flex min-h-screen flex-col'>
+      <SiteHeader />
+      <main className='flex-1'>{children}</main>
       <footer className='border-t py-6 md:py-0'>
         <div className='container mx-auto flex flex-col items-center justify-between gap-4 md:h-16 md:flex-row'>
           <p className='text-center text-muted-foreground text-sm leading-loose md:text-left'>
@@ -19,6 +19,6 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         </div>
       </footer>
-    </>
+    </div>
   )
 }

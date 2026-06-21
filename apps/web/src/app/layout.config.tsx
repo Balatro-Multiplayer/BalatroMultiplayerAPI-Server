@@ -1,6 +1,7 @@
 import type { BaseLayoutProps, LinkItemType } from 'fumadocs-ui/layouts/shared'
 import { BarChart3, BookOpen, CircleDollarSign, Trophy } from 'lucide-react'
 import Image from 'next/image'
+import { MotionToggle } from '@/components/motion-toggle'
 import { NavAuth } from './_components/nav-auth'
 
 const links = [
@@ -8,6 +9,11 @@ const links = [
   { text: 'Leaderboards', url: '/leaderboards', icon: <Trophy /> },
   { text: 'Stats', url: '/stats', icon: <BarChart3 /> },
   { text: 'Support Us', url: '/support-us', icon: <CircleDollarSign /> },
+  {
+    type: 'custom' as const,
+    secondary: true,
+    children: <MotionToggle />,
+  },
   {
     type: 'custom' as const,
     secondary: true,
