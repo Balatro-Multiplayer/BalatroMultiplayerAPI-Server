@@ -25,7 +25,7 @@ void main() {
   vec2 screen_coords = gl_FragCoord.xy;
 
   float pixel_size = length(screenSize.xy) / PIXEL_SIZE_FAC;
-  vec2 uv = (floor(screen_coords.xy * (1.0 / pixel_size)) * pixel_size - 0.5 * screenSize.xy) / length(screenSize.xy) - vec2(0.12, 0.0);
+  vec2 uv = (floor(screen_coords.xy * (1.0 / pixel_size)) * pixel_size - 0.5 * screenSize.xy) / length(screenSize.xy);
   float uv_len = length(uv);
 
   float speed = (u_spinTime * SPIN_EASE * 0.2) + 302.2;
