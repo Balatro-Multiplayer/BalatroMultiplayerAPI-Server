@@ -4,12 +4,16 @@ import {
   BarChart3,
   BookOpen,
   CircleDollarSign,
+  Gamepad2,
   LogIn,
   LogOut,
   Menu as MenuIcon,
+  MessageSquare,
+  PackageOpen,
   Shield,
   Trophy,
   User,
+  Layers,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
@@ -120,10 +124,19 @@ export function MobileMenu({ className }: { className?: string }) {
                   Admin
                 </p>
                 <MobileMenuLink href='/admin/users' icon={<Shield className='size-4' />} onClick={close}>
-                  Users
+                  Users &amp; Bans
                 </MobileMenuLink>
-                <MobileMenuLink href='/admin/logs' icon={<Shield className='size-4' />} onClick={close}>
-                  Logs
+                <MobileMenuLink href='/admin/logs' icon={<MessageSquare className='size-4' />} onClick={close}>
+                  Chat Logs
+                </MobileMenuLink>
+                <MobileMenuLink href='/admin/seasons' icon={<Layers className='size-4' />} onClick={close}>
+                  Seasons
+                </MobileMenuLink>
+                <MobileMenuLink href='/admin/releases' icon={<PackageOpen className='size-4' />} onClick={close}>
+                  Releases
+                </MobileMenuLink>
+                <MobileMenuLink href='/admin/games' icon={<Gamepad2 className='size-4' />} onClick={close}>
+                  Match History
                 </MobileMenuLink>
               </div>
             </>
