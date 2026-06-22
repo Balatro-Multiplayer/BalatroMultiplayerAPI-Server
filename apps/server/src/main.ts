@@ -22,6 +22,7 @@ import { loadConfigFromDb } from './infrastructure/gateways/config.gateway.js'
 
 const app = express()
 
+app.set('trust proxy', 1)
 app.use(express.json())
 
 app.get('/health', (_req: Request, res: Response) => {
