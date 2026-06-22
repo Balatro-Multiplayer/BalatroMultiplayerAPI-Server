@@ -1,4 +1,4 @@
-import { and, eq, lt, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, lt, isNull, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
 	leaderboardCache,
@@ -48,6 +48,24 @@ export async function getCurrentSeason(): Promise<
 		.where(isNull(seasons.endedAt))
 		.limit(1)
 	return rows[0]
+}
+
+// Resolve the season to read from. If an explicit id is given, use it as-is.
+// Otherwise default to the active season, falling back to the most recent season
+// by id when none is currently active (e.g. between seasons). Returns undefined
+// only when no seasons exist at all.
+export async function resolveSeasonId(explicit?: number): Promise<number | undefined> {
+	if (explicit !== undefined) return explicit
+
+	const active = await getCurrentSeason()
+	if (active) return active.id
+
+	const [latest] = await db
+		.select({ id: seasons.id })
+		.from(seasons)
+		.orderBy(desc(seasons.id))
+		.limit(1)
+	return latest?.id
 }
 
 export async function getOrCreateRating(

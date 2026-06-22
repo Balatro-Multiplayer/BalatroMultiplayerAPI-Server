@@ -9,6 +9,7 @@ import {
 	leaveQueue,
 	markRunStart,
 	reportResult,
+	resolveSeasonId,
 } from './matchmaking.service.js'
 import { getSession } from '../../state/index.js'
 import type { PlacementEntry } from '../../shared/types/index.js'
@@ -17,6 +18,20 @@ import { AppError } from '../../shared/utils/errors.js'
 const router = Router()
 
 router.use(authenticate)
+
+// Resolve the season query param: validate it if present, otherwise let the
+// server pick the active/latest season. Throws 400 for a non-numeric value and
+// 404 when no season can be resolved (no seasons exist at all).
+async function resolveSeason(season: unknown): Promise<number> {
+	let explicit: number | undefined
+	if (season !== undefined) {
+		explicit = Number(season)
+		if (Number.isNaN(explicit)) throw new AppError('Invalid season', 400)
+	}
+	const resolved = await resolveSeasonId(explicit)
+	if (resolved === undefined) throw new AppError('No season available', 404)
+	return resolved
+}
 
 // Join queue
 router.post('/queue', async (req, res, next) => {
@@ -116,16 +131,15 @@ router.post('/matches/:matchId/result', async (req, res, next) => {
 	}
 })
 
-// Get leaderboard — season is required (clients read the active season from /stats/seasons)
+// Get leaderboard — season is optional; when omitted the server uses the active
+// season, falling back to the latest season when none is currently active.
 router.get('/leaderboard', async (req, res, next) => {
 	try {
 		const { modId, gameMode, season } = req.query
 		if (!modId || typeof modId !== 'string') throw new AppError('Missing modId', 400)
 		if (!gameMode || typeof gameMode !== 'string') throw new AppError('Missing gameMode', 400)
 
-		if (season === undefined) throw new AppError('Missing season', 400)
-		const seasonId = Number(season)
-		if (Number.isNaN(seasonId)) throw new AppError('Invalid season', 400)
+		const seasonId = await resolveSeason(season)
 
 		const data = await getLeaderboard(modId, gameMode, seasonId, req.player!.playerId)
 		res.json(data)
@@ -134,16 +148,15 @@ router.get('/leaderboard', async (req, res, next) => {
 	}
 })
 
-// Get own rating — season is required (clients read the active season from /stats/seasons)
+// Get own rating — season is optional; when omitted the server uses the active
+// season, falling back to the latest season when none is currently active.
 router.get('/ratings', async (req, res, next) => {
 	try {
 		const { modId, gameMode, season } = req.query
 		if (!modId || typeof modId !== 'string') throw new AppError('Missing modId', 400)
 		if (!gameMode || typeof gameMode !== 'string') throw new AppError('Missing gameMode', 400)
 
-		if (season === undefined) throw new AppError('Missing season', 400)
-		const seasonId = Number(season)
-		if (Number.isNaN(seasonId)) throw new AppError('Invalid season', 400)
+		const seasonId = await resolveSeason(season)
 
 		const data = await getOwnRating(req.player!.playerId, modId, gameMode, seasonId)
 		if (!data) {

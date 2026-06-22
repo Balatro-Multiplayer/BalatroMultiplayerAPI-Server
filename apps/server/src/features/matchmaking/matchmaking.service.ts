@@ -41,6 +41,7 @@ import type { StoredLobbyState } from '../../infrastructure/gateways/matchmaking
 export {
 	getLeaderboard,
 	getOwnRating,
+	resolveSeasonId,
 	runDecay,
 	checkSeasonRollover,
 } from '../../infrastructure/gateways/matchmaking.gateway.js'

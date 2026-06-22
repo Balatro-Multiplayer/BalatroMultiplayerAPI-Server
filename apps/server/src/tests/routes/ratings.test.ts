@@ -3,7 +3,11 @@ import request from 'supertest'
 import { createTestApp } from './app.js'
 import { signJwt } from '../../features/auth/auth.service.js'
 import { createSession } from '../../state/index.js'
-import { getLeaderboard, getOwnRating } from '../../features/matchmaking/matchmaking.service.js'
+import {
+	getLeaderboard,
+	getOwnRating,
+	resolveSeasonId,
+} from '../../features/matchmaking/matchmaking.service.js'
 
 vi.mock('../../features/matchmaking/matchmaking.service.js', () => ({
 	joinQueue: vi.fn(),
@@ -13,6 +17,9 @@ vi.mock('../../features/matchmaking/matchmaking.service.js', () => ({
 	reportResult: vi.fn(),
 	getLeaderboard: vi.fn(),
 	getOwnRating: vi.fn(),
+	// Mirrors the real helper: explicit id passes through, otherwise a default
+	// "active" season (1) stands in for the resolved active/latest season.
+	resolveSeasonId: vi.fn(async (id?: number) => id ?? 1),
 	updateGroupQueueOnLobbyJoin: vi.fn(),
 	removeGroupQueueForLobby: vi.fn(),
 	runCasualQueue: vi.fn(),
@@ -64,12 +71,14 @@ describe('GET /api/matchmaking/ratings', () => {
 		expect(res.status).toBe(400)
 	})
 
-	it('returns 400 when season is missing', async () => {
+	it('resolves the active season when season is omitted', async () => {
+		vi.mocked(getOwnRating).mockResolvedValueOnce(null)
 		const res = await request(app)
 			.get('/api/matchmaking/ratings')
 			.set('Authorization', authHeader('p1', 'Alice'))
 			.query({ modId: 'speedrunning', gameMode: 'ranked:1v1' })
-		expect(res.status).toBe(400)
+		expect(res.status).toBe(200)
+		expect(vi.mocked(getOwnRating)).toHaveBeenCalledWith('p1', 'speedrunning', 'ranked:1v1', 1)
 	})
 
 	it('returns 400 for non-numeric season', async () => {
@@ -172,12 +181,20 @@ describe('GET /api/matchmaking/leaderboard', () => {
 		expect(res.status).toBe(400)
 	})
 
-	it('returns 400 when season is missing', async () => {
+	it('resolves the active season when season is omitted', async () => {
+		vi.mocked(getLeaderboard).mockResolvedValueOnce({
+			season: 1,
+			modId: 'speedrunning',
+			gameMode: 'ranked:1v1',
+			entries: [],
+			playerEntry: null,
+		})
 		const res = await request(app)
 			.get('/api/matchmaking/leaderboard')
 			.set('Authorization', authHeader('p1', 'Alice'))
 			.query({ modId: 'speedrunning', gameMode: 'ranked:1v1' })
-		expect(res.status).toBe(400)
+		expect(res.status).toBe(200)
+		expect(vi.mocked(getLeaderboard)).toHaveBeenCalledWith('speedrunning', 'ranked:1v1', 1, 'p1')
 	})
 
 	it('returns 400 for non-numeric season', async () => {
