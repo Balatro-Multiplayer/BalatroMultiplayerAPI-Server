@@ -13,6 +13,9 @@ COPY packages/internal/package.json ./packages/internal/
 
 RUN pnpm install --frozen-lockfile --filter balatro-multiplayer-web...
 
+COPY packages/ ./packages/
+RUN pnpm --filter @bmp/types build
+
 COPY apps/web/ ./apps/web/
 
 ENV NEXT_TELEMETRY_DISABLED=1
