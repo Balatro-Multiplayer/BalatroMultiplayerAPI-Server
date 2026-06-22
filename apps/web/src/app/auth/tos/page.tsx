@@ -2,32 +2,12 @@
 
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useState } from 'react'
-import { apiFetch } from '@/lib/api'
+import { ApiError, apiFetch } from '@/lib/api'
 import { setToken } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-]
-
-const DAYS = Array.from({ length: 31 }, (_, i) => i + 1)
-
-const currentYear = new Date().getFullYear()
-const YEARS = Array.from({ length: 121 }, (_, i) => currentYear - i)
-
-function computeAge(month: number, day: number, year: number): number {
-  const now = new Date()
-  let age = now.getFullYear() - year
-  if (now.getMonth() + 1 < month || (now.getMonth() + 1 === month && now.getDate() < day)) {
-    age -= 1
-  }
-  return age
-}
+import { BirthdayPicker } from './birthday-picker'
 
 function TosContent() {
   const router = useRouter()
@@ -35,16 +15,13 @@ function TosContent() {
   const pendingToken = searchParams.get('token')
   const isUpdate = searchParams.get('update') === '1'
 
-  const [month, setMonth] = useState<number | null>(null)
-  const [day, setDay] = useState<number | null>(null)
-  const [year, setYear] = useState<number | null>(null)
+  const [age, setAge] = useState<number | null>(null)
   const [agreed, setAgreed] = useState(false)
   const [blocked, setBlocked] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const dateComplete = month !== null && day !== null && year !== null
-  const age = dateComplete ? computeAge(month!, day!, year!) : null
+  const dateComplete = age !== null
   const chatEligible = age !== null && age >= 16
   const canSubmit = !isUpdate && dateComplete && agreed && !!pendingToken
   const canSubmitUpdate = isUpdate && !!pendingToken
@@ -69,7 +46,7 @@ function TosContent() {
       setToken(data.token)
       router.replace('/profile')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong')
+      setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Something went wrong')
     } finally {
       setSubmitting(false)
     }
@@ -121,55 +98,13 @@ function TosContent() {
         </CardHeader>
         <CardContent className='space-y-6'>
 
-          {/* Birthday */}
-          <div className='space-y-2'>
-            <p className='text-sm font-medium'>Your birthday</p>
-            <p className='text-xs text-muted-foreground'>
-              We won&apos;t store it, we just need to check that you are old enough to play.
+          <BirthdayPicker onAgeChange={setAge} />
+          {dateComplete && !chatEligible && (
+            <p className='text-xs text-yellow-400'>
+              You must be 16 or older to use in-game chat.
             </p>
-            <div className='grid grid-cols-3 gap-2'>
-              <div className='space-y-1'>
-                <Label className='text-xs'>Month</Label>
-                <Select onValueChange={(v) => setMonth(Number(v))}>
-                  <SelectTrigger><SelectValue placeholder='Month' /></SelectTrigger>
-                  <SelectContent>
-                    {MONTHS.map((name, i) => (
-                      <SelectItem key={i + 1} value={String(i + 1)}>{name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className='space-y-1'>
-                <Label className='text-xs'>Day</Label>
-                <Select onValueChange={(v) => setDay(Number(v))}>
-                  <SelectTrigger><SelectValue placeholder='Day' /></SelectTrigger>
-                  <SelectContent>
-                    {DAYS.map((d) => (
-                      <SelectItem key={d} value={String(d)}>{d}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className='space-y-1'>
-                <Label className='text-xs'>Year</Label>
-                <Select onValueChange={(v) => setYear(Number(v))}>
-                  <SelectTrigger><SelectValue placeholder='Year' /></SelectTrigger>
-                  <SelectContent>
-                    {YEARS.map((y) => (
-                      <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            {dateComplete && !chatEligible && (
-              <p className='text-xs text-yellow-400'>
-                You must be 16 or older to use in-game chat.
-              </p>
-            )}
-          </div>
+          )}
 
-          {/* Agreement */}
           <div className='space-y-2'>
             <p className='text-sm font-medium'>What you&apos;re agreeing to</p>
             <ul className='space-y-1 text-xs text-muted-foreground'>

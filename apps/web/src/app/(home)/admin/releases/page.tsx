@@ -1,61 +1,19 @@
 'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Pencil, Trash2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { apiFetch } from '@/lib/api'
+import { ApiError, apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { Textarea } from '@/components/ui/textarea'
-
-interface Release {
-  id: number
-  name: string
-  description: string | null
-  version: string
-  url: string
-  smods_version: string | null
-  lovely_version: string | null
-  branchId: number
-  branchName: string | null
-}
+import { AddReleaseForm } from './components/add-release-form'
+import { BranchManagementDialog } from './components/branch-management-dialog'
+import { DeleteReleaseDialog } from './components/delete-release-dialog'
+import { EditReleaseDialog } from './components/edit-release-dialog'
+import { ReleasesTable } from './components/releases-table'
+import { EMPTY_FORM } from './components/releases-types'
+import type { Branch, Release, ReleaseForm } from './components/releases-types'
 
 interface ReleasesResponse {
   data: Release[]
@@ -64,23 +22,6 @@ interface ReleasesResponse {
   total: number
   totalPages: number
 }
-
-interface Branch {
-  id: number
-  name: string
-}
-
-const EMPTY_FORM = {
-  id: 0,
-  name: '',
-  version: '',
-  description: '',
-  url: '',
-  smods_version: 'latest',
-  lovely_version: 'latest',
-  branchId: 1,
-}
-type ReleaseForm = typeof EMPTY_FORM
 
 export default function AdminReleasesPage() {
   const { isAdmin, isModerator, pending } = useAuth()
@@ -118,7 +59,7 @@ export default function AdminReleasesPage() {
   const releases = releasesQ.data?.data ?? []
 
   const onErr = (e: unknown) =>
-    toast.error(e instanceof Error ? e.message : 'Request failed')
+    toast.error(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Request failed')
   const invalidate = () => qc.invalidateQueries({ queryKey: ['admin-releases'] })
 
   const addMut = useMutation({
@@ -207,248 +148,50 @@ export default function AdminReleasesPage() {
         />
       </div>
 
-      <div className='overflow-x-auto rounded-lg border border-border'>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Version</TableHead>
-              <TableHead>Branch</TableHead>
-              <TableHead>URL</TableHead>
-              <TableHead>SMODS</TableHead>
-              <TableHead>Lovely</TableHead>
-              <TableHead className='text-right'>Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {releasesQ.isLoading ? (
-              <TableRow>
-                <TableCell colSpan={7} className='text-muted-foreground'>Loading…</TableCell>
-              </TableRow>
-            ) : releases.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className='text-muted-foreground'>No releases</TableCell>
-              </TableRow>
-            ) : (
-              releases.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell className='font-medium'>{r.name}</TableCell>
-                  <TableCell>{r.version}</TableCell>
-                  <TableCell>{r.branchName ?? 'main'}</TableCell>
-                  <TableCell className='max-w-[220px]'>
-                    <a
-                      href={r.url}
-                      target='_blank'
-                      rel='noopener noreferrer'
-                      className='block truncate text-bal-blue hover:underline'
-                      title={r.url}
-                    >
-                      {r.url}
-                    </a>
-                  </TableCell>
-                  <TableCell>{r.smods_version ?? 'latest'}</TableCell>
-                  <TableCell>{r.lovely_version ?? 'latest'}</TableCell>
-                  <TableCell className='space-x-2 text-right'>
-                    <Button variant='outline' size='sm' onClick={() => openEdit(r)}>
-                      <Pencil className='mr-1 h-4 w-4' /> Edit
-                    </Button>
-                    <Button variant='destructive' size='sm' onClick={() => setDeleteTarget(r)}>
-                      <Trash2 className='mr-1 h-4 w-4' /> Delete
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <ReleasesTable
+        releases={releases}
+        isLoading={releasesQ.isLoading}
+        onEdit={openEdit}
+        onDelete={setDeleteTarget}
+      />
 
-      {/* Add new release */}
-      <div className='rounded-lg border border-border bg-card p-6'>
-        <div className='mb-4 flex items-center justify-between'>
-          <h2 className='text-lg font-semibold'>Add New Release</h2>
-          <Button type='button' variant='outline' size='sm' onClick={() => setBranchOpen(true)}>
-            Manage Branches
-          </Button>
-        </div>
-        <form
-          className='space-y-4'
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (!addForm.name.trim() || !addForm.version.trim() || !addForm.url.trim()) {
-              toast.error('Name, version, and URL are required')
-              return
-            }
-            addMut.mutate(addForm)
-          }}
-        >
-          <ReleaseFields form={addForm} setForm={setAddForm} branches={branches} idPrefix='add' />
-          <Button type='submit' className='w-full' disabled={addMut.isPending}>
-            {addMut.isPending ? 'Adding…' : 'Add Release'}
-          </Button>
-        </form>
-      </div>
+      <AddReleaseForm
+        form={addForm}
+        branches={branches}
+        isPending={addMut.isPending}
+        onFormChange={setAddForm}
+        onSubmit={(f) => addMut.mutate(f)}
+        onManageBranches={() => setBranchOpen(true)}
+      />
 
-      {/* Edit dialog */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className='sm:max-w-[600px]'>
-          <DialogHeader>
-            <DialogTitle>Edit Release</DialogTitle>
-            <DialogDescription>Update the release details.</DialogDescription>
-          </DialogHeader>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              updateMut.mutate(editForm)
-            }}
-            className='space-y-4'
-          >
-            <ReleaseFields form={editForm} setForm={setEditForm} branches={branches} idPrefix='edit' />
-            <DialogFooter>
-              <Button type='button' variant='outline' onClick={() => setEditOpen(false)}>
-                Cancel
-              </Button>
-              <Button type='submit' disabled={updateMut.isPending}>
-                {updateMut.isPending ? 'Saving…' : 'Save changes'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <EditReleaseDialog
+        open={editOpen}
+        form={editForm}
+        branches={branches}
+        isPending={updateMut.isPending}
+        onFormChange={setEditForm}
+        onSave={() => updateMut.mutate(editForm)}
+        onClose={() => setEditOpen(false)}
+      />
 
-      {/* Delete confirm */}
-      <AlertDialog open={deleteTarget !== null} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete release?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently deletes
-              {deleteTarget && <strong> “{deleteTarget.name}”</strong>}. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className='bg-destructive text-white hover:bg-destructive/90'
-              onClick={() => deleteTarget && deleteMut.mutate(deleteTarget.id)}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteReleaseDialog
+        target={deleteTarget}
+        isPending={deleteMut.isPending}
+        onConfirm={() => deleteTarget && deleteMut.mutate(deleteTarget.id)}
+        onClose={() => setDeleteTarget(null)}
+      />
 
-      {/* Branch management */}
-      <Dialog open={branchOpen} onOpenChange={setBranchOpen}>
-        <DialogContent className='sm:max-w-[480px]'>
-          <DialogHeader>
-            <DialogTitle>Manage Branches</DialogTitle>
-            <DialogDescription>Add or remove release channels.</DialogDescription>
-          </DialogHeader>
-          <div className='space-y-4'>
-            <div className='space-y-2'>
-              <Label htmlFor='new-branch'>Add branch</Label>
-              <div className='flex gap-2'>
-                <Input
-                  id='new-branch'
-                  value={newBranch}
-                  onChange={(e) => setNewBranch(e.target.value)}
-                  placeholder='e.g. nightly'
-                />
-                <Button
-                  type='button'
-                  onClick={() => newBranch.trim() && addBranchMut.mutate(newBranch.trim())}
-                  disabled={!newBranch.trim() || branches.some((b) => b.name === newBranch.trim())}
-                >
-                  Add
-                </Button>
-              </div>
-            </div>
-            <div className='space-y-2'>
-              <Label>Existing branches</Label>
-              <ul className='max-h-60 space-y-1 overflow-y-auto rounded-md border border-border p-2'>
-                {branches.map((b) => (
-                  <li key={b.id} className='flex items-center justify-between rounded px-2 py-1 hover:bg-muted'>
-                    <span>{b.name}</span>
-                    {b.name !== 'main' && (
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        className='h-7 w-7 p-0 text-destructive'
-                        onClick={() => deleteBranchMut.mutate(b.id)}
-                      >
-                        <Trash2 className='h-4 w-4' />
-                      </Button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button type='button' onClick={() => setBranchOpen(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <BranchManagementDialog
+        open={branchOpen}
+        branches={branches}
+        newBranch={newBranch}
+        addPending={addBranchMut.isPending}
+        deletePending={deleteBranchMut.isPending}
+        onNewBranchChange={setNewBranch}
+        onAdd={() => newBranch.trim() && addBranchMut.mutate(newBranch.trim())}
+        onDelete={(id) => deleteBranchMut.mutate(id)}
+        onClose={() => setBranchOpen(false)}
+      />
     </div>
-  )
-}
-
-function ReleaseFields({
-  form,
-  setForm,
-  branches,
-  idPrefix,
-}: {
-  form: ReleaseForm
-  setForm: (f: ReleaseForm) => void
-  branches: Branch[]
-  idPrefix: string
-}) {
-  const set = (patch: Partial<ReleaseForm>) => setForm({ ...form, ...patch })
-  return (
-    <>
-      <div className='grid gap-2'>
-        <Label htmlFor={`${idPrefix}-name`}>Title</Label>
-        <Input id={`${idPrefix}-name`} value={form.name} onChange={(e) => set({ name: e.target.value })} />
-      </div>
-      <div className='grid gap-2'>
-        <Label htmlFor={`${idPrefix}-version`}>Version</Label>
-        <Input id={`${idPrefix}-version`} value={form.version} onChange={(e) => set({ version: e.target.value })} />
-      </div>
-      <div className='grid gap-2'>
-        <Label htmlFor={`${idPrefix}-desc`}>Description</Label>
-        <Textarea id={`${idPrefix}-desc`} value={form.description} onChange={(e) => set({ description: e.target.value })} />
-      </div>
-      <div className='grid gap-2'>
-        <Label htmlFor={`${idPrefix}-url`}>URL</Label>
-        <Input id={`${idPrefix}-url`} value={form.url} onChange={(e) => set({ url: e.target.value })} placeholder='https://…/release.zip' />
-      </div>
-      <div className='grid grid-cols-1 gap-4 sm:grid-cols-3'>
-        <div className='grid gap-2'>
-          <Label htmlFor={`${idPrefix}-smods`}>Steamodded</Label>
-          <Input id={`${idPrefix}-smods`} value={form.smods_version} onChange={(e) => set({ smods_version: e.target.value })} />
-        </div>
-        <div className='grid gap-2'>
-          <Label htmlFor={`${idPrefix}-lovely`}>Lovely</Label>
-          <Input id={`${idPrefix}-lovely`} value={form.lovely_version} onChange={(e) => set({ lovely_version: e.target.value })} />
-        </div>
-        <div className='grid gap-2'>
-          <Label htmlFor={`${idPrefix}-branch`}>Branch</Label>
-          <Select value={String(form.branchId)} onValueChange={(v) => set({ branchId: Number(v) })}>
-            <SelectTrigger id={`${idPrefix}-branch`}>
-              <SelectValue placeholder='Branch' />
-            </SelectTrigger>
-            <SelectContent>
-              {branches.map((b) => (
-                <SelectItem key={b.id} value={String(b.id)}>
-                  {b.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-    </>
   )
 }

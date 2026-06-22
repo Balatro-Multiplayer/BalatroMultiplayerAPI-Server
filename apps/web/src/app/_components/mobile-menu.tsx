@@ -45,6 +45,104 @@ function MobileMenuLink({
   )
 }
 
+function MobileUserHeader({
+  player,
+  isLoggedIn,
+  onClose,
+}: {
+  player: { displayName: string } | null
+  isLoggedIn: boolean
+  onClose: () => void
+}) {
+  if (isLoggedIn && player) {
+    return (
+      <div className='flex items-center gap-3 border-b px-5 pt-14 pb-4'>
+        <div className='flex h-9 w-9 items-center justify-center rounded-full bg-card border border-border text-sm font-bold'>
+          {player.displayName.slice(0, 2).toUpperCase()}
+        </div>
+        <div className='flex flex-col'>
+          <span className='font-semibold text-sm'>{player.displayName}</span>
+          <span className='text-muted-foreground text-xs'>Signed in</span>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className='border-b px-5 pt-14 pb-4'>
+      <Button variant='outline' size='sm' className='w-full' asChild>
+        <Link href='/login' onClick={onClose}>
+          <LogIn className='mr-2 size-4' />
+          Sign In
+        </Link>
+      </Button>
+    </div>
+  )
+}
+
+function MobileNavLinks({ onClose }: { onClose: () => void }) {
+  return (
+    <nav className='flex flex-col gap-0.5 px-3 py-3'>
+      <MobileMenuLink href='/docs' icon={<BookOpen className='size-4' />} onClick={onClose}>
+        Documentation
+      </MobileMenuLink>
+      <MobileMenuLink href='/leaderboards' icon={<Trophy className='size-4' />} onClick={onClose}>
+        Leaderboards
+      </MobileMenuLink>
+      <MobileMenuLink href='/stats' icon={<BarChart3 className='size-4' />} onClick={onClose}>
+        Stats
+      </MobileMenuLink>
+      <MobileMenuLink href='/support-us' icon={<CircleDollarSign className='size-4' />} onClick={onClose}>
+        Support Us
+      </MobileMenuLink>
+    </nav>
+  )
+}
+
+function MobileAccountSection({ onClose }: { onClose: () => void }) {
+  return (
+    <>
+      <Separator />
+      <div className='px-3 py-3'>
+        <p className='mb-1 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider'>
+          Account
+        </p>
+        <MobileMenuLink href='/profile' icon={<User className='size-4' />} onClick={onClose}>
+          My Account
+        </MobileMenuLink>
+      </div>
+    </>
+  )
+}
+
+function MobileAdminSection({ onClose }: { onClose: () => void }) {
+  return (
+    <>
+      <Separator />
+      <div className='px-3 py-3'>
+        <p className='mb-1 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider'>
+          <Shield className='mr-1 inline size-3' />
+          Admin
+        </p>
+        <MobileMenuLink href='/admin/users' icon={<Shield className='size-4' />} onClick={onClose}>
+          Users &amp; Bans
+        </MobileMenuLink>
+        <MobileMenuLink href='/admin/logs' icon={<MessageSquare className='size-4' />} onClick={onClose}>
+          Chat Logs
+        </MobileMenuLink>
+        <MobileMenuLink href='/admin/seasons' icon={<Layers className='size-4' />} onClick={onClose}>
+          Seasons
+        </MobileMenuLink>
+        <MobileMenuLink href='/admin/releases' icon={<PackageOpen className='size-4' />} onClick={onClose}>
+          Releases
+        </MobileMenuLink>
+        <MobileMenuLink href='/admin/games' icon={<Gamepad2 className='size-4' />} onClick={onClose}>
+          Match History
+        </MobileMenuLink>
+      </div>
+    </>
+  )
+}
+
 export function MobileMenu({ className }: { className?: string }) {
   const { player, isLoggedIn, isAdmin, isModerator, logout } = useAuth()
   const [open, setOpen] = useState(false)
@@ -60,87 +158,12 @@ export function MobileMenu({ className }: { className?: string }) {
       <SheetContent side='right' className='w-72 p-0'>
         <SheetTitle className='sr-only'>Navigation menu</SheetTitle>
 
-        {/* User section */}
-        {isLoggedIn && player ? (
-          <div className='flex items-center gap-3 border-b px-5 pt-14 pb-4'>
-            <div className='flex h-9 w-9 items-center justify-center rounded-full bg-card border border-border text-sm font-bold'>
-              {player.displayName.slice(0, 2).toUpperCase()}
-            </div>
-            <div className='flex flex-col'>
-              <span className='font-semibold text-sm'>{player.displayName}</span>
-              <span className='text-muted-foreground text-xs'>Signed in</span>
-            </div>
-          </div>
-        ) : (
-          <div className='border-b px-5 pt-14 pb-4'>
-            <Button variant='outline' size='sm' className='w-full' asChild>
-              <Link href='/login' onClick={close}>
-                <LogIn className='mr-2 size-4' />
-                Sign In
-              </Link>
-            </Button>
-          </div>
-        )}
+        <MobileUserHeader player={player} isLoggedIn={isLoggedIn} onClose={close} />
 
-        {/* Navigation */}
         <div className='min-h-0 flex-1 overflow-y-auto'>
-          <nav className='flex flex-col gap-0.5 px-3 py-3'>
-            <MobileMenuLink href='/docs' icon={<BookOpen className='size-4' />} onClick={close}>
-              Documentation
-            </MobileMenuLink>
-            <MobileMenuLink href='/leaderboards' icon={<Trophy className='size-4' />} onClick={close}>
-              Leaderboards
-            </MobileMenuLink>
-            <MobileMenuLink href='/stats' icon={<BarChart3 className='size-4' />} onClick={close}>
-              Stats
-            </MobileMenuLink>
-            <MobileMenuLink href='/support-us' icon={<CircleDollarSign className='size-4' />} onClick={close}>
-              Support Us
-            </MobileMenuLink>
-          </nav>
-
-          {/* Account */}
-          {isLoggedIn && player && (
-            <>
-              <Separator />
-              <div className='px-3 py-3'>
-                <p className='mb-1 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider'>
-                  Account
-                </p>
-                <MobileMenuLink href='/profile' icon={<User className='size-4' />} onClick={close}>
-                  My Account
-                </MobileMenuLink>
-              </div>
-            </>
-          )}
-
-          {/* Admin */}
-          {(isAdmin || isModerator) && (
-            <>
-              <Separator />
-              <div className='px-3 py-3'>
-                <p className='mb-1 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider'>
-                  <Shield className='mr-1 inline size-3' />
-                  Admin
-                </p>
-                <MobileMenuLink href='/admin/users' icon={<Shield className='size-4' />} onClick={close}>
-                  Users &amp; Bans
-                </MobileMenuLink>
-                <MobileMenuLink href='/admin/logs' icon={<MessageSquare className='size-4' />} onClick={close}>
-                  Chat Logs
-                </MobileMenuLink>
-                <MobileMenuLink href='/admin/seasons' icon={<Layers className='size-4' />} onClick={close}>
-                  Seasons
-                </MobileMenuLink>
-                <MobileMenuLink href='/admin/releases' icon={<PackageOpen className='size-4' />} onClick={close}>
-                  Releases
-                </MobileMenuLink>
-                <MobileMenuLink href='/admin/games' icon={<Gamepad2 className='size-4' />} onClick={close}>
-                  Match History
-                </MobileMenuLink>
-              </div>
-            </>
-          )}
+          <MobileNavLinks onClose={close} />
+          {isLoggedIn && player && <MobileAccountSection onClose={close} />}
+          {(isAdmin || isModerator) && <MobileAdminSection onClose={close} />}
         </div>
 
         <div className='border-t px-3 py-3'>

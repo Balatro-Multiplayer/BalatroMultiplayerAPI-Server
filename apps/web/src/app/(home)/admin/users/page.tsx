@@ -3,19 +3,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import type { BanType, Privilege } from '@bmp/types'
 import { apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { BanList } from './components/ban-list'
+import { IssueBanForm } from './components/issue-ban-form'
+import { PlayerList } from './components/player-list'
+import { PrivilegeManager } from './components/privilege-manager'
 
 interface AdminPlayer {
   id: string
   steamName: string
   discordUsername: string | null
-  privileges: string[]
+  privileges: Privilege[]
   chatEnabled: boolean
   chatBlocked: boolean
   tosAcceptedVersion: string | null
@@ -34,7 +35,7 @@ interface PlayersResponse {
 interface Ban {
   id: number
   reason: string
-  banType: string
+  banType: BanType
   expiresAt: string | null
   liftedAt: string | null
   createdAt: string
@@ -54,7 +55,7 @@ export default function AdminUsersPage() {
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [banReason, setBanReason] = useState('')
-  const [banType, setBanType] = useState('chat')
+  const [banType, setBanType] = useState<BanType>('chat')
   const [banExpiry, setBanExpiry] = useState('')
   const [privInput, setPrivInput] = useState('')
 
@@ -103,7 +104,7 @@ export default function AdminUsersPage() {
   })
 
   const privMutation = useMutation({
-    mutationFn: (vars: { playerId: string; privileges: string[] }) =>
+    mutationFn: (vars: { playerId: string; privileges: Privilege[] }) =>
       apiFetch(`/webadmin/players/${vars.playerId}/privileges`, {
         method: 'PATCH',
         body: JSON.stringify({ privileges: vars.privileges }),
@@ -128,70 +129,16 @@ export default function AdminUsersPage() {
       </div>
 
       <div className='grid grid-cols-1 gap-6 font-readable lg:grid-cols-[340px_1fr]'>
-        {/* Player list */}
-        <div className='space-y-3'>
-          <Input
-            placeholder='Search players…'
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value)
-              setPage(1)
-            }}
-          />
-          <div className='max-h-[60vh] space-y-1 overflow-y-auto rounded-lg border border-border p-1'>
-            {players.length === 0 ? (
-              <p className='p-4 text-sm text-muted-foreground'>No players found.</p>
-            ) : (
-              players.map((p) => (
-                <button
-                  key={p.id}
-                  type='button'
-                  onClick={() => setSelectedId(p.id)}
-                  className={`flex w-full flex-col gap-1 rounded-md px-3 py-2 text-left transition-colors ${
-                    selectedId === p.id
-                      ? 'bg-accent text-accent-foreground'
-                      : 'hover:bg-muted'
-                  }`}
-                >
-                  <span className='font-semibold text-sm'>{p.steamName}</span>
-                  <div className='flex flex-wrap gap-1'>
-                    {p.activeBans > 0 && (
-                      <Badge variant='destructive' className='text-[10px]'>
-                        {p.activeBans} ban{p.activeBans === 1 ? '' : 's'}
-                      </Badge>
-                    )}
-                    {p.privileges.map((pr) => (
-                      <Badge key={pr} variant='outline' className='text-[10px] text-bal-gold'>
-                        {pr}
-                      </Badge>
-                    ))}
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-          <div className='flex items-center justify-between'>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-            >
-              Previous
-            </Button>
-            <span className='text-xs text-muted-foreground'>Page {page}</span>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => setPage((p) => p + 1)}
-              disabled={players.length < 50}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
+        <PlayerList
+          players={players}
+          selectedId={selectedId}
+          search={search}
+          page={page}
+          onSearchChange={setSearch}
+          onSelect={setSelectedId}
+          onPageChange={setPage}
+        />
 
-        {/* Detail panel */}
         <div>
           {!detail ? (
             <div className='flex h-full min-h-[40vh] items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground'>
@@ -204,161 +151,63 @@ export default function AdminUsersPage() {
                 <p className='font-mono text-xs text-muted-foreground'>{detail.id}</p>
               </div>
 
-              {/* Bans */}
               <Card>
                 <CardHeader>
                   <CardTitle className='text-base'>Bans</CardTitle>
                 </CardHeader>
                 <CardContent className='space-y-4'>
-                  {detail.bans.length === 0 ? (
-                    <p className='text-sm text-muted-foreground'>No bans on record.</p>
-                  ) : (
-                    <div className='space-y-2'>
-                      {detail.bans.map((ban) => {
-                        const active =
-                          !ban.liftedAt &&
-                          (!ban.expiresAt || new Date(ban.expiresAt) > new Date())
-                        return (
-                          <div
-                            key={ban.id}
-                            className='flex items-start justify-between gap-3 rounded-md border border-border p-2 text-sm'
-                          >
-                            <div className='space-y-0.5'>
-                              <div className='flex items-center gap-2'>
-                                <Badge variant={active ? 'destructive' : 'outline'}>
-                                  {ban.banType}
-                                </Badge>
-                                {!active && (
-                                  <span className='text-xs text-muted-foreground'>
-                                    {ban.liftedAt ? 'lifted' : 'expired'}
-                                  </span>
-                                )}
-                              </div>
-                              <p className='text-muted-foreground'>{ban.reason || 'No reason given'}</p>
-                              {ban.expiresAt && (
-                                <p className='text-xs text-muted-foreground'>
-                                  until {new Date(ban.expiresAt).toLocaleDateString()}
-                                </p>
-                              )}
-                            </div>
-                            {active && (
-                              <Button
-                                variant='outline'
-                                size='sm'
-                                onClick={() =>
-                                  liftBanMutation.mutate({ playerId: detail.id, banId: ban.id })
-                                }
-                              >
-                                Lift
-                              </Button>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-
-                  <div className='space-y-2 border-t border-border pt-4'>
-                    <Label className='text-xs text-muted-foreground'>Issue a ban</Label>
-                    <Input
-                      placeholder='Reason'
-                      value={banReason}
-                      onChange={(e) => setBanReason(e.target.value)}
-                    />
-                    <div className='flex gap-2'>
-                      <Input
-                        placeholder='chat / queue / account'
-                        value={banType}
-                        onChange={(e) => setBanType(e.target.value)}
-                        className='w-40'
-                      />
-                      <Input
-                        type='date'
-                        value={banExpiry}
-                        onChange={(e) => setBanExpiry(e.target.value)}
-                        className='flex-1'
-                      />
-                      <Button
-                        onClick={() =>
-                          banMutation.mutate({
-                            playerId: detail.id,
-                            reason: banReason,
-                            type: banType.trim(),
-                            expiresAt: banExpiry ? new Date(banExpiry).toISOString() : null,
-                          })
-                        }
-                        disabled={!banReason.trim() || !banType.trim() || banMutation.isPending}
-                      >
-                        Add Ban
-                      </Button>
-                    </div>
-                  </div>
+                  <BanList
+                    bans={detail.bans}
+                    liftPending={liftBanMutation.isPending}
+                    onLift={(banId) => liftBanMutation.mutate({ playerId: detail.id, banId })}
+                  />
+                  <IssueBanForm
+                    banType={banType}
+                    banReason={banReason}
+                    banExpiry={banExpiry}
+                    isPending={banMutation.isPending}
+                    onBanTypeChange={setBanType}
+                    onReasonChange={setBanReason}
+                    onExpiryChange={setBanExpiry}
+                    onSubmit={() =>
+                      banMutation.mutate({
+                        playerId: detail.id,
+                        reason: banReason,
+                        type: banType,
+                        expiresAt: banExpiry ? new Date(banExpiry).toISOString() : null,
+                      })
+                    }
+                  />
                 </CardContent>
               </Card>
 
-              {/* Privileges */}
               <Card>
                 <CardHeader>
                   <CardTitle className='text-base'>Privileges</CardTitle>
                 </CardHeader>
-                <CardContent className='space-y-3'>
-                  <div className='flex flex-wrap gap-2'>
-                    {detail.privileges.length === 0 ? (
-                      <p className='text-sm text-muted-foreground'>None.</p>
-                    ) : (
-                      detail.privileges.map((pr) => (
-                        <Button
-                          key={pr}
-                          variant='outline'
-                          size='sm'
-                          className='text-bal-gold'
-                          onClick={() =>
-                            privMutation.mutate({
-                              playerId: detail.id,
-                              privileges: detail.privileges.filter((x) => x !== pr),
-                            })
-                          }
-                        >
-                          {pr} ✕
-                        </Button>
-                      ))
-                    )}
-                  </div>
-                  <div className='flex gap-2'>
-                    <Input
-                      placeholder='Privilege (e.g. tester)'
-                      value={privInput}
-                      onChange={(e) => setPrivInput(e.target.value)}
-                      className='w-44'
-                      onKeyDown={(e) => {
-                        if (e.key !== 'Enter') return
-                        const v = privInput.trim()
-                        if (v && !detail.privileges.includes(v)) {
-                          privMutation.mutate({
-                            playerId: detail.id,
-                            privileges: [...detail.privileges, v],
-                          })
-                          setPrivInput('')
-                        }
-                      }}
-                    />
-                    <Button
-                      variant='outline'
-                      onClick={() => {
-                        const v = privInput.trim()
-                        if (v && !detail.privileges.includes(v)) {
-                          privMutation.mutate({
-                            playerId: detail.id,
-                            privileges: [...detail.privileges, v],
-                          })
-                          setPrivInput('')
-                        }
-                      }}
-                      disabled={!privInput.trim() || detail.privileges.includes(privInput.trim())}
-                    >
-                      Grant
-                    </Button>
-                  </div>
+                <CardContent>
+                  <PrivilegeManager
+                    privileges={detail.privileges}
+                    privInput={privInput}
+                    isPending={privMutation.isPending}
+                    onRemove={(pr) =>
+                      privMutation.mutate({
+                        playerId: detail.id,
+                        privileges: detail.privileges.filter((x) => x !== pr),
+                      })
+                    }
+                    onInputChange={setPrivInput}
+                    onGrant={() => {
+                      const v = privInput.trim() as Privilege
+                      if (v && !detail.privileges.includes(v)) {
+                        privMutation.mutate({
+                          playerId: detail.id,
+                          privileges: [...detail.privileges, v],
+                        })
+                        setPrivInput('')
+                      }
+                    }}
+                  />
                 </CardContent>
               </Card>
             </div>

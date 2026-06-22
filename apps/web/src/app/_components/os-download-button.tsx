@@ -20,7 +20,6 @@ export function OSDownloadButton() {
   const [showOptions, setShowOptions] = useState(false)
 
   useEffect(() => {
-    // Detect OS on client side
     const userAgent = window.navigator.userAgent.toLowerCase()
 
     if (userAgent.indexOf('win') !== -1) {

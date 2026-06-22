@@ -81,6 +81,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@bmp/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@icons-pack/react-simple-icons':
         specifier: ^13.13.0
         version: 13.13.0(react@19.2.7)

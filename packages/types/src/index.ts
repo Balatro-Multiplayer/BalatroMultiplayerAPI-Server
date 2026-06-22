@@ -111,3 +111,7 @@ export interface PlacementEntry {
 	// mod's metrics.config entry; ignored for server-measured boards (e.g. speedrun time).
 	metric?: number
 }
+
+export type Privilege = 'admin' | 'moderator' | 'tester' | (string & {})
+export type BanType = 'chat' | 'queue' | 'account'
+export type MatchStatus = 'active' | 'resolved'

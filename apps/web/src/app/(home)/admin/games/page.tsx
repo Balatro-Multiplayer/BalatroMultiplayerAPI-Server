@@ -23,12 +23,14 @@ import {
   TableRow,
 } from '@/components/ui/table'
 
+import type { MatchStatus } from '@bmp/types'
+
 interface Match {
   matchId: string
   lobbyCode: string
   modId: string
   gameMode: string
-  status: string
+  status: MatchStatus
   gameStartedAt: string | null
   createdAt: string
   playerNames: string[]
@@ -59,7 +61,7 @@ export default function AdminGamesPage() {
   const canAccess = isAdmin || isModerator
 
   const [modId, setModId] = useState('all')
-  const [status, setStatus] = useState('all')
+  const [status, setStatus] = useState<MatchStatus | 'all'>('all')
   const [page, setPage] = useState(1)
 
   useEffect(() => {
@@ -117,7 +119,7 @@ export default function AdminGamesPage() {
         <Select
           value={status}
           onValueChange={(v) => {
-            setStatus(v)
+            setStatus(v as MatchStatus | 'all')
             setPage(1)
           }}
         >

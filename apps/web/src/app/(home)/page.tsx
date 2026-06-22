@@ -207,11 +207,6 @@ export default function Home() {
                   </li>
                 </ul>
               </CardContent>
-              {/*<div className='mt-auto p-6 pt-0'>*/}
-              {/*  <Button variant='outline' className='w-full' asChild>*/}
-              {/*    <Link href='/docs/direct-play'>Learn More</Link>*/}
-              {/*  </Button>*/}
-              {/*</div>*/}
             </Card>
 
             <Card className='flex h-full flex-col'>
@@ -256,11 +251,6 @@ export default function Home() {
                   </div>
                 </div>
               </CardContent>
-              {/*<div className='mt-auto p-6 pt-0'>*/}
-              {/*  <Button variant='outline' className='w-full' asChild>*/}
-              {/*    <Link href='/docs/matchmaking'>Learn More</Link>*/}
-              {/*  </Button>*/}
-              {/*</div>*/}
             </Card>
 
             <Card className='flex h-full flex-col'>
