@@ -18,11 +18,16 @@ COPY apps/web/ ./apps/web/
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter balatro-multiplayer-web build
 
-##### RUNNER — run `next start` from the built app.
-FROM build AS runner
+##### RUNNER — slim image using Next.js standalone output
+FROM node:22-alpine AS runner
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
-WORKDIR /app/apps/web
+WORKDIR /app
+
+COPY --from=build /app/apps/web/.next/standalone ./
+COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build /app/apps/web/public ./apps/web/public
+
 EXPOSE 3000
-CMD ["pnpm", "start"]
+CMD ["node", "apps/web/server.js"]
