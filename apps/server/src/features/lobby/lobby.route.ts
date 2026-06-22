@@ -4,7 +4,9 @@ import * as lobbyService from './lobby.service.js'
 import { processAndPublishMessage } from '../chat/chat.service.js'
 import { submitReport } from '../../infrastructure/gateways/report.gateway.js'
 import { getLobby, getSession } from '../../state/index.js'
+import { getConfig } from '../../state/config.js'
 import { AppError } from '../../shared/utils/errors.js'
+import { assertCanPlay } from '../../shared/utils/access.js'
 import { hasActiveBan } from '../../infrastructure/gateways/ban.gateway.js'
 
 const router = Router()
@@ -13,6 +15,10 @@ router.use(authenticate)
 
 router.post('/', async (req, res, next) => {
 	try {
+		const session = getSession(req.player!.playerId)
+		if (!session) throw new AppError('Session not found', 401)
+		assertCanPlay(session)
+
 		const { modId, maxPlayers } = req.body
 		if (!modId || typeof modId !== 'string') {
 			throw new AppError('Missing or invalid modId', 400)
@@ -129,6 +135,12 @@ router.post('/:code/chat', async (req, res, next) => {
 		const { code } = req.params
 		const session = getSession(req.player!.playerId)
 		if (!session) throw new AppError('Session not found', 401)
+
+		// Global chat kill-switch: when chat is disabled server-wide, no message
+		// goes through regardless of per-account settings.
+		if (!getConfig().chatEnabled) {
+			throw new AppError('Chat is not enabled', 403)
+		}
 
 		if (!session.chatEnabled || session.chatBlocked) {
 			throw new AppError('Chat is not enabled for this account', 403)

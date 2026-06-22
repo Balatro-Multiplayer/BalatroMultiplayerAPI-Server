@@ -10,13 +10,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 
 interface AdminPlayer {
   id: string
@@ -51,9 +44,6 @@ interface PlayerDetailResponse {
   player: AdminPlayer
   bans: Ban[]
 }
-
-const BAN_TYPES = ['chat', 'queue', 'account']
-const PRIVILEGES = ['admin', 'moderator', 'trusted', 'developer']
 
 export default function AdminUsersPage() {
   const { isAdmin, isModerator, pending } = useAuth()
@@ -276,18 +266,12 @@ export default function AdminUsersPage() {
                       onChange={(e) => setBanReason(e.target.value)}
                     />
                     <div className='flex gap-2'>
-                      <Select value={banType} onValueChange={setBanType}>
-                        <SelectTrigger className='w-32'>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {BAN_TYPES.map((t) => (
-                            <SelectItem key={t} value={t}>
-                              {t}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Input
+                        placeholder='chat / queue / account'
+                        value={banType}
+                        onChange={(e) => setBanType(e.target.value)}
+                        className='w-40'
+                      />
                       <Input
                         type='date'
                         value={banExpiry}
@@ -299,11 +283,11 @@ export default function AdminUsersPage() {
                           banMutation.mutate({
                             playerId: detail.id,
                             reason: banReason,
-                            type: banType,
+                            type: banType.trim(),
                             expiresAt: banExpiry ? new Date(banExpiry).toISOString() : null,
                           })
                         }
-                        disabled={!banReason.trim() || banMutation.isPending}
+                        disabled={!banReason.trim() || !banType.trim() || banMutation.isPending}
                       >
                         Add Ban
                       </Button>
@@ -341,30 +325,36 @@ export default function AdminUsersPage() {
                     )}
                   </div>
                   <div className='flex gap-2'>
-                    <Select value={privInput} onValueChange={setPrivInput}>
-                      <SelectTrigger className='w-44'>
-                        <SelectValue placeholder='Select privilege' />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PRIVILEGES.map((p) => (
-                          <SelectItem key={p} value={p}>
-                            {p}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      variant='outline'
-                      onClick={() => {
-                        if (privInput && !detail.privileges.includes(privInput)) {
+                    <Input
+                      placeholder='Privilege (e.g. tester)'
+                      value={privInput}
+                      onChange={(e) => setPrivInput(e.target.value)}
+                      className='w-44'
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter') return
+                        const v = privInput.trim()
+                        if (v && !detail.privileges.includes(v)) {
                           privMutation.mutate({
                             playerId: detail.id,
-                            privileges: [...detail.privileges, privInput],
+                            privileges: [...detail.privileges, v],
                           })
                           setPrivInput('')
                         }
                       }}
-                      disabled={!privInput || detail.privileges.includes(privInput)}
+                    />
+                    <Button
+                      variant='outline'
+                      onClick={() => {
+                        const v = privInput.trim()
+                        if (v && !detail.privileges.includes(v)) {
+                          privMutation.mutate({
+                            playerId: detail.id,
+                            privileges: [...detail.privileges, v],
+                          })
+                          setPrivInput('')
+                        }
+                      }}
+                      disabled={!privInput.trim() || detail.privileges.includes(privInput.trim())}
                     >
                       Grant
                     </Button>

@@ -2,6 +2,7 @@ import { db } from '../db/index.js'
 import { serverConfig, modVersions, chatAllowlist } from '../db/schema.js'
 import type { AppConfig } from '../../state/config.js'
 import { setConfig } from '../../state/config.js'
+import { env } from '../../env.js'
 
 export async function loadConfigFromDb(): Promise<AppConfig> {
 	await db
@@ -23,7 +24,13 @@ export async function loadConfigFromDb(): Promise<AppConfig> {
 	const allowlistRows = await db.select().from(chatAllowlist)
 	const chatAllowlistSet = new Set(allowlistRows.map((r) => r.message))
 
-	const config: AppConfig = { tosVersion, mods, chatAllowlist: chatAllowlistSet }
+	const config: AppConfig = {
+		tosVersion,
+		mods,
+		chatAllowlist: chatAllowlistSet,
+		chatEnabled: env.CHAT_ENABLED,
+		testingMode: env.TESTING_MODE,
+	}
 	setConfig(config)
 	return config
 }

@@ -10,6 +10,12 @@ function optional(key: string, defaultValue: string): string {
 	return process.env[key] ?? defaultValue
 }
 
+function optionalBool(key: string, defaultValue: boolean): boolean {
+	const value = process.env[key]
+	if (value === undefined) return defaultValue
+	return value === 'true' || value === '1'
+}
+
 export const env = {
 	PORT: Number(optional('PORT', '8788')),
 	NODE_ENV: optional('NODE_ENV', 'development'),
@@ -40,4 +46,11 @@ export const env = {
 	ADMIN_SECRET: required('ADMIN_SECRET'),
 
 	WEB_BASE_URL: optional('WEB_BASE_URL', 'http://localhost:3000'),
+
+	// When false, the server rejects all chat sends with an error. Off for now.
+	CHAT_ENABLED: optionalBool('CHAT_ENABLED', false),
+
+	// When true, only players holding the 'tester' privilege may create lobbies or
+	// queue for matches. Everyone else is rejected. Off by default.
+	TESTING_MODE: optionalBool('TESTING_MODE', false),
 } as const

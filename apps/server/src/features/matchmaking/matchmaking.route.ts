@@ -14,6 +14,7 @@ import {
 import { getSession } from '../../state/index.js'
 import type { PlacementEntry } from '../../shared/types/index.js'
 import { AppError } from '../../shared/utils/errors.js'
+import { assertCanPlay } from '../../shared/utils/access.js'
 
 const router = Router()
 
@@ -38,6 +39,7 @@ router.post('/queue', async (req, res, next) => {
 	try {
 		const session = getSession(req.player!.playerId)
 		if (!session) throw new AppError('Session not found', 401)
+		assertCanPlay(session)
 
 		const { modId, gameMode, minPlayers, maxPlayers } = req.body
 		if (!modId || typeof modId !== 'string') throw new AppError('Missing modId', 400)

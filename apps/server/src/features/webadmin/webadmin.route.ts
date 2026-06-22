@@ -24,7 +24,11 @@ import {
 
 const router = Router()
 
-const VALID_PRIVILEGES = ['admin', 'moderator', 'trusted', 'developer'] as const
+// Privilege names are free-form identifiers (a lowercase letter followed by
+// lowercase letters/digits/underscores). Validated by format rather than a fixed
+// allow-list so new privileges (e.g. 'tester') can be granted from the admin UI
+// without a code change.
+const PRIVILEGE_PATTERN = /^[a-z][a-z0-9_]{0,31}$/
 
 function webAdmin(req: Request, res: Response, next: NextFunction) {
 	authenticate(req, res, async () => {
@@ -116,8 +120,8 @@ router.patch('/players/:id/privileges', async (req, res, next) => {
 		if (!Array.isArray(privileges) || !privileges.every((p) => typeof p === 'string')) {
 			throw new AppError('privileges must be an array of strings', 400)
 		}
-		const invalid = privileges.filter((p) => !(VALID_PRIVILEGES as readonly string[]).includes(p))
-		if (invalid.length > 0) throw new AppError(`Unknown privileges: ${invalid.join(', ')}`, 400)
+		const invalid = privileges.filter((p) => !PRIVILEGE_PATTERN.test(p))
+		if (invalid.length > 0) throw new AppError(`Invalid privilege names: ${invalid.join(', ')}`, 400)
 
 		const [updated] = await db
 			.update(players)

@@ -9,9 +9,19 @@ export interface AppConfig {
 	tosVersion: number
 	mods: ModConfig[]
 	chatAllowlist: Set<string>
+	// Global chat kill-switch. When falsy, the server rejects all chat sends.
+	chatEnabled?: boolean
+	// When truthy, only 'tester'-privileged players may create lobbies / queue.
+	testingMode?: boolean
 }
 
-let _config: AppConfig = { tosVersion: 1, mods: [], chatAllowlist: new Set() }
+let _config: AppConfig = {
+	tosVersion: 1,
+	mods: [],
+	chatAllowlist: new Set(),
+	chatEnabled: false,
+	testingMode: false,
+}
 
 export function getConfig(): AppConfig {
 	return _config
