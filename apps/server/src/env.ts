@@ -32,7 +32,7 @@ export const env = {
 	DISCORD_CLIENT_SECRET: optional('DISCORD_CLIENT_SECRET', ''),
 	DISCORD_REDIRECT_URI: optional(
 		'DISCORD_REDIRECT_URI',
-		'http://localhost:8788/api/auth/discord/callback',
+		'https://new.balatromp.com/api/auth/discord/callback',
 	),
 
 	EMQX_BROKER_URL: optional('EMQX_BROKER_URL', 'mqtt://emqx:1883'),
@@ -45,7 +45,7 @@ export const env = {
 
 	ADMIN_SECRET: required('ADMIN_SECRET'),
 
-	WEB_BASE_URL: optional('WEB_BASE_URL', 'http://localhost:3000'),
+	WEB_BASE_URL: optional('WEB_BASE_URL', 'https://new.balatromp.com'),
 
 	// When false, the server rejects all chat sends with an error. Off for now.
 	CHAT_ENABLED: optionalBool('CHAT_ENABLED', false),

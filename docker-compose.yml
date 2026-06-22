@@ -54,7 +54,7 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/bmp
       EMQX_BROKER_URL: mqtt://emqx:1883
       EMQX_API_URL: http://emqx:18083/api/v5
-      WEB_BASE_URL: ${WEB_BASE_URL:-http://localhost:3000}
+      WEB_BASE_URL: ${WEB_BASE_URL:-https://new.balatromp.com}
     depends_on:
       emqx:
         condition: service_healthy
