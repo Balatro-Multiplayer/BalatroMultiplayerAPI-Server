@@ -3,7 +3,7 @@ import {
 	authenticateClient,
 	authorizeAction,
 } from '../../features/emqx/emqx-auth.service.js'
-import { signJwt } from '../../features/auth/auth.service.js'
+import { signJwt } from '../../features/auth/jwt.js'
 import { Lobby, createSession, lobbies } from '../../state/index.js'
 
 function makeToken(playerId: string, steamName = 'Test') {

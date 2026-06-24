@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express'
-import { verifyJwt } from '../features/auth/auth.service.js'
+import { verifyJwt } from '../features/auth/jwt.js'
 import type { JwtPayload } from '../shared/types/index.js'
 
 declare global {

@@ -1,10 +1,11 @@
 import { PRIVILEGE_JOKERS } from './jokers.js'
+import type { Privilege } from '../types/index.js'
 
 export interface PrivilegeTable {
 	jokers?: string[]
 }
 
-export function buildPrivilegeTable(privileges: string[]): PrivilegeTable {
+export function buildPrivilegeTable(privileges: Privilege[]): PrivilegeTable {
 	const jokers: string[] = []
 
 	for (const priv of privileges) {

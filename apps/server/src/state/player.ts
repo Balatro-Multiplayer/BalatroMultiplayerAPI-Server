@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { Privilege } from '../shared/types/index.js'
 
 export class PlayerSession {
 	public readonly playerId: string
@@ -8,7 +9,7 @@ export class PlayerSession {
 	public discordUsername?: string
 	public useDiscordName: boolean
 	public preferredJoker: string
-	public privileges: string[]
+	public privileges: Privilege[]
 	public tosAcceptedVersion: number
 	public lobbyCode?: string
 	public readonly connectedAt: Date
@@ -25,7 +26,7 @@ export class PlayerSession {
 			discordUsername?: string
 			useDiscordName?: boolean
 			preferredJoker?: string
-			privileges?: string[]
+			privileges?: Privilege[]
 			tosAcceptedVersion?: number
 			chatEnabled?: boolean
 			chatBlocked?: boolean

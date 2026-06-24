@@ -6,15 +6,9 @@ import { flaggedMessages } from './infrastructure/db/schema.js'
 import { lt } from 'drizzle-orm'
 import { env } from './env.js'
 import { errorHandler } from './middleware/errorHandler.js'
-import router from './routes/index.js'
+import router, { matchmakingService } from './routes/index.js'
 import { clearAllGracePeriods } from './infrastructure/mqtt/grace-period.service.js'
-import {
-	restoreMatchesFromDb,
-	startDailyJob,
-	startMatchmaking,
-	stopDailyJob,
-	stopMatchmaking,
-} from './features/matchmaking/matchmaking.service.js'
+import { startDailyJob, stopDailyJob } from './features/matchmaking/matchmaking.service.js'
 import { provisionEmqxWebhook } from './infrastructure/emqx/emqx-provision.service.js'
 import { mqttService } from './infrastructure/mqtt/mqtt.service.js'
 import { startSessionCleanup, stopSessionCleanup } from './state/index.js'
@@ -36,7 +30,7 @@ let server: Server
 async function shutdown() {
 	console.log('[server] Shutting down gracefully...')
 
-	stopMatchmaking()
+	matchmakingService.stopMatchmaking()
 	stopDailyJob()
 	stopSessionCleanup()
 	clearAllGracePeriods()
@@ -85,8 +79,8 @@ async function start() {
 		await mqttService.connect()
 		await provisionEmqxWebhook()
 
-		await restoreMatchesFromDb()
-		startMatchmaking()
+		await matchmakingService.restoreMatchesFromDb()
+		matchmakingService.startMatchmaking()
 		startDailyJob()
 
 		startSessionCleanup()

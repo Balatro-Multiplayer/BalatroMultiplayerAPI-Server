@@ -1,17 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
 	authenticateAsTemp,
-	authenticateWithSteam,
-	authenticateWithDiscord,
-	generateLinkState,
-	linkSteamToPlayer,
-	linkDiscordToPlayer,
-	linkStateNonces,
-	signJwt,
-	validateSteamTicket,
-	verifyJwt,
-	verifyLinkState,
+	createAuthService,
 } from '../../features/auth/auth.service.js'
+import { signJwt, verifyJwt } from '../../features/auth/jwt.js'
+import { validateSteamTicket } from '../../features/auth/steam.js'
+import {
+	generateLinkState,
+	linkStateNonces,
+	verifyLinkState,
+} from '../../features/auth/link-state.js'
 import {
 	createSession,
 	findByProvider,
@@ -20,20 +18,53 @@ import {
 	discordIndex,
 } from '../../state/index.js'
 import { hashProviderId } from '../../shared/utils/hash.js'
-import * as playerDb from '../../infrastructure/gateways/player.gateway.js'
+import type { IPlayerRepository, PlayerRecord } from '../../contracts/IPlayerRepository.js'
+import type { IGracePeriodService } from '../../contracts/IGracePeriodService.js'
 
-const mockPlayerRecord = {
+const mockPlayerRecord: PlayerRecord = {
 	id: 'db-player-id',
-	steamIdHash: null as string | null,
-	discordIdHash: null as string | null,
-	discordUsername: null as string | null,
+	steamIdHash: null,
+	discordIdHash: null,
+	discordUsername: null,
 	useDiscordName: false,
 	preferredJoker: 'j_joker',
-	privileges: [] as string[],
+	privileges: [],
 	steamName: 'OldName',
 	chatEnabled: false,
 	chatBlocked: false,
 	tosAcceptedVersion: 0,
+}
+
+function makeMockPlayerRepository(): IPlayerRepository {
+	return {
+		findPlayerBySteamIdHash: vi.fn().mockResolvedValue(null),
+		findPlayerByDiscordIdHash: vi.fn().mockResolvedValue(null),
+		findPlayerById: vi.fn().mockResolvedValue(null),
+		findPlayerBySteamName: vi.fn().mockResolvedValue(null),
+		createPlayer: vi.fn().mockResolvedValue(mockPlayerRecord),
+		linkSteam: vi.fn().mockResolvedValue(undefined),
+		linkDiscord: vi.fn().mockResolvedValue(undefined),
+		unlinkDiscord: vi.fn().mockResolvedValue(undefined),
+		updateUseDiscordName: vi.fn().mockResolvedValue(undefined),
+		updateDiscordUsername: vi.fn().mockResolvedValue(undefined),
+		updatePreferredJoker: vi.fn().mockResolvedValue(undefined),
+		updateSteamName: vi.fn().mockResolvedValue(undefined),
+		updateTosAcceptedVersion: vi.fn().mockResolvedValue(undefined),
+		updateChatStatus: vi.fn().mockResolvedValue(undefined),
+	}
+}
+
+function makeMockGracePeriodService(): Pick<IGracePeriodService, 'cancelGracePeriod'> {
+	return {
+		cancelGracePeriod: vi.fn().mockResolvedValue(true),
+	}
+}
+
+function makeAuthService() {
+	const playerRepository = makeMockPlayerRepository()
+	const gracePeriodService = makeMockGracePeriodService()
+	const service = createAuthService({ playerRepository, gracePeriodService })
+	return { service, playerRepository, gracePeriodService }
 }
 
 describe('auth.service', () => {
@@ -73,7 +104,8 @@ describe('auth.service', () => {
 
 	describe('authenticateWithSteam', () => {
 		it('creates a new session for unknown steam ID', async () => {
-			const { session, token } = await authenticateWithSteam('steam1', 'Alice')
+			const { service } = makeAuthService()
+			const { session, token } = await service.authenticateWithSteam('steam1', 'Alice')
 
 			expect(session.playerId).toBeDefined()
 			expect(session.steamName).toBe('Alice')
@@ -86,36 +118,40 @@ describe('auth.service', () => {
 		})
 
 		it('does not call createPlayer for new steam users', async () => {
-			await authenticateWithSteam('steam1', 'Alice')
-			expect(playerDb.createPlayer).not.toHaveBeenCalled()
+			const { service, playerRepository } = makeAuthService()
+			await service.authenticateWithSteam('steam1', 'Alice')
+			expect(playerRepository.createPlayer).not.toHaveBeenCalled()
 		})
 
 		it('reuses existing in-memory session on re-auth', async () => {
-			const first = await authenticateWithSteam('steam1', 'Alice')
-			const second = await authenticateWithSteam('steam1', 'AliceV2')
+			const { service } = makeAuthService()
+			const first = await service.authenticateWithSteam('steam1', 'Alice')
+			const second = await service.authenticateWithSteam('steam1', 'AliceV2')
 
 			expect(first.session).toBe(second.session)
 			expect(second.session.steamName).toBe('AliceV2')
 		})
 
 		it('updates steam name on re-auth', async () => {
-			await authenticateWithSteam('steam1', 'Alice')
-			vi.mocked(playerDb.updateSteamName).mockClear()
+			const { service, playerRepository } = makeAuthService()
+			await service.authenticateWithSteam('steam1', 'Alice')
+			vi.mocked(playerRepository.updateSteamName).mockClear()
 
-			await authenticateWithSteam('steam1', 'AliceV2')
+			await service.authenticateWithSteam('steam1', 'AliceV2')
 
-			expect(playerDb.updateSteamName).toHaveBeenCalledOnce()
+			expect(playerRepository.updateSteamName).toHaveBeenCalledOnce()
 		})
 
 		it('restores from DB when not in memory', async () => {
+			const { service, playerRepository } = makeAuthService()
 			const steamIdHash = hashProviderId('steam1')
-			vi.mocked(playerDb.findPlayerBySteamIdHash).mockResolvedValueOnce({
+			vi.mocked(playerRepository.findPlayerBySteamIdHash).mockResolvedValueOnce({
 				...mockPlayerRecord,
 				steamIdHash,
 				discordIdHash: 'some-discord-hash',
 			})
 
-			const { session } = await authenticateWithSteam('steam1', 'Alice')
+			const { session } = await service.authenticateWithSteam('steam1', 'Alice')
 
 			expect(session.playerId).toBe('db-player-id')
 			expect(session.steamIdHash).toBe(steamIdHash)
@@ -126,7 +162,8 @@ describe('auth.service', () => {
 
 	describe('authenticateWithDiscord', () => {
 		it('creates a new session for unknown discord ID', async () => {
-			const { session, token } = await authenticateWithDiscord('disc1', 'Bob')
+			const { service } = makeAuthService()
+			const { session, token } = await service.authenticateWithDiscord('disc1', 'Bob')
 
 			expect(session.playerId).toBeDefined()
 			expect(session.steamName).toBe('Bob')
@@ -138,22 +175,24 @@ describe('auth.service', () => {
 		})
 
 		it('reuses existing in-memory session on re-auth', async () => {
-			const first = await authenticateWithDiscord('disc1', 'Bob')
-			const second = await authenticateWithDiscord('disc1', 'BobV2')
+			const { service } = makeAuthService()
+			const first = await service.authenticateWithDiscord('disc1', 'Bob')
+			const second = await service.authenticateWithDiscord('disc1', 'BobV2')
 
 			expect(first.session).toBe(second.session)
 			expect(second.session.steamName).toBe('BobV2')
 		})
 
 		it('restores from DB when not in memory', async () => {
+			const { service, playerRepository } = makeAuthService()
 			const discordIdHash = hashProviderId('disc1')
-			vi.mocked(playerDb.findPlayerByDiscordIdHash).mockResolvedValueOnce({
+			vi.mocked(playerRepository.findPlayerByDiscordIdHash).mockResolvedValueOnce({
 				...mockPlayerRecord,
 				steamIdHash: 'some-steam-hash',
 				discordIdHash,
 			})
 
-			const { session } = await authenticateWithDiscord('disc1', 'Bob')
+			const { session } = await service.authenticateWithDiscord('disc1', 'Bob')
 
 			expect(session.playerId).toBe('db-player-id')
 			expect(session.discordIdHash).toBe(discordIdHash)
@@ -161,93 +200,103 @@ describe('auth.service', () => {
 		})
 
 		it('propagates DB errors from createPlayer', async () => {
-			vi.mocked(playerDb.createPlayer).mockRejectedValueOnce(
+			const { service, playerRepository } = makeAuthService()
+			vi.mocked(playerRepository.createPlayer).mockRejectedValueOnce(
 				new Error('DB connection failed'),
 			)
 
 			await expect(
-				authenticateWithDiscord('disc1', 'Bob'),
+				service.authenticateWithDiscord('disc1', 'Bob'),
 			).rejects.toThrow('DB connection failed')
 		})
 	})
 
 	describe('linkSteamToPlayer', () => {
 		it('links steam to an existing session', async () => {
+			const { service } = makeAuthService()
 			const session = createSession('Alice', { discordIdHash: 'disc1' })
 
-			const result = await linkSteamToPlayer(session.playerId, 'steam1')
+			const result = await service.linkSteamToPlayer(session.playerId, 'steam1')
 
 			expect(result.session.steamIdHash).toBe(hashProviderId('steam1'))
 			expect(findByProvider('steam', hashProviderId('steam1'))).toBe(session)
 		})
 
 		it('throws if session not found', async () => {
+			const { service } = makeAuthService()
 			await expect(
-				linkSteamToPlayer('unknown', 'steam1'),
-			).rejects.toThrow('Player session not found')
+				service.linkSteamToPlayer('unknown', 'steam1'),
+			).rejects.toThrow('Player not found')
 		})
 
 		it('throws if steam already linked to another player', async () => {
+			const { service } = makeAuthService()
 			createSession('Alice', { steamIdHash: hashProviderId('steam1') })
 			const bob = createSession('Bob', { discordIdHash: 'disc1' })
 
 			await expect(
-				linkSteamToPlayer(bob.playerId, 'steam1'),
+				service.linkSteamToPlayer(bob.playerId, 'steam1'),
 			).rejects.toThrow('Steam account already linked to another player')
 		})
 
 		it('allows re-linking same steam to same player', async () => {
+			const { service } = makeAuthService()
 			const session = createSession('Alice', { steamIdHash: hashProviderId('steam1') })
 
-			const result = await linkSteamToPlayer(session.playerId, 'steam1')
+			const result = await service.linkSteamToPlayer(session.playerId, 'steam1')
 			expect(result.session.steamIdHash).toBe(hashProviderId('steam1'))
 		})
 
 		it('propagates DB errors from linkSteam', async () => {
+			const { service, playerRepository } = makeAuthService()
 			const session = createSession('Alice', { discordIdHash: 'disc1' })
-			vi.mocked(playerDb.linkSteam).mockRejectedValueOnce(
+			vi.mocked(playerRepository.linkSteam).mockRejectedValueOnce(
 				new Error('DB write failed'),
 			)
 
 			await expect(
-				linkSteamToPlayer(session.playerId, 'steam1'),
+				service.linkSteamToPlayer(session.playerId, 'steam1'),
 			).rejects.toThrow('DB write failed')
 		})
 	})
 
 	describe('linkDiscordToPlayer', () => {
 		it('links discord to an existing session', async () => {
+			const { service } = makeAuthService()
 			const session = createSession('Alice', { steamIdHash: 'steam1' })
 
-			const result = await linkDiscordToPlayer(session.playerId, 'disc1')
+			const result = await service.linkDiscordToPlayer(session.playerId, 'disc1')
 
 			expect(result.session.discordIdHash).toBe(hashProviderId('disc1'))
 			expect(findByProvider('discord', hashProviderId('disc1'))).toBe(session)
 		})
 
 		it('throws if session not found', async () => {
+			const { service } = makeAuthService()
 			await expect(
-				linkDiscordToPlayer('unknown', 'disc1'),
-			).rejects.toThrow('Player session not found')
+				service.linkDiscordToPlayer('unknown', 'disc1'),
+			).rejects.toThrow('Player not found')
 		})
 
 		it('throws if discord already linked to another player', async () => {
+			const { service } = makeAuthService()
 			createSession('Alice', { discordIdHash: hashProviderId('disc1') })
 			const bob = createSession('Bob', { steamIdHash: 'steam1' })
 
 			await expect(
-				linkDiscordToPlayer(bob.playerId, 'disc1'),
+				service.linkDiscordToPlayer(bob.playerId, 'disc1'),
 			).rejects.toThrow('Discord account already linked to another player')
 		})
 
 		it('propagates DB errors from linkDiscord', async () => {
+			const { service, playerRepository } = makeAuthService()
 			const session = createSession('Alice', { steamIdHash: 'steam1' })
-			vi.mocked(playerDb.linkDiscord).mockRejectedValueOnce(
+			vi.mocked(playerRepository.linkDiscord).mockRejectedValueOnce(
 				new Error('DB write failed'),
 			)
 
 			await expect(
-				linkDiscordToPlayer(session.playerId, 'disc1'),
+				service.linkDiscordToPlayer(session.playerId, 'disc1'),
 			).rejects.toThrow('DB write failed')
 		})
 	})
@@ -280,14 +329,6 @@ describe('auth.service', () => {
 			expect(steamIndex.size).toBe(0)
 			expect(discordIndex.size).toBe(0)
 		})
-
-		it('does not call any playerDb functions', () => {
-			authenticateAsTemp('DevUser')
-
-			expect(playerDb.createPlayer).not.toHaveBeenCalled()
-			expect(playerDb.updateSteamName).not.toHaveBeenCalled()
-			expect(playerDb.findPlayerBySteamIdHash).not.toHaveBeenCalled()
-		})
 	})
 
 	describe('validateSteamTicket', () => {
@@ -314,10 +355,10 @@ describe('auth.service', () => {
 			)
 
 			const result = await validateSteamTicket('hex-ticket')
-			expect(result.steamId).toBe('76561198012345')
+			expect(result).toEqual({ ok: true, value: { steamId: '76561198012345' } })
 		})
 
-		it('throws on invalid ticket', async () => {
+		it('returns invalid_ticket error for rejected ticket', async () => {
 			vi.spyOn(globalThis, 'fetch').mockResolvedValue(
 				new Response(
 					JSON.stringify({
@@ -335,19 +376,17 @@ describe('auth.service', () => {
 				),
 			)
 
-			await expect(validateSteamTicket('bad-ticket')).rejects.toThrow(
-				'Invalid Steam ticket',
-			)
+			const result = await validateSteamTicket('bad-ticket')
+			expect(result).toEqual({ ok: false, error: 'invalid_ticket' })
 		})
 
-		it('throws on Steam API HTTP error', async () => {
+		it('returns api_error for Steam API HTTP error', async () => {
 			vi.spyOn(globalThis, 'fetch').mockResolvedValue(
 				new Response('', { status: 500 }),
 			)
 
-			await expect(validateSteamTicket('ticket')).rejects.toThrow(
-				'Steam API request failed',
-			)
+			const result = await validateSteamTicket('ticket')
+			expect(result).toEqual({ ok: false, error: 'api_error' })
 		})
 	})
 
@@ -360,13 +399,13 @@ describe('auth.service', () => {
 			expect(state.split('.')).toHaveLength(3)
 
 			const result = verifyLinkState(state)
-			expect(result).toBe(playerId)
+			expect(result?.playerId).toBe(playerId)
 		})
 
 		it('consumes nonce on first use (one-time use)', () => {
 			const state = generateLinkState('player-123')
 
-			expect(verifyLinkState(state)).toBe('player-123')
+			expect(verifyLinkState(state)?.playerId).toBe('player-123')
 			expect(verifyLinkState(state)).toBeNull()
 		})
 
@@ -385,7 +424,6 @@ describe('auth.service', () => {
 		it('returns null for expired nonce', () => {
 			const state = generateLinkState('player-123')
 
-			// Manually expire the nonce
 			for (const [, entry] of linkStateNonces) {
 				entry.expiresAt = Date.now() - 1000
 			}

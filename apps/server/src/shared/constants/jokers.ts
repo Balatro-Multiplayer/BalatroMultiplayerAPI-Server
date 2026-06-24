@@ -1,3 +1,5 @@
+import type { Privilege } from '../types/index.js'
+
 export const STANDARD_JOKERS: ReadonlySet<string> = new Set([
 	'j_joker',
 	'j_mime',
@@ -39,7 +41,7 @@ export const PRIVILEGE_JOKERS: ReadonlyMap<string, string> = new Map([
 	['sizaak', 'j_dusk'],
 ])
 
-export function isValidJoker(id: string, privileges: string[] = []): boolean {
+export function isValidJoker(id: string, privileges: Privilege[] = []): boolean {
 	if (STANDARD_JOKERS.has(id)) return true
 	for (const priv of privileges) {
 		if (PRIVILEGE_JOKERS.get(priv) === id) return true

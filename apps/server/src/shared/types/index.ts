@@ -8,7 +8,19 @@ export type {
 	MatchmakingEvent,
 	QueueOpts,
 	PlacementEntry,
+	Privilege,
+	BanType,
+	MatchStatus,
 } from '@bmp/types'
+
+export type LobbyType = 'public' | 'private'
+
+export interface StoredLobbyState {
+	hostId: string
+	metadata: Record<string, unknown>
+	maxPlayers: number
+	playerInfos: Record<string, { displayName: string; preferredJoker: string }>
+}
 
 export interface SteamAuthResponse {
 	response: {

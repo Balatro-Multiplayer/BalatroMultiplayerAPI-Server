@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
 import { createTestApp } from './app.js'
-import { signJwt } from '../../features/auth/auth.service.js'
+import { signJwt } from '../../features/auth/jwt.js'
 import { createSession } from '../../state/index.js'
 import {
 	getLeaderboard,
@@ -10,30 +10,33 @@ import {
 } from '../../features/matchmaking/matchmaking.service.js'
 
 vi.mock('../../features/matchmaking/matchmaking.service.js', () => ({
-	joinQueue: vi.fn(),
 	leaveQueue: vi.fn(),
 	leaveAllQueues: vi.fn(),
 	getQueueStatus: vi.fn().mockReturnValue([]),
-	reportResult: vi.fn(),
 	getLeaderboard: vi.fn(),
 	getOwnRating: vi.fn(),
 	// Mirrors the real helper: explicit id passes through, otherwise a default
 	// "active" season (1) stands in for the resolved active/latest season.
 	resolveSeasonId: vi.fn(async (id?: number) => id ?? 1),
-	updateGroupQueueOnLobbyJoin: vi.fn(),
-	removeGroupQueueForLobby: vi.fn(),
 	runCasualQueue: vi.fn(),
 	runRankedQueue: vi.fn(),
-	runMatchmakingCycle: vi.fn(),
-	startMatchmaking: vi.fn(),
-	stopMatchmaking: vi.fn(),
-	syncMatchLobbyState: vi.fn(),
-	restoreMatchesFromDb: vi.fn(),
-	restorePlayerMatchSession: vi.fn(),
 	runDecay: vi.fn(),
 	checkSeasonRollover: vi.fn(),
 	startDailyJob: vi.fn(),
 	stopDailyJob: vi.fn(),
+	createMatchmakingService: vi.fn(() => ({
+		joinQueue: vi.fn(),
+		updateGroupQueueOnLobbyJoin: vi.fn(),
+		removeGroupQueueForLobby: vi.fn(),
+		syncMatchLobbyState: vi.fn(),
+		runMatchmakingCycle: vi.fn(),
+		startMatchmaking: vi.fn(),
+		stopMatchmaking: vi.fn(),
+		restoreMatchesFromDb: vi.fn().mockResolvedValue(undefined),
+		restorePlayerMatchSession: vi.fn(),
+		markRunStart: vi.fn(),
+		reportResult: vi.fn(),
+	})),
 }))
 
 const app = createTestApp()

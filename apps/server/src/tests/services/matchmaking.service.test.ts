@@ -3,22 +3,20 @@ import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
 import { db } from '../../infrastructure/db/index.js'
 import {
 	checkSeasonRollover,
+	createMatchmakingService,
 	getQueueStatus,
-	joinQueue,
 	leaveAllQueues,
 	leaveQueue,
-	removeGroupQueueForLobby,
-	reportResult,
 	runCasualQueue,
 	runDecay,
-	runMatchmakingCycle,
 	runRankedQueue,
-	updateGroupQueueOnLobbyJoin,
 } from '../../features/matchmaking/matchmaking.service.js'
 import { matches, matchByLobby, playerQueues, queues } from '../../state/matchmaking.js'
-import { createSession, lobbies, sessions } from '../../state/index.js'
+import { createSession, lobbies } from '../../state/index.js'
 import { Lobby } from '../../state/lobby.js'
 import type { SoloQueueEntry } from '../../shared/types/index.js'
+import type { IMatchRepository } from '../../contracts/IMatchRepository.js'
+import type { IBanRepository } from '../../contracts/IBanRepository.js'
 
 function makeSession(id: string, steamName: string) {
 	return createSession(steamName, { id })
@@ -38,13 +36,38 @@ function makeSoloEntry(playerId: string, overrides: Partial<SoloQueueEntry> = {}
 	}
 }
 
-describe('matchmaking.service', () => {
-	// setup.ts beforeEach clears lobbies, sessions, and matchmaking state globally
+function makeMockMatchRepository(): IMatchRepository {
+	return {
+		insertMatch: vi.fn().mockResolvedValue(undefined),
+		updateMatchLobbyState: vi.fn().mockResolvedValue(undefined),
+		loadActiveMatches: vi.fn().mockResolvedValue([]),
+		updateMatchStatus: vi.fn().mockResolvedValue(undefined),
+		applyRatingTransaction: vi.fn().mockResolvedValue([]),
+		getCurrentSeason: vi.fn().mockResolvedValue(null),
+		getPlayerCurrentRating: vi.fn().mockResolvedValue(600),
+		setMatchGameStarted: vi.fn().mockResolvedValue(undefined),
+	}
+}
 
+function makeMockBanRepository(): IBanRepository {
+	return {
+		hasActiveBan: vi.fn().mockResolvedValue(false),
+	}
+}
+
+function makeService(overrides?: { matchRepository?: IMatchRepository; banRepository?: IBanRepository }) {
+	const matchRepository = overrides?.matchRepository ?? makeMockMatchRepository()
+	const banRepository = overrides?.banRepository ?? makeMockBanRepository()
+	const service = createMatchmakingService({ messageBus: mqttService, matchRepository, banRepository })
+	return { service, matchRepository, banRepository }
+}
+
+describe('matchmaking.service', () => {
 	describe('joinQueue', () => {
 		it('adds a solo player and returns position 1', async () => {
+			const { service } = makeService()
 			const session = makeSession('p1', 'Alice')
-			const result = await joinQueue(session, {
+			const result = await service.joinQueue(session, {
 				modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4,
 			})
 			expect(result.position).toBe(1)
@@ -52,53 +75,60 @@ describe('matchmaking.service', () => {
 		})
 
 		it('returns correct position for subsequent players', async () => {
-			await joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
-			const result = await joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			const { service } = makeService()
+			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			const result = await service.joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
 			expect(result.position).toBe(2)
 		})
 
 		it('allows queuing for multiple modes simultaneously', async () => {
+			const { service } = makeService()
 			const session = makeSession('p1', 'Alice')
-			await joinQueue(session, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
-			const result = await joinQueue(session, { modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(session, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			const result = await service.joinQueue(session, { modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 4 })
 			expect(result.position).toBe(1)
 			expect(playerQueues.get('p1')?.size).toBe(2)
 		})
 
 		it('throws 409 when already queued for the same mode', async () => {
+			const { service } = makeService()
 			const session = makeSession('p1', 'Alice')
-			await joinQueue(session, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(session, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
 			await expect(
-				joinQueue(session, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 }),
+				service.joinQueue(session, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 }),
 			).rejects.toThrow('Already queued for this mode')
 		})
 
 		it('throws 409 when player is inside a matchmade (public) lobby', async () => {
+			const { service } = makeService()
 			const lobby = new Lobby('PUBLO', 'mod1', 'p1', 16, 'public')
 			lobbies.set('PUBLO', lobby)
 			const session = makeSession('p1', 'Alice')
 			session.lobbyCode = 'PUBLO'
 			await expect(
-				joinQueue(session, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 }),
+				service.joinQueue(session, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 }),
 			).rejects.toThrow('Cannot queue while in a matchmade lobby')
 		})
 
 		it('throws 409 when min/max mismatches the existing queue for that mode', async () => {
-			await joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			const { service } = makeService()
+			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
 			await expect(
-				joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 8 }),
+				service.joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 8 }),
 			).rejects.toThrow('minPlayers/maxPlayers must match')
 		})
 
 		it('throws 400 when minPlayers < 2', async () => {
+			const { service } = makeService()
 			await expect(
-				joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 1, maxPlayers: 4 }),
+				service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 1, maxPlayers: 4 }),
 			).rejects.toThrow('minPlayers must be at least 2')
 		})
 
 		it('throws 400 when maxPlayers < minPlayers', async () => {
+			const { service } = makeService()
 			await expect(
-				joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 4, maxPlayers: 2 }),
+				service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 4, maxPlayers: 2 }),
 			).rejects.toThrow('maxPlayers must be >= minPlayers')
 		})
 
@@ -116,8 +146,9 @@ describe('matchmaking.service', () => {
 			}
 
 			it('queues all lobby members and returns their combined count as position', async () => {
+				const { service } = makeService()
 				const { hostSession } = makeGroupLobby('PRIV1', 'host1', 'guest1')
-				const result = await joinQueue(hostSession, {
+				const result = await service.joinQueue(hostSession, {
 					modId: 'mod1', gameMode: 'mode1', minPlayers: 3, maxPlayers: 6,
 				})
 				expect(result.position).toBe(2)
@@ -126,16 +157,18 @@ describe('matchmaking.service', () => {
 			})
 
 			it('throws 403 when non-host initiates group queue', async () => {
+				const { service } = makeService()
 				const { guestSession } = makeGroupLobby('PRIV1', 'host1', 'guest1')
 				await expect(
-					joinQueue(guestSession, { modId: 'mod1', gameMode: 'mode1', minPlayers: 3, maxPlayers: 6 }),
+					service.joinQueue(guestSession, { modId: 'mod1', gameMode: 'mode1', minPlayers: 3, maxPlayers: 6 }),
 				).rejects.toThrow('Only the lobby host can initiate group queue')
 			})
 
 			it('throws 400 when group size leaves no room for other players', async () => {
+				const { service } = makeService()
 				const { hostSession } = makeGroupLobby('PRIV1', 'host1', 'guest1', 2)
 				await expect(
-					joinQueue(hostSession, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 2 }),
+					service.joinQueue(hostSession, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 2 }),
 				).rejects.toThrow('Group size must leave room')
 			})
 		})
@@ -143,7 +176,8 @@ describe('matchmaking.service', () => {
 
 	describe('leaveQueue', () => {
 		it('removes a solo player from the queue', async () => {
-			await joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			const { service } = makeService()
+			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
 			leaveQueue('p1', 'mod1', 'mode1')
 			expect(playerQueues.has('p1')).toBe(false)
 			expect(queues.has('mod1:mode1')).toBe(false)
@@ -154,6 +188,7 @@ describe('matchmaking.service', () => {
 		})
 
 		it('removes the entire group entry and clears all members', async () => {
+			const { service } = makeService()
 			const lobby = new Lobby('PRIV1', 'mod1', 'host1', 16, 'private')
 			const host = makeSession('host1', 'Host')
 			const guest = makeSession('guest1', 'Guest')
@@ -162,7 +197,7 @@ describe('matchmaking.service', () => {
 			lobby.players.set('host1', host)
 			lobby.players.set('guest1', guest)
 			lobbies.set('PRIV1', lobby)
-			await joinQueue(host, { modId: 'mod1', gameMode: 'mode1', minPlayers: 3, maxPlayers: 6 })
+			await service.joinQueue(host, { modId: 'mod1', gameMode: 'mode1', minPlayers: 3, maxPlayers: 6 })
 
 			leaveQueue('host1', 'mod1', 'mode1')
 
@@ -174,9 +209,10 @@ describe('matchmaking.service', () => {
 
 	describe('leaveAllQueues', () => {
 		it('removes a player from every queue they are in', async () => {
+			const { service } = makeService()
 			const session = makeSession('p1', 'Alice')
-			await joinQueue(session, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
-			await joinQueue(session, { modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(session, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(session, { modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 4 })
 
 			leaveAllQueues('p1')
 
@@ -196,9 +232,10 @@ describe('matchmaking.service', () => {
 		})
 
 		it('returns all active queue entries for a player', async () => {
+			const { service } = makeService()
 			const session = makeSession('p1', 'Alice')
-			await joinQueue(session, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
-			await joinQueue(session, { modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(session, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(session, { modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 4 })
 
 			const status = getQueueStatus('p1')
 			expect(status).toHaveLength(2)
@@ -207,7 +244,7 @@ describe('matchmaking.service', () => {
 	})
 
 	describe('updateGroupQueueOnLobbyJoin', () => {
-		async function queueGroup(code: string, hostId: string, guestId: string, maxPlayers: number) {
+		async function queueGroup(service: ReturnType<typeof makeService>['service'], code: string, hostId: string, guestId: string, maxPlayers: number) {
 			const lobby = new Lobby(code, 'mod1', hostId, maxPlayers, 'private')
 			const host = makeSession(hostId, 'Host')
 			const guest = makeSession(guestId, 'Guest')
@@ -216,15 +253,16 @@ describe('matchmaking.service', () => {
 			lobby.players.set(hostId, host)
 			lobby.players.set(guestId, guest)
 			lobbies.set(code, lobby)
-			await joinQueue(host, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers })
+			await service.joinQueue(host, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers })
 			return lobby
 		}
 
 		it('adds a newly joined player to the group entry', async () => {
-			await queueGroup('PRIV1', 'host1', 'guest1', 8)
+			const { service } = makeService()
+			await queueGroup(service, 'PRIV1', 'host1', 'guest1', 8)
 			makeSession('guest2', 'Charlie')
 
-			await updateGroupQueueOnLobbyJoin('PRIV1', 'guest2')
+			await service.updateGroupQueueOnLobbyJoin('PRIV1', 'guest2')
 
 			const entry = queues.get('mod1:mode1')![0] as any
 			expect(entry.playerIds).toContain('guest2')
@@ -232,23 +270,25 @@ describe('matchmaking.service', () => {
 		})
 
 		it('does not add player when group would consume all slots', async () => {
-			// 2 players already, maxPlayers=3 — adding 1 more leaves no room for outsiders
-			await queueGroup('PRIV1', 'host1', 'guest1', 3)
+			const { service } = makeService()
+			await queueGroup(service, 'PRIV1', 'host1', 'guest1', 3)
 			makeSession('guest2', 'Charlie')
 
-			await updateGroupQueueOnLobbyJoin('PRIV1', 'guest2')
+			await service.updateGroupQueueOnLobbyJoin('PRIV1', 'guest2')
 
 			const entry = queues.get('mod1:mode1')![0] as any
 			expect(entry.playerIds).not.toContain('guest2')
 		})
 
 		it('is a no-op for a lobby that is not in the queue', async () => {
-			await expect(updateGroupQueueOnLobbyJoin('ZZZZZ', 'p1')).resolves.not.toThrow()
+			const { service } = makeService()
+			await expect(service.updateGroupQueueOnLobbyJoin('ZZZZZ', 'p1')).resolves.not.toThrow()
 		})
 	})
 
 	describe('removeGroupQueueForLobby', () => {
 		it('removes the group entry and clears all member playerQueues entries', async () => {
+			const { service } = makeService()
 			const lobby = new Lobby('PRIV1', 'mod1', 'host1', 16, 'private')
 			const host = makeSession('host1', 'Host')
 			const guest = makeSession('guest1', 'Guest')
@@ -257,9 +297,9 @@ describe('matchmaking.service', () => {
 			lobby.players.set('host1', host)
 			lobby.players.set('guest1', guest)
 			lobbies.set('PRIV1', lobby)
-			await joinQueue(host, { modId: 'mod1', gameMode: 'mode1', minPlayers: 3, maxPlayers: 6 })
+			await service.joinQueue(host, { modId: 'mod1', gameMode: 'mode1', minPlayers: 3, maxPlayers: 6 })
 
-			removeGroupQueueForLobby('PRIV1')
+			service.removeGroupQueueForLobby('PRIV1')
 
 			expect(queues.has('mod1:mode1')).toBe(false)
 			expect(playerQueues.has('host1')).toBe(false)
@@ -267,7 +307,8 @@ describe('matchmaking.service', () => {
 		})
 
 		it('is a no-op for an unknown lobby code', () => {
-			expect(() => removeGroupQueueForLobby('ZZZZZ')).not.toThrow()
+			const { service } = makeService()
+			expect(() => service.removeGroupQueueForLobby('ZZZZZ')).not.toThrow()
 		})
 	})
 
@@ -293,7 +334,6 @@ describe('matchmaking.service', () => {
 		})
 
 		it('leaves a remainder too small to form another match', () => {
-			// 5 players, min=3, max=3: forms one match of 3, leaves 2 (< min)
 			const entries = Array.from({ length: 5 }, (_, i) => makeSoloEntry(`p${i}`))
 			const formed = runCasualQueue(entries, 3, 3)
 			expect(formed).toHaveLength(1)
@@ -301,7 +341,6 @@ describe('matchmaking.service', () => {
 		})
 
 		it('caps each match at maxPlayers', () => {
-			// 6 players, min=2, max=3 → two matches of 3
 			const entries = Array.from({ length: 6 }, (_, i) => makeSoloEntry(`p${i}`))
 			const formed = runCasualQueue(entries, 2, 3)
 			expect(formed).toHaveLength(2)
@@ -319,7 +358,7 @@ describe('matchmaking.service', () => {
 		it('matches two players within the initial rating spread', () => {
 			const entries = [
 				makeSoloEntry('p1', { rating: 600 }),
-				makeSoloEntry('p2', { rating: 700 }), // diff=100, spread=150
+				makeSoloEntry('p2', { rating: 700 }),
 			]
 			expect(runRankedQueue(entries, 2, 4)).toHaveLength(1)
 		})
@@ -327,7 +366,7 @@ describe('matchmaking.service', () => {
 		it('does not match players outside the initial spread', () => {
 			const entries = [
 				makeSoloEntry('p1', { rating: 600 }),
-				makeSoloEntry('p2', { rating: 900 }), // diff=300 > spread=150
+				makeSoloEntry('p2', { rating: 900 }),
 			]
 			expect(runRankedQueue(entries, 2, 4)).toHaveLength(0)
 		})
@@ -335,10 +374,9 @@ describe('matchmaking.service', () => {
 		it('matches out-of-range players after wait time expands the spread', () => {
 			const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
 			const entries = [
-				makeSoloEntry('p1', { rating: 600, queuedAt: fiveMinutesAgo }), // oldest
-				makeSoloEntry('p2', { rating: 1000 }), // diff=400
+				makeSoloEntry('p1', { rating: 600, queuedAt: fiveMinutesAgo }),
+				makeSoloEntry('p2', { rating: 1000 }),
 			]
-			// After 300s: spread = min(150 + floor(300/30)*50, 600) = 600 → 400 ≤ 600 → match
 			expect(runRankedQueue(entries, 2, 4)).toHaveLength(1)
 		})
 
@@ -346,14 +384,12 @@ describe('matchmaking.service', () => {
 			const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
 			const entries = [
 				makeSoloEntry('p1', { rating: 600, queuedAt: oneHourAgo }),
-				makeSoloEntry('p2', { rating: 1300 }), // diff=700 > cap=600
+				makeSoloEntry('p2', { rating: 1300 }),
 			]
 			expect(runRankedQueue(entries, 2, 4)).toHaveLength(0)
 		})
 
 		it('stops trying when the oldest anchor cannot be matched', () => {
-			// p1 is the anchor (lowest rating, same queue time → first index)
-			// p2 and p3 are in range of each other but not p1
 			const entries = [
 				makeSoloEntry('p1', { rating: 100 }),
 				makeSoloEntry('p2', { rating: 800 }),
@@ -365,10 +401,11 @@ describe('matchmaking.service', () => {
 
 	describe('runMatchmakingCycle', () => {
 		it('matches two queued players and records the match', async () => {
-			await joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
-			await joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			const { service } = makeService()
+			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
 
-			await runMatchmakingCycle()
+			await service.runMatchmakingCycle()
 
 			expect(queues.has('mod1:mode1')).toBe(false)
 			expect(playerQueues.has('p1')).toBe(false)
@@ -381,10 +418,11 @@ describe('matchmaking.service', () => {
 		})
 
 		it('notifies each matched player via MQTT', async () => {
-			await joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
-			await joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			const { service } = makeService()
+			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
 
-			await runMatchmakingCycle()
+			await service.runMatchmakingCycle()
 
 			expect(mqttService.publishToPlayer).toHaveBeenCalledWith(
 				'p1', 'matchmaking', expect.objectContaining({ type: 'match_found' }),
@@ -395,21 +433,23 @@ describe('matchmaking.service', () => {
 		})
 
 		it('does not match when queue has fewer than minPlayers', async () => {
-			await joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 3, maxPlayers: 4 })
+			const { service } = makeService()
+			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 3, maxPlayers: 4 })
 
-			await runMatchmakingCycle()
+			await service.runMatchmakingCycle()
 
 			expect(matches.size).toBe(0)
 			expect(queues.get('mod1:mode1')).toHaveLength(1)
 		})
 
 		it('forms separate matches for different gamemodes in one cycle', async () => {
-			await joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
-			await joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
-			await joinQueue(makeSession('p3', 'Carol'), { modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 4 })
-			await joinQueue(makeSession('p4', 'Dave'), { modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 4 })
+			const { service } = makeService()
+			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(makeSession('p3', 'Carol'), { modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(makeSession('p4', 'Dave'), { modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 4 })
 
-			await runMatchmakingCycle()
+			await service.runMatchmakingCycle()
 
 			expect(matches.size).toBe(2)
 		})
@@ -437,8 +477,9 @@ describe('matchmaking.service', () => {
 		}
 
 		it('removes match from state after a casual result is reported', async () => {
+			const { service } = makeService()
 			const { host } = setupCasualMatch('match-1', 'CODA1')
-			await reportResult(host, 'match-1', [
+			await service.reportResult(host, 'match-1', [
 				{ playerId: 'host1', place: 1 },
 				{ playerId: 'guest1', place: 2 },
 			])
@@ -447,9 +488,10 @@ describe('matchmaking.service', () => {
 		})
 
 		it('throws 404 when the match does not exist', async () => {
+			const { service } = makeService()
 			const session = makeSession('p1', 'Alice')
 			await expect(
-				reportResult(session, 'nonexistent', [
+				service.reportResult(session, 'nonexistent', [
 					{ playerId: 'p1', place: 1 },
 					{ playerId: 'p2', place: 2 },
 				]),
@@ -457,9 +499,10 @@ describe('matchmaking.service', () => {
 		})
 
 		it('throws 403 when a non-host player reports', async () => {
+			const { service } = makeService()
 			const { guest } = setupCasualMatch('match-2', 'CODA2')
 			await expect(
-				reportResult(guest, 'match-2', [
+				service.reportResult(guest, 'match-2', [
 					{ playerId: 'host1', place: 1 },
 					{ playerId: 'guest1', place: 2 },
 				]),
@@ -467,6 +510,7 @@ describe('matchmaking.service', () => {
 		})
 
 		it('throws 404 when the lobby has been removed', async () => {
+			const { service } = makeService()
 			const host = makeSession('host1', 'Alice')
 			const match = {
 				matchId: 'orphan',
@@ -477,9 +521,8 @@ describe('matchmaking.service', () => {
 				createdAt: new Date(),
 			}
 			matches.set('orphan', match)
-			// Deliberately do not add a lobby entry
 			await expect(
-				reportResult(host, 'orphan', [
+				service.reportResult(host, 'orphan', [
 					{ playerId: 'host1', place: 1 },
 					{ playerId: 'guest1', place: 2 },
 				]),
@@ -513,56 +556,17 @@ describe('matchmaking.service', () => {
 			return { host, guest }
 		}
 
-		function makeTx(
-			ratingRows: Array<{ rating: number; gamesPlayed: number; wins: number; losses: number }>,
-		) {
-			let callCount = 0
-			return {
-				select: vi.fn().mockReturnValue({
-					from: vi.fn().mockReturnValue({
-						where: vi.fn().mockReturnValue({
-							limit: vi.fn().mockImplementation(() =>
-								Promise.resolve(
-									ratingRows[callCount] !== undefined
-										? [{ ...ratingRows[callCount++], decayAppliedAt: null }]
-										: [],
-								),
-							),
-						}),
-					}),
-				}),
-				insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) }),
-				update: vi.fn().mockReturnValue({
-					set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
-				}),
-				delete: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
-				execute: vi.fn().mockResolvedValue({ rows: [] }),
-			}
-		}
-
-		beforeEach(() => {
-			// getCurrentSeason() chains: db.select().from(seasons).where(...).limit(1)
-			;(db as any).select = vi.fn().mockReturnValue({
-				from: vi.fn().mockReturnValue({
-					where: vi.fn().mockReturnValue({
-						limit: vi.fn().mockResolvedValue([{ id: 1, name: 'Season 1', endedAt: null }]),
-					}),
-				}),
-			})
-		})
-
 		it('publishes match_resolved to both players', async () => {
+			const matchRepository = makeMockMatchRepository()
+			vi.mocked(matchRepository.getCurrentSeason).mockResolvedValue({ id: 1, name: 'Season 1' })
+			vi.mocked(matchRepository.applyRatingTransaction).mockResolvedValue([
+				{ playerId: 'rhost', newRating: 620, delta: 20, isPlacement: false, gamesPlayed: 11 },
+				{ playerId: 'rguest', newRating: 580, delta: -20, isPlacement: false, gamesPlayed: 11 },
+			])
+			const { service } = makeService({ matchRepository })
 			const { host } = setupRankedMatch('r1', 'RNKL1')
-			;(db as any).transaction = vi.fn().mockImplementation(async (cb: (tx: unknown) => unknown) =>
-				cb(
-					makeTx([
-						{ rating: 600, gamesPlayed: 10, wins: 5, losses: 5 },
-						{ rating: 600, gamesPlayed: 10, wins: 5, losses: 5 },
-					]),
-				),
-			)
 
-			await reportResult(host, 'r1', [
+			await service.reportResult(host, 'r1', [
 				{ playerId: 'rhost', place: 1 },
 				{ playerId: 'rguest', place: 2 },
 			])
@@ -577,17 +581,16 @@ describe('matchmaking.service', () => {
 		})
 
 		it('match_resolved payload contains ratings array with correct shape', async () => {
+			const matchRepository = makeMockMatchRepository()
+			vi.mocked(matchRepository.getCurrentSeason).mockResolvedValue({ id: 1, name: 'Season 1' })
+			vi.mocked(matchRepository.applyRatingTransaction).mockResolvedValue([
+				{ playerId: 'rhost', newRating: 620, delta: 20, isPlacement: false, gamesPlayed: 11 },
+				{ playerId: 'rguest', newRating: 580, delta: -20, isPlacement: false, gamesPlayed: 11 },
+			])
+			const { service } = makeService({ matchRepository })
 			const { host } = setupRankedMatch('r2', 'RNKL2')
-			;(db as any).transaction = vi.fn().mockImplementation(async (cb: (tx: unknown) => unknown) =>
-				cb(
-					makeTx([
-						{ rating: 600, gamesPlayed: 10, wins: 5, losses: 5 },
-						{ rating: 600, gamesPlayed: 10, wins: 5, losses: 5 },
-					]),
-				),
-			)
 
-			await reportResult(host, 'r2', [
+			await service.reportResult(host, 'r2', [
 				{ playerId: 'rhost', place: 1 },
 				{ playerId: 'rguest', place: 2 },
 			])
@@ -607,19 +610,17 @@ describe('matchmaking.service', () => {
 			}
 		})
 
-		it('hides rating and delta during placement (gamesPlayed < PLACEMENT_GAMES after match)', async () => {
+		it('hides rating and delta during placement (isPlacement=true, newRating/delta null)', async () => {
+			const matchRepository = makeMockMatchRepository()
+			vi.mocked(matchRepository.getCurrentSeason).mockResolvedValue({ id: 1, name: 'Season 1' })
+			vi.mocked(matchRepository.applyRatingTransaction).mockResolvedValue([
+				{ playerId: 'rhost', newRating: null, delta: null, isPlacement: true, gamesPlayed: 1 },
+				{ playerId: 'rguest', newRating: null, delta: null, isPlacement: true, gamesPlayed: 1 },
+			])
+			const { service } = makeService({ matchRepository })
 			const { host } = setupRankedMatch('r3', 'RNKL3')
-			// 0 games played → after this match gamesPlayed = 1, still in placement
-			;(db as any).transaction = vi.fn().mockImplementation(async (cb: (tx: unknown) => unknown) =>
-				cb(
-					makeTx([
-						{ rating: 600, gamesPlayed: 0, wins: 0, losses: 0 },
-						{ rating: 600, gamesPlayed: 0, wins: 0, losses: 0 },
-					]),
-				),
-			)
 
-			await reportResult(host, 'r3', [
+			await service.reportResult(host, 'r3', [
 				{ playerId: 'rhost', place: 1 },
 				{ playerId: 'rguest', place: 2 },
 			])
@@ -635,19 +636,17 @@ describe('matchmaking.service', () => {
 			}
 		})
 
-		it('reveals rating and delta after completing placement (gamesPlayed >= PLACEMENT_GAMES)', async () => {
+		it('reveals rating and delta after completing placement (isPlacement=false)', async () => {
+			const matchRepository = makeMockMatchRepository()
+			vi.mocked(matchRepository.getCurrentSeason).mockResolvedValue({ id: 1, name: 'Season 1' })
+			vi.mocked(matchRepository.applyRatingTransaction).mockResolvedValue([
+				{ playerId: 'rhost', newRating: 750, delta: 50, isPlacement: false, gamesPlayed: 5 },
+				{ playerId: 'rguest', newRating: 550, delta: -50, isPlacement: false, gamesPlayed: 5 },
+			])
+			const { service } = makeService({ matchRepository })
 			const { host } = setupRankedMatch('r4', 'RNKL4')
-			// 4 games played → after this match gamesPlayed = 5, exits placement
-			;(db as any).transaction = vi.fn().mockImplementation(async (cb: (tx: unknown) => unknown) =>
-				cb(
-					makeTx([
-						{ rating: 700, gamesPlayed: 4, wins: 3, losses: 1 },
-						{ rating: 550, gamesPlayed: 4, wins: 1, losses: 3 },
-					]),
-				),
-			)
 
-			await reportResult(host, 'r4', [
+			await service.reportResult(host, 'r4', [
 				{ playerId: 'rhost', place: 1 },
 				{ playerId: 'rguest', place: 2 },
 			])
@@ -664,17 +663,16 @@ describe('matchmaking.service', () => {
 		})
 
 		it('cleans up in-memory match state after ranked result', async () => {
+			const matchRepository = makeMockMatchRepository()
+			vi.mocked(matchRepository.getCurrentSeason).mockResolvedValue({ id: 1, name: 'Season 1' })
+			vi.mocked(matchRepository.applyRatingTransaction).mockResolvedValue([
+				{ playerId: 'rhost', newRating: 620, delta: 20, isPlacement: false, gamesPlayed: 11 },
+				{ playerId: 'rguest', newRating: 580, delta: -20, isPlacement: false, gamesPlayed: 11 },
+			])
+			const { service } = makeService({ matchRepository })
 			const { host } = setupRankedMatch('r5', 'RNKL5')
-			;(db as any).transaction = vi.fn().mockImplementation(async (cb: (tx: unknown) => unknown) =>
-				cb(
-					makeTx([
-						{ rating: 600, gamesPlayed: 10, wins: 5, losses: 5 },
-						{ rating: 600, gamesPlayed: 10, wins: 5, losses: 5 },
-					]),
-				),
-			)
 
-			await reportResult(host, 'r5', [
+			await service.reportResult(host, 'r5', [
 				{ playerId: 'rhost', place: 1 },
 				{ playerId: 'rguest', place: 2 },
 			])
@@ -683,18 +681,14 @@ describe('matchmaking.service', () => {
 			expect(matchByLobby.has('RNKL5')).toBe(false)
 		})
 
-		it('throws No active season when seasons table is empty', async () => {
+		it('throws No active season when getCurrentSeason returns null', async () => {
+			const matchRepository = makeMockMatchRepository()
+			vi.mocked(matchRepository.getCurrentSeason).mockResolvedValue(null)
+			const { service } = makeService({ matchRepository })
 			const { host } = setupRankedMatch('r6', 'RNKL6')
-			;(db as any).select = vi.fn().mockReturnValue({
-				from: vi.fn().mockReturnValue({
-					where: vi.fn().mockReturnValue({
-						limit: vi.fn().mockResolvedValue([]), // no season
-					}),
-				}),
-			})
 
 			await expect(
-				reportResult(host, 'r6', [
+				service.reportResult(host, 'r6', [
 					{ playerId: 'rhost', place: 1 },
 					{ playerId: 'rguest', place: 2 },
 				]),
@@ -705,7 +699,6 @@ describe('matchmaking.service', () => {
 
 // ---- Decay & season rollover ----
 
-// Returns a mock that handles both .where().limit() and plain await .where()
 function makeChain(rows: unknown[]) {
 	const thenable = Object.assign(Promise.resolve(rows), {
 		limit: vi.fn().mockResolvedValue(rows),
@@ -742,9 +735,9 @@ describe('runDecay', () => {
 		}
 
 		;(db as any).select = vi.fn()
-			.mockReturnValueOnce(makeChain([{ id: 1, name: 'S1' }])) // getCurrentSeason
-			.mockReturnValueOnce(makeChain([{ playerId: 'p1' }]))    // top-100
-			.mockReturnValueOnce(makeChain([ratingRow]))              // rating row
+			.mockReturnValueOnce(makeChain([{ id: 1, name: 'S1' }]))
+			.mockReturnValueOnce(makeChain([{ playerId: 'p1' }]))
+			.mockReturnValueOnce(makeChain([ratingRow]))
 		;(db as any).selectDistinct = vi.fn().mockReturnValue(
 			makeChain([{ modId: 'mod1', gameMode: 'ranked:1v1' }]),
 		)
@@ -752,7 +745,6 @@ describe('runDecay', () => {
 
 		await runDecay()
 
-		// inactiveDays=15, decayAmount=floor(15-7)*5=40, newRating=700-40=660
 		expect(db.update).toHaveBeenCalled()
 		const setArg = vi.mocked(db.update).mock.results[0].value.set.mock.calls[0][0]
 		expect(setArg.rating).toBe(660)
@@ -785,7 +777,7 @@ describe('runDecay', () => {
 		const twentyDaysAgo = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000)
 		const ratingRow = {
 			playerId: 'p1',
-			rating: 110, // close to the floor of 100
+			rating: 110,
 			lastMatchAt: twentyDaysAgo,
 			updatedAt: twentyDaysAgo,
 			decayAppliedAt: null,
@@ -802,7 +794,6 @@ describe('runDecay', () => {
 
 		await runDecay()
 
-		// decayAmount=65 would push rating to 45, floor clamps to 100
 		const setArg = vi.mocked(db.update).mock.results[0].value.set.mock.calls[0][0]
 		expect(setArg.rating).toBe(100)
 	})
@@ -814,7 +805,7 @@ describe('runDecay', () => {
 			rating: 700,
 			lastMatchAt: twentyDaysAgo,
 			updatedAt: twentyDaysAgo,
-			decayAppliedAt: new Date(), // already ran today
+			decayAppliedAt: new Date(),
 		}
 
 		;(db as any).select = vi.fn()
@@ -964,7 +955,6 @@ describe('checkSeasonRollover', () => {
 				gamesPlayed: 0,
 			}),
 		)
-		// Soft reset: 1500 → 1200 + (300 * 0.5) = 1350
 		const ratingArg = (ratingValuesMock.mock.calls[0][0] as any).rating
 		expect(ratingArg).toBeLessThan(1500)
 		expect(ratingArg).toBeGreaterThanOrEqual(600)
@@ -979,7 +969,7 @@ describe('checkSeasonRollover', () => {
 		}
 		const placementRating = {
 			playerId: 'p2', modId: 'mod1', gameMode: 'ranked:1v1', season: 7,
-			rating: 700, gamesPlayed: 2, wins: 2, losses: 0, // < PLACEMENT_GAMES
+			rating: 700, gamesPlayed: 2, wins: 2, losses: 0,
 		}
 		;(db as any).select = vi.fn().mockReturnValue(makeChain([expiredSeason]))
 
@@ -1002,7 +992,6 @@ describe('checkSeasonRollover', () => {
 
 		await checkSeasonRollover()
 
-		// Only 1 insert: the new season row — placement player was not carried over
 		expect(insertCount).toBe(1)
 	})
 })

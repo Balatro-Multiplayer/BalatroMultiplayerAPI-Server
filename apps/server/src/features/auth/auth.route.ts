@@ -4,30 +4,12 @@ import { db } from '../../infrastructure/db/index.js'
 import { matchmakingRatings, players } from '../../infrastructure/db/schema.js'
 import { eq } from 'drizzle-orm'
 import { authenticate } from '../../middleware/authenticate.js'
-import {
-	acceptTos,
-	authenticateAsTemp,
-	authenticateWithDiscord,
-	authenticateWithPlayerId,
-	authenticateWithSteam,
-	impersonatePlayer,
-	generateLinkState,
-	getDiscordAuthUrl,
-	getSteamOpenIdUrl,
-	getSteamPlayerName,
-	linkDiscordToPlayer,
-	linkSteamToPlayer,
-	setPreferredJoker,
-	setUseDiscordName,
-	signJwt,
-	signTosPendingToken,
-	unlinkDiscordFromPlayer,
-	validateDiscordCode,
-	validateSteamOpenIdResponse,
-	validateSteamTicket,
-	verifyLinkState,
-	verifyTosPendingToken,
-} from './auth.service.js'
+import { authenticateAsTemp } from './auth.service.js'
+import type { AuthService } from './auth.service.js'
+import { signJwt, signTosPendingToken, verifyTosPendingToken } from './jwt.js'
+import { getSteamOpenIdUrl, getSteamPlayerName, validateSteamOpenIdResponse, validateSteamTicket } from './steam.js'
+import { getDiscordAuthUrl, validateDiscordCode } from './discord.js'
+import { generateLinkState, verifyLinkState } from './link-state.js'
 import { cancelGracePeriod } from '../../infrastructure/mqtt/grace-period.service.js'
 import { getConfig } from '../../state/config.js'
 import { issueRefreshToken, redeemRefreshToken } from '../../infrastructure/gateways/refresh-token.gateway.js'
@@ -87,460 +69,457 @@ function tosGate(session: PlayerSession): { tosRequired: true; tosUpdate: boolea
 	return null
 }
 
-const router = Router()
+export function createAuthRouter(service: AuthService): Router {
+	const router = Router()
 
-const authRateLimiter = rateLimit({
-	windowMs: 60 * 1000,
-	limit: 5,
-	standardHeaders: 'draft-7',
-	legacyHeaders: false,
-	message: { error: 'Too many auth requests, please try again later' },
-	skip: () => env.NODE_ENV !== 'production',
-})
+	const authRateLimiter = rateLimit({
+		windowMs: 60 * 1000,
+		limit: 5,
+		standardHeaders: 'draft-7',
+		legacyHeaders: false,
+		message: { error: 'Too many auth requests, please try again later' },
+		skip: () => env.NODE_ENV !== 'production',
+	})
 
-router.use(authRateLimiter)
+	router.use(authRateLimiter)
 
-// --- Primary auth (creates or finds player) ---
+	router.post('/steam', async (req, res, next) => {
+		try {
+			const { ticket, steamName } = req.body
 
-router.post('/steam', async (req, res, next) => {
-	try {
-		const { ticket, steamName } = req.body
+			if (!ticket || typeof ticket !== 'string') {
+				throw new AppError('Missing or invalid Steam ticket', 400)
+			}
+			if (!steamName || typeof steamName !== 'string') {
+				throw new AppError('Missing or invalid steamName', 400)
+			}
 
-		if (!ticket || typeof ticket !== 'string') {
-			throw new AppError('Missing or invalid Steam ticket', 400)
+			const ticketResult = await validateSteamTicket(ticket)
+			if (!ticketResult.ok) {
+				throw new AppError(
+					ticketResult.error === 'invalid_ticket' ? 'Invalid Steam ticket' : 'Steam API request failed',
+					ticketResult.error === 'invalid_ticket' ? 401 : 502,
+				)
+			}
+			const { session, token } = await service.authenticateWithSteam(ticketResult.value.steamId, steamName)
+			const isTemp = !session.steamIdHash
+
+			const gate = isTemp ? null : tosGate(session)
+			if (gate) {
+				res.json(gate)
+				return
+			}
+
+			const refreshToken = isTemp ? null : await issueRefreshToken(session.playerId)
+
+			res.json({
+				token,
+				refreshToken,
+				lobby: lobbyPayload(session),
+				player: playerPayload(session, { isTemp: isTemp || undefined }),
+				serverConfig: configPayload(),
+			})
+		} catch (err) {
+			next(err)
 		}
-		if (!steamName || typeof steamName !== 'string') {
-			throw new AppError('Missing or invalid steamName', 400)
+	})
+
+	router.get('/steam/web', (req, res) => {
+		const callbackUrl = `${env.WEB_BASE_URL.replace(/\/$/, '')}/api/proxy/auth/steam/web/callback`
+		res.redirect(getSteamOpenIdUrl(callbackUrl))
+	})
+
+	router.get('/steam/web/callback', async (req, res, next) => {
+		try {
+			const query = Object.fromEntries(
+				Object.entries(req.query).map(([k, v]) => [k, String(v)]),
+			)
+			const openIdResult = await validateSteamOpenIdResponse(query)
+			if (!openIdResult.ok) {
+				throw new AppError('Steam OpenID validation failed', 401)
+			}
+			const steamName = await getSteamPlayerName(openIdResult.value)
+			const { session, token } = await service.authenticateWithSteam(openIdResult.value, steamName)
+
+			const gate = tosGate(session)
+			if (gate) {
+				res.redirect(`${env.WEB_BASE_URL}/auth/tos?token=${encodeURIComponent(gate.token)}`)
+				return
+			}
+
+			res.redirect(`${env.WEB_BASE_URL}/auth/callback?token=${encodeURIComponent(token)}`)
+		} catch (err) {
+			next(err)
 		}
+	})
 
-		const { steamId } = await validateSteamTicket(ticket)
-		const { session, token } = await authenticateWithSteam(steamId, steamName)
-		const isTemp = !session.steamIdHash
-
-		const gate = isTemp ? null : tosGate(session)
-		if (gate) {
-			res.json(gate)
-			return
+	router.get('/me', authenticate, async (req, res, next) => {
+		try {
+			const jwt = req.player!
+			const dbPlayer = await findPlayerById(jwt.playerId)
+			res.json({
+				id: jwt.playerId,
+				steamName: jwt.steamName,
+				displayName: jwt.displayName ?? jwt.steamName,
+				useDiscordName: jwt.useDiscordName ?? false,
+				preferredJoker: jwt.preferredJoker ?? null,
+				discordLinked: jwt.discordIdHash != null,
+				discordUsername: jwt.discordUsername ?? null,
+				privileges: dbPlayer?.privileges ?? [],
+			})
+		} catch (err) {
+			next(err)
 		}
+	})
 
-		const refreshToken = isTemp ? null : await issueRefreshToken(session.playerId)
+	router.post('/logout', (_req, res) => {
+		res.json({ ok: true })
+	})
 
-		res.json({
-			token,
-			refreshToken,
-			lobby: lobbyPayload(session),
-			player: playerPayload(session, { isTemp: isTemp || undefined }),
-			serverConfig: configPayload(),
-		})
-	} catch (err) {
-		next(err)
-	}
-})
+	router.post('/dev', (req, res, next) => {
+		try {
+			if (env.NODE_ENV === 'production') {
+				res.status(404).json({ error: 'Not found' })
+				return
+			}
 
-// --- Steam OpenID (web browser flow) ---
+			const { steamName } = req.body
+			if (!steamName || typeof steamName !== 'string') {
+				throw new AppError('Missing or invalid steamName', 400)
+			}
 
-router.get('/steam/web', (req, res) => {
-	// Steam must redirect back to a browser-reachable URL on the web origin. The
-	// website exposes the API under /api/proxy, so the callback returns through
-	// the proxy (which forwards to /api/auth/steam/web/callback here).
-	const callbackUrl = `${env.WEB_BASE_URL.replace(/\/$/, '')}/api/proxy/auth/steam/web/callback`
-	res.redirect(getSteamOpenIdUrl(callbackUrl))
-})
+			const { session, token } = authenticateAsTemp(steamName)
 
-router.get('/steam/web/callback', async (req, res, next) => {
-	try {
-		const query = Object.fromEntries(
-			Object.entries(req.query).map(([k, v]) => [k, String(v)]),
-		)
-		const steamId = await validateSteamOpenIdResponse(query)
-		const steamName = await getSteamPlayerName(steamId)
-		const { session, token } = await authenticateWithSteam(steamId, steamName)
-
-		const gate = tosGate(session)
-		if (gate) {
-			res.redirect(`${env.WEB_BASE_URL}/auth/tos?token=${encodeURIComponent(gate.token)}`)
-			return
+			res.json({
+				token,
+				refreshToken: null,
+				player: playerPayload(session, { isTemp: true }),
+			})
+		} catch (err) {
+			next(err)
 		}
+	})
 
-		res.redirect(`${env.WEB_BASE_URL}/auth/callback?token=${encodeURIComponent(token)}`)
-	} catch (err) {
-		next(err)
-	}
-})
+	router.post('/dev/reconnect', authenticate, async (req, res, next) => {
+		try {
+			if (env.NODE_ENV === 'production') {
+				res.status(404).json({ error: 'Not found' })
+				return
+			}
 
-// --- Web session endpoints ---
+			const playerId = req.player!.playerId
+			const session = getSession(playerId)
+			if (!session) throw new AppError('Session not found', 401)
 
-router.get('/me', authenticate, async (req, res, next) => {
-	try {
-		const jwt = req.player!
-		const dbPlayer = await findPlayerById(jwt.playerId)
-		res.json({
-			id: jwt.playerId,
-			steamName: jwt.steamName,
-			displayName: jwt.displayName ?? jwt.steamName,
-			useDiscordName: jwt.useDiscordName ?? false,
-			preferredJoker: jwt.preferredJoker ?? null,
-			discordLinked: jwt.discordIdHash != null,
-			discordUsername: jwt.discordUsername ?? null,
-			privileges: dbPlayer?.privileges ?? [],
-		})
-	} catch (err) {
-		next(err)
-	}
-})
+			await cancelGracePeriod(playerId)
 
-router.post('/logout', (_req, res) => {
-	res.json({ ok: true })
-})
-
-// ---
-
-router.post('/dev', (req, res, next) => {
-	try {
-		if (env.NODE_ENV === 'production') {
-			res.status(404).json({ error: 'Not found' })
-			return
+			const token = signJwt({
+				playerId: session.playerId,
+				steamName: session.steamName,
+				lobbyCode: session.lobbyCode,
+			})
+			res.json({ token, player: playerPayload(session, { isTemp: true }) })
+		} catch (err) {
+			next(err)
 		}
+	})
 
-		const { steamName } = req.body
-		if (!steamName || typeof steamName !== 'string') {
-			throw new AppError('Missing or invalid steamName', 400)
+	router.post('/dev/impersonate', async (req, res, next) => {
+		try {
+			if (env.NODE_ENV === 'production') {
+				res.status(404).json({ error: 'Not found' })
+				return
+			}
+
+			const { playerId, steamId, discordId, steamName } = req.body
+			if (!playerId && !steamId && !discordId && !steamName) {
+				throw new AppError('Provide playerId, steamId, discordId, or steamName', 400)
+			}
+
+			const { session, token } = await service.impersonatePlayer({ playerId, steamId, discordId, steamName })
+
+			res.json({
+				token,
+				refreshToken: null,
+				lobby: lobbyPayload(session),
+				player: playerPayload(session),
+			})
+		} catch (err) {
+			next(err)
 		}
+	})
 
-		const { session, token } = authenticateAsTemp(steamName)
+	router.post('/refresh', async (req, res, next) => {
+		try {
+			const { refreshToken, steamName } = req.body
 
-		res.json({
-			token,
-			refreshToken: null,
-			player: playerPayload(session, { isTemp: true }),
-		})
-	} catch (err) {
-		next(err)
-	}
-})
+			if (!refreshToken || typeof refreshToken !== 'string') {
+				throw new AppError('Missing or invalid refresh token', 400)
+			}
+			if (!steamName || typeof steamName !== 'string') {
+				throw new AppError('Missing or invalid steamName', 400)
+			}
 
-// Simulates re-authentication within an active grace period for E2E tests.
-// Cancels the player's grace period and returns a fresh token — same playerId, same session.
-router.post('/dev/reconnect', authenticate, async (req, res, next) => {
-	try {
-		if (env.NODE_ENV === 'production') {
-			res.status(404).json({ error: 'Not found' })
-			return
-		}
+			const playerId = await redeemRefreshToken(refreshToken)
+			if (!playerId) {
+				throw new AppError('Invalid or expired refresh token', 401)
+			}
 
-		const playerId = req.player!.playerId
-		const session = getSession(playerId)
-		if (!session) throw new AppError('Session not found', 401)
+			const { session, token } = await service.authenticateWithPlayerId(playerId, steamName)
 
-		await cancelGracePeriod(playerId)
+			const gate = tosGate(session)
+			if (gate) {
+				const newRefreshToken = await issueRefreshToken(session.playerId)
+				res.json({ ...gate, refreshToken: newRefreshToken })
+				return
+			}
 
-		const token = signJwt({
-			playerId: session.playerId,
-			steamName: session.steamName,
-			lobbyCode: session.lobbyCode,
-		})
-		res.json({ token, player: playerPayload(session, { isTemp: true }) })
-	} catch (err) {
-		next(err)
-	}
-})
-
-router.post('/dev/impersonate', async (req, res, next) => {
-	try {
-		if (env.NODE_ENV === 'production') {
-			res.status(404).json({ error: 'Not found' })
-			return
-		}
-
-		const { playerId, steamId, discordId, steamName } = req.body
-		if (!playerId && !steamId && !discordId && !steamName) {
-			throw new AppError('Provide playerId, steamId, discordId, or steamName', 400)
-		}
-
-		const { session, token } = await impersonatePlayer({ playerId, steamId, discordId, steamName })
-
-		res.json({
-			token,
-			refreshToken: null,
-			lobby: lobbyPayload(session),
-			player: playerPayload(session),
-		})
-	} catch (err) {
-		next(err)
-	}
-})
-
-router.post('/refresh', async (req, res, next) => {
-	try {
-		const { refreshToken, steamName } = req.body
-
-		if (!refreshToken || typeof refreshToken !== 'string') {
-			throw new AppError('Missing or invalid refresh token', 400)
-		}
-		if (!steamName || typeof steamName !== 'string') {
-			throw new AppError('Missing or invalid steamName', 400)
-		}
-
-		const playerId = await redeemRefreshToken(refreshToken)
-		if (!playerId) {
-			throw new AppError('Invalid or expired refresh token', 401)
-		}
-
-		const { session, token } = await authenticateWithPlayerId(
-			playerId,
-			steamName,
-		)
-
-		const gate = tosGate(session)
-		if (gate) {
 			const newRefreshToken = await issueRefreshToken(session.playerId)
-			res.json({ ...gate, refreshToken: newRefreshToken })
-			return
+
+			res.json({
+				token,
+				refreshToken: newRefreshToken,
+				lobby: lobbyPayload(session),
+				player: playerPayload(session),
+				serverConfig: configPayload(),
+			})
+		} catch (err) {
+			next(err)
 		}
+	})
 
-		const newRefreshToken = await issueRefreshToken(session.playerId)
+	router.post('/accept-tos', async (req, res, next) => {
+		try {
+			const authHeader = req.headers.authorization
+			const pendingToken =
+				authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
+			if (!pendingToken) throw new AppError('Missing pending token', 401)
 
-		res.json({
-			token,
-			refreshToken: newRefreshToken,
-			lobby: lobbyPayload(session),
-			player: playerPayload(session),
-			serverConfig: configPayload(),
-		})
-	} catch (err) {
-		next(err)
-	}
-})
+			const playerId = verifyTosPendingToken(pendingToken)
+			if (!playerId) throw new AppError('Invalid or expired ToS token', 401)
 
-router.post('/accept-tos', async (req, res, next) => {
-	try {
-		const authHeader = req.headers.authorization
-		const pendingToken =
-			authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
-		if (!pendingToken) throw new AppError('Missing pending token', 401)
+			const chatEligible = typeof req.body?.chatEligible === 'boolean' ? req.body.chatEligible : undefined
+			const { session, token } = await service.acceptTos(playerId, chatEligible)
+			const refreshToken = await issueRefreshToken(session.playerId)
 
-		const playerId = verifyTosPendingToken(pendingToken)
-		if (!playerId) throw new AppError('Invalid or expired ToS token', 401)
-
-		const chatEligible = typeof req.body.chatEligible === 'boolean' ? req.body.chatEligible : undefined
-		const { session, token } = await acceptTos(playerId, chatEligible)
-		const refreshToken = await issueRefreshToken(session.playerId)
-
-		res.json({
-			token,
-			refreshToken,
-			lobby: lobbyPayload(session),
-			player: playerPayload(session),
-			serverConfig: configPayload(),
-		})
-	} catch (err) {
-		next(err)
-	}
-})
-
-router.get('/discord', (req, res) => {
-	const state = req.query.state as string | undefined
-	res.redirect(getDiscordAuthUrl(state))
-})
-
-router.get('/discord/callback', async (req, res, next) => {
-	try {
-		const code = req.query.code as string | undefined
-		if (!code) {
-			throw new AppError('Missing authorization code', 400)
+			res.json({
+				token,
+				refreshToken,
+				lobby: lobbyPayload(session),
+				player: playerPayload(session),
+				serverConfig: configPayload(),
+			})
+		} catch (err) {
+			next(err)
 		}
+	})
 
+	router.get('/discord', (req, res) => {
 		const state = req.query.state as string | undefined
-		const { discordId, discordName } = await validateDiscordCode(code)
+		res.redirect(getDiscordAuthUrl(state))
+	})
 
-		// If state is present, this is a link operation
-		if (state) {
-			const linked = verifyLinkState(state)
-			if (linked) {
-				const { token } = await linkDiscordToPlayer(linked.playerId, discordId, discordName)
+	router.get('/discord/callback', async (req, res, next) => {
+		try {
+			const code = req.query.code as string | undefined
+			if (!code) {
+				throw new AppError('Missing authorization code', 400)
+			}
 
-				// Notify game client via MQTT
-				await mqttService.publishToPlayer(linked.playerId, 'account/discord_linked', {
-					discordName,
-				})
+			const state = req.query.state as string | undefined
+			const discordResult = await validateDiscordCode(code)
+			if (!discordResult.ok) {
+				throw new AppError(
+					discordResult.error === 'token_exchange_failed' ? 'Discord token exchange failed' : 'Discord user fetch failed',
+					502,
+				)
+			}
+			const { discordId, discordName } = discordResult.value
 
-				if (linked.source === 'web') {
-					// Hand back a fresh token (now carrying the Discord link) via the
-					// standard web callback so the browser session updates.
-					res.redirect(`${env.WEB_BASE_URL}/auth/callback?token=${encodeURIComponent(token)}`)
-					return
-				}
+			if (state) {
+				const linked = verifyLinkState(state)
+				if (linked) {
+					const { token } = await service.linkDiscordToPlayer(linked.playerId, discordId, discordName)
 
-				res.setHeader('Content-Type', 'text/html')
-				res.send(`<!DOCTYPE html>
+					await mqttService.publishToPlayer(linked.playerId, 'account/discord_linked', {
+						discordName,
+					})
+
+					if (linked.source === 'web') {
+						res.redirect(`${env.WEB_BASE_URL}/auth/callback?token=${encodeURIComponent(token)}`)
+						return
+					}
+
+					res.setHeader('Content-Type', 'text/html')
+					res.send(`<!DOCTYPE html>
 <html><head><title>Discord Linked</title>
 <style>body{font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#1a1a2e;color:#e0e0e0}
 .card{text-align:center;padding:2rem;border-radius:12px;background:#16213e;box-shadow:0 4px 20px rgba(0,0,0,0.3)}
 h1{color:#5865f2;margin-bottom:0.5rem}p{color:#a0a0b0}</style>
 </head><body><div class="card"><h1>Discord Linked!</h1><p>You can close this tab and return to the game.</p></div></body></html>`)
+					return
+				}
+			}
+
+			const { session, token } = await service.authenticateWithDiscord(discordId, discordName)
+
+			res.json({
+				token,
+				lobby: lobbyPayload(session),
+				player: playerPayload(session),
+			})
+		} catch (err) {
+			next(err)
+		}
+	})
+
+	router.post('/link/steam', authenticate, async (req, res, next) => {
+		try {
+			const { ticket } = req.body
+
+			if (!ticket || typeof ticket !== 'string') {
+				throw new AppError('Missing or invalid Steam ticket', 400)
+			}
+
+			const linkTicketResult = await validateSteamTicket(ticket)
+			if (!linkTicketResult.ok) {
+				throw new AppError(
+					linkTicketResult.error === 'invalid_ticket' ? 'Invalid Steam ticket' : 'Steam API request failed',
+					linkTicketResult.error === 'invalid_ticket' ? 401 : 502,
+				)
+			}
+			const { session, token } = await service.linkSteamToPlayer(
+				req.player!.playerId,
+				linkTicketResult.value.steamId,
+			)
+
+			res.json({
+				token,
+				player: playerPayload(session),
+			})
+		} catch (err) {
+			next(err)
+		}
+	})
+
+	router.post('/link/discord', authenticate, (req, res) => {
+		const source = req.query.source as string | undefined
+		const state = generateLinkState(req.player!.playerId, source)
+		const url = getDiscordAuthUrl(state)
+		res.json({ url })
+	})
+
+	router.post('/unlink/discord', authenticate, async (req, res, next) => {
+		try {
+			const { session, token } = await service.unlinkDiscordFromPlayer(req.player!.playerId)
+
+			await mqttService.publishToPlayer(req.player!.playerId, 'account/discord_unlinked', {})
+
+			res.json({
+				token,
+				player: playerPayload(session),
+			})
+		} catch (err) {
+			next(err)
+		}
+	})
+
+	router.post('/preferences/display-name', authenticate, async (req, res, next) => {
+		try {
+			const { useDiscordName } = req.body
+			if (typeof useDiscordName !== 'boolean') {
+				throw new AppError('Missing or invalid useDiscordName (boolean)', 400)
+			}
+
+			const { session, token } = await service.setUseDiscordName(req.player!.playerId, useDiscordName)
+
+			await mqttService.publishToPlayer(req.player!.playerId, 'account/display_name_changed', {
+				displayName: session.getDisplayName(),
+				useDiscordName: session.useDiscordName,
+			})
+
+			if (session.lobbyCode) {
+				await mqttService.publishPlayerInfo(session.lobbyCode, session.playerId, {
+					displayName: session.getDisplayName(),
+					preferredJoker: session.preferredJoker,
+				})
+			}
+
+			res.json({
+				token,
+				player: playerPayload(session),
+			})
+		} catch (err) {
+			next(err)
+		}
+	})
+
+	router.post('/chat/enable', authenticate, async (req, res, next) => {
+		try {
+			const session = getSession(req.player!.playerId)
+			if (!session) throw new AppError('Session not found', 401)
+
+			if (session.chatBlocked) throw new AppError('Chat access is permanently restricted', 403)
+			if (session.chatEnabled) {
+				res.json({ player: playerPayload(session) })
 				return
 			}
-		}
 
-		// Otherwise, normal auth (standalone Discord login)
-		const { session, token } = await authenticateWithDiscord(discordId, discordName)
+			await updateChatStatus(session.playerId, true, false)
+			session.chatEnabled = true
+			session.chatBlocked = false
 
-		res.json({
-			token,
-			lobby: lobbyPayload(session),
-			player: playerPayload(session),
-		})
-	} catch (err) {
-		next(err)
-	}
-})
-
-// --- Linking (requires existing JWT) ---
-
-router.post('/link/steam', authenticate, async (req, res, next) => {
-	try {
-		const { ticket } = req.body
-
-		if (!ticket || typeof ticket !== 'string') {
-			throw new AppError('Missing or invalid Steam ticket', 400)
-		}
-
-		const { steamId } = await validateSteamTicket(ticket)
-		const { session, token } = await linkSteamToPlayer(
-			req.player!.playerId,
-			steamId,
-		)
-
-		res.json({
-			token,
-			player: playerPayload(session),
-		})
-	} catch (err) {
-		next(err)
-	}
-})
-
-router.post('/link/discord', authenticate, (req, res) => {
-	const source = req.query.source as string | undefined
-	const state = generateLinkState(req.player!.playerId, source)
-	const url = getDiscordAuthUrl(state)
-	res.json({ url })
-})
-
-router.post('/unlink/discord', authenticate, async (req, res, next) => {
-	try {
-		const { session, token } = await unlinkDiscordFromPlayer(req.player!.playerId)
-
-		await mqttService.publishToPlayer(req.player!.playerId, 'account/discord_unlinked', {})
-
-		res.json({
-			token,
-			player: playerPayload(session),
-		})
-	} catch (err) {
-		next(err)
-	}
-})
-
-// --- Preferences ---
-
-router.post('/preferences/display-name', authenticate, async (req, res, next) => {
-	try {
-		const { useDiscordName } = req.body
-		if (typeof useDiscordName !== 'boolean') {
-			throw new AppError('Missing or invalid useDiscordName (boolean)', 400)
-		}
-
-		const { session, token } = await setUseDiscordName(req.player!.playerId, useDiscordName)
-
-		await mqttService.publishToPlayer(req.player!.playerId, 'account/display_name_changed', {
-			displayName: session.getDisplayName(),
-			useDiscordName: session.useDiscordName,
-		})
-
-		if (session.lobbyCode) {
-			await mqttService.publishPlayerInfo(session.lobbyCode, session.playerId, {
-				displayName: session.getDisplayName(),
-				preferredJoker: session.preferredJoker,
-			})
-		}
-
-		res.json({
-			token,
-			player: playerPayload(session),
-		})
-	} catch (err) {
-		next(err)
-	}
-})
-
-router.post('/chat/enable', authenticate, async (req, res, next) => {
-	try {
-		const session = getSession(req.player!.playerId)
-		if (!session) throw new AppError('Session not found', 401)
-
-		if (session.chatBlocked) throw new AppError('Chat access is permanently restricted', 403)
-		if (session.chatEnabled) {
 			res.json({ player: playerPayload(session) })
-			return
+		} catch (err) {
+			next(err)
 		}
+	})
 
-		await updateChatStatus(session.playerId, true, false)
-		session.chatEnabled = true
-		session.chatBlocked = false
+	router.post('/preferences/joker', authenticate, async (req, res, next) => {
+		try {
+			const { preferredJoker } = req.body
+			if (!preferredJoker || typeof preferredJoker !== 'string') {
+				throw new AppError('Missing or invalid preferredJoker (string)', 400)
+			}
 
-		res.json({ player: playerPayload(session) })
-	} catch (err) {
-		next(err)
-	}
-})
+			const { session, token } = await service.setPreferredJoker(req.player!.playerId, preferredJoker)
 
-router.post('/preferences/joker', authenticate, async (req, res, next) => {
-	try {
-		const { preferredJoker } = req.body
-		if (!preferredJoker || typeof preferredJoker !== 'string') {
-			throw new AppError('Missing or invalid preferredJoker (string)', 400)
-		}
-
-		const { session, token } = await setPreferredJoker(req.player!.playerId, preferredJoker)
-
-		await mqttService.publishToPlayer(req.player!.playerId, 'account/preferred_joker_changed', {
-			preferredJoker: session.preferredJoker,
-		})
-
-		if (session.lobbyCode) {
-			await mqttService.publishPlayerInfo(session.lobbyCode, session.playerId, {
-				displayName: session.getDisplayName(),
+			await mqttService.publishToPlayer(req.player!.playerId, 'account/preferred_joker_changed', {
 				preferredJoker: session.preferredJoker,
 			})
+
+			if (session.lobbyCode) {
+				await mqttService.publishPlayerInfo(session.lobbyCode, session.playerId, {
+					displayName: session.getDisplayName(),
+					preferredJoker: session.preferredJoker,
+				})
+			}
+
+			res.json({
+				token,
+				player: playerPayload(session),
+			})
+		} catch (err) {
+			next(err)
 		}
+	})
 
-		res.json({
-			token,
-			player: playerPayload(session),
-		})
-	} catch (err) {
-		next(err)
-	}
-})
+	router.delete('/account', authenticate, async (req, res, next) => {
+		try {
+			const playerId = req.player!.playerId
 
-router.delete('/account', authenticate, async (req, res, next) => {
-	try {
-		const playerId = req.player!.playerId
+			await db.transaction(async (tx) => {
+				await tx.delete(matchmakingRatings).where(eq(matchmakingRatings.playerId, playerId))
+				await tx.delete(players).where(eq(players.id, playerId))
+			})
 
-		await db.transaction(async (tx) => {
-			// FK on matchmaking_ratings has no cascade — delete manually first
-			await tx.delete(matchmakingRatings).where(eq(matchmakingRatings.playerId, playerId))
-			await tx.delete(players).where(eq(players.id, playerId))
-			// refresh_tokens cascade on player delete
-		})
+			removeSession(playerId)
 
-		removeSession(playerId)
+			res.json({ ok: true })
+		} catch (err) {
+			next(err)
+		}
+	})
 
-		res.json({ ok: true })
-	} catch (err) {
-		next(err)
-	}
-})
-
-export default router
+	return router
+}

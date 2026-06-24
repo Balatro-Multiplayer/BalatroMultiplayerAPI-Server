@@ -116,8 +116,8 @@ beforeEach(async () => {
 	mm.matchByLobby.clear()
 
 	// Clear CSRF link state nonces
-	const authService = await import('../features/auth/auth.service.js')
-	authService.linkStateNonces.clear()
+	const linkState = await import('../features/auth/link-state.js')
+	linkState.linkStateNonces.clear()
 
 	// Clear grace periods
 	const gracePeriod = await import('../infrastructure/mqtt/grace-period.service.js')

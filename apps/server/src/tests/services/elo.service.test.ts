@@ -7,7 +7,9 @@ import {
 	applySoftReset,
 	compute1v1,
 	computeFFA,
+	computeRatingDeltas,
 	computeTeam,
+	detectRatingMode,
 	effectiveK,
 	expectedScore,
 } from '../../features/matchmaking/elo.service.js'
@@ -243,6 +245,119 @@ describe('elo.service', () => {
 			expect(aWins.get('a')).toBeGreaterThan(0)
 			expect(bWins.get('b')).toBeGreaterThan(0)
 			expect(aWins.get('a')).toBe(bWins.get('b'))
+		})
+	})
+
+	describe('detectRatingMode', () => {
+		it('returns solo for two placements with no teamId', () => {
+			expect(detectRatingMode([
+				{ playerId: 'a', place: 1 },
+				{ playerId: 'b', place: 2 },
+			])).toBe('solo')
+		})
+
+		it('returns ffa for three or more placements with no teamId', () => {
+			expect(detectRatingMode([
+				{ playerId: 'a', place: 1 },
+				{ playerId: 'b', place: 2 },
+				{ playerId: 'c', place: 3 },
+			])).toBe('ffa')
+		})
+
+		it('returns team when any placement has a teamId', () => {
+			expect(detectRatingMode([
+				{ playerId: 'a', place: 1, teamId: 't1' },
+				{ playerId: 'b', place: 2, teamId: 't2' },
+			])).toBe('team')
+		})
+
+		it('returns team even for two placements when teamId is present', () => {
+			expect(detectRatingMode([
+				{ playerId: 'a', place: 1, teamId: 't1' },
+				{ playerId: 'b', place: 1, teamId: 't1' },
+				{ playerId: 'c', place: 2, teamId: 't2' },
+				{ playerId: 'd', place: 2, teamId: 't2' },
+			])).toBe('team')
+		})
+	})
+
+	describe('computeRatingDeltas', () => {
+		const r = (rating = 1000, gamesPlayed = 10) => ({ rating, gamesPlayed })
+
+		describe('solo mode', () => {
+			it('winner gains positive delta, loser negative', () => {
+				const ratings = new Map([['a', r()], ['b', r()]])
+				const deltas = computeRatingDeltas(
+					'solo',
+					[{ playerId: 'a', place: 1 }, { playerId: 'b', place: 2 }],
+					ratings,
+				)
+				expect(deltas.get('a')).toBeGreaterThan(0)
+				expect(deltas.get('b')).toBeLessThan(0)
+			})
+
+			it('draw produces near-zero deltas for equal-rated players', () => {
+				const ratings = new Map([['a', r()], ['b', r()]])
+				const deltas = computeRatingDeltas(
+					'solo',
+					[{ playerId: 'a', place: 1 }, { playerId: 'b', place: 1 }],
+					ratings,
+				)
+				expect(deltas.get('a')).toBe(0)
+				expect(deltas.get('b')).toBe(0)
+			})
+
+			it('includes both players in result', () => {
+				const ratings = new Map([['a', r()], ['b', r()]])
+				const deltas = computeRatingDeltas(
+					'solo',
+					[{ playerId: 'a', place: 1 }, { playerId: 'b', place: 2 }],
+					ratings,
+				)
+				expect(deltas.has('a')).toBe(true)
+				expect(deltas.has('b')).toBe(true)
+			})
+		})
+
+		describe('ffa mode', () => {
+			it('winner gains, all losers lose', () => {
+				const ratings = new Map([['a', r()], ['b', r()], ['c', r()]])
+				const deltas = computeRatingDeltas(
+					'ffa',
+					[
+						{ playerId: 'a', place: 1 },
+						{ playerId: 'b', place: 2 },
+						{ playerId: 'c', place: 3 },
+					],
+					ratings,
+				)
+				expect(deltas.get('a')).toBeGreaterThan(0)
+				expect(deltas.get('b')).toBeLessThan(0)
+				expect(deltas.get('c')).toBeLessThan(0)
+			})
+		})
+
+		describe('team mode', () => {
+			it('winning team gains, losing team loses', () => {
+				const ratings = new Map([
+					['w1', r()], ['w2', r()],
+					['l1', r()], ['l2', r()],
+				])
+				const deltas = computeRatingDeltas(
+					'team',
+					[
+						{ playerId: 'w1', place: 1, teamId: 'team-a' },
+						{ playerId: 'w2', place: 1, teamId: 'team-a' },
+						{ playerId: 'l1', place: 2, teamId: 'team-b' },
+						{ playerId: 'l2', place: 2, teamId: 'team-b' },
+					],
+					ratings,
+				)
+				expect(deltas.get('w1')).toBeGreaterThan(0)
+				expect(deltas.get('w2')).toBeGreaterThan(0)
+				expect(deltas.get('l1')).toBeLessThan(0)
+				expect(deltas.get('l2')).toBeLessThan(0)
+			})
 		})
 	})
 

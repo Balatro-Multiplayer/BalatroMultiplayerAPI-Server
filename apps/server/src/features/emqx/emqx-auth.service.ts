@@ -3,7 +3,7 @@ import { getLobby, getSession } from '../../state/index.js'
 import { getConfig } from '../../state/config.js'
 import { Lobby } from '../../state/lobby.js'
 import type { EmqxAuthRequest, EmqxAuthzRequest } from '../../shared/types/index.js'
-import { verifyJwt } from '../auth/auth.service.js'
+import { verifyJwt } from '../auth/jwt.js'
 import { hasActiveBan } from '../../infrastructure/gateways/ban.gateway.js'
 
 type Action = 'publish' | 'subscribe'

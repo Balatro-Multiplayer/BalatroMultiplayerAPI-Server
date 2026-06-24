@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { AppError } from '../shared/utils/errors.js'
 import type { PlayerSession } from './player.js'
+import type { LobbyType } from '../shared/types/index.js'
 
 export type BufferedMessage = {
 	playerId: string
@@ -24,7 +25,7 @@ export class Lobby {
 		public readonly modId: string,
 		public hostId: string,
 		public readonly maxPlayers: number = 16,
-		public readonly type: 'public' | 'private' = 'private',
+		public readonly type: LobbyType = 'private',
 	) {
 		this.createdAt = new Date()
 	}

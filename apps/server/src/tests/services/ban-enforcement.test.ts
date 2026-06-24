@@ -1,14 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { authenticateClient } from '../../features/emqx/emqx-auth.service.js'
-import { joinQueue } from '../../features/matchmaking/matchmaking.service.js'
-import { signJwt } from '../../features/auth/auth.service.js'
+import { createMatchmakingService } from '../../features/matchmaking/matchmaking.service.js'
+import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
+import { signJwt } from '../../features/auth/jwt.js'
 import { createSession } from '../../state/index.js'
 import { hasActiveBan } from '../../infrastructure/gateways/ban.gateway.js'
+import type { IMatchRepository } from '../../contracts/IMatchRepository.js'
 
 const mockHasActiveBan = vi.mocked(hasActiveBan)
 
 function token(playerId: string) {
 	return signJwt({ playerId, steamName: 'Test' })
+}
+
+function makeMinimalMatchRepository(): IMatchRepository {
+	return {
+		insertMatch: vi.fn().mockResolvedValue(undefined),
+		updateMatchLobbyState: vi.fn().mockResolvedValue(undefined),
+		loadActiveMatches: vi.fn().mockResolvedValue([]),
+		updateMatchStatus: vi.fn().mockResolvedValue(undefined),
+		applyRatingTransaction: vi.fn().mockResolvedValue([]),
+		getCurrentSeason: vi.fn().mockResolvedValue(null),
+		getPlayerCurrentRating: vi.fn().mockResolvedValue(600),
+		setMatchGameStarted: vi.fn().mockResolvedValue(undefined),
+	}
 }
 
 describe('ban enforcement', () => {
@@ -53,6 +68,12 @@ describe('ban enforcement', () => {
 			mockHasActiveBan.mockImplementation(
 				async (_pid, type) => type === 'queue',
 			)
+
+			const { joinQueue } = createMatchmakingService({
+				messageBus: mqttService,
+				matchRepository: makeMinimalMatchRepository(),
+				banRepository: { hasActiveBan: vi.mocked(hasActiveBan) },
+			})
 
 			await expect(
 				joinQueue(session, {

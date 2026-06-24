@@ -1,3 +1,5 @@
+import type { PlacementEntry } from '../../shared/types/index.js'
+
 export const MATCHING_INTERVAL_MS = 2_000
 export const INITIAL_HIDDEN_RATING = 600
 export const PLACEMENT_GAMES = 5
@@ -15,19 +17,18 @@ function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value))
 }
 
-// K-factor for a player. Placement games use a decaying base K scaled by performance.
+// Placement games use a decaying base K scaled by performance.
 export function effectiveK(gamesPlayed: number, performance: number): number {
 	if (gamesPlayed >= PLACEMENT_GAMES) return K_ESTABLISHED
 	const baseK = 200 - gamesPlayed * 40
 	return baseK * (1 + clamp(performance, 0, 1))
 }
 
-// Probability that A beats B given their ratings.
 export function expectedScore(ratingA: number, ratingB: number): number {
 	return 1 / (1 + 10 ** ((ratingB - ratingA) / 400))
 }
 
-// 1v1 Elo delta. Returns integer-rounded deltas.
+// Returns integer-rounded deltas.
 export function compute1v1(
 	a: { rating: number; gamesPlayed: number; performance: number },
 	b: { rating: number; gamesPlayed: number; performance: number },
@@ -143,4 +144,76 @@ export function applySoftReset(rating: number): number {
 		return Math.round(SOFT_RESET_ANCHOR + (rating - SOFT_RESET_ANCHOR) / 2)
 	}
 	return rating
+}
+
+export type RatingMode = 'solo' | 'ffa' | 'team'
+
+export function detectRatingMode(placements: PlacementEntry[]): RatingMode {
+	if (placements.some((p) => p.teamId)) return 'team'
+	if (placements.length === 2) return 'solo'
+	return 'ffa'
+}
+
+export function computeRatingDeltas(
+	mode: RatingMode,
+	placements: PlacementEntry[],
+	ratings: ReadonlyMap<string, { rating: number; gamesPlayed: number }>,
+): Map<string, number> {
+	if (mode === 'solo') {
+		const [a, b] = placements
+		const ra = ratings.get(a.playerId)!
+		const rb = ratings.get(b.playerId)!
+		const outcome = a.place < b.place ? 'a_wins' : b.place < a.place ? 'b_wins' : 'draw'
+		const { deltaA, deltaB } = compute1v1(
+			{ rating: ra.rating, gamesPlayed: ra.gamesPlayed, performance: a.performance ?? 0 },
+			{ rating: rb.rating, gamesPlayed: rb.gamesPlayed, performance: b.performance ?? 0 },
+			outcome,
+		)
+		return new Map([
+			[a.playerId, deltaA],
+			[b.playerId, deltaB],
+		])
+	}
+
+	if (mode === 'ffa') {
+		const winnerPlace = Math.min(...placements.map((p) => p.place))
+		return computeFFA(
+			placements.map((p) => {
+				const r = ratings.get(p.playerId)!
+				return {
+					playerId: p.playerId,
+					rating: r.rating,
+					gamesPlayed: r.gamesPlayed,
+					performance: p.performance ?? 0,
+					isWinner: p.place === winnerPlace,
+				}
+			}),
+		)
+	}
+
+	const teamMap = new Map<string, PlacementEntry[]>()
+	for (const p of placements) {
+		const tid = p.teamId!
+		if (!teamMap.has(tid)) teamMap.set(tid, [])
+		teamMap.get(tid)!.push(p)
+	}
+	const teamEntries = Array.from(teamMap.entries())
+	const winnerTeamPlace = Math.min(
+		...teamEntries.map(([, members]) => Math.min(...members.map((m) => m.place))),
+	)
+	const winnerTeamIdx = teamEntries.findIndex(
+		([, members]) => Math.min(...members.map((m) => m.place)) === winnerTeamPlace,
+	)
+	const teams = teamEntries.map(([, members]) =>
+		members.map((m) => {
+			const r = ratings.get(m.playerId)!
+			return {
+				playerId: m.playerId,
+				rating: r.rating,
+				gamesPlayed: r.gamesPlayed,
+				performance: m.performance ?? 0,
+			}
+		}),
+	)
+	return computeTeam(teams, winnerTeamIdx)
 }

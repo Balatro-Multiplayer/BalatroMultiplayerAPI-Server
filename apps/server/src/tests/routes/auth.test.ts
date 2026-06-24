@@ -5,7 +5,7 @@ import { env } from '../../env.js'
 import { lobbies, sessions, createSession } from '../../state/index.js'
 import { Lobby } from '../../state/lobby.js'
 import { redeemRefreshToken, issueRefreshToken } from '../../infrastructure/gateways/refresh-token.gateway.js'
-import { signTosPendingToken } from '../../features/auth/auth.service.js'
+import { signTosPendingToken } from '../../features/auth/jwt.js'
 import { setConfig } from '../../state/config.js'
 
 const app = createTestApp()
@@ -296,7 +296,7 @@ describe('POST /api/auth/accept-tos', () => {
 	})
 
 	it('returns 401 for a regular JWT (wrong purpose)', async () => {
-		const { signJwt } = await import('../../features/auth/auth.service.js')
+		const { signJwt } = await import('../../features/auth/jwt.js')
 		createSession('Alice', { id: 'tos-wrong-jwt' })
 		const regularToken = signJwt({ playerId: 'tos-wrong-jwt', steamName: 'Alice' })
 

@@ -1,8 +1,9 @@
 import { and, desc, eq, gt, isNull, or, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { playerBans } from '../db/schema.js'
+import type { BanType } from '../../shared/types/index.js'
 
-export type BanType = 'chat' | 'queue' | 'account'
+export type { BanType } from '../../shared/types/index.js'
 
 export const BAN_TYPES: readonly BanType[] = ['chat', 'queue', 'account']
 
@@ -13,13 +14,17 @@ export function isBanType(value: unknown): value is BanType {
 export interface BanRecord {
 	id: string
 	playerId: string
-	banType: string
+	banType: BanType
 	expiresAt: Date | null
 	issuedBy: string
 	issuedAt: Date
 	reason: string
 	liftedAt: Date | null
 	liftedBy: string | null
+}
+
+function toRecord(row: typeof playerBans.$inferSelect): BanRecord {
+	return row as BanRecord
 }
 
 // A ban is active when it has not been lifted and has not expired.
@@ -31,10 +36,11 @@ const activeCondition = () =>
 
 /** Returns all currently-active bans for a player (any type). */
 export async function getActiveBans(playerId: string): Promise<BanRecord[]> {
-	return db
+	const rows = await db
 		.select()
 		.from(playerBans)
 		.where(and(eq(playerBans.playerId, playerId), activeCondition()))
+	return rows.map(toRecord)
 }
 
 /** True if the player has an active ban of the given type. */
@@ -58,11 +64,12 @@ export async function hasActiveBan(
 
 /** Lists every ban for a player — active, expired, and lifted — newest first. */
 export async function listBans(playerId: string): Promise<BanRecord[]> {
-	return db
+	const rows = await db
 		.select()
 		.from(playerBans)
 		.where(eq(playerBans.playerId, playerId))
 		.orderBy(desc(playerBans.issuedAt))
+	return rows.map(toRecord)
 }
 
 export async function insertBan(data: {
@@ -82,7 +89,7 @@ export async function insertBan(data: {
 			reason: data.reason,
 		})
 		.returning()
-	return row!
+	return toRecord(row!)
 }
 
 /**
@@ -105,5 +112,5 @@ export async function liftBan(
 			),
 		)
 		.returning()
-	return row ?? null
+	return row ? toRecord(row) : null
 }

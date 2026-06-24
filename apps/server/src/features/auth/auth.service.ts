@@ -1,6 +1,3 @@
-import { randomBytes } from 'node:crypto'
-import jwt from 'jsonwebtoken'
-import { env } from '../../env.js'
 import {
 	createSession,
 	findByProvider,
@@ -9,25 +6,47 @@ import {
 	unlinkProvider,
 	PlayerSession,
 } from '../../state/index.js'
-import type {
-	DiscordTokenResponse,
-	DiscordUser,
-	JwtPayload,
-	SteamAuthResponse,
-} from '../../shared/types/index.js'
 import { isValidJoker } from '../../shared/constants/jokers.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { hashProviderId } from '../../shared/utils/hash.js'
-import { cancelGracePeriod } from '../../infrastructure/mqtt/grace-period.service.js'
-import * as playerDb from '../../infrastructure/gateways/player.gateway.js'
-import type { PlayerRecord } from '../../infrastructure/gateways/player.gateway.js'
 import { getConfig } from '../../state/config.js'
+import type { IPlayerRepository, PlayerRecord } from '../../contracts/IPlayerRepository.js'
+import type { IGracePeriodService } from '../../contracts/IGracePeriodService.js'
+import { signJwt } from './jwt.js'
 
 type Provider = 'steam' | 'discord'
 type SessionInit = NonNullable<Parameters<typeof createSession>[1]>
 type SessionAndToken = { session: PlayerSession; token: string }
 
-// --- Helpers ---
+interface AuthServiceDeps {
+	playerRepository: IPlayerRepository
+	gracePeriodService: Pick<IGracePeriodService, 'cancelGracePeriod'>
+}
+
+export type AuthService = ReturnType<typeof createAuthService>
+
+export function authenticateAsTemp(steamName: string) {
+	const session = createSession(steamName)
+	const token = signJwt({
+		playerId: session.playerId,
+		steamName: session.steamName,
+		isTemp: true,
+	})
+	return { session, token }
+}
+
+function signSessionJwt(session: PlayerSession): string {
+	return signJwt({
+		playerId: session.playerId,
+		steamName: session.steamName,
+		displayName: session.getDisplayName(),
+		useDiscordName: session.useDiscordName,
+		preferredJoker: session.preferredJoker,
+		discordIdHash: session.discordIdHash,
+		discordUsername: session.discordUsername,
+		lobbyCode: session.lobbyCode,
+	})
+}
 
 function sessionAndToken(session: PlayerSession): SessionAndToken {
 	return { session, token: signSessionJwt(session) }
@@ -52,18 +71,6 @@ function dbPlayerToSessionInit(
 	}
 }
 
-// Returns the live in-memory session, or rebuilds one from the DB player when the
-// caller has a valid JWT but no active session. This is the normal case for
-// website-only users (the site is stateless JWT) and after an API restart wipes
-// in-memory sessions — account operations must still work from the token alone.
-async function ensureSession(playerId: string): Promise<PlayerSession> {
-	const existing = getSession(playerId)
-	if (existing) return existing
-	const dbPlayer = await playerDb.findPlayerById(playerId)
-	if (!dbPlayer) throw new AppError('Player not found', 404)
-	return createSession(dbPlayer.steamName, dbPlayerToSessionInit(dbPlayer))
-}
-
 function ensureProviderNotLinkedElsewhere(
 	provider: Provider,
 	idHash: string,
@@ -76,502 +83,266 @@ function ensureProviderNotLinkedElsewhere(
 	}
 }
 
-// --- Steam ---
+export function createAuthService(deps: AuthServiceDeps) {
+	const { playerRepository, gracePeriodService } = deps
 
-function buildSteamAuthUrl(ticket: string): string {
-	const url = new URL(
-		'https://api.steampowered.com/ISteamUserAuth/AuthenticateUserTicket/v1/',
-	)
-	url.searchParams.set('key', env.STEAM_WEB_API_KEY)
-	url.searchParams.set('appid', env.STEAM_APP_ID)
-	url.searchParams.set('ticket', ticket)
-	return url.toString()
-}
-
-function extractSteamIdFromAuthResponse(data: SteamAuthResponse): string {
-	if (!data.response?.params || data.response.params.result !== 'OK') {
-		throw new AppError('Invalid Steam ticket', 401)
-	}
-	return data.response.params.steamid
-}
-
-// --- Steam OpenID (web browser flow) ---
-
-const STEAM_OPENID_ENDPOINT = 'https://steamcommunity.com/openid/login'
-const STEAM_ID_REGEX = /^https:\/\/steamcommunity\.com\/openid\/id\/(\d+)$/
-
-export function getSteamOpenIdUrl(returnTo: string): string {
-	const params = new URLSearchParams({
-		'openid.ns': 'http://specs.openid.net/auth/2.0',
-		'openid.mode': 'checkid_setup',
-		'openid.return_to': returnTo,
-		'openid.realm': new URL(returnTo).origin,
-		'openid.identity': 'http://specs.openid.net/auth/2.0/identifier_select',
-		'openid.claimed_id': 'http://specs.openid.net/auth/2.0/identifier_select',
-	})
-	return `${STEAM_OPENID_ENDPOINT}?${params.toString()}`
-}
-
-export async function validateSteamOpenIdResponse(
-	query: Record<string, string>,
-): Promise<string> {
-	const claimedId = query['openid.claimed_id'] ?? ''
-	const match = STEAM_ID_REGEX.exec(claimedId)
-	if (!match) throw new AppError('Invalid Steam OpenID response', 401)
-
-	const verifyParams = new URLSearchParams({ ...query, 'openid.mode': 'check_authentication' })
-	const res = await fetch(STEAM_OPENID_ENDPOINT, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-		body: verifyParams.toString(),
-	})
-	const text = await res.text()
-	if (!text.includes('is_valid:true')) throw new AppError('Steam OpenID validation failed', 401)
-
-	return match[1]
-}
-
-export async function getSteamPlayerName(steamId: string): Promise<string> {
-	const url = `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=${env.STEAM_WEB_API_KEY}&steamids=${steamId}`
-	try {
-		const res = await fetch(url)
-		const data = (await res.json()) as { response?: { players?: { personaname?: string }[] } }
-		return data.response?.players?.[0]?.personaname ?? 'Unknown'
-	} catch {
-		return 'Unknown'
-	}
-}
-
-// ---
-
-export async function validateSteamTicket(
-	ticket: string,
-): Promise<{ steamId: string }> {
-	const response = await fetch(buildSteamAuthUrl(ticket))
-	if (!response.ok) {
-		throw new AppError('Steam API request failed', 502)
-	}
-	const data = (await response.json()) as SteamAuthResponse
-	return { steamId: extractSteamIdFromAuthResponse(data) }
-}
-
-async function refreshSteamSessionOnReauth(
-	session: PlayerSession,
-	steamName: string,
-): Promise<SessionAndToken> {
-	await cancelGracePeriod(session.playerId)
-	session.steamName = steamName
-	await playerDb.updateSteamName(session.playerId, steamName)
-	return sessionAndToken(session)
-}
-
-async function restoreSessionFromDbPlayer(
-	dbPlayer: PlayerRecord,
-	steamName: string,
-): Promise<SessionAndToken> {
-	const session = createSession(steamName, dbPlayerToSessionInit(dbPlayer))
-	await playerDb.updateSteamName(dbPlayer.id, steamName)
-	return sessionAndToken(session)
-}
-
-function createBrandNewSteamSession(
-	steamName: string,
-	steamIdHash: string,
-): SessionAndToken {
-	const session = createSession(steamName, { steamIdHash })
-	return sessionAndToken(session)
-}
-
-export async function authenticateWithSteam(
-	steamId: string,
-	steamName: string,
-): Promise<SessionAndToken> {
-	const steamIdHash = hashProviderId(steamId)
-
-	const existing = findByProvider('steam', steamIdHash)
-	if (existing) return refreshSteamSessionOnReauth(existing, steamName)
-
-	const dbPlayer = await playerDb.findPlayerBySteamIdHash(steamIdHash)
-	if (dbPlayer) return restoreSessionFromDbPlayer(dbPlayer, steamName)
-
-	return createBrandNewSteamSession(steamName, steamIdHash)
-}
-
-// --- Discord ---
-
-export function getDiscordAuthUrl(state?: string): string {
-	const params = new URLSearchParams({
-		client_id: env.DISCORD_CLIENT_ID,
-		redirect_uri: env.DISCORD_REDIRECT_URI,
-		response_type: 'code',
-		scope: 'identify',
-	})
-	if (state) params.set('state', state)
-	return `https://discord.com/api/oauth2/authorize?${params.toString()}`
-}
-
-async function exchangeDiscordCodeForToken(
-	code: string,
-): Promise<DiscordTokenResponse> {
-	const res = await fetch('https://discord.com/api/oauth2/token', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-		body: new URLSearchParams({
-			client_id: env.DISCORD_CLIENT_ID,
-			client_secret: env.DISCORD_CLIENT_SECRET,
-			grant_type: 'authorization_code',
-			code,
-			redirect_uri: env.DISCORD_REDIRECT_URI,
-		}),
-	})
-	if (!res.ok) throw new AppError('Discord token exchange failed', 502)
-	return (await res.json()) as DiscordTokenResponse
-}
-
-async function fetchDiscordUser(accessToken: string): Promise<DiscordUser> {
-	const res = await fetch('https://discord.com/api/users/@me', {
-		headers: { Authorization: `Bearer ${accessToken}` },
-	})
-	if (!res.ok) throw new AppError('Discord user fetch failed', 502)
-	return (await res.json()) as DiscordUser
-}
-
-function pickDiscordDisplayName(user: DiscordUser): string {
-	return user.global_name ?? user.username
-}
-
-export async function validateDiscordCode(
-	code: string,
-): Promise<{ discordId: string; discordName: string }> {
-	const tokenData = await exchangeDiscordCodeForToken(code)
-	const user = await fetchDiscordUser(tokenData.access_token)
-	return { discordId: user.id, discordName: pickDiscordDisplayName(user) }
-}
-
-async function refreshDiscordSessionOnReauth(
-	session: PlayerSession,
-	discordName: string,
-): Promise<SessionAndToken> {
-	await cancelGracePeriod(session.playerId)
-	session.steamName = discordName
-	session.discordUsername = discordName
-	await playerDb.updateSteamName(session.playerId, discordName)
-	await playerDb.updateDiscordUsername(session.playerId, discordName)
-	return sessionAndToken(session)
-}
-
-async function restoreDiscordSessionFromDb(
-	dbPlayer: PlayerRecord,
-	discordName: string,
-): Promise<SessionAndToken> {
-	const session = createSession(
-		discordName,
-		dbPlayerToSessionInit(dbPlayer, { discordUsername: discordName }),
-	)
-	await playerDb.updateSteamName(dbPlayer.id, discordName)
-	await playerDb.updateDiscordUsername(dbPlayer.id, discordName)
-	return sessionAndToken(session)
-}
-
-async function createBrandNewDiscordSession(
-	discordName: string,
-	discordIdHash: string,
-): Promise<SessionAndToken> {
-	const session = createSession(discordName, {
-		discordIdHash,
-		discordUsername: discordName,
-	})
-	await playerDb.createPlayer({
-		id: session.playerId,
-		steamName: discordName,
-		discordIdHash,
-	})
-	return sessionAndToken(session)
-}
-
-export async function authenticateWithDiscord(
-	discordId: string,
-	discordName: string,
-): Promise<SessionAndToken> {
-	const discordIdHash = hashProviderId(discordId)
-
-	const existing = findByProvider('discord', discordIdHash)
-	if (existing) return refreshDiscordSessionOnReauth(existing, discordName)
-
-	const dbPlayer = await playerDb.findPlayerByDiscordIdHash(discordIdHash)
-	if (dbPlayer) return restoreDiscordSessionFromDb(dbPlayer, discordName)
-
-	return createBrandNewDiscordSession(discordName, discordIdHash)
-}
-
-// --- Refresh token auth (player ID based) ---
-
-async function refreshExistingSessionByPlayerId(
-	session: PlayerSession,
-	steamName: string,
-): Promise<SessionAndToken> {
-	await cancelGracePeriod(session.playerId)
-	session.steamName = steamName
-	await playerDb.updateSteamName(session.playerId, steamName)
-	return sessionAndToken(session)
-}
-
-export async function authenticateWithPlayerId(
-	playerId: string,
-	steamName: string,
-): Promise<SessionAndToken> {
-	const existing = getSession(playerId)
-	if (existing) return refreshExistingSessionByPlayerId(existing, steamName)
-
-	const dbPlayer = await playerDb.findPlayerById(playerId)
-	if (!dbPlayer) throw new AppError('Player not found', 401)
-
-	return restoreSessionFromDbPlayer(dbPlayer, steamName)
-}
-
-// --- Dev-mode temporary account ---
-
-export function authenticateAsTemp(steamName: string) {
-	const session = createSession(steamName)
-	const token = signJwt({
-		playerId: session.playerId,
-		steamName: session.steamName,
-		isTemp: true,
-	})
-	return { session, token }
-}
-
-// --- Dev-mode impersonation ---
-
-async function findImpersonationTarget(opts: {
-	playerId?: string
-	steamId?: string
-	discordId?: string
-	steamName?: string
-}): Promise<PlayerRecord | null> {
-	if (opts.playerId) return playerDb.findPlayerById(opts.playerId)
-	if (opts.steamId)
-		return playerDb.findPlayerBySteamIdHash(hashProviderId(opts.steamId))
-	if (opts.discordId)
-		return playerDb.findPlayerByDiscordIdHash(hashProviderId(opts.discordId))
-	if (opts.steamName) return playerDb.findPlayerBySteamName(opts.steamName)
-	return null
-}
-
-export async function impersonatePlayer(opts: {
-	playerId?: string
-	steamId?: string
-	discordId?: string
-	steamName?: string
-}): Promise<SessionAndToken> {
-	const dbPlayer = await findImpersonationTarget(opts)
-	if (!dbPlayer) throw new AppError('Player not found', 404)
-
-	const session = createSession(
-		dbPlayer.steamName,
-		dbPlayerToSessionInit(dbPlayer),
-	)
-	return sessionAndToken(session)
-}
-
-// --- Linking ---
-
-export async function linkSteamToPlayer(playerId: string, steamId: string) {
-	const session = await ensureSession(playerId)
-	const steamIdHash = hashProviderId(steamId)
-	ensureProviderNotLinkedElsewhere('steam', steamIdHash, playerId)
-
-	linkProvider(session, 'steam', steamIdHash)
-	await playerDb.linkSteam(playerId, steamIdHash)
-	return sessionAndToken(session)
-}
-
-export async function linkDiscordToPlayer(
-	playerId: string,
-	discordId: string,
-	discordUsername?: string,
-) {
-	const session = await ensureSession(playerId)
-	const discordIdHash = hashProviderId(discordId)
-	ensureProviderNotLinkedElsewhere('discord', discordIdHash, playerId)
-
-	linkProvider(session, 'discord', discordIdHash)
-	if (discordUsername) session.discordUsername = discordUsername
-	await playerDb.linkDiscord(playerId, discordIdHash, discordUsername)
-	return sessionAndToken(session)
-}
-
-export async function unlinkDiscordFromPlayer(playerId: string) {
-	const session = await ensureSession(playerId)
-
-	unlinkProvider(session, 'discord')
-	session.useDiscordName = false
-	await playerDb.unlinkDiscord(playerId)
-	return sessionAndToken(session)
-}
-
-export async function setUseDiscordName(playerId: string, value: boolean) {
-	const session = await ensureSession(playerId)
-
-	if (value && !session.discordIdHash) {
-		throw new AppError('Discord account not linked', 400)
+	async function ensureSession(playerId: string): Promise<PlayerSession> {
+		const existing = getSession(playerId)
+		if (existing) return existing
+		const dbPlayer = await playerRepository.findPlayerById(playerId)
+		if (!dbPlayer) throw new AppError('Player not found', 404)
+		return createSession(dbPlayer.steamName, dbPlayerToSessionInit(dbPlayer))
 	}
 
-	session.useDiscordName = value
-	await playerDb.updateUseDiscordName(playerId, value)
-	return sessionAndToken(session)
-}
-
-export async function setPreferredJoker(playerId: string, value: string) {
-	const session = await ensureSession(playerId)
-
-	if (!isValidJoker(value, session.privileges)) {
-		throw new AppError('Invalid joker ID', 400)
+	async function refreshSteamSessionOnReauth(
+		session: PlayerSession,
+		steamName: string,
+	): Promise<SessionAndToken> {
+		await gracePeriodService.cancelGracePeriod(session.playerId)
+		session.steamName = steamName
+		await playerRepository.updateSteamName(session.playerId, steamName)
+		return sessionAndToken(session)
 	}
 
-	session.preferredJoker = value
-	await playerDb.updatePreferredJoker(playerId, value)
-	return sessionAndToken(session)
-}
+	async function restoreSessionFromDbPlayer(
+		dbPlayer: PlayerRecord,
+		steamName: string,
+	): Promise<SessionAndToken> {
+		const session = createSession(steamName, dbPlayerToSessionInit(dbPlayer))
+		await playerRepository.updateSteamName(dbPlayer.id, steamName)
+		return sessionAndToken(session)
+	}
 
-// --- JWT ---
+	function createBrandNewSteamSession(
+		steamName: string,
+		steamIdHash: string,
+	): SessionAndToken {
+		const session = createSession(steamName, { steamIdHash })
+		return sessionAndToken(session)
+	}
 
-export function signJwt(payload: JwtPayload): string {
-	return jwt.sign(payload, env.JWT_SECRET, {
-		expiresIn: env.JWT_EXPIRES_IN as `${number}${'s' | 'm' | 'h' | 'd'}`,
-	})
-}
+	async function authenticateWithSteam(
+		steamId: string,
+		steamName: string,
+	): Promise<SessionAndToken> {
+		const steamIdHash = hashProviderId(steamId)
 
-export function verifyJwt(token: string): JwtPayload | null {
-	try {
-		return jwt.verify(token, env.JWT_SECRET) as JwtPayload
-	} catch {
+		const existing = findByProvider('steam', steamIdHash)
+		if (existing) return refreshSteamSessionOnReauth(existing, steamName)
+
+		const dbPlayer = await playerRepository.findPlayerBySteamIdHash(steamIdHash)
+		if (dbPlayer) return restoreSessionFromDbPlayer(dbPlayer, steamName)
+
+		return createBrandNewSteamSession(steamName, steamIdHash)
+	}
+
+	async function refreshDiscordSessionOnReauth(
+		session: PlayerSession,
+		discordName: string,
+	): Promise<SessionAndToken> {
+		await gracePeriodService.cancelGracePeriod(session.playerId)
+		session.steamName = discordName
+		session.discordUsername = discordName
+		await playerRepository.updateSteamName(session.playerId, discordName)
+		await playerRepository.updateDiscordUsername(session.playerId, discordName)
+		return sessionAndToken(session)
+	}
+
+	async function restoreDiscordSessionFromDb(
+		dbPlayer: PlayerRecord,
+		discordName: string,
+	): Promise<SessionAndToken> {
+		const session = createSession(
+			discordName,
+			dbPlayerToSessionInit(dbPlayer, { discordUsername: discordName }),
+		)
+		await playerRepository.updateSteamName(dbPlayer.id, discordName)
+		await playerRepository.updateDiscordUsername(dbPlayer.id, discordName)
+		return sessionAndToken(session)
+	}
+
+	async function createBrandNewDiscordSession(
+		discordName: string,
+		discordIdHash: string,
+	): Promise<SessionAndToken> {
+		const session = createSession(discordName, {
+			discordIdHash,
+			discordUsername: discordName,
+		})
+		await playerRepository.createPlayer({
+			id: session.playerId,
+			steamName: discordName,
+			discordIdHash,
+		})
+		return sessionAndToken(session)
+	}
+
+	async function authenticateWithDiscord(
+		discordId: string,
+		discordName: string,
+	): Promise<SessionAndToken> {
+		const discordIdHash = hashProviderId(discordId)
+
+		const existing = findByProvider('discord', discordIdHash)
+		if (existing) return refreshDiscordSessionOnReauth(existing, discordName)
+
+		const dbPlayer = await playerRepository.findPlayerByDiscordIdHash(discordIdHash)
+		if (dbPlayer) return restoreDiscordSessionFromDb(dbPlayer, discordName)
+
+		return createBrandNewDiscordSession(discordName, discordIdHash)
+	}
+
+	async function refreshExistingSessionByPlayerId(
+		session: PlayerSession,
+		steamName: string,
+	): Promise<SessionAndToken> {
+		await gracePeriodService.cancelGracePeriod(session.playerId)
+		session.steamName = steamName
+		await playerRepository.updateSteamName(session.playerId, steamName)
+		return sessionAndToken(session)
+	}
+
+	async function authenticateWithPlayerId(
+		playerId: string,
+		steamName: string,
+	): Promise<SessionAndToken> {
+		const existing = getSession(playerId)
+		if (existing) return refreshExistingSessionByPlayerId(existing, steamName)
+
+		const dbPlayer = await playerRepository.findPlayerById(playerId)
+		if (!dbPlayer) throw new AppError('Player not found', 401)
+
+		return restoreSessionFromDbPlayer(dbPlayer, steamName)
+	}
+
+	async function findImpersonationTarget(opts: {
+		playerId?: string
+		steamId?: string
+		discordId?: string
+		steamName?: string
+	}): Promise<PlayerRecord | null> {
+		if (opts.playerId) return playerRepository.findPlayerById(opts.playerId)
+		if (opts.steamId)
+			return playerRepository.findPlayerBySteamIdHash(hashProviderId(opts.steamId))
+		if (opts.discordId)
+			return playerRepository.findPlayerByDiscordIdHash(hashProviderId(opts.discordId))
+		if (opts.steamName) return playerRepository.findPlayerBySteamName(opts.steamName)
 		return null
 	}
-}
 
-// --- ToS version gate ---
+	async function impersonatePlayer(opts: {
+		playerId?: string
+		steamId?: string
+		discordId?: string
+		steamName?: string
+	}): Promise<SessionAndToken> {
+		const dbPlayer = await findImpersonationTarget(opts)
+		if (!dbPlayer) throw new AppError('Player not found', 404)
 
-export function signTosPendingToken(playerId: string): string {
-	return jwt.sign({ playerId, purpose: 'tos-accept' }, env.JWT_SECRET, {
-		expiresIn: '10m',
-	})
-}
+		const session = createSession(
+			dbPlayer.steamName,
+			dbPlayerToSessionInit(dbPlayer),
+		)
+		return sessionAndToken(session)
+	}
 
-export function verifyTosPendingToken(token: string): string | null {
-	try {
-		const decoded = jwt.verify(token, env.JWT_SECRET) as {
-			playerId: string
-			purpose: string
+	async function linkSteamToPlayer(playerId: string, steamId: string) {
+		const session = await ensureSession(playerId)
+		const steamIdHash = hashProviderId(steamId)
+		ensureProviderNotLinkedElsewhere('steam', steamIdHash, playerId)
+
+		linkProvider(session, 'steam', steamIdHash)
+		await playerRepository.linkSteam(playerId, steamIdHash)
+		return sessionAndToken(session)
+	}
+
+	async function linkDiscordToPlayer(
+		playerId: string,
+		discordId: string,
+		discordUsername?: string,
+	) {
+		const session = await ensureSession(playerId)
+		const discordIdHash = hashProviderId(discordId)
+		ensureProviderNotLinkedElsewhere('discord', discordIdHash, playerId)
+
+		linkProvider(session, 'discord', discordIdHash)
+		if (discordUsername) session.discordUsername = discordUsername
+		await playerRepository.linkDiscord(playerId, discordIdHash, discordUsername)
+		return sessionAndToken(session)
+	}
+
+	async function unlinkDiscordFromPlayer(playerId: string) {
+		const session = await ensureSession(playerId)
+
+		unlinkProvider(session, 'discord')
+		session.useDiscordName = false
+		await playerRepository.unlinkDiscord(playerId)
+		return sessionAndToken(session)
+	}
+
+	async function setUseDiscordName(playerId: string, value: boolean) {
+		const session = await ensureSession(playerId)
+
+		if (value && !session.discordIdHash) {
+			throw new AppError('Discord account not linked', 400)
 		}
-		if (decoded.purpose !== 'tos-accept') return null
-		return decoded.playerId
-	} catch {
-		return null
-	}
-}
 
-async function ensurePlayerExistsInDb(session: PlayerSession): Promise<void> {
-	const dbPlayer = await playerDb.findPlayerById(session.playerId)
-	if (dbPlayer) return
-	await playerDb.createPlayer({
-		id: session.playerId,
-		steamName: session.steamName,
-		steamIdHash: session.steamIdHash,
-	})
-}
-
-export async function acceptTos(playerId: string, chatEligible?: boolean) {
-	const { tosVersion } = getConfig()
-
-	const session = getSession(playerId)
-	if (!session) throw new AppError('Session not found', 401)
-
-	await ensurePlayerExistsInDb(session)
-	await playerDb.updateTosAcceptedVersion(playerId, tosVersion)
-	session.tosAcceptedVersion = tosVersion
-
-	// chatEligible is computed client-side from birthdate; birthdate is never transmitted.
-	if (chatEligible !== undefined) {
-		await playerDb.updateChatStatus(playerId, chatEligible, false)
-		session.chatEnabled = chatEligible
-		session.chatBlocked = false
+		session.useDiscordName = value
+		await playerRepository.updateUseDiscordName(playerId, value)
+		return sessionAndToken(session)
 	}
 
-	return sessionAndToken(session)
-}
+	async function setPreferredJoker(playerId: string, value: string) {
+		const session = await ensureSession(playerId)
 
-// --- Discord link CSRF protection ---
-
-const LINK_STATE_TTL = 5 * 60 * 1000
-
-export const linkStateNonces = new Map<
-	string,
-	{ playerId: string; expiresAt: number; source?: string }
->()
-
-export function generateLinkState(playerId: string, source?: string): string {
-	const nonce = randomBytes(32).toString('hex')
-	linkStateNonces.set(nonce, {
-		playerId,
-		expiresAt: Date.now() + LINK_STATE_TTL,
-		source,
-	})
-	return jwt.sign({ nonce, purpose: 'discord-link' }, env.JWT_SECRET, {
-		expiresIn: '5m',
-	})
-}
-
-function decodeLinkStateJwt(
-	state: string,
-): { nonce: string; purpose: string } | null {
-	try {
-		return jwt.verify(state, env.JWT_SECRET) as {
-			nonce: string
-			purpose: string
+		if (!isValidJoker(value, session.privileges)) {
+			throw new AppError('Invalid joker ID', 400)
 		}
-	} catch {
-		return null
+
+		session.preferredJoker = value
+		await playerRepository.updatePreferredJoker(playerId, value)
+		return sessionAndToken(session)
 	}
-}
 
-function consumeLinkStateNonce(
-	nonce: string,
-): { playerId: string; expiresAt: number; source?: string } | null {
-	const entry = linkStateNonces.get(nonce)
-	if (!entry) return null
-	linkStateNonces.delete(nonce)
-	return entry
-}
+	async function ensurePlayerExistsInDb(session: PlayerSession): Promise<void> {
+		const dbPlayer = await playerRepository.findPlayerById(session.playerId)
+		if (dbPlayer) return
+		await playerRepository.createPlayer({
+			id: session.playerId,
+			steamName: session.steamName,
+			steamIdHash: session.steamIdHash,
+		})
+	}
 
-function isLinkStateNonceFresh(entry: { expiresAt: number }): boolean {
-	return Date.now() <= entry.expiresAt
-}
+	async function acceptTos(playerId: string, chatEligible?: boolean) {
+		const { tosVersion } = getConfig()
 
-export function verifyLinkState(
-	state: string,
-): { playerId: string; source?: string } | null {
-	const decoded = decodeLinkStateJwt(state)
-	if (!decoded || decoded.purpose !== 'discord-link') return null
+		const session = getSession(playerId)
+		if (!session) throw new AppError('Session not found', 401)
 
-	const entry = consumeLinkStateNonce(decoded.nonce)
-	if (!entry) return null
-	if (!isLinkStateNonceFresh(entry)) return null
+		await ensurePlayerExistsInDb(session)
+		await playerRepository.updateTosAcceptedVersion(playerId, tosVersion)
+		session.tosAcceptedVersion = tosVersion
 
-	return { playerId: entry.playerId, source: entry.source }
-}
+		if (chatEligible !== undefined) {
+			await playerRepository.updateChatStatus(playerId, chatEligible, false)
+			session.chatEnabled = chatEligible
+			session.chatBlocked = false
+		}
 
-// --- Helpers ---
+		return sessionAndToken(session)
+	}
 
-function signSessionJwt(session: PlayerSession): string {
-	return signJwt({
-		playerId: session.playerId,
-		steamName: session.steamName,
-		displayName: session.getDisplayName(),
-		useDiscordName: session.useDiscordName,
-		preferredJoker: session.preferredJoker,
-		discordIdHash: session.discordIdHash,
-		discordUsername: session.discordUsername,
-		lobbyCode: session.lobbyCode,
-	})
+	return {
+		authenticateWithSteam,
+		authenticateWithDiscord,
+		authenticateWithPlayerId,
+		impersonatePlayer,
+		linkSteamToPlayer,
+		linkDiscordToPlayer,
+		unlinkDiscordFromPlayer,
+		setUseDiscordName,
+		setPreferredJoker,
+		acceptTos,
+	}
 }

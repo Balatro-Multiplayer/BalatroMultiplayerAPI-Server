@@ -5,7 +5,7 @@ import {
 	authorizeAction,
 } from './emqx-auth.service.js'
 import { startGracePeriod } from '../../infrastructure/mqtt/grace-period.service.js'
-import { leaveAllQueues } from '../matchmaking/matchmaking.service.js'
+import { leaveAllQueues } from '../matchmaking/queue.js'
 import { getSession, removeSession } from '../../state/index.js'
 import type { EmqxAuthRequest, EmqxAuthzRequest } from '../../shared/types/index.js'
 

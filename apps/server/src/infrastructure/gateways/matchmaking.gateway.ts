@@ -14,15 +14,16 @@ import {
 	PLACEMENT_GAMES,
 	RATING_FLOOR,
 	applySoftReset,
-	compute1v1,
-	computeFFA,
-	computeTeam,
+	computeRatingDeltas,
+	detectRatingMode,
 } from '../../features/matchmaking/elo.service.js'
 import {
 	getMetricConfig,
 	withinMetricBounds,
 } from '../../features/matchmaking/metrics.config.js'
-import type { Match, PlacementEntry } from '../../shared/types/index.js'
+import type { Match, MatchStatus, PlacementEntry, StoredLobbyState } from '../../shared/types/index.js'
+
+export type { StoredLobbyState } from '../../shared/types/index.js'
 
 export interface RatingRow {
 	rating: number
@@ -30,13 +31,6 @@ export interface RatingRow {
 	losses: number
 	gamesPlayed: number
 	lastMatchAt: Date | null
-}
-
-export interface StoredLobbyState {
-	hostId: string
-	metadata: Record<string, unknown>
-	maxPlayers: number
-	playerInfos: Record<string, { displayName: string; preferredJoker: string }>
 }
 
 export async function getCurrentSeason(): Promise<
@@ -212,7 +206,7 @@ export async function updateMatchLobbyState(
 
 export async function updateMatchStatus(
 	matchId: string,
-	status: string,
+	status: MatchStatus,
 ): Promise<void> {
 	await db
 		.update(matchmakingMatches)
@@ -268,13 +262,7 @@ export async function applyRatingTransaction(
 		isPlacement: boolean
 	}>
 > {
-	function detectMode(ps: PlacementEntry[]): 'solo' | 'ffa' | 'team' {
-		if (ps.some((p) => p.teamId)) return 'team'
-		if (ps.length === 2) return 'solo'
-		return 'ffa'
-	}
-
-	const mode = detectMode(placements)
+	const mode = detectRatingMode(placements)
 
 	return db.transaction(async (tx) => {
 		const ratingMap = new Map<string, RatingRow & { playerId: string }>()
@@ -284,66 +272,7 @@ export async function applyRatingTransaction(
 			ratingMap.set(p.playerId, { ...r, playerId: p.playerId })
 		}
 
-		let deltas: Map<string, number>
-
-		if (mode === 'solo') {
-			const [a, b] = placements
-			const ra = ratingMap.get(a.playerId)!
-			const rb = ratingMap.get(b.playerId)!
-			const outcome = a.place < b.place ? 'a_wins' : b.place < a.place ? 'b_wins' : 'draw'
-			const { deltaA, deltaB } = compute1v1(
-				{ rating: ra.rating, gamesPlayed: ra.gamesPlayed, performance: a.performance ?? 0 },
-				{ rating: rb.rating, gamesPlayed: rb.gamesPlayed, performance: b.performance ?? 0 },
-				outcome,
-			)
-			deltas = new Map([
-				[a.playerId, deltaA],
-				[b.playerId, deltaB],
-			])
-		} else if (mode === 'ffa') {
-			const winnerPlace = Math.min(...placements.map((p) => p.place))
-			deltas = computeFFA(
-				placements.map((p) => {
-					const r = ratingMap.get(p.playerId)!
-					return {
-						playerId: p.playerId,
-						rating: r.rating,
-						gamesPlayed: r.gamesPlayed,
-						performance: p.performance ?? 0,
-						isWinner: p.place === winnerPlace,
-					}
-				}),
-			)
-		} else {
-			const teamMap = new Map<string, PlacementEntry[]>()
-			for (const p of placements) {
-				const tid = p.teamId!
-				if (!teamMap.has(tid)) teamMap.set(tid, [])
-				teamMap.get(tid)!.push(p)
-			}
-			const teamEntries = Array.from(teamMap.entries())
-			const winnerTeamPlace = Math.min(
-				...teamEntries.map(([, members]) =>
-					Math.min(...members.map((m) => m.place)),
-				),
-			)
-			const winnerTeamId = teamEntries.find(
-				([, members]) => Math.min(...members.map((m) => m.place)) === winnerTeamPlace,
-			)![0]
-			const winnerTeamIdx = teamEntries.findIndex(([tid]) => tid === winnerTeamId)
-			const teams = teamEntries.map(([, members]) =>
-				members.map((m) => {
-					const r = ratingMap.get(m.playerId)!
-					return {
-						playerId: m.playerId,
-						rating: r.rating,
-						gamesPlayed: r.gamesPlayed,
-						performance: m.performance ?? 0,
-					}
-				}),
-			)
-			deltas = computeTeam(teams, winnerTeamIdx)
-		}
+		const deltas = computeRatingDeltas(mode, placements, ratingMap)
 
 		const now = new Date()
 		const updatedRatings: Array<{

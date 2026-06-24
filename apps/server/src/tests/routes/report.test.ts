@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
 import { createTestApp } from './app.js'
-import { signJwt } from '../../features/auth/auth.service.js'
+import { signJwt } from '../../features/auth/jwt.js'
 import { createSession } from '../../state/index.js'
 import { getLobby } from '../../state/index.js'
 import * as lobbyService from '../../features/lobby/lobby.service.js'
