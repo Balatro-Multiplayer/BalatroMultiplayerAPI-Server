@@ -444,6 +444,9 @@ const server = createServer((socket) => {
 					case 'failTimer':
 						actionHandlers.failTimer(client)
 						break
+					case 'failPvPTimer':
+						actionHandlers.failPvPTimer(client)
+						break
 					case 'syncClient':
 						actionHandlers.syncClient(
 							actionArgs as ActionHandlerArgs<ActionSyncClient>,
@@ -577,8 +580,13 @@ import { fileURLToPath } from 'node:url'
 
 const ADMIN_PORT = Number(process.env.ADMIN_PORT) || 8789
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const ADMIN_PUBLIC_KEY_PATH = resolve(__dirname, '..', '..', '.github', 'admin_public.pem')
+// Works under both tsc-emitted ESM (npm run start) and the esbuild CJS bundle
+// used by pkg. import.meta.url is undefined in CJS output; __dirname is
+// undefined in ESM. typeof is the only safe way to probe an undeclared name.
+const scriptDir = typeof __dirname !== 'undefined'
+	? __dirname
+	: dirname(fileURLToPath(import.meta.url))
+const ADMIN_PUBLIC_KEY_PATH = resolve(scriptDir, '..', '.github', 'admin_public.pem')
 const adminPublicKey = existsSync(ADMIN_PUBLIC_KEY_PATH)
 	? createPublicKey(readFileSync(ADMIN_PUBLIC_KEY_PATH, 'utf-8'))
 	: null
