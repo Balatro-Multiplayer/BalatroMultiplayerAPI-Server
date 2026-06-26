@@ -139,7 +139,7 @@ const server = createServer((socket) => {
 
 	// Reject banned peers (by IP) before allocating any per-connection state.
 	if (isBanned(remoteAddress, null)) {
-		sendActionToSocket(socket)({ action: 'error', message: 'You are banned.' })
+		sendActionToSocket(socket)({ action: 'error', message: 'Unknown Error.' })
 		socket.end()
 		return
 	}
@@ -531,7 +531,7 @@ const server = createServer((socket) => {
 			if (client.connectionId && meter.connId !== client.connectionId) {
 				meter.connId = client.connectionId
 				if (isBanned(client.remoteAddress, client.connectionId)) {
-					client.sendAction({ action: 'error', message: 'You are banned.' })
+					client.sendAction({ action: 'error', message: 'Unknown Error' })
 					socket.end()
 					return
 				}
