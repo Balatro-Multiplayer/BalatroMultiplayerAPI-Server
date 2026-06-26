@@ -1,8 +1,9 @@
 node_modules
-.env
 dist
-.vscode
-releases
-.vs
-logs
 data
+logs
+releases
+.git
+.env
+.vscode
+.vs

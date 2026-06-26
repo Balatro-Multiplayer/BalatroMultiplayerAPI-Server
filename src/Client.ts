@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import type Lobby from './Lobby.js'
 import type { ActionServerToClient } from './actions.js'
 import { InsaneInt } from './InsaneInt.js'
+import { parseConnectionId } from './abuse.js'
 
 type SendFn = (action: ActionServerToClient) => void
 type CloseConnFn = () => void
@@ -17,6 +18,12 @@ class Client {
 	id: string
 	// Could be useful later on to detect reconnects
 	address: Address
+	/** Remote peer IP (socket.remoteAddress). Used for abuse metering + bans —
+	 *  unlike `address`, which is the server's own bound address. */
+	remoteAddress: string
+	/** Client hardware id (serversideConnectionID), parsed out of modHash once the
+	 *  username action arrives. Used as a second ban key to defeat IP rotation. */
+	connectionId: string | null = null
 	sendAction: SendFn
 	closeConnection: CloseConnFn
 	/** Token used to verify identity when reconnecting to a lobby */
@@ -43,9 +50,15 @@ class Client {
 
 	isCached = true
 
-	constructor(address: Address, send: SendFn, closeConnection: CloseConnFn) {
+	constructor(
+		address: Address,
+		send: SendFn,
+		closeConnection: CloseConnFn,
+		remoteAddress = '',
+	) {
 		this.id = uuidv4()
 		this.address = address
+		this.remoteAddress = remoteAddress
 		this.sendAction = send
 		this.closeConnection = closeConnection
 		this.reconnectToken = randomBytes(16).toString('hex')
@@ -69,6 +82,9 @@ class Client {
 
 	setModHash = (modHash: string) => {
 		this.modHash = modHash
+		// The full modHash string carries serversideConnectionID=<hwid>; capture
+		// it as our second ban key.
+		this.connectionId = parseConnectionId(modHash)
 		this.lobby?.broadcastLobbyInfo()
 	}
 

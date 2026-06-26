@@ -164,6 +164,8 @@ export type ActionPauseAnteTimerRequest = { action: 'pauseAnteTimer', time: numb
 export type ActionFailTimer = { action: 'failTimer' }
 export type ActionFailPvPTimer = { action: 'failPvPTimer' }
 export type ActionSyncClient = { action: 'syncClient', isCached: boolean }
+export type ActionSubmitLogHashes = { action: 'submitLogHashes', carbon: string, human: string, seed?: string, log?: string, gameId?: string }
+export type ActionStreamLogLines = { action: 'streamLogLines', gameId: string, lines: string[] }
 // TCG Actions (Client to Server)
 export type ActionTcgServerVersion = { action: 'tcgServerVersion', version: number }
 export type ActionStartTcgBetting = { action: 'startTcgBetting' }
@@ -219,6 +221,8 @@ export type ActionClientToServer =
 	| ActionFailTimer
 	| ActionFailPvPTimer
 	| ActionSyncClient
+	| ActionSubmitLogHashes
+	| ActionStreamLogLines
 	| ActionTcgServerVersion
 	| ActionStartTcgBetting
 	| ActionTcgBet
