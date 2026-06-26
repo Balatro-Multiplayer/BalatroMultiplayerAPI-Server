@@ -26,6 +26,7 @@ import type {
 	ActionPauseAnteTimer,
 	ActionSyncClient,
 	ActionSubmitLogHashes,
+	ActionStreamLogLines,
 	ActionUsername,
 	ActionVersion,
 	ActionTcgServerVersion,
@@ -38,7 +39,11 @@ import type {
 	ActionHandyMPExtensionDisable,
 } from "./actions.js";
 import { generateSeed } from "./utils.js";
-import { recordLogHashes } from "./logHashStore.js";
+import {
+	deleteLiveLog,
+	recordLiveLogLines,
+	recordLogHashes,
+} from "./logHashStore.js";
 
 /** Current TCG server version - clients must match this to use TCG features */
 const TCG_SERVER_VERSION = 1;
@@ -796,11 +801,11 @@ const handyMPExtensionDisable = (
  * only — it never relays anything to the other client.
  */
 const submitLogHashesAction = (
-	{ carbon, human, seed, log }: ActionHandlerArgs<ActionSubmitLogHashes>,
+	{ carbon, human, seed, log, gameId }: ActionHandlerArgs<ActionSubmitLogHashes>,
 	client: Client,
 ) => {
 	const lobby = client.lobby;
-	recordLogHashes({
+	const complete = recordLogHashes({
 		lobbyCode: lobby?.code ?? null,
 		serverSeed: lobby?.seed ?? null,
 		claimedSeed: seed ?? null,
@@ -811,6 +816,28 @@ const submitLogHashesAction = (
 		carbonHash: carbon,
 		humanHash: human,
 		carbonLog: log ?? null,
+	});
+	// The complete package supersedes the live stream — drop it. Only when the
+	// full carbon block was actually stored, so an oversized/blob-less submit
+	// leaves the streamed partial as the fallback record.
+	if (complete && gameId) deleteLiveLog(gameId);
+};
+
+/**
+ * Append a batch of streamed carbon lines for an in-progress game. Best-effort
+ * and side-effect only (never relayed to the other client); rate/size limiting
+ * lives in the store so abuse is dropped rather than crashing the relay.
+ */
+const streamLogLinesAction = (
+	{ gameId, lines }: ActionHandlerArgs<ActionStreamLogLines>,
+	client: Client,
+) => {
+	recordLiveLogLines({
+		clientId: client.id,
+		gameId,
+		lobbyCode: client.lobby?.code ?? null,
+		username: client.username ?? null,
+		lines,
 	});
 };
 
@@ -858,6 +885,7 @@ export const actionHandlers = {
 	failTimer: failTimerAction,
 	syncClient: syncClientAction,
 	submitLogHashes: submitLogHashesAction,
+	streamLogLines: streamLogLinesAction,
 	tcgServerVersion: tcgServerVersionAction,
 	startTcgBetting: startTcgBettingAction,
 	tcgBet: tcgBetAction,

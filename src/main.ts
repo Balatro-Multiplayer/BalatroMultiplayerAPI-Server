@@ -27,6 +27,7 @@ import type {
 	ActionPauseAnteTimer,
 	ActionSyncClient,
 	ActionSubmitLogHashes,
+	ActionStreamLogLines,
 	ActionUsername,
 	ActionUtility,
 	ActionVersion,
@@ -43,6 +44,15 @@ import type {
 import { InsaneInt } from './InsaneInt.js'
 
 const PORT = 8788
+
+/** Hard cap on the per-connection message buffer. A message is a single
+ *  newline-terminated JSON line; the largest legitimate one is an end-of-game
+ *  submitLogHashes carrying the full carbon log (capped ~2MB server-side), so
+ *  4MB leaves headroom. If a client sends more than this without a newline it's
+ *  a runaway/abusive frame — drop the buffer and close the socket rather than
+ *  let it grow unbounded and OOM the relay. */
+const MAX_MESSAGE_BUFFER_BYTES =
+	Number(process.env.MAX_MESSAGE_BUFFER_BYTES) || 4 * 1024 * 1024
 
 /** The amount of milliseconds we wait before sending the initial keepalive packet  */
 const KEEP_ALIVE_INITIAL_TIMEOUT = 15000
@@ -164,6 +174,16 @@ const server = createServer((socket) => {
 
 		// Buffer incoming data — TCP may split large messages across multiple events
 		dataBuffer += data.toString()
+		// Guard against an unbounded buffer: a client streaming endless data with
+		// no newline would otherwise grow this without limit and OOM the relay.
+		if (dataBuffer.length > MAX_MESSAGE_BUFFER_BYTES) {
+			console.warn(
+				`Message buffer exceeded ${MAX_MESSAGE_BUFFER_BYTES} bytes from ${client.id}; dropping connection`,
+			)
+			dataBuffer = ''
+			socket.end()
+			return
+		}
 		const messages = dataBuffer.split('\n')
 		// Keep the last (possibly incomplete) chunk in the buffer
 		dataBuffer = messages.pop() ?? ''
@@ -186,7 +206,13 @@ const server = createServer((socket) => {
 									seed: (actionArgs as { seed?: string }).seed,
 									logBytes: (actionArgs as { log?: string }).log?.length ?? 0,
 								})
-							: JSON.stringify(actionArgs)
+							: action === 'streamLogLines'
+								? JSON.stringify({
+										gameId: (actionArgs as { gameId?: string }).gameId,
+										lineCount:
+											(actionArgs as { lines?: string[] }).lines?.length ?? 0,
+									})
+								: JSON.stringify(actionArgs)
 					console.log(
 						`${new Date().toISOString()}: Received action ${action} from ${client.id}: ${logged}`,
 					)
@@ -380,6 +406,12 @@ const server = createServer((socket) => {
 					case 'submitLogHashes':
 						actionHandlers.submitLogHashes(
 							actionArgs as ActionHandlerArgs<ActionSubmitLogHashes>,
+							client,
+						)
+						break
+					case 'streamLogLines':
+						actionHandlers.streamLogLines(
+							actionArgs as ActionHandlerArgs<ActionStreamLogLines>,
 							client,
 						)
 						break
