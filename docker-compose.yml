@@ -1,15 +1,22 @@
+# STAFF compose. Service name + host port (8799) match the live staff container
+# (staff-server-staff-socket-1) so `docker compose up` recreates it in place
+# instead of orphaning it. Host 8788 is PRODUCTION's port — never bind it here.
+# Same image/code as the casjb/abuse-ratelimit-combined feature branch (live
+# replay-log streaming + abuse rate/size limits + central hard-ban enforcement);
+# only the service name, published port and ./data volume differ from prod.
 services:
-  socket:
+  staff-socket:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8788:8788"
-      - "49484:8788"
+      - "8799:8788"
     environment:
       NODE_ENV: development
       # Replay-log hash store (better-sqlite3). Lives on the ./data volume so it
-      # survives container redeploys.
+      # survives container redeploys. This is the STAFF DB, fully separate from
+      # prod's (each is a per-directory ./data bind mount). The watcher writes
+      # central_hard_bans into this same file (see the staff ban-watcher).
       LOG_HASH_DB_PATH: /data/log_hashes.db
     restart: unless-stopped
     # Resource caps so an abuse spike that slips past the app-level limits OOM-kills
