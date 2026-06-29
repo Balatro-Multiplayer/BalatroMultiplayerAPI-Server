@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { authenticate } from '../../middleware/authenticate.js'
-import { getSession } from '../../state/index.js'
+import { ensureSession } from '../auth/ensure-session.js'
 import type { PlacementEntry } from '../../shared/types/index.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { assertCanPlay } from '../../shared/utils/access.js'
@@ -32,8 +32,7 @@ export function createMatchmakingRouter(service: MatchmakingService): Router {
 
 	router.post('/queue', async (req, res, next) => {
 		try {
-			const session = getSession(req.player!.playerId)
-			if (!session) throw new AppError('Session not found', 401)
+			const session = await ensureSession(req.player!.playerId)
 			assertCanPlay(session)
 
 			const { modId, gameMode, minPlayers, maxPlayers } = req.body
@@ -84,8 +83,7 @@ export function createMatchmakingRouter(service: MatchmakingService): Router {
 
 	router.post('/matches/:matchId/start', async (req, res, next) => {
 		try {
-			const session = getSession(req.player!.playerId)
-			if (!session) throw new AppError('Session not found', 401)
+			const session = await ensureSession(req.player!.playerId)
 
 			await service.markRunStart(session, req.params.matchId)
 			res.status(204).send()
@@ -96,8 +94,7 @@ export function createMatchmakingRouter(service: MatchmakingService): Router {
 
 	router.post('/matches/:matchId/result', async (req, res, next) => {
 		try {
-			const session = getSession(req.player!.playerId)
-			if (!session) throw new AppError('Session not found', 401)
+			const session = await ensureSession(req.player!.playerId)
 
 			const { matchId } = req.params
 			const { placements } = req.body as { placements: PlacementEntry[] }
