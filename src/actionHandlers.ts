@@ -200,6 +200,11 @@ const readyBlindAction = (client: Client) => {
 		client.lobby.host.handsLeft = 4;
 		client.lobby.guest.handsLeft = 4;
 
+		// Reset per-blind hand-played gate so opponent scores are withheld
+		// again at the start of each blind
+		client.lobby.host.playedThisBlind = false;
+		client.lobby.guest.playedThisBlind = false;
+
         let firstPlayer: "host" | "guest" | undefined
         if (client.lobby.host.firstReady) firstPlayer = "host"
         if (client.lobby.guest.firstReady) firstPlayer = "guest"
@@ -234,13 +239,33 @@ const playHandAction = (
 		typeof handsLeft === "number" ? handsLeft : Number(handsLeft);
 	client.handsLeft = Math.floor(client.handsLeft);
 
-	enemy.sendAction({
-		action: "enemyInfo",
-		handsLeft,
-		score: client.score.toString(),
-		skips: client.skips,
-		lives: client.lives,
-	});
+	const wasFirstHand = !client.playedThisBlind;
+	client.playedThisBlind = true;
+
+	// Only reveal our score to the enemy once the enemy has committed a hand
+	// this blind. This stops a player from watching the opponent's score before
+	// playing their own hand.
+	if (enemy.playedThisBlind) {
+		enemy.sendAction({
+			action: "enemyInfo",
+			handsLeft,
+			score: client.score.toString(),
+			skips: client.skips,
+			lives: client.lives,
+		});
+	}
+
+	// On our first hand of the blind, flush the enemy's current score to us
+	// (if they have already played) so we catch up to what was withheld.
+	if (wasFirstHand && enemy.playedThisBlind) {
+		client.sendAction({
+			action: "enemyInfo",
+			handsLeft: enemy.handsLeft,
+			score: enemy.score.toString(),
+			skips: enemy.skips,
+			lives: enemy.lives,
+		});
+	}
 
 	// This info is only sent on a boss blind, so it shouldn't
 	// affect other blinds

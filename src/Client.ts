@@ -40,6 +40,9 @@ class Client {
 	lives = 5
 	score = new InsaneInt(0, 0, 0)
 	handsLeft = 4
+	/** Whether this player has played a hand in the current blind. Used to
+	 *  withhold the opponent's score until the player has committed a hand. */
+	playedThisBlind = false
 	ante = 1
 	skips = 0
 	furthestBlind = 0
