@@ -239,13 +239,17 @@ const playHandAction = (
 		typeof handsLeft === "number" ? handsLeft : Number(handsLeft);
 	client.handsLeft = Math.floor(client.handsLeft);
 
+	// Lobby option, default OFF: the client only enables it for standard-layer
+	// rulesets (and sends it explicitly), so gate only when it's truthy. Absent
+	// (old clients / non-standard rulesets) means the original immediate relay.
+	const hideScore = Boolean(lobby.options.hide_score_until_played);
 	const wasFirstHand = !client.playedThisBlind;
 	client.playedThisBlind = true;
 
-	// Only reveal our score to the enemy once the enemy has committed a hand
-	// this blind. This stops a player from watching the opponent's score before
-	// playing their own hand.
-	if (enemy.playedThisBlind) {
+	// Reveal our score to the enemy immediately, unless we're withholding it
+	// until they have also committed a hand this blind. This stops a player from
+	// watching the opponent's score before playing their own hand.
+	if (!hideScore || enemy.playedThisBlind) {
 		enemy.sendAction({
 			action: "enemyInfo",
 			handsLeft,
@@ -255,9 +259,9 @@ const playHandAction = (
 		});
 	}
 
-	// On our first hand of the blind, flush the enemy's current score to us
-	// (if they have already played) so we catch up to what was withheld.
-	if (wasFirstHand && enemy.playedThisBlind) {
+	// When withholding, flush the enemy's current score to us on our first hand
+	// of the blind (if they have already played) so we catch up to what was held.
+	if (hideScore && wasFirstHand && enemy.playedThisBlind) {
 		client.sendAction({
 			action: "enemyInfo",
 			handsLeft: enemy.handsLeft,
