@@ -74,7 +74,7 @@ export function createAuthRouter(service: AuthService): Router {
 
 	const authRateLimiter = rateLimit({
 		windowMs: 60 * 1000,
-		limit: 5,
+		limit: 100, // generous backstop only: no guessable secrets on this router (Steam/Discord-signed or high-entropy token); covers per-page /me fan-out
 		standardHeaders: 'draft-7',
 		legacyHeaders: false,
 		message: { error: 'Too many auth requests, please try again later' },
