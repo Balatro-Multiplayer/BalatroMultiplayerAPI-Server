@@ -1,5 +1,12 @@
 import type { BaseLayoutProps, LinkItemType } from 'fumadocs-ui/layouts/shared'
-import { BarChart3, BookOpen, CircleDollarSign, Trophy } from 'lucide-react'
+import {
+  BarChart3,
+  BookOpen,
+  CircleDollarSign,
+  Palette,
+  Trophy,
+  Wrench,
+} from 'lucide-react'
 import Image from 'next/image'
 import { MotionToggle } from '@/components/motion-toggle'
 import { NavAuth } from './_components/nav-auth'
@@ -8,6 +15,18 @@ const links = [
   { text: 'Documentation', url: '/docs', icon: <BookOpen /> },
   { text: 'Leaderboards', url: '/leaderboards', icon: <Trophy /> },
   { text: 'Stats', url: '/stats', icon: <BarChart3 /> },
+  {
+    text: 'Tools',
+    type: 'menu' as const,
+    icon: <Wrench />,
+    items: [
+      {
+        text: 'Custom Reskin Studio',
+        url: '/reskin',
+        icon: <Palette />,
+      },
+    ],
+  },
   { text: 'Support Us', url: '/support-us', icon: <CircleDollarSign /> },
   {
     type: 'custom' as const,

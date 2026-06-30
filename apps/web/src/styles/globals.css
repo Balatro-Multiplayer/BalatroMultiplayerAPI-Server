@@ -229,3 +229,31 @@
     display: none;
   }
 }
+
+/* Balatro text effects: E:1 (float) and E:2 (bump). */
+@keyframes bal-float {
+  0%,
+  100% {
+    transform: translateY(-0.08em) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(0.08em) rotate(2deg);
+  }
+}
+@keyframes bal-bump {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.18);
+  }
+}
+.bal-e1 {
+  display: inline-block;
+  animation: bal-float 1.2s ease-in-out infinite;
+}
+.bal-e2 {
+  display: inline-block;
+  animation: bal-bump 0.7s ease-in-out infinite;
+}

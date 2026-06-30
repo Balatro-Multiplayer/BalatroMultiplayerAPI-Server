@@ -10,6 +10,7 @@ import {
   Menu as MenuIcon,
   MessageSquare,
   PackageOpen,
+  Palette,
   Shield,
   Trophy,
   User,
@@ -93,6 +94,9 @@ function MobileNavLinks({ onClose }: { onClose: () => void }) {
       </MobileMenuLink>
       <MobileMenuLink href='/support-us' icon={<CircleDollarSign className='size-4' />} onClick={onClose}>
         Support Us
+      </MobileMenuLink>
+      <MobileMenuLink href='/reskin' icon={<Palette className='size-4' />} onClick={onClose}>
+        Custom Reskin Studio
       </MobileMenuLink>
     </nav>
   )

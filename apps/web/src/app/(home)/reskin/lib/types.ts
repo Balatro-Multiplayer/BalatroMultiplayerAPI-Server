@@ -1,0 +1,115 @@
+// Shared types for the CustomReskin Studio (per-object model).
+
+export interface CatalogCategory {
+  id: string
+  label: string
+  registry: 'P_CENTERS' | 'P_BLINDS' | 'P_TAGS' | 'P_SEALS' | 'P_STAKES'
+  px: number
+  py: number
+  frames: number // 1 for static, >1 for animated (blinds = 21)
+  animated: boolean
+  soul: boolean // any object in the category has a soul overlay
+}
+
+export interface CatalogObject {
+  key: string
+  name: string
+  soul?: boolean
+}
+
+export interface CatalogSheetCell {
+  key?: string
+  name?: string
+  x?: number
+  y?: number
+  index?: number
+}
+
+export interface CatalogSheet {
+  id: string
+  label: string
+  atlasKey: string
+  group?: 'objects' | 'sheets'
+  mode: 'whole' | 'cells' | 'animated'
+  px: number
+  py: number
+  cols?: number
+  rows?: number
+  frames?: number
+  animated?: boolean
+  cells: CatalogSheetCell[]
+  note?: string
+}
+
+export interface LocField {
+  key: string
+  label: string
+  path: string // real game loc path, e.g. "descriptions.Joker.j_x.name"
+  multiline: boolean
+}
+
+/** Per-language value map: loc path -> current value, served from public/. */
+export type LocValues = Record<string, string | string[]>
+
+export interface LocItem {
+  key: string
+  label: string
+  fields: LocField[]
+}
+
+export interface LocGroup {
+  id: string
+  label: string
+  items: LocItem[]
+}
+
+export interface Catalog {
+  generatedFrom: string
+  languages: string[]
+  spriteCategories: CatalogCategory[]
+  spriteObjects: Record<string, CatalogObject[]>
+  spriteSheets: CatalogSheet[]
+  locGroups: LocGroup[]
+}
+
+// --- project (editor) state -------------------------------------------------
+
+/** One object's uploaded art. `sprites` length equals the category frame count
+ *  (1 for static, 21 for blinds). `soul` is the optional overlay layer. */
+export interface ObjectEdit {
+  sprites: string[] // PNG data URLs
+  soul?: string
+}
+
+/** A composed sheet's per-cell uploads: cell index -> PNG data URL. */
+export type SheetEdit = Record<number, string>
+
+/** lang -> dot-path -> value, e.g. "descriptions.Joker.j_x.name" -> "Foo". */
+export type LocEdits = Record<string, Record<string, string | string[]>>
+
+export interface ProjectOptions {
+  displayName: string
+  author: string // comma-separated; "Virtualized" is always credited first
+  version: string
+  icon?: string // PNG data URL for the mod-list icon
+}
+
+export interface ProjectState {
+  schema: 2
+  options: ProjectOptions
+  objects: Record<string, ObjectEdit> // key = `${categoryId}/${objectKey}`
+  sheets: Record<string, SheetEdit> // key = sheetId
+  loc: LocEdits
+}
+
+export function emptyProject(): ProjectState {
+  return {
+    schema: 2,
+    options: { displayName: 'My Reskin', author: '', version: '1.0.0' },
+    objects: {},
+    sheets: {},
+    loc: {},
+  }
+}
+
+export const objId = (categoryId: string, key: string) => `${categoryId}/${key}`
