@@ -16,16 +16,27 @@ function optionalBool(key: string, defaultValue: boolean): boolean {
 	return value === 'true' || value === '1'
 }
 
+const NODE_ENV = optional('NODE_ENV', 'development')
+const IS_PRODUCTION = NODE_ENV === 'production'
+
+// Required in production, but falls back to a default outside it so the server can
+// boot locally without real Steam credentials (dev/impersonation auth bypasses
+// Steam ticket validation anyway).
+function requiredInProduction(key: string, defaultValue: string): string {
+	if (IS_PRODUCTION) return required(key)
+	return optional(key, defaultValue)
+}
+
 export const env = {
 	PORT: Number(optional('PORT', '8788')),
-	NODE_ENV: optional('NODE_ENV', 'development'),
+	NODE_ENV,
 
 	DATABASE_URL: required('DATABASE_URL'),
 
 	JWT_SECRET: required('JWT_SECRET'),
 	JWT_EXPIRES_IN: optional('JWT_EXPIRES_IN', '24h'),
 
-	STEAM_WEB_API_KEY: required('STEAM_WEB_API_KEY'),
+	STEAM_WEB_API_KEY: requiredInProduction('STEAM_WEB_API_KEY', ''),
 	STEAM_APP_ID: optional('STEAM_APP_ID', '2379780'),
 
 	DISCORD_CLIENT_ID: optional('DISCORD_CLIENT_ID', ''),
