@@ -1,4 +1,5 @@
 import type Client from "./Client.js";
+import type { InsaneInt } from "./InsaneInt.js";
 import GameModes from "./GameMode.js";
 import type {
 	ActionLobbyInfo,
@@ -31,10 +32,27 @@ export const getEnemy = (client: Client): [Lobby | null, Client | null] => {
 /** How long to keep a disconnected player's slot reserved (ms) */
 const RECONNECT_GRACE_PERIOD = 60000;
 
+interface SavedGameState {
+	lives: number;
+	score: InsaneInt;
+	handsLeft: number;
+	ante: number;
+	skips: number;
+	furthestBlind: number;
+	isReady: boolean;
+	firstReady: boolean;
+	isReadyLobby: boolean;
+	livesBlocker: boolean;
+	location: string;
+	username: string;
+	modHash: string;
+}
+
 interface DisconnectedSlot {
 	reconnectToken: string;
 	role: 'host' | 'guest';
 	timer: ReturnType<typeof setTimeout>;
+	savedState: SavedGameState;
 }
 
 class Lobby {
@@ -98,9 +116,17 @@ class Lobby {
 
 		client.setLobby(null);
 		this.isInGame = false;
-		if (this.host === null) {
+
+		// Check if anyone is still in the lobby
+		const remaining = this.host ?? this.guest;
+		if (!remaining) {
 			Lobbies.delete(this.code);
 		} else {
+			// Promote guest to host if needed
+			if (!this.host && this.guest) {
+				this.host = this.guest;
+				this.guest = null;
+			}
             this.handyAllowMPExtension.delete(client.id)
 
 			// TODO: Refactor for more than 2 players
@@ -127,11 +153,26 @@ class Lobby {
 		const enemy = isHost ? this.guest : this.host;
 
 		// Reserve the slot with a grace period
-		console.log(`Player ${client.id} disconnected from lobby ${this.code}, reserving slot for ${RECONNECT_GRACE_PERIOD / 1000}s`)
+		console.log(`Player ${client.id} disconnected from lobby ${this.code}, reserving slot for ${RECONNECT_GRACE_PERIOD / 1000}s (saving state: lives=${client.lives}, score=${client.score}, ante=${client.ante})`)
 
 		this.disconnectedSlot = {
 			reconnectToken: client.reconnectToken,
 			role,
+			savedState: {
+				lives: client.lives,
+				score: client.score,
+				handsLeft: client.handsLeft,
+				ante: client.ante,
+				skips: client.skips,
+				furthestBlind: client.furthestBlind,
+				isReady: client.isReady,
+				firstReady: client.firstReady,
+				isReadyLobby: client.isReadyLobby,
+				livesBlocker: client.livesBlocker,
+				location: client.location,
+				username: client.username,
+				modHash: client.modHash,
+			},
 			timer: setTimeout(() => {
 				// Grace period expired, do a full leave
 				console.log(`Reconnect grace period expired for lobby ${this.code}`)
@@ -148,8 +189,8 @@ class Lobby {
 		}
 		client.setLobby(null);
 
-		// Notify the remaining player
-		enemy?.sendAction({ action: "enemyDisconnected" });
+		// Notify the remaining player with the grace period so they can show a countdown
+		enemy?.sendAction({ action: "enemyDisconnected", timeout: RECONNECT_GRACE_PERIOD / 1000 });
 	};
 
 	/** Reconnecting client reclaims their slot */
@@ -158,9 +199,25 @@ class Lobby {
 			return false;
 		}
 
-		const { role, timer } = this.disconnectedSlot;
+		const { role, timer, savedState } = this.disconnectedSlot;
 		clearTimeout(timer);
 		this.disconnectedSlot = null;
+
+		// Restore game state from the disconnected player onto the new client
+		console.log(`Restoring state for ${role} in lobby ${this.code}: lives=${savedState.lives}, score=${savedState.score}, ante=${savedState.ante}, handsLeft=${savedState.handsLeft}, skips=${savedState.skips}, location=${savedState.location}`)
+		newClient.lives = savedState.lives;
+		newClient.score = savedState.score;
+		newClient.handsLeft = savedState.handsLeft;
+		newClient.ante = savedState.ante;
+		newClient.skips = savedState.skips;
+		newClient.furthestBlind = savedState.furthestBlind;
+		newClient.isReady = savedState.isReady;
+		newClient.firstReady = savedState.firstReady;
+		newClient.isReadyLobby = savedState.isReadyLobby;
+		newClient.livesBlocker = savedState.livesBlocker;
+		newClient.location = savedState.location;
+		newClient.username = savedState.username;
+		newClient.modHash = savedState.modHash;
 
 		// Place the new client in the correct slot
 		if (role === 'host') {

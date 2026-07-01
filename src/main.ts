@@ -126,6 +126,9 @@ const server = createServer((socket) => {
 	client.sendAction({ action: 'connected' })
 	client.sendAction({ action: 'version' })
 
+	// Buffer for incomplete TCP messages
+	let dataBuffer = ''
+
 	let isRetry = false
 	let retryCount = 0
 
@@ -158,7 +161,11 @@ const server = createServer((socket) => {
 		retryCount = 0
 		keepAlive.refresh()
 
-		const messages = data.toString().split('\n')
+		// Buffer incoming data — TCP may split large messages across multiple events
+		dataBuffer += data.toString()
+		const messages = dataBuffer.split('\n')
+		// Keep the last (possibly incomplete) chunk in the buffer
+		dataBuffer = messages.pop() ?? ''
 
 		for (const msg of messages) {
 			if (!msg) continue
@@ -353,6 +360,9 @@ const server = createServer((socket) => {
 					case 'failTimer':
 						actionHandlers.failTimer(client)
 						break
+					case 'failPvPTimer':
+						actionHandlers.failPvPTimer(client)
+						break
 					case 'syncClient':
 						actionHandlers.syncClient(
 							actionArgs as ActionHandlerArgs<ActionSyncClient>,
@@ -454,7 +464,127 @@ server.listen(PORT, '0.0.0.0', () => {
 })
 
 // Admin server for sending messages to players
+import { verify as cryptoVerify, createPublicKey } from 'node:crypto'
+import { readFileSync, existsSync } from 'node:fs'
+import { resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 const ADMIN_PORT = 8789
+
+// Works under both tsc-emitted ESM (npm run start) and the esbuild CJS bundle
+// used by pkg. import.meta.url is undefined in CJS output; __dirname is
+// undefined in ESM. typeof is the only safe way to probe an undeclared name.
+const scriptDir = typeof __dirname !== 'undefined'
+	? __dirname
+	: dirname(fileURLToPath(import.meta.url))
+const ADMIN_PUBLIC_KEY_PATH = resolve(scriptDir, '..', '.github', 'admin_public.pem')
+const adminPublicKey = existsSync(ADMIN_PUBLIC_KEY_PATH)
+	? createPublicKey(readFileSync(ADMIN_PUBLIC_KEY_PATH, 'utf-8'))
+	: null
+
+if (!adminPublicKey) {
+	console.warn('WARNING: admin_public.pem not found, admin server will reject all requests')
+}
+
+const verifyAdminSignature = (payload: string, signature: string): boolean => {
+	if (!adminPublicKey) return false
+	try {
+		return cryptoVerify(null, Buffer.from(payload), adminPublicKey, Buffer.from(signature, 'base64'))
+	} catch {
+		return false
+	}
+}
+
+const sendToTargets = (
+	lobby_code: string | undefined,
+	is_host: boolean | undefined,
+	action: any,
+): { success: boolean; recipients?: number; error?: string } => {
+	let recipients = 0
+
+	if (lobby_code) {
+		const lobby = Lobbies.get(lobby_code)
+		if (!lobby) return { success: false, error: 'Lobby not found' }
+
+		if (is_host === true) {
+			if (lobby.host) { lobby.host.sendAction(action); recipients++ }
+		} else if (is_host === false) {
+			if (lobby.guest) { lobby.guest.sendAction(action); recipients++ }
+		} else {
+			if (lobby.host) { lobby.host.sendAction(action); recipients++ }
+			if (lobby.guest) { lobby.guest.sendAction(action); recipients++ }
+		}
+	} else {
+		for (const lobby of Lobbies.values()) {
+			if (lobby.host) { lobby.host.sendAction(action); recipients++ }
+			if (lobby.guest) { lobby.guest.sendAction(action); recipients++ }
+		}
+	}
+
+	return { success: true, recipients }
+}
+
+const adminHandlers: Record<string, (parsed: any, socket: import('net').Socket) => void> = {
+	message(parsed, socket) {
+		const { message, lobby_code, is_host } = parsed
+		if (!message || typeof message !== 'string') {
+			socket.end(JSON.stringify({ success: false, error: 'Missing message' }) + '\n')
+			return
+		}
+		const result = sendToTargets(lobby_code, is_host, { action: 'error', message })
+		socket.end(JSON.stringify(result) + '\n')
+	},
+
+	jimboAppear(parsed, socket) {
+		const { pos, text, lobby_code, is_host } = parsed
+		if (typeof pos !== 'number' || pos < 1 || pos > 4) {
+			socket.end(JSON.stringify({ success: false, error: 'pos must be a number 1-4' }) + '\n')
+			return
+		}
+		if (text !== undefined && typeof text !== 'string') {
+			socket.end(JSON.stringify({ success: false, error: 'text must be a string' }) + '\n')
+			return
+		}
+		const result = sendToTargets(lobby_code, is_host, { action: 'jimboAppear', pos, text })
+		socket.end(JSON.stringify(result) + '\n')
+	},
+
+	jimboTalk(parsed, socket) {
+		const { text, lobby_code, is_host } = parsed
+		if (!text || typeof text !== 'string') {
+			socket.end(JSON.stringify({ success: false, error: 'Missing text' }) + '\n')
+			return
+		}
+		const result = sendToTargets(lobby_code, is_host, { action: 'jimboTalk', text })
+		socket.end(JSON.stringify(result) + '\n')
+	},
+
+	jimboMove(parsed, socket) {
+		const { pos, lobby_code, is_host } = parsed
+		if (typeof pos !== 'number' || pos < 1 || pos > 4) {
+			socket.end(JSON.stringify({ success: false, error: 'pos must be a number 1-4' }) + '\n')
+			return
+		}
+		const result = sendToTargets(lobby_code, is_host, { action: 'jimboMove', pos })
+		socket.end(JSON.stringify(result) + '\n')
+	},
+
+	jimboRemove(parsed, socket) {
+		const { lobby_code, is_host } = parsed
+		const result = sendToTargets(lobby_code, is_host, { action: 'jimboRemove' })
+		socket.end(JSON.stringify(result) + '\n')
+	},
+
+	listLobbies(_parsed, socket) {
+		const lobbies: string[] = []
+		for (const [code, lobby] of Lobbies.entries()) {
+			const host = lobby.host?.username ?? '???'
+			const guest = lobby.guest?.username
+			lobbies.push(guest ? `${code} - ${host}, ${guest}` : `${code} - ${host}`)
+		}
+		socket.end(JSON.stringify({ success: true, count: lobbies.length, lobbies }) + '\n')
+	},
+}
 
 const adminServer = createServer((socket) => {
 	socket.on('data', (data) => {
@@ -462,39 +592,27 @@ const adminServer = createServer((socket) => {
 		for (const msg of messages) {
 			if (!msg) continue
 			try {
-				const { message, lobby_code, is_host } = JSON.parse(msg)
+				const envelope = JSON.parse(msg)
+				const { payload, signature } = envelope
 
-				if (!message || typeof message !== 'string') {
-					socket.end(JSON.stringify({ success: false, error: 'Missing message' }) + '\n')
+				if (!payload || !signature) {
+					socket.end(JSON.stringify({ success: false, error: 'Missing payload or signature' }) + '\n')
 					return
 				}
 
-				const errorAction = { action: 'error' as const, message }
-				let recipients = 0
-
-				if (lobby_code) {
-					const lobby = Lobbies.get(lobby_code)
-					if (!lobby) {
-						socket.end(JSON.stringify({ success: false, error: 'Lobby not found' }) + '\n')
-						return
-					}
-
-					if (is_host === true) {
-						if (lobby.host) { lobby.host.sendAction(errorAction); recipients++ }
-					} else if (is_host === false) {
-						if (lobby.guest) { lobby.guest.sendAction(errorAction); recipients++ }
-					} else {
-						if (lobby.host) { lobby.host.sendAction(errorAction); recipients++ }
-						if (lobby.guest) { lobby.guest.sendAction(errorAction); recipients++ }
-					}
-				} else {
-					for (const lobby of Lobbies.values()) {
-						if (lobby.host) { lobby.host.sendAction(errorAction); recipients++ }
-						if (lobby.guest) { lobby.guest.sendAction(errorAction); recipients++ }
-					}
+				if (!verifyAdminSignature(payload, signature)) {
+					socket.end(JSON.stringify({ success: false, error: 'Invalid signature' }) + '\n')
+					return
 				}
 
-				socket.end(JSON.stringify({ success: true, recipients }) + '\n')
+				const parsed = JSON.parse(payload)
+				const command = parsed.command ?? 'message'
+				const handler = adminHandlers[command]
+				if (!handler) {
+					socket.end(JSON.stringify({ success: false, error: `Unknown command: ${command}` }) + '\n')
+					return
+				}
+				handler(parsed, socket)
 			} catch (error) {
 				socket.end(JSON.stringify({ success: false, error: 'Invalid JSON' }) + '\n')
 			}

@@ -1,66 +1,47 @@
 #!/usr/bin/env python3
-"""Send admin messages to players on the BMP server."""
+"""Relay a pre-signed admin envelope to the BMP admin server."""
 
-import argparse
 import json
 import socket
 import sys
 
 
-def send_message(host: str, port: int, payload: dict) -> dict:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(5)
-        s.connect((host, port))
-        s.sendall((json.dumps(payload) + "\n").encode())
-
-        data = b""
-        while True:
-            chunk = s.recv(4096)
-            if not chunk:
-                break
-            data += chunk
-
-        return json.loads(data.decode().strip())
-
-
 def main():
-    parser = argparse.ArgumentParser(description="Send admin messages to BMP server players")
-    parser.add_argument("message", help="Message to send to players")
-    parser.add_argument("--lobby", help="Lobby code to target (omit to broadcast to all lobbies)")
+    if len(sys.argv) != 2:
+        print("Usage: admin_message.py '<signed_envelope_json>'", file=sys.stderr)
+        sys.exit(1)
 
-    target = parser.add_mutually_exclusive_group()
-    target.add_argument("--host", action="store_true", help="Send only to the host of the lobby")
-    target.add_argument("--guest", action="store_true", help="Send only to the guest of the lobby")
+    envelope = sys.argv[1]
 
-    parser.add_argument("--server", default="127.0.0.1", help="Admin server address (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=8789, help="Admin server port (default: 8789)")
-
-    args = parser.parse_args()
-
-    if (args.host or args.guest) and not args.lobby:
-        parser.error("--host/--guest requires --lobby")
-
-    payload = {"message": args.message}
-    if args.lobby:
-        payload["lobby_code"] = args.lobby
-    if args.host:
-        payload["is_host"] = True
-    elif args.guest:
-        payload["is_host"] = False
+    # Validate it's valid JSON before sending
+    try:
+        parsed = json.loads(envelope)
+        if "payload" not in parsed or "signature" not in parsed:
+            print("Error: envelope must contain 'payload' and 'signature'", file=sys.stderr)
+            sys.exit(1)
+    except json.JSONDecodeError:
+        print("Error: invalid JSON envelope", file=sys.stderr)
+        sys.exit(1)
 
     try:
-        result = send_message(args.server, args.port, payload)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(5)
+            s.connect(("127.0.0.1", 8789))
+            s.sendall((envelope + "\n").encode())
+
+            data = b""
+            while True:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+
+            print(data.decode().strip())
     except ConnectionRefusedError:
-        print(f"Error: Could not connect to admin server at {args.server}:{args.port}", file=sys.stderr)
+        print(json.dumps({"success": False, "error": "Could not connect to admin server"}))
         sys.exit(1)
     except socket.timeout:
-        print("Error: Connection timed out", file=sys.stderr)
-        sys.exit(1)
-
-    if result.get("success"):
-        print(f"Message sent to {result['recipients']} player(s)")
-    else:
-        print(f"Error: {result.get('error', 'Unknown error')}", file=sys.stderr)
+        print(json.dumps({"success": False, "error": "Connection timed out"}))
         sys.exit(1)
 
 

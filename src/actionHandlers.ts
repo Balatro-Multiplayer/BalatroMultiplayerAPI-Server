@@ -33,8 +33,8 @@ import type {
 	ActionTcgEndTurn,
 	ActionModded,
 	ActionModdedRequest,
-    ActionHandyMPExtensionEnable,
-    ActionHandyMPExtensionDisable,
+	ActionHandyMPExtensionEnable,
+	ActionHandyMPExtensionDisable,
 } from "./actions.js";
 import { generateSeed } from "./utils.js";
 
@@ -139,6 +139,9 @@ const startGameAction = (client: Client) => {
 		? Number.parseInt(lobby.options.starting_lives)
 		: GameModes[lobby.gameMode].startingLives;
 
+	// resetPlayers() clears isInGame, so it must run before we set it true below.
+	lobby.resetPlayers();
+
 	lobby.isInGame = true;
 	lobby.broadcastAction({
 		action: "startGame",
@@ -186,7 +189,11 @@ const readyBlindAction = (client: Client) => {
 		client.lobby.host.handsLeft = 4;
 		client.lobby.guest.handsLeft = 4;
 
-		client.lobby.broadcastAction({ action: "startBlind" });
+        let firstPlayer: "host" | "guest" | undefined
+        if (client.lobby.host.firstReady) firstPlayer = "host"
+        if (client.lobby.guest.firstReady) firstPlayer = "guest"
+
+		client.lobby.broadcastAction({ action: "startBlind", firstPlayer });
 	}
 };
 
@@ -214,6 +221,7 @@ const playHandAction = (
 
 	client.handsLeft =
 		typeof handsLeft === "number" ? handsLeft : Number(handsLeft);
+	client.handsLeft = Math.floor(client.handsLeft);
 
 	enemy.sendAction({
 		action: "enemyInfo",
@@ -226,11 +234,11 @@ const playHandAction = (
 	// This info is only sent on a boss blind, so it shouldn't
 	// affect other blinds
 	if (
-		(lobby.guest.handsLeft === 0 &&
+		(lobby.guest.handsLeft < 1 &&
 			lobby.guest.score.lessThan(lobby.host.score)) ||
-		(lobby.host.handsLeft === 0 &&
+		(lobby.host.handsLeft < 1 &&
 			lobby.host.score.lessThan(lobby.guest.score)) ||
-		(lobby.host.handsLeft === 0 && lobby.guest.handsLeft === 0)
+		(lobby.host.handsLeft < 1 && lobby.guest.handsLeft < 1)
 	) {
 		const roundWinner = lobby.guest.score.lessThan(lobby.host.score)
 			? lobby.host
@@ -242,7 +250,7 @@ const playHandAction = (
 			roundLoser.loseLife();
 
 			// If no lives are left, we end the game
-			if (lobby.host.lives === 0 || lobby.guest.lives === 0) {
+			if (lobby.host.lives <= 0 || lobby.guest.lives <= 0) {
 				const gameWinner =
 					lobby.host.lives > lobby.guest.lives ? lobby.host : lobby.guest;
 				const gameLoser =
@@ -265,6 +273,53 @@ const playHandAction = (
 		});
 	}
 };
+
+const failPvPTimerAction = (
+	client: Client,
+) => {
+    const lobby = client.lobby;
+
+	client.loseLife();
+
+	if (!lobby) return;
+
+    if (client.lives === 0) {
+		let gameLoser = null;
+		let gameWinner = null;
+		if (client.id === lobby.host?.id) {
+			gameLoser = lobby.host;
+			gameWinner = lobby.guest;
+		} else {
+			gameLoser = lobby.guest;
+			gameWinner = lobby.host;
+		}
+
+		gameWinner?.sendAction({ action: "winGame" });
+		gameLoser?.sendAction({ action: "loseGame" });
+	} else {
+        let roundWinner: Client
+        let roundLoser: Client
+        if (client.id === lobby.host?.id) {
+            roundWinner = lobby.guest!;
+            roundLoser = lobby.host!;
+        } else {
+            roundWinner = lobby.host!;
+            roundLoser = lobby.guest!;
+        }
+        roundWinner.firstReady = false;
+		roundLoser.firstReady = false;
+		roundWinner.sendAction({
+            action: "endPvP",
+            lost: false,
+            pvpTimerLost: true
+        });
+		roundLoser.sendAction({
+			action: "endPvP",
+			lost: true,
+            pvpTimerLost: true
+		});
+    }
+}
 
 const stopGameAction = (client: Client) => {
 	if (!client.lobby) {
@@ -338,7 +393,7 @@ const setAnteAction = (
 };
 
 // TODO: Fix this
-const serverVersion = "0.3.0-MULTIPLAYER";
+const serverVersion = "0.3.2-MULTIPLAYER";
 /** Verifies the client version and allows connection if it matches the server's */
 const versionAction = (
 	{ version }: ActionHandlerArgs<ActionVersion>,
@@ -762,23 +817,23 @@ const moddedAction = (
 };
 
 const handyMPExtensionEnable = (
-    args: ActionHandlerArgs<ActionHandyMPExtensionEnable>,
-    client: Client,
+	args: ActionHandlerArgs<ActionHandyMPExtensionEnable>,
+	client: Client,
 ) => {
-    if (!client.lobby) return
+	if (!client.lobby) return
 
-    client.lobby.handyAllowMPExtension.set(client.id, true)
-    client.lobby.broadcastLobbyInfo()
+	client.lobby.handyAllowMPExtension.set(client.id, true)
+	client.lobby.broadcastLobbyInfo()
 }
 
 const handyMPExtensionDisable = (
-    args: ActionHandlerArgs<ActionHandyMPExtensionDisable>,
-    client: Client,
+	args: ActionHandlerArgs<ActionHandyMPExtensionDisable>,
+	client: Client,
 ) => {
-    if (!client.lobby) return
+	if (!client.lobby) return
 
-    client.lobby.handyAllowMPExtension.set(client.id, false)
-    client.lobby.broadcastLobbyInfo()
+	client.lobby.handyAllowMPExtension.set(client.id, false)
+	client.lobby.broadcastLobbyInfo()
 }
 
 export const actionHandlers = {
@@ -830,8 +885,9 @@ export const actionHandlers = {
 	tcgPlayerStatus: tcgPlayerStatusAction,
 	tcgEndTurn: tcgEndTurnAction,
 	moddedAction: moddedAction,
-    handyMPExtensionEnable: handyMPExtensionEnable,
-    handyMPExtensionDisable: handyMPExtensionDisable,
+	handyMPExtensionEnable: handyMPExtensionEnable,
+	handyMPExtensionDisable: handyMPExtensionDisable,
+    failPvPTimer: failPvPTimerAction,
 } satisfies Partial<ActionHandlers>;
 
 /** Server-internal handler for connection drops (not a client action) */

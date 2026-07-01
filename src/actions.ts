@@ -3,7 +3,7 @@ export type ActionConnected = { action: 'connected' }
 export type ActionError = { action: 'error'; message: string }
 export type ActionJoinedLobby = { action: 'joinedLobby'; code: string; type: GameMode; reconnectToken?: string }
 export type ActionRejoinedLobby = { action: 'rejoinedLobby'; code: string; type: GameMode; reconnectToken: string }
-export type ActionEnemyDisconnected = { action: 'enemyDisconnected' }
+export type ActionEnemyDisconnected = { action: 'enemyDisconnected'; timeout: number }
 export type ActionEnemyReconnected = { action: 'enemyReconnected' }
 export type ActionLobbyInfo = {
 	action: 'lobbyInfo'
@@ -23,7 +23,7 @@ export type ActionStartGame = {
 	stake?: number
 	seed?: string
 }
-export type ActionStartBlind = { action: 'startBlind' }
+export type ActionStartBlind = { action: 'startBlind', firstPlayer?: "host" | "guest" }
 export type ActionWinGame = { action: 'winGame' }
 export type ActionLoseGame = { action: 'loseGame' }
 export type ActionGameInfo = {
@@ -40,7 +40,7 @@ export type ActionEnemyInfo = {
 	skips: number
 	lives: number
 }
-export type ActionEndPvP = { action: 'endPvP'; lost: boolean }
+export type ActionEndPvP = { action: 'endPvP'; lost: boolean, pvpTimerLost?: boolean }
 export type ActionLobbyOptions = { action: 'lobbyOptions', gamemode: string }
 export type ActionRequestVersion = { action: 'version' }
 export type ActionEnemyLocation = { action: 'enemyLocation'; location: string }
@@ -162,6 +162,7 @@ export type ActionReceiveNemesisStatsResponse = { action: 'nemesisEndGameStats',
 export type ActionStartAnteTimerRequest = { action: 'startAnteTimer', time: number }
 export type ActionPauseAnteTimerRequest = { action: 'pauseAnteTimer', time: number }
 export type ActionFailTimer = { action: 'failTimer' }
+export type ActionFailPvPTimer = { action: 'failPvPTimer' }
 export type ActionSyncClient = { action: 'syncClient', isCached: boolean }
 // TCG Actions (Client to Server)
 export type ActionTcgServerVersion = { action: 'tcgServerVersion', version: number }
@@ -216,6 +217,7 @@ export type ActionClientToServer =
 	| ActionStartAnteTimerRequest
 	| ActionPauseAnteTimerRequest
 	| ActionFailTimer
+	| ActionFailPvPTimer
 	| ActionSyncClient
 	| ActionTcgServerVersion
 	| ActionStartTcgBetting
