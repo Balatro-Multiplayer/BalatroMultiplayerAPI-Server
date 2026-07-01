@@ -672,7 +672,7 @@ const receiveNemesisStatsActionHandler = (
 };
 
 const startAnteTimerAction = (
-	{ time }: ActionHandlerArgs<ActionStartAnteTimer>,
+	{ time, isPvP }: ActionHandlerArgs<ActionStartAnteTimer>,
 	client: Client,
 ) => {
 	const [lobby, enemy] = getEnemy(client);
@@ -680,6 +680,7 @@ const startAnteTimerAction = (
 	enemy.sendAction({
 		action: "startAnteTimer",
 		time,
+		...(isPvP ? { isPvP: true } : {}),
 	});
 };
 

@@ -60,7 +60,7 @@ export type ActionGetNemesisDeckRequest = { action: 'getNemesisDeck' }
 export type ActionReceiveNemesisDeckRequest = { action: 'receiveNemesisDeck', cards: string }
 export type ActionGetNemesisStatsRequest = { action: 'endGameStatsRequested' }
 export type ActionReceiveNemesisStatsRequest = { action: 'nemesisEndGameStats', reroll_count: string, reroll_cost_total:string, vouchers:string }
-export type ActionStartAnteTimer = { action: 'startAnteTimer', time: number }
+export type ActionStartAnteTimer = { action: 'startAnteTimer', time: number, isPvP?: boolean }
 export type ActionPauseAnteTimer = { action: 'pauseAnteTimer', time: number }
 // Handy Actions (Server to Client)
 export type ActionHandyMPExtensionLobbyEnabled = { action: 'handyMPExtensionLobbyEnabled', enabled: boolean }
@@ -159,7 +159,7 @@ export type ActionGetNemesisDeckResponse = { action: 'getNemesisDeck' }
 export type ActionReceiveNemesisDeckResponse = { action: 'receiveNemesisDeck', cards: string }
 export type ActionGetNemesisStatsResponse = { action: 'endGameStatsRequested' }
 export type ActionReceiveNemesisStatsResponse = { action: 'nemesisEndGameStats', reroll_count: string,reroll_cost_total:string, vouchers:string }
-export type ActionStartAnteTimerRequest = { action: 'startAnteTimer', time: number }
+export type ActionStartAnteTimerRequest = { action: 'startAnteTimer', time: number, isPvP?: boolean }
 export type ActionPauseAnteTimerRequest = { action: 'pauseAnteTimer', time: number }
 export type ActionFailTimer = { action: 'failTimer' }
 export type ActionFailPvPTimer = { action: 'failPvPTimer' }
