@@ -264,9 +264,11 @@ const playHandAction = (
 		});
 	}
 
-	// When withholding, flush the enemy's current score to us on our first hand
-	// of the blind (if they have already played) so we catch up to what was held.
-	if (hideScore && wasFirstHand && enemy.playedThisBlind) {
+	// On our first hand of the blind, send the enemy's current state to us. If
+	// they have already played, this is the score that was withheld until now;
+	// if they haven't, it's their reset state (score 0, full hands) — enough for
+	// us to stop masking their hand count now that we've committed our own hand.
+	if (hideScore && wasFirstHand) {
 		client.sendAction({
 			action: "enemyInfo",
 			handsLeft: enemy.handsLeft,
