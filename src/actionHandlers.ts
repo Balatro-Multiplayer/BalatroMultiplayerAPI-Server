@@ -243,8 +243,13 @@ const playHandAction = (
 	// rulesets (and sends it explicitly), so gate only when it's truthy. Absent
 	// (old clients / non-standard rulesets) means the original immediate relay.
 	const hideScore = Boolean(lobby.options.hide_score_until_played);
-	const wasFirstHand = !client.playedThisBlind;
-	client.playedThisBlind = true;
+	// A bootstrap play emitted at blind start reports score 0 (no hand actually
+	// committed). A real hand always scores > 0, so use that to decide whether the
+	// player has genuinely played this blind. Hand counts can vary in this game, so
+	// handsLeft is not a reliable signal.
+	const playedRealHand = client.score.greaterThan(new InsaneInt(0, 0, 0));
+	const wasFirstHand = playedRealHand && !client.playedThisBlind;
+	if (playedRealHand) client.playedThisBlind = true;
 
 	// Reveal our score to the enemy immediately, unless we're withholding it
 	// until they have also committed a hand this blind. This stops a player from
