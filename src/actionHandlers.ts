@@ -102,10 +102,17 @@ const rejoinLobbyAction = (
 	}
 
 	if (!lobby.rejoin(client, reconnectToken)) {
-		client.sendAction({
-			action: "error",
-			message: "Could not rejoin lobby. Token invalid or slot expired.",
-		});
+		// Token-based rejoin failed (e.g. player disconnected from lobby, not
+		// mid-game, so no slot was saved). Fall back to a regular join so the
+		// client doesn't get stranded with an error after a brief network hiccup.
+		if (!lobby.guest) {
+			lobby.join(client);
+		} else {
+			client.sendAction({
+				action: "error",
+				message: "Could not rejoin lobby. Token invalid or slot expired.",
+			});
+		}
 	}
 };
 
