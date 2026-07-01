@@ -200,6 +200,11 @@ const readyBlindAction = (client: Client) => {
 		client.lobby.host.handsLeft = 4;
 		client.lobby.guest.handsLeft = 4;
 
+		// Reset per-blind hand-played gate so opponent scores are withheld
+		// again at the start of each blind
+		client.lobby.host.playedThisBlind = false;
+		client.lobby.guest.playedThisBlind = false;
+
         let firstPlayer: "host" | "guest" | undefined
         if (client.lobby.host.firstReady) firstPlayer = "host"
         if (client.lobby.guest.firstReady) firstPlayer = "guest"
@@ -234,13 +239,44 @@ const playHandAction = (
 		typeof handsLeft === "number" ? handsLeft : Number(handsLeft);
 	client.handsLeft = Math.floor(client.handsLeft);
 
-	enemy.sendAction({
-		action: "enemyInfo",
-		handsLeft,
-		score: client.score.toString(),
-		skips: client.skips,
-		lives: client.lives,
-	});
+	// Lobby option, default OFF: the client only enables it for standard-layer
+	// rulesets (and sends it explicitly), so gate only when it's truthy. Absent
+	// (old clients / non-standard rulesets) means the original immediate relay.
+	const hideScore = Boolean(lobby.options.hide_score_until_played);
+	// A bootstrap play emitted at blind start reports score 0 (no hand actually
+	// committed). A real hand always scores > 0, so use that to decide whether the
+	// player has genuinely played this blind. Hand counts can vary in this game, so
+	// handsLeft is not a reliable signal.
+	const playedRealHand = client.score.greaterThan(new InsaneInt(0, 0, 0));
+	const wasFirstHand = playedRealHand && !client.playedThisBlind;
+	if (playedRealHand) client.playedThisBlind = true;
+
+	// Reveal our score to the enemy immediately, unless we're withholding it
+	// until they have also committed a hand this blind. This stops a player from
+	// watching the opponent's score before playing their own hand.
+	if (!hideScore || enemy.playedThisBlind) {
+		enemy.sendAction({
+			action: "enemyInfo",
+			handsLeft,
+			score: client.score.toString(),
+			skips: client.skips,
+			lives: client.lives,
+		});
+	}
+
+	// On our first hand of the blind, send the enemy's current state to us. If
+	// they have already played, this is the score that was withheld until now;
+	// if they haven't, it's their reset state (score 0, full hands) — enough for
+	// us to stop masking their hand count now that we've committed our own hand.
+	if (hideScore && wasFirstHand) {
+		client.sendAction({
+			action: "enemyInfo",
+			handsLeft: enemy.handsLeft,
+			score: enemy.score.toString(),
+			skips: enemy.skips,
+			lives: enemy.lives,
+		});
+	}
 
 	// This info is only sent on a boss blind, so it shouldn't
 	// affect other blinds
