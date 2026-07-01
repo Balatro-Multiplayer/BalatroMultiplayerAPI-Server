@@ -65,8 +65,8 @@ class Lobby {
 	tcgBets: Map<string, number>;
     handyAllowMPExtension: Map<string, boolean>;
 	firstReadyAt: number | null;
-	/** Tracks disconnected players awaiting reconnection */
-	disconnectedSlot: DisconnectedSlot | null = null;
+	/** Tracks disconnected players awaiting reconnection (keyed by role) */
+	disconnectedSlots: Map<'host' | 'guest', DisconnectedSlot> = new Map();
 	/** Whether a game is currently in progress */
 	isInGame = false;
 	/** Authoritative seed generated for the current game (null until startGame,
@@ -102,14 +102,15 @@ class Lobby {
 		return Lobbies.get(code);
 	};
 
+	private clearAllDisconnectedSlots = () => {
+		for (const slot of this.disconnectedSlots.values()) {
+			clearTimeout(slot.timer);
+		}
+		this.disconnectedSlots.clear();
+	};
+
 	/** Voluntary leave — no grace period */
 	leave = (client: Client) => {
-		// Clear any pending reconnect slot for this lobby
-		if (this.disconnectedSlot) {
-			clearTimeout(this.disconnectedSlot.timer);
-			this.disconnectedSlot = null;
-		}
-
 		if (this.host?.id === client.id) {
 			this.host = this.guest;
 			this.guest = null;
@@ -120,10 +121,15 @@ class Lobby {
 		client.setLobby(null);
 		this.isInGame = false;
 
-		// Check if anyone is still in the lobby
+		// Check if anyone is still in the lobby (including disconnected players)
 		const remaining = this.host ?? this.guest;
-		if (!remaining) {
+		const hasDisconnectedPlayers = this.disconnectedSlots.size > 0;
+		if (!remaining && !hasDisconnectedPlayers) {
+			this.clearAllDisconnectedSlots();
 			Lobbies.delete(this.code);
+		} else if (!remaining && hasDisconnectedPlayers) {
+			// No active players but someone might reconnect — keep the lobby alive.
+			// Their grace period timer will clean up if they don't.
 		} else {
 			// Promote guest to host if needed
 			if (!this.host && this.guest) {
@@ -146,19 +152,31 @@ class Lobby {
 		const isGuest = this.guest?.id === client.id;
 		if (!isHost && !isGuest) return;
 
-		// If no game in progress or no other player, do a regular leave
-		if (!this.isInGame || (isHost && !this.guest) || (isGuest && !this.host)) {
+		// If no game in progress, do a regular leave
+		if (!this.isInGame) {
 			this.leave(client);
 			return;
 		}
 
-		const role = isHost ? 'host' : 'guest';
+		// If the other player is also gone (disconnected or absent) but we have
+		// their slot reserved, still save THIS player's slot so both can reconnect.
+		// Only fall through to leave() when there's truly no one to reconnect to.
+		const otherPlayerPresent = isHost ? !!this.guest : !!this.host;
+		const otherPlayerHasSlot = isHost
+			? this.disconnectedSlots.has('guest')
+			: this.disconnectedSlots.has('host');
+		if (!otherPlayerPresent && !otherPlayerHasSlot) {
+			this.leave(client);
+			return;
+		}
+
+		const role: 'host' | 'guest' = isHost ? 'host' : 'guest';
 		const enemy = isHost ? this.guest : this.host;
 
 		// Reserve the slot with a grace period
 		console.log(`Player ${client.id} disconnected from lobby ${this.code}, reserving slot for ${RECONNECT_GRACE_PERIOD / 1000}s (saving state: lives=${client.lives}, score=${client.score}, ante=${client.ante})`)
 
-		this.disconnectedSlot = {
+		this.disconnectedSlots.set(role, {
 			reconnectToken: client.reconnectToken,
 			role,
 			savedState: {
@@ -177,12 +195,15 @@ class Lobby {
 				modHash: client.modHash,
 			},
 			timer: setTimeout(() => {
-				// Grace period expired, do a full leave
-				console.log(`Reconnect grace period expired for lobby ${this.code}`)
-				this.disconnectedSlot = null;
-				this.leave(client);
+				// Grace period expired
+				console.log(`Reconnect grace period expired for ${role} in lobby ${this.code}`)
+				this.disconnectedSlots.delete(role);
+				// If no one is left (no active players, no other reserved slots), destroy the lobby
+				if (!this.host && !this.guest && this.disconnectedSlots.size === 0) {
+					Lobbies.delete(this.code);
+				}
 			}, RECONNECT_GRACE_PERIOD),
-		};
+		});
 
 		// Remove the client from the slot but keep the lobby alive
 		if (isHost) {
@@ -198,13 +219,20 @@ class Lobby {
 
 	/** Reconnecting client reclaims their slot */
 	rejoin = (newClient: Client, reconnectToken: string): boolean => {
-		if (!this.disconnectedSlot || this.disconnectedSlot.reconnectToken !== reconnectToken) {
-			return false;
+		// Find the disconnected slot matching this token
+		let matchedRole: 'host' | 'guest' | null = null;
+		for (const [role, slot] of this.disconnectedSlots) {
+			if (slot.reconnectToken === reconnectToken) {
+				matchedRole = role;
+				break;
+			}
 		}
+		if (!matchedRole) return false;
 
-		const { role, timer, savedState } = this.disconnectedSlot;
+		const slot = this.disconnectedSlots.get(matchedRole)!;
+		const { role, timer, savedState } = slot;
 		clearTimeout(timer);
-		this.disconnectedSlot = null;
+		this.disconnectedSlots.delete(matchedRole);
 
 		// Restore game state from the disconnected player onto the new client
 		console.log(`Restoring state for ${role} in lobby ${this.code}: lives=${savedState.lives}, score=${savedState.score}, ante=${savedState.ante}, handsLeft=${savedState.handsLeft}, skips=${savedState.skips}, location=${savedState.location}`)
