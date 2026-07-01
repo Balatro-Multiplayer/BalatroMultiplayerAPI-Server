@@ -1,3 +1,9 @@
+# PRODUCTION compose. Service name (socket) + host ports (8788 game, 49484 alt)
+# match the live prod container (server-socket-1) so `docker compose up` recreates
+# it in place. The STAFF variant (staff-socket on 8799) lives on the
+# casjb/abuse-ratelimit-combined-staff branch — never bind 8799 here.
+# Code: live replay-log streaming + abuse rate/size limits + central hard-ban
+# enforcement (better-sqlite3 store on the ./data volume).
 services:
   staff-socket:
     build:
@@ -7,9 +13,29 @@ services:
       - "8799:8788"
     environment:
       NODE_ENV: development
+      # Replay-log hash store (better-sqlite3). Lives on the ./data volume so it
+      # survives container redeploys. The ban-watcher writes central_hard_bans
+      # into this same file for the relay to enforce.
+      LOG_HASH_DB_PATH: /data/log_hashes.db
+      # Abuse rate-heuristic disconnects + auto-bans active (full enforce). The
+      # buffer-overflow OOM fix and oversized-message drops are always-on
+      # regardless; this flag only gates the heuristic disconnects/bans.
+      ABUSE_ENFORCE: "true"
     restart: unless-stopped
+    # Resource caps so an abuse spike that slips past the app-level limits OOM-kills
+    # only this container (which then auto-restarts) instead of taking down the whole
+    # shared host. Idle usage is ~120 MB; 512 MB leaves ample headroom for ~50 live
+    # games. The box is 2 vCPU / ~2 GB shared across ~9 containers.
+    mem_limit: 512m
+    cpus: "1.5"
+    pids_limit: 512
+    # Container stdout/stderr rotation is handled host-side by logrotate
+    # (deploy/logrotate/balatro-docker: daily, compress after 1 day, keep 30
+    # days). We deliberately leave the json-file driver at its default here so
+    # Docker doesn't also rotate the same files and collide with logrotate.
     volumes:
       - ./logs:/logs
+      - ./data:/data
     deploy:
       resources:
         limits:

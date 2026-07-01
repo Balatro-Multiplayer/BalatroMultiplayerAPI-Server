@@ -26,6 +26,8 @@ import type {
 	ActionStartAnteTimer,
 	ActionPauseAnteTimer,
 	ActionSyncClient,
+	ActionSubmitLogHashes,
+	ActionStreamLogLines,
 	ActionUsername,
 	ActionUtility,
 	ActionVersion,
@@ -40,8 +42,19 @@ import type {
     ActionHandyMPExtensionDisable,
 } from './actions.js'
 import { InsaneInt } from './InsaneInt.js'
+import { ABUSE_CONFIG, ConnectionMeter } from './abuse.js'
+import { isBanned, startBanAutoReload } from './banStore.js'
 
-const PORT = 8788
+const PORT = Number(process.env.PORT) || 8788
+
+/** Hard cap on the per-connection message buffer. A message is a single
+ *  newline-terminated JSON line; the largest legitimate one is an end-of-game
+ *  submitLogHashes carrying the full carbon log (capped ~2MB server-side), so
+ *  4MB leaves headroom. If a client sends more than this without a newline it's
+ *  a runaway/abusive frame — drop the buffer and close the socket rather than
+ *  let it grow unbounded and OOM the relay. */
+const MAX_MESSAGE_BUFFER_BYTES =
+	Number(process.env.MAX_MESSAGE_BUFFER_BYTES) || 4 * 1024 * 1024
 
 /** The amount of milliseconds we wait before sending the initial keepalive packet  */
 const KEEP_ALIVE_INITIAL_TIMEOUT = 15000
@@ -122,9 +135,25 @@ const server = createServer((socket) => {
 	// Enable OS-level TCP keepalive as secondary dead connection detection
 	socket.setKeepAlive(true, 10000)
 
-	const client = new Client(socket.address(), sendActionToSocket(socket), socket.end)
+	const remoteAddress = socket.remoteAddress ?? ''
+
+	// Reject banned peers (by IP) before allocating any per-connection state.
+	if (isBanned(remoteAddress, null)) {
+		sendActionToSocket(socket)({ action: 'error', message: 'Unknown Error.' })
+		socket.end()
+		return
+	}
+
+	const client = new Client(
+		socket.address(),
+		sendActionToSocket(socket),
+		socket.end,
+		remoteAddress,
+	)
 	client.sendAction({ action: 'connected' })
 	client.sendAction({ action: 'version' })
+
+	const meter = new ConnectionMeter(remoteAddress)
 
 	// Buffer for incomplete TCP messages
 	let dataBuffer = ''
@@ -161,23 +190,78 @@ const server = createServer((socket) => {
 		retryCount = 0
 		keepAlive.refresh()
 
+		meter.noteBytes(data.length)
+
 		// Buffer incoming data — TCP may split large messages across multiple events
 		dataBuffer += data.toString()
+		// Guard against an unbounded buffer: a client streaming endless data with
+		// no newline would otherwise grow this without limit and OOM the relay.
+		if (dataBuffer.length > MAX_MESSAGE_BUFFER_BYTES) {
+			console.warn(
+				`Message buffer exceeded ${MAX_MESSAGE_BUFFER_BYTES} bytes from ${client.id}; dropping connection`,
+			)
+			dataBuffer = ''
+			socket.end()
+			return
+		}
 		const messages = dataBuffer.split('\n')
 		// Keep the last (possibly incomplete) chunk in the buffer
 		dataBuffer = messages.pop() ?? ''
 
+		// No-newline flood guard: the leftover incomplete chunk must never grow
+		// without bound. This is the primary OOM fix and always enforced.
+		if (dataBuffer.length > ABUSE_CONFIG.MAX_BUFFER_BYTES) {
+			const verdict = meter.bufferOverflow()
+			client.sendAction({ action: 'error', message: verdict.reason })
+			dataBuffer = ''
+			socket.end()
+			return
+		}
+
 		for (const msg of messages) {
 			if (!msg) continue
+
+			const verdict = meter.inspectMessage(Buffer.byteLength(msg))
+			if (verdict.kind === 'disconnect') {
+				client.sendAction({ action: 'error', message: verdict.reason })
+				socket.end()
+				return
+			}
+			if (verdict.kind === 'drop') {
+				if (verdict.notify) {
+					client.sendAction({
+						action: 'error',
+						message: 'Rate limit exceeded; message dropped.',
+					})
+				}
+				continue
+			}
+
 			try {
 				const message: ActionClientToServer | ActionUtility = JSON.parse(msg)
 				const { action, ...actionArgs } = message
 
 				if (action !== 'keepAlive' && action !== 'keepAliveAck') {
+					// submitLogHashes carries the full carbon log (can be many KB);
+					// log a compact summary so we don't mirror the whole log into
+					// stdout / docker logs on every game end.
+					const logged =
+						action === 'submitLogHashes'
+							? JSON.stringify({
+									carbon: (actionArgs as { carbon?: string }).carbon,
+									human: (actionArgs as { human?: string }).human,
+									seed: (actionArgs as { seed?: string }).seed,
+									logBytes: (actionArgs as { log?: string }).log?.length ?? 0,
+								})
+							: action === 'streamLogLines'
+								? JSON.stringify({
+										gameId: (actionArgs as { gameId?: string }).gameId,
+										lineCount:
+											(actionArgs as { lines?: string[] }).lines?.length ?? 0,
+									})
+								: JSON.stringify(actionArgs)
 					console.log(
-						`${new Date().toISOString()}: Received action ${action} from ${client.id}: ${JSON.stringify(
-							actionArgs,
-						)}`,
+						`${new Date().toISOString()}: Received action ${action} from ${client.id}: ${logged}`,
 					)
 				}
 
@@ -369,6 +453,18 @@ const server = createServer((socket) => {
 							client,
 						)
 						break
+					case 'submitLogHashes':
+						actionHandlers.submitLogHashes(
+							actionArgs as ActionHandlerArgs<ActionSubmitLogHashes>,
+							client,
+						)
+						break
+					case 'streamLogLines':
+						actionHandlers.streamLogLines(
+							actionArgs as ActionHandlerArgs<ActionStreamLogLines>,
+							client,
+						)
+						break
 					case "endGameStatsRequested":
 						actionHandlers.endGameStatsRequested(client)
 						break
@@ -432,6 +528,17 @@ const server = createServer((socket) => {
 					message: failedToParseError,
 				})
 			}
+
+			// The username action may have just populated the hardware id; sync it
+			// onto the meter and re-check bans so a banned hwid can't dodge by IP.
+			if (client.connectionId && meter.connId !== client.connectionId) {
+				meter.connId = client.connectionId
+				if (isBanned(client.remoteAddress, client.connectionId)) {
+					client.sendAction({ action: 'error', message: 'Unknown Error' })
+					socket.end()
+					return
+				}
+			}
 		}
 	})
 
@@ -461,6 +568,8 @@ const server = createServer((socket) => {
 
 server.listen(PORT, '0.0.0.0', () => {
 	console.log(`Server listening on port ${PORT}`)
+	// Pick up central hard bans synced in by mp-ban-watcher without a restart.
+	startBanAutoReload()
 })
 
 // Admin server for sending messages to players
@@ -469,7 +578,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const ADMIN_PORT = 8789
+const ADMIN_PORT = Number(process.env.ADMIN_PORT) || 8789
 
 // Works under both tsc-emitted ESM (npm run start) and the esbuild CJS bundle
 // used by pkg. import.meta.url is undefined in CJS output; __dirname is

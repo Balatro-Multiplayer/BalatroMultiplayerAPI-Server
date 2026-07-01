@@ -69,6 +69,9 @@ class Lobby {
 	disconnectedSlot: DisconnectedSlot | null = null;
 	/** Whether a game is currently in progress */
 	isInGame = false;
+	/** Authoritative seed generated for the current game (null until startGame,
+	 *  or for different-seeds games where each client uses its own). */
+	seed: string | null = null;
 
 	// Attrition is the default game mode
 	constructor(host: Client, gameMode: GameMode = "attrition") {
