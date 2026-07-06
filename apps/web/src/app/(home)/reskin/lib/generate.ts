@@ -55,6 +55,9 @@ function gridFor(n: number): { cols: number; rows: number } {
   return { cols, rows: Math.ceil(n / cols) }
 }
 
+// Conservative 2x atlas-width beyond which we warn about GPU texture limits.
+const TEXTURE_CAP = 4096
+
 /** Map a sheet's edited cell indices to placed grid cells. */
 function placedForSheet(sheet: CatalogSheet, edits: SheetEdit): PlacedCell[] {
   const cols = sheet.cols ?? sheet.frames ?? 1
@@ -68,10 +71,11 @@ function placedForSheet(sheet: CatalogSheet, edits: SheetEdit): PlacedCell[] {
 export async function generatePack(
   project: ProjectState,
   catalog: Catalog
-): Promise<{ bytes: Uint8Array; fileName: string }> {
+): Promise<{ bytes: Uint8Array; fileName: string; warnings: string[] }> {
   const entries: ZipEntry[] = []
   const manifestAtlases: Record<string, unknown>[] = []
   const manifestObjects: Record<string, unknown>[] = []
+  const warnings: string[] = []
   // Mod-list icon: only set when the user uploads one (see below).
   let icon: Record<string, unknown> | undefined
 
@@ -102,14 +106,13 @@ export async function generatePack(
     if (edited.length === 0) continue
 
     const atlasName = `cat_${cat.id}`
-    const cells: PlacedCell[] = []
-    let cols: number
-    let rows: number
 
     if (cat.frames > 1) {
-      // animated (blinds): one row of `frames` frames per object
-      cols = cat.frames
-      rows = edited.length
+      // Animated category (blinds): all objects share one animation atlas, one
+      // row of `frames` frames each.
+      const cols = cat.frames
+      const rows = edited.length
+      const cells: PlacedCell[] = []
       edited.forEach(({ e }, row) => {
         for (let f = 0; f < cat.frames; f++) {
           const dataUrl = e!.sprites[f] ?? e!.sprites[e!.sprites.length - 1]
@@ -125,34 +128,80 @@ export async function generatePack(
           y: row,
         })
       })
+      await pushAtlasPng(atlasName, cols, rows, cat.px, cat.py, cells)
+      manifestAtlases.push({
+        key: atlasName,
+        path: `${atlasName}.png`,
+        px: cat.px,
+        py: cat.py,
+        frames: cat.frames,
+      })
     } else {
-      const g = gridFor(edited.length)
-      cols = g.cols
-      rows = g.rows
-      edited.forEach(({ o, e }, i) => {
-        const col = i % cols
-        const row = Math.floor(i / cols)
-        cells.push({ col, row, dataUrl: e!.sprites[0]! })
+      // Static category: stills share one packed grid atlas; each uploaded GIF
+      // (sprites.length > 1) gets its OWN frames-wide animation atlas, since GIF
+      // frame counts vary and can't share a fixed-width sheet like blinds.
+      const stills = edited.filter((x) => x.e!.sprites.length === 1)
+      const anims = edited.filter((x) => x.e!.sprites.length > 1)
+
+      if (stills.length > 0) {
+        const g = gridFor(stills.length)
+        const cells: PlacedCell[] = []
+        stills.forEach(({ o, e }, i) => {
+          const col = i % g.cols
+          const row = Math.floor(i / g.cols)
+          cells.push({ col, row, dataUrl: e!.sprites[0]! })
+          manifestObjects.push({
+            registry: cat.registry,
+            key: o.key,
+            atlas: atlasName,
+            x: col,
+            y: row,
+          })
+        })
+        await pushAtlasPng(atlasName, g.cols, g.rows, cat.px, cat.py, cells)
+        manifestAtlases.push({
+          key: atlasName,
+          path: `${atlasName}.png`,
+          px: cat.px,
+          py: cat.py,
+        })
+      }
+
+      for (const { o, e } of anims) {
+        const frames = e!.sprites.length
+        const name = `${atlasName}_${o.key}`
+        const cells: PlacedCell[] = e!.sprites.map((dataUrl, f) => ({
+          col: f,
+          row: 0,
+          dataUrl,
+        }))
+        await pushAtlasPng(name, frames, 1, cat.px, cat.py, cells)
+        manifestAtlases.push({
+          key: name,
+          path: `${name}.png`,
+          px: cat.px,
+          py: cat.py,
+          frames,
+          atlas_table: 'ANIMATION_ATLAS',
+          ...(e!.fps ? { fps: e!.fps } : {}),
+        })
         manifestObjects.push({
           registry: cat.registry,
           key: o.key,
-          atlas: atlasName,
-          x: col,
-          y: row,
+          atlas: name,
+          x: 0,
+          y: 0,
         })
-      })
+        const width2x = frames * cat.px * 2
+        if (width2x > TEXTURE_CAP) {
+          warnings.push(
+            `${o.name} (${o.key}): a ${frames}-frame animation is ${width2x}px wide at 2x — this may exceed some GPU texture limits. Consider a shorter GIF.`
+          )
+        }
+      }
     }
 
-    await pushAtlasPng(atlasName, cols, rows, cat.px, cat.py, cells)
-    manifestAtlases.push({
-      key: atlasName,
-      path: `${atlasName}.png`,
-      px: cat.px,
-      py: cat.py,
-      ...(cat.frames > 1 ? { frames: cat.frames } : {}),
-    })
-
-    // soul overlays
+    // soul overlays (static; applies to any edited object, still or animated)
     const souls = edited.filter((x) => x.e!.soul)
     if (souls.length > 0) {
       const soulName = `${atlasName}_soul`
@@ -217,7 +266,9 @@ export async function generatePack(
       path: `${sheet.atlasKey}.png`,
       px: sheet.px,
       py: sheet.py,
-      ...(sheet.animated ? { frames: sheet.frames, atlas_table: 'ANIMATION_ATLAS' } : {}),
+      ...(sheet.animated
+        ? { frames: sheet.frames, atlas_table: 'ANIMATION_ATLAS' }
+        : {}),
     })
   }
 
@@ -228,7 +279,11 @@ export async function generatePack(
     const py = img.naturalHeight || img.height || 1
     entries.push({
       name: 'assets/1x/modicon.png',
-      data: await composeWhole({ width: px, height: py, dataUrl: project.options.icon }),
+      data: await composeWhole({
+        width: px,
+        height: py,
+        dataUrl: project.options.icon,
+      }),
     })
     entries.push({
       name: 'assets/2x/modicon.png',
@@ -264,7 +319,10 @@ export async function generatePack(
   }
 
   // --- static files ---------------------------------------------------------
-  entries.push({ name: 'CustomReskin.json', data: zipText(manifestJson(project)) })
+  entries.push({
+    name: 'CustomReskin.json',
+    data: zipText(manifestJson(project)),
+  })
   entries.push({ name: 'core.lua', data: zipText(CORE_LUA) })
   entries.push({ name: PROJECT_FILE, data: zipText(JSON.stringify(project)) })
 
@@ -273,7 +331,7 @@ export async function generatePack(
     (project.options.displayName || 'CustomReskin')
       .replace(/[^A-Za-z0-9._-]+/g, '_')
       .replace(/^_+|_+$/g, '') || 'CustomReskin'
-  return { bytes, fileName: `${safeName}.zip` }
+  return { bytes, fileName: `${safeName}.zip`, warnings }
 }
 
 export const PROJECT_FILE_NAME = PROJECT_FILE

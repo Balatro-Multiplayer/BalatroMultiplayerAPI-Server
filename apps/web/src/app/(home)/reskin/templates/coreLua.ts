@@ -48,6 +48,7 @@ for _, a in ipairs(atlases) do
 		px = a.px,
 		py = a.py,
 		frames = a.frames,
+		fps = a.fps,
 		atlas_table = a.atlas_table or 'ASSET_ATLAS',
 	})
 end

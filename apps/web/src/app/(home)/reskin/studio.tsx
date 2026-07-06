@@ -14,8 +14,8 @@ import { importPack } from './lib/importProject'
 import {
   type Catalog,
   emptyProject,
-  objId,
   type ObjectEdit,
+  objId,
   type ProjectState,
 } from './lib/types'
 
@@ -31,7 +31,8 @@ export function ReskinStudio() {
       setProject((p) => {
         const objects = { ...p.objects }
         const id = objId(catId, key)
-        if (edit && (edit.sprites.some(Boolean) || edit.soul)) objects[id] = edit
+        if (edit && (edit.sprites.some(Boolean) || edit.soul))
+          objects[id] = edit
         else delete objects[id]
         return { ...p, objects }
       })
@@ -78,12 +79,15 @@ export function ReskinStudio() {
     Object.keys(project.objects).length +
     Object.values(project.sheets).reduce((n, c) => n + Object.keys(c).length, 0)
   const langs = Object.keys(project.loc)
-  const textCount = langs.reduce((n, l) => n + Object.keys(project.loc[l]!).length, 0)
+  const textCount = langs.reduce(
+    (n, l) => n + Object.keys(project.loc[l]!).length,
+    0
+  )
 
   async function onGenerate() {
     setBusy(true)
     try {
-      const { bytes, fileName } = await generatePack(project, catalog)
+      const { bytes, fileName, warnings } = await generatePack(project, catalog)
       const blob = new Blob([bytes.buffer as ArrayBuffer], {
         type: 'application/zip',
       })
@@ -98,6 +102,7 @@ export function ReskinStudio() {
       toast.success(`Generated ${fileName}`, {
         description: 'Unzip it into your Balatro Mods folder.',
       })
+      for (const w of warnings) toast.warning(w)
     } catch (e) {
       toast.error('Failed to generate pack', {
         description: e instanceof Error ? e.message : String(e),
@@ -128,9 +133,11 @@ export function ReskinStudio() {
     <div className='space-y-4'>
       <div className='flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-3'>
         <div className='text-muted-foreground text-sm'>
-          <span className='font-medium text-foreground'>{spriteCount}</span> sprite
+          <span className='font-medium text-foreground'>{spriteCount}</span>{' '}
+          sprite
           {spriteCount === 1 ? '' : 's'} ·{' '}
-          <span className='font-medium text-foreground'>{textCount}</span> text edit
+          <span className='font-medium text-foreground'>{textCount}</span> text
+          edit
           {textCount === 1 ? '' : 's'} across{' '}
           <span className='font-medium text-foreground'>{langs.length}</span>{' '}
           language{langs.length === 1 ? '' : 's'}

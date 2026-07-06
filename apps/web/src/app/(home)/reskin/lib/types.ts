@@ -75,10 +75,13 @@ export interface Catalog {
 // --- project (editor) state -------------------------------------------------
 
 /** One object's uploaded art. `sprites` length equals the category frame count
- *  (1 for static, 21 for blinds). `soul` is the optional overlay layer. */
+ *  (1 for static, 21 for blinds). A static object with >1 sprite is an uploaded
+ *  GIF animation; `fps` is its playback rate (Balatro plays it on its own
+ *  per-object animation atlas). `soul` is the optional overlay layer. */
 export interface ObjectEdit {
   sprites: string[] // PNG data URLs
   soul?: string
+  fps?: number // animation rate when sprites.length > 1 (uploaded GIF)
 }
 
 /** A composed sheet's per-cell uploads: cell index -> PNG data URL. */

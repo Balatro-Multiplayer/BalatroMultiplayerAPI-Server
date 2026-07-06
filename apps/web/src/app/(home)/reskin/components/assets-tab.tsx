@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { extractFrames } from '../lib/image'
+import { extractFrames, extractFramesNative } from '../lib/image'
 import {
   type Catalog,
   type CatalogSheet,
@@ -191,12 +191,22 @@ function CategoryGrid({
     )
   })
 
+  const isGif = (f: File) =>
+    f.type === 'image/gif' || f.name.toLowerCase().endsWith('.gif')
+
   const onUpload = async (key: string, file: File) => {
     const prev = project.objects[objId(categoryId, key)]
     // Animated categories (blinds) still ingest a whole frame-strip/GIF.
     if (cat.frames > 1) {
       const sprites = await extractFrames(file, cat.frames)
       setObject(categoryId, key, { sprites, soul: prev?.soul })
+      return
+    }
+    // A GIF on a static category becomes a per-object animation (Balatro plays
+    // it on its own animation atlas at the GIF's native rate).
+    if (isGif(file)) {
+      const { frames, fps } = await extractFramesNative(file)
+      setObject(categoryId, key, { sprites: frames, fps, soul: prev?.soul })
       return
     }
     const edited = await openEditor(file, { w: cat.px, h: cat.py })
@@ -212,10 +222,15 @@ function CategoryGrid({
 
   return (
     <>
-      {cat.animated && (
+      {cat.animated ? (
         <p className='text-muted-foreground text-xs'>
           Animated ({cat.frames} frames): upload an animated GIF or a horizontal
           frame-strip PNG.
+        </p>
+      ) : (
+        <p className='text-muted-foreground text-xs'>
+          Upload a still image (cropped on upload), or a GIF to make the object
+          animated in-game.
         </p>
       )}
       <div className='grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8'>
@@ -225,7 +240,11 @@ function CategoryGrid({
             <div key={o.key} className='flex flex-col gap-1'>
               <UploadTile
                 label={o.name}
-                sublabel={o.key}
+                sublabel={
+                  !cat.animated && edit && edit.sprites.length > 1
+                    ? `${o.key} · ${edit.sprites.length}f @ ${edit.fps ?? 10}fps`
+                    : o.key
+                }
                 ratio={ratio}
                 accept={cat.animated ? 'image/*' : 'image/png,image/*'}
                 preview={edit?.sprites[0]}
