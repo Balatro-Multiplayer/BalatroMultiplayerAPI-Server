@@ -98,6 +98,28 @@ export async function getAtlasCell(
   }
 }
 
+/** Inflate an atlas once and crop many cells from it — for showing every
+ *  object's vanilla art as a default. Each request maps 1:1 to a result. */
+export async function getAtlasCells(
+  buf: Uint8Array,
+  path: string,
+  cells: Array<{ id: string; rect: Rect }>
+): Promise<Record<string, string>> {
+  const entry = readFusedZip(buf).get(path)
+  if (!entry) throw new Error(`${path} not found in the game archive`)
+  const png = entry.method === 0 ? entry.data : await inflateRaw(entry.data)
+  const url = URL.createObjectURL(
+    new Blob([png as BlobPart], { type: 'image/png' })
+  )
+  try {
+    const out: Record<string, string> = {}
+    for (const { id, rect } of cells) out[id] = await cropImage(url, rect)
+    return out
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 /** A card frame lifted from the vanilla base Joker: its coloured outer border
  *  ring plus the interior mask user art is drawn into and clipped to. */
 export interface BorderTemplate {

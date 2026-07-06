@@ -74,7 +74,7 @@ export function OptionsTab({
         </p>
       </div>
       <div className='space-y-2'>
-        <Label htmlFor='reskin-exe'>Card border (optional)</Label>
+        <Label htmlFor='reskin-exe'>Import Balatro.exe (optional)</Label>
         <input
           id='reskin-exe'
           type='file'
@@ -84,8 +84,8 @@ export function OptionsTab({
         />
         <p className='text-muted-foreground text-xs'>
           {borderReady
-            ? '✓ Border loaded. Card uploads can now be wrapped in the vanilla Joker border.'
-            : "Select your own Balatro.exe to unlock wrapping uploads in the game's Joker border. The file is read locally in your browser and never uploaded."}
+            ? '✓ Loaded. Vanilla art shows as faded defaults, the Joker border is available, and the Localization tab is unlocked.'
+            : 'Select your own Balatro.exe to show each object’s vanilla art as a reference, wrap uploads in the Joker border, and edit in-game text. The file is read locally in your browser and never uploaded.'}
         </p>
       </div>
     </div>

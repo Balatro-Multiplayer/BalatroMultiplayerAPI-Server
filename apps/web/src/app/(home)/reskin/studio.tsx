@@ -26,6 +26,7 @@ export function ReskinStudio() {
   const [project, setProject] = useState<ProjectState>(emptyProject)
   const [busy, setBusy] = useState(false)
   const [border, setBorder] = useState<BorderTemplate | null>(null)
+  const [exeBuf, setExeBuf] = useState<Uint8Array | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
 
   // Optional: read the user's own Balatro.exe locally to lift a card-border
@@ -33,17 +34,22 @@ export function ReskinStudio() {
   const onExeFile = useCallback(async (file: File | null) => {
     if (!file) {
       setBorder(null)
+      setExeBuf(null)
       return
     }
     setBusy(true)
     try {
       const buf = new Uint8Array(await file.arrayBuffer())
-      setBorder(await extractJokerBorder(buf))
-      toast.success('Joker border loaded', {
-        description: 'Card uploads can now wrap art in the vanilla border.',
+      const b = await extractJokerBorder(buf)
+      setExeBuf(buf)
+      setBorder(b)
+      toast.success('Balatro.exe loaded', {
+        description:
+          'Vanilla art now shows as defaults, the Joker border is available, and text can be edited.',
       })
     } catch (e) {
       setBorder(null)
+      setExeBuf(null)
       toast.error('Could not read Balatro.exe', {
         description: e instanceof Error ? e.message : String(e),
       })
@@ -218,6 +224,7 @@ export function ReskinStudio() {
             setObject={setObject}
             setSheetCell={setSheetCell}
             border={border}
+            exeBuf={exeBuf}
           />
         </TabsContent>
         <TabsContent value='localization'>

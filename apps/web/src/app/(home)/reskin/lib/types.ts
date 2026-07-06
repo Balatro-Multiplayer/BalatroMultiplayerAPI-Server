@@ -9,6 +9,7 @@ export interface CatalogCategory {
   frames: number // 1 for static, >1 for animated (blinds = 21)
   animated: boolean
   soul: boolean // any object in the category has a soul overlay
+  atlasFile?: string // vanilla 1x atlas file, for default previews from the exe
 }
 
 export interface CatalogObject {

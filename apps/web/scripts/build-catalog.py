@@ -128,6 +128,24 @@ def png_dims_from_zip(z, path):
 # can fit user art onto the real footprint. Shape-only (no colours) derived
 # data; the coloured art itself is never bundled. Vanilla 1x sheet per set:
 MASK_ATLAS_BY_SET = {"Joker": "Jokers.png"}
+
+# Vanilla 1x atlas file per set, used to show the real game art as a faded
+# default behind each upload tile once the user imports their exe. Verified by
+# decoding + bounds/alpha-checking a sample object at build time. Seals carry no
+# pos and are intentionally absent; sheets (playing cards/chips/shop sign) have
+# their own atlasKey.
+ATLAS_FILE_BY_SET = {
+    "Joker": "Jokers.png",
+    "Tarot": "Tarots.png",
+    "Planet": "Tarots.png",
+    "Spectral": "Tarots.png",
+    "Voucher": "Vouchers.png",
+    "Booster": "boosters.png",
+    "Enhanced": "Enhancers.png",
+    "Back": "Enhancers.png",
+    "Tag": "tags.png",
+    "Blind": "BlindChips.png",
+}
 MASK_ALPHA_THRESHOLD = 16  # alpha >= this counts as opaque
 MASK_ODD_COVERAGE = 0.85  # ship a mask when opaque area / rounded-rect area < this
 MASK_CORNER_RADIUS = 8  # rounded-rect corner radius used for the reference area
@@ -222,6 +240,44 @@ def _rr_area(cw, ch, r):
         return (x - cx) ** 2 + (y - cy) ** 2 <= r * r
 
     return sum(1 for y in range(ch) for x in range(cw) if inside(x, y))
+
+
+def resolve_atlas_files(z, sprite_categories, sprite_objects):
+    """Set `atlasFile` on each category whose set maps to a vanilla atlas that
+    validates (decodes + a sample object's cell is in bounds and non-empty)."""
+    cache = {}
+    for cat in sprite_categories:
+        fn = ATLAS_FILE_BY_SET.get(cat["id"])
+        if not fn:
+            continue
+        try:
+            if fn not in cache:
+                cache[fn] = decode_png_rgba(z.read("resources/textures/1x/" + fn))
+        except Exception as e:  # noqa: BLE001 - missing atlas is non-fatal
+            print(f"  atlasFile: skip {cat['id']} ({fn}): {e}")
+            continue
+        w, h, px = cache[fn]
+        pw, ph = cat["px"], cat["py"]
+        sample = next(
+            (o for o in sprite_objects.get(cat["id"], []) if o.get("pos")), None
+        )
+        if not sample:
+            print(f"  atlasFile: {cat['id']} has no positioned sample; skip")
+            continue
+        ox, oy = sample["pos"]["x"] * pw, sample["pos"]["y"] * ph
+        if ox + pw > w or oy + ph > h:
+            print(f"  atlasFile: {cat['id']} sample out of bounds in {fn}; skip")
+            continue
+        opaque = sum(
+            1
+            for y in range(ph)
+            for x in range(pw)
+            if px[((oy + y) * w + (ox + x)) * 4 + 3] >= MASK_ALPHA_THRESHOLD
+        )
+        if opaque == 0:
+            print(f"  atlasFile: {cat['id']} sample empty in {fn}; skip")
+            continue
+        cat["atlasFile"] = fn
 
 
 def build_masks(z, objects):
@@ -437,6 +493,7 @@ def main():
         if c["objects"]
     ]
     sprite_objects = {c["id"]: c["objects"] for c in cats.values() if c["objects"]}
+    resolve_atlas_files(z, sprite_categories, sprite_objects)
 
     # --- composed sheets ---------------------------------------------------
     sheets = []

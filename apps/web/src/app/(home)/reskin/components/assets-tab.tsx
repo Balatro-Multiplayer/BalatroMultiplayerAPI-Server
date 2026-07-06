@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { BorderTemplate } from '../lib/exeAssets'
+import { type BorderTemplate, getAtlasCells } from '../lib/exeAssets'
 import { extractFrames, extractFramesNative } from '../lib/image'
 import {
   type Catalog,
@@ -47,12 +47,14 @@ export function AssetsTab({
   setObject,
   setSheetCell,
   border,
+  exeBuf,
 }: {
   catalog: Catalog
   project: ProjectState
   setObject: (catId: string, key: string, edit: ObjectEdit | null) => void
   setSheetCell: (sheetId: string, index: number, dataUrl: string | null) => void
   border: BorderTemplate | null
+  exeBuf: Uint8Array | null
 }) {
   const groups = useMemo(() => {
     const objects = [
@@ -103,6 +105,45 @@ export function AssetsTab({
 
   const category = catalog.spriteCategories.find((c) => c.id === active)
   const sheet = catalog.spriteSheets.find((s) => s.id === active)
+
+  // Vanilla art shown faded behind each tile once an exe is imported. Extracted
+  // per active category from its atlas and cached across category switches.
+  const [defaults, setDefaults] = useState<Record<string, string>>({})
+  const defaultsCache = useRef<Map<string, Record<string, string>>>(new Map())
+  const atlasFile = category?.atlasFile
+  useEffect(() => {
+    if (!exeBuf || !category || !atlasFile) {
+      setDefaults({})
+      return
+    }
+    const cached = defaultsCache.current.get(category.id)
+    if (cached) {
+      setDefaults(cached)
+      return
+    }
+    let cancelled = false
+    const cells = (catalog.spriteObjects[category.id] ?? [])
+      .filter((o) => o.pos)
+      .map((o) => ({
+        id: o.key,
+        rect: {
+          x: o.pos!.x * category.px,
+          y: o.pos!.y * category.py,
+          w: category.px,
+          h: category.py,
+        },
+      }))
+    getAtlasCells(exeBuf, `resources/textures/1x/${atlasFile}`, cells)
+      .then((map) => {
+        if (cancelled) return
+        defaultsCache.current.set(category.id, map)
+        setDefaults(map)
+      })
+      .catch(() => !cancelled && setDefaults({}))
+    return () => {
+      cancelled = true
+    }
+  }, [exeBuf, category, atlasFile, catalog])
 
   return (
     <div className='space-y-4 pt-4'>
@@ -168,6 +209,7 @@ export function AssetsTab({
           setObject={setObject}
           openEditor={openEditor}
           border={border}
+          defaults={defaults}
         />
       )}
       {sheet && (
@@ -204,6 +246,7 @@ function CategoryGrid({
   setObject,
   openEditor,
   border,
+  defaults,
 }: {
   catalog: Catalog
   project: ProjectState
@@ -212,6 +255,7 @@ function CategoryGrid({
   setObject: (catId: string, key: string, edit: ObjectEdit | null) => void
   openEditor: OpenEditor
   border: BorderTemplate | null
+  defaults: Record<string, string>
 }) {
   const cat = catalog.spriteCategories.find((c) => c.id === categoryId)!
   const ratio = cat.px / cat.py
@@ -312,6 +356,7 @@ function CategoryGrid({
                 ratio={ratio}
                 accept={cat.animated ? 'image/*' : 'image/png,image/*'}
                 preview={edit?.sprites[0]}
+                defaultPreview={defaults[o.key]}
                 onFile={(f) => onUpload(o.key, f)}
                 onClear={() => setObject(categoryId, o.key, null)}
               />
