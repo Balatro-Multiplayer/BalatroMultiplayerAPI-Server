@@ -1,7 +1,7 @@
 'use client'
 
 import { Download, RotateCcw, Upload } from 'lucide-react'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -9,7 +9,11 @@ import { AssetsTab } from './components/assets-tab'
 import { LocalizationTab } from './components/localization-tab'
 import { OptionsTab } from './components/options-tab'
 import catalogJson from './data/catalog.json'
-import { type BorderTemplate, extractJokerBorder } from './lib/exeAssets'
+import {
+  type BorderTemplate,
+  extractJokerBorder,
+  readLocFromExe,
+} from './lib/exeAssets'
 import { generatePack } from './lib/generate'
 import { importPack } from './lib/importProject'
 import {
@@ -106,6 +110,11 @@ export function ReskinStudio() {
   const setOptions = useCallback((next: ProjectState['options']) => {
     setProject((p) => ({ ...p, options: next }))
   }, [])
+
+  const loadLoc = useMemo(
+    () => (exeBuf ? (lang: string) => readLocFromExe(exeBuf, lang) : null),
+    [exeBuf]
+  )
 
   const spriteCount =
     Object.keys(project.objects).length +
@@ -232,6 +241,7 @@ export function ReskinStudio() {
             catalog={catalog}
             loc={project.loc}
             setLocValue={setLocValue}
+            loadLoc={loadLoc}
           />
         </TabsContent>
         <TabsContent value='options'>

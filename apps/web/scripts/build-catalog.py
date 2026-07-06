@@ -564,8 +564,8 @@ def main():
         }
     )
 
-    # --- localization structure (language-independent; values shipped per ----
-    # language as flat path->value maps under public/reskin/loc/<lang>.json) ---
+    # --- localization STRUCTURE only (which fields exist; no values). The text
+    # itself is never shipped — the studio reads it from the user's own exe. ---
     loc = lua_to_dict(z, "localization/en-us.lua")  # en-us drives the structure
     desc = loc.get("descriptions", {})
     misc = loc.get("misc", {})
@@ -652,31 +652,15 @@ def main():
 
     loc_groups = [g for g in loc_groups if g["items"]]
 
-    # Per-language value files: flat path -> value for every leaf string/array.
-    public_loc = os.path.join(WEB, "public", "reskin", "loc")
-    os.makedirs(public_loc, exist_ok=True)
+    # Available languages (codes only). The actual per-language TEXT is NOT
+    # shipped — the studio reads it from the user's own Balatro.exe on import
+    # (see lib/locLua.ts + lib/exeAssets.ts readLocFromExe), so no game creative
+    # text is bundled.
     langs = sorted(
         n.split("/")[1][:-4]
         for n in z.namelist()
         if n.startswith("localization/") and n.endswith(".lua")
     )
-
-    def flatten(node, prefix, out):
-        if isinstance(node, str):
-            out[prefix] = node
-        elif isinstance(node, list):
-            if all(isinstance(x, str) for x in node):
-                out[prefix] = node
-        elif isinstance(node, dict):
-            for k, v in node.items():
-                flatten(v, f"{prefix}.{k}" if prefix else k, out)
-
-    for lang in langs:
-        d = lua_to_dict(z, f"localization/{lang}.lua")
-        flat = {}
-        flatten({"descriptions": d.get("descriptions", {}), "misc": d.get("misc", {})}, "", flat)
-        with open(os.path.join(public_loc, f"{lang}.json"), "w") as f:
-            json.dump(flat, f, ensure_ascii=False, separators=(",", ":"))
 
     catalog = {
         "generatedFrom": os.path.basename(EXE),

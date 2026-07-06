@@ -5,6 +5,8 @@
 // uploaded; the file is read locally and only the user's own output uses it.
 
 import { alphaMask, applyMask, cropImage, erodeMask, type Rect } from './image'
+import { flattenLoc, parseLocLua } from './locLua'
+import type { LocValues } from './types'
 
 const readU32 = (b: Uint8Array, o: number) =>
   (b[o]! | (b[o + 1]! << 8) | (b[o + 2]! << 16) | (b[o + 3]! << 24)) >>> 0
@@ -118,6 +120,24 @@ export async function getAtlasCells(
   } finally {
     URL.revokeObjectURL(url)
   }
+}
+
+/** Read and flatten a language's localization from the exe into the same
+ *  path->value map the studio's Localization tab consumes (no shipped text). */
+export async function readLocFromExe(
+  exe: Uint8Array,
+  lang: string
+): Promise<LocValues> {
+  const entry = readFusedZip(exe).get(`localization/${lang}.lua`)
+  if (!entry)
+    throw new Error(`localization/${lang}.lua not found in the archive`)
+  const bytes = entry.method === 0 ? entry.data : await inflateRaw(entry.data)
+  const text = new TextDecoder('utf-8').decode(bytes)
+  const node = parseLocLua(text) as Record<string, unknown>
+  return flattenLoc({
+    descriptions: (node.descriptions ?? {}) as never,
+    misc: (node.misc ?? {}) as never,
+  })
 }
 
 /** A card frame lifted from the vanilla base Joker: its coloured outer border

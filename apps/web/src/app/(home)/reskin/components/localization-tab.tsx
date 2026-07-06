@@ -14,7 +14,13 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { asLines, normalize } from '../lib/balatroMarkup'
-import type { Catalog, LocEdits, LocField, LocItem, LocValues } from '../lib/types'
+import type {
+  Catalog,
+  LocEdits,
+  LocField,
+  LocItem,
+  LocValues,
+} from '../lib/types'
 import { BalatroText } from './balatro-text'
 import { type EditorHandle, MarkupEditor } from './markup-editor'
 import { MarkupToolbar } from './markup-toolbar'
@@ -42,6 +48,7 @@ export function LocalizationTab({
   catalog,
   loc,
   setLocValue,
+  loadLoc,
 }: {
   catalog: Catalog
   loc: LocEdits
@@ -50,6 +57,8 @@ export function LocalizationTab({
     path: string,
     value: string | string[] | null
   ) => void
+  /** Load a language's values from the imported exe; null when none is imported. */
+  loadLoc: ((lang: string) => Promise<LocValues>) | null
 }) {
   const [lang, setLang] = useState(
     catalog.languages.includes('en-us') ? 'en-us' : (catalog.languages[0] ?? '')
@@ -62,6 +71,10 @@ export function LocalizationTab({
   const cache = useRef<Map<string, LocValues>>(new Map())
 
   useEffect(() => {
+    if (!loadLoc) {
+      setValues(null)
+      return
+    }
     let cancelled = false
     const cached = cache.current.get(lang)
     if (cached) {
@@ -69,9 +82,8 @@ export function LocalizationTab({
       return
     }
     setValues(null)
-    fetch(`/reskin/loc/${lang}.json`)
-      .then((r) => r.json())
-      .then((v: LocValues) => {
+    loadLoc(lang)
+      .then((v) => {
         if (cancelled) return
         cache.current.set(lang, v)
         setValues(v)
@@ -80,7 +92,7 @@ export function LocalizationTab({
     return () => {
       cancelled = true
     }
-  }, [lang])
+  }, [lang, loadLoc])
 
   const group = catalog.locGroups.find((g) => g.id === groupId)
   const edits = loc[lang] ?? {}
@@ -90,7 +102,10 @@ export function LocalizationTab({
     const q = query.trim().toLowerCase()
     const matched = q
       ? group.items.filter((it) => {
-          if (it.key.toLowerCase().includes(q) || it.label.toLowerCase().includes(q))
+          if (
+            it.key.toLowerCase().includes(q) ||
+            it.label.toLowerCase().includes(q)
+          )
             return true
           return it.fields.some((f) => {
             const v = values?.[f.path]
@@ -101,6 +116,16 @@ export function LocalizationTab({
       : group.items
     return matched.slice(0, MAX_RESULTS)
   }, [group, query, values])
+
+  if (!loadLoc) {
+    return (
+      <div className='rounded-md border bg-card p-8 text-center text-muted-foreground text-sm'>
+        Import your <strong>Balatro.exe</strong> in the <strong>Options</strong>{' '}
+        tab to edit in-game text. The file is read locally in your browser and
+        never uploaded.
+      </div>
+    )
+  }
 
   return (
     <div className='space-y-4 pt-4'>
@@ -162,9 +187,9 @@ export function LocalizationTab({
       </div>
 
       <p className='text-muted-foreground text-xs'>
-        Editing <strong>{LANG_NAMES[lang] ?? lang}</strong>. Each field shows the
-        current value; change it to override, or use the reset button to restore
-        the original.
+        Editing <strong>{LANG_NAMES[lang] ?? lang}</strong>. Each field shows
+        the current value; change it to override, or use the reset button to
+        restore the original.
       </p>
 
       {values === null ? (
@@ -185,8 +210,8 @@ export function LocalizationTab({
             ))}
             {group.items.length > items.length && (
               <p className='pt-2 text-center text-muted-foreground text-xs'>
-                Showing {items.length} of {group.items.length}. Refine the search
-                to see more.
+                Showing {items.length} of {group.items.length}. Refine the
+                search to see more.
               </p>
             )}
           </div>
@@ -265,14 +290,20 @@ function FieldEditor({
   // original (compared in normalized form), otherwise store it.
   const handleEditor = (lines: string[]) => {
     const same =
-      JSON.stringify(normalize(lines)) === JSON.stringify(normalize(asLines(base)))
+      JSON.stringify(normalize(lines)) ===
+      JSON.stringify(normalize(asLines(base)))
     if (same) onChange(field.path, null)
     else onChange(field.path, field.multiline ? lines : lines.join(''))
   }
 
   const applyPlain = (raw: string | string[]) =>
-    onChange(field.path, JSON.stringify(raw) === JSON.stringify(base) ? null : raw)
-  const plainText = Array.isArray(current) ? current.join('\n') : String(current)
+    onChange(
+      field.path,
+      JSON.stringify(raw) === JSON.stringify(base) ? null : raw
+    )
+  const plainText = Array.isArray(current)
+    ? current.join('\n')
+    : String(current)
 
   return (
     <div>
@@ -298,7 +329,10 @@ function FieldEditor({
             onChange={(e) => applyPlain(e.target.value.split('\n'))}
           />
         ) : (
-          <Input value={plainText} onChange={(e) => applyPlain(e.target.value)} />
+          <Input
+            value={plainText}
+            onChange={(e) => applyPlain(e.target.value)}
+          />
         )
       ) : editing ? (
         <div className='space-y-1'>
