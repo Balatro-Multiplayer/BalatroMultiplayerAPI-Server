@@ -20,6 +20,7 @@ import {
   type ObjectEdit,
   objId,
   type ProjectState,
+  SHADER_OPTIONS,
   type SheetEdit,
 } from '../lib/types'
 import { ImageEditorDialog } from './image-editor-dialog'
@@ -236,7 +237,12 @@ function CategoryGrid({
     // it on its own animation atlas at the GIF's native rate).
     if (isGif(file)) {
       const { frames, fps } = await extractFramesNative(file)
-      setObject(categoryId, key, { sprites: frames, fps, soul: prev?.soul })
+      setObject(categoryId, key, {
+        sprites: frames,
+        fps,
+        soul: prev?.soul,
+        shader: prev?.shader,
+      })
       return
     }
     const obj = (catalog.spriteObjects[categoryId] ?? []).find(
@@ -252,13 +258,30 @@ function CategoryGrid({
       border: categoryId === 'Joker' ? (border ?? undefined) : undefined,
     })
     if (!edited) return
-    setObject(categoryId, key, { sprites: [edited], soul: prev?.soul })
+    setObject(categoryId, key, {
+      sprites: [edited],
+      soul: prev?.soul,
+      shader: prev?.shader,
+    })
   }
   const onSoul = async (key: string, file: File) => {
     const prev = project.objects[objId(categoryId, key)]
     const edited = await openEditor(file, { w: cat.px, h: cat.py })
     if (!edited) return
-    setObject(categoryId, key, { sprites: prev?.sprites ?? [], soul: edited })
+    setObject(categoryId, key, {
+      sprites: prev?.sprites ?? [],
+      soul: edited,
+      shader: prev?.shader,
+    })
+  }
+  const onShader = (key: string, shader: string) => {
+    const prev = project.objects[objId(categoryId, key)]
+    setObject(categoryId, key, {
+      sprites: prev?.sprites ?? [],
+      soul: prev?.soul,
+      fps: prev?.fps,
+      shader: shader || undefined,
+    })
   }
 
   return (
@@ -307,16 +330,53 @@ function CategoryGrid({
                       setObject(categoryId, o.key, {
                         sprites: edit?.sprites ?? [],
                         soul: undefined,
+                        shader: edit?.shader,
                       })
                     }
                   />
                 </div>
+              )}
+              {cat.registry === 'P_CENTERS' && (
+                <ShaderSelect
+                  value={edit?.shader}
+                  onChange={(s) => onShader(o.key, s)}
+                />
               )}
             </div>
           )
         })}
       </div>
     </>
+  )
+}
+
+const SHADER_NONE = '__none__'
+
+/** Compact per-card default-shader picker (P_CENTERS only). */
+function ShaderSelect({
+  value,
+  onChange,
+}: {
+  value?: string
+  onChange: (shader: string) => void
+}) {
+  return (
+    <Select
+      value={value ?? SHADER_NONE}
+      onValueChange={(v) => onChange(v === SHADER_NONE ? '' : v)}
+    >
+      <SelectTrigger className='h-6 px-1 text-[10px]'>
+        <SelectValue placeholder='shader' />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={SHADER_NONE}>no shader</SelectItem>
+        {SHADER_OPTIONS.map((s) => (
+          <SelectItem key={s} value={s}>
+            {s}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 

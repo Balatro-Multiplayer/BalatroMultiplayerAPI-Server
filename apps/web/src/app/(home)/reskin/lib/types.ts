@@ -88,7 +88,25 @@ export interface ObjectEdit {
   sprites: string[] // PNG data URLs
   soul?: string
   fps?: number // animation rate when sprites.length > 1 (uploaded GIF)
+  shader?: string // default shader/edition applied in-game (see SHADER_OPTIONS)
 }
+
+/** Shaders a card can be given by default in-game, applied via a draw hook (no
+ *  scoring effect). Values are the game's shader keys; `gold_seal` maps to the
+ *  `voucher` shader loader-side. `''`/absent = none. */
+export const SHADER_OPTIONS = [
+  'foil',
+  'holo',
+  'polychrome',
+  'negative',
+  'voucher',
+  'booster',
+  'hologram',
+  'debuff',
+  'played',
+  'vortex',
+  'gold_seal',
+] as const
 
 /** A composed sheet's per-cell uploads: cell index -> PNG data URL. */
 export type SheetEdit = Record<number, string>

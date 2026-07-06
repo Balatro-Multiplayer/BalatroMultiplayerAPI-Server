@@ -31,6 +31,7 @@ local manifest = load_optional('data/manifest.lua') or {}
 local atlases = manifest.atlases or {}
 local objects = manifest.objects or {}
 local sounds = manifest.sounds or {}
+local shaders = manifest.shaders or {}
 local icon = manifest.icon
 
 local function prefixed(key)
@@ -116,5 +117,44 @@ end
 -- 3) Sound replacements.
 for _, s in ipairs(sounds) do
 	SMODS.Sound({ key = s.key, path = s.path, replace = s.replace or s.key })
+end
+
+-- 4) Default shaders. Give specific cards a built-in shader effect (purely
+--    visual, no scoring), applied by vanilla center key via one draw step -- the
+--    same mechanism the base game uses for e.g. the Invisible Joker's shader.
+--    \`gold_seal\` reuses the \`voucher\` shader; \`negative\` also draws the shine
+--    overlay; \`vortex\` needs its flag set for the shader's time uniforms.
+if #shaders > 0 and SMODS and SMODS.DrawStep then
+	local by_key = {}
+	for _, s in ipairs(shaders) do
+		by_key[s.key] = s.shader
+	end
+	local ALIAS = { gold_seal = 'voucher' }
+	local function center_key(card)
+		local c = card.config
+		return c and (c.center_key or (c.center and c.center.key))
+	end
+	SMODS.DrawStep({
+		key = 'reskin_shader',
+		order = 21, -- just after the edition step (order 20)
+		func = function(self, layer)
+			local raw = by_key[center_key(self)]
+			if not raw then return end
+			local name = ALIAS[raw] or raw
+			if raw == 'vortex' then self.vortex = true end
+			local send = self.ARGS and self.ARGS.send_to_shader
+			self.children.center:draw_shader(name, nil, send)
+			if raw == 'negative' then
+				self.children.center:draw_shader('negative_shine', nil, send)
+			end
+			local hide_front = self.should_hide_front and self:should_hide_front()
+			if self.children.front and not hide_front then
+				self.children.front:draw_shader(name, nil, send)
+				if raw == 'negative' then
+					self.children.front:draw_shader('negative_shine', nil, send)
+				end
+			end
+		end,
+	})
 end
 `

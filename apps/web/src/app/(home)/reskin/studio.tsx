@@ -57,7 +57,7 @@ export function ReskinStudio() {
       setProject((p) => {
         const objects = { ...p.objects }
         const id = objId(catId, key)
-        if (edit && (edit.sprites.some(Boolean) || edit.soul))
+        if (edit && (edit.sprites.some(Boolean) || edit.soul || edit.shader))
           objects[id] = edit
         else delete objects[id]
         return { ...p, objects }

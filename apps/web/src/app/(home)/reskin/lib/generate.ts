@@ -296,6 +296,14 @@ export async function generatePack(
     icon = { path: 'modicon.png', px, py }
   }
 
+  // --- default shaders (independent of art; keyed by vanilla center key) -----
+  const shaders: Record<string, unknown>[] = []
+  for (const [id, edit] of Object.entries(project.objects)) {
+    if (!edit.shader) continue
+    const key = id.slice(id.indexOf('/') + 1) // objId = `${categoryId}/${key}`
+    shaders.push({ key, shader: edit.shader })
+  }
+
   // --- data/manifest.lua ----------------------------------------------------
   entries.push({
     name: 'data/manifest.lua',
@@ -304,6 +312,7 @@ export async function generatePack(
         atlases: manifestAtlases,
         objects: manifestObjects,
         sounds: [],
+        shaders,
         ...(icon ? { icon } : {}),
       } as never)
     ),
