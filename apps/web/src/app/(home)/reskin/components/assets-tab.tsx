@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -12,16 +12,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { extractFrames, fileToDataUrl } from '../lib/image'
+import { extractFrames } from '../lib/image'
 import {
   type Catalog,
   type CatalogSheet,
-  objId,
   type ObjectEdit,
+  objId,
   type ProjectState,
   type SheetEdit,
 } from '../lib/types'
+import { ImageEditorDialog } from './image-editor-dialog'
 import { UploadTile } from './upload-tile'
+
+/** Open the crop/fit editor for a single upload; resolves with the committed
+ *  PNG data URL, or null if the user cancelled. */
+export type OpenEditor = (
+  file: File,
+  size: { w: number; h: number }
+) => Promise<string | null>
 
 export function AssetsTab({
   catalog,
@@ -34,29 +42,55 @@ export function AssetsTab({
   setObject: (catId: string, key: string, edit: ObjectEdit | null) => void
   setSheetCell: (sheetId: string, index: number, dataUrl: string | null) => void
 }) {
-  const groups = useMemo(
-    () => {
-      const objects = [
-        ...catalog.spriteCategories.map((c) => ({ id: c.id, label: c.label })),
-        ...catalog.spriteSheets
-          .filter((s) => s.group === 'objects')
-          .map((s) => ({ id: s.id, label: s.label })),
-      ]
-      const sheets = catalog.spriteSheets
-        .filter((s) => s.group !== 'objects')
-        .map((s) => ({ id: s.id, label: s.label }))
-      return { objects, sheets }
-    },
-    [catalog]
-  )
+  const groups = useMemo(() => {
+    const objects = [
+      ...catalog.spriteCategories.map((c) => ({ id: c.id, label: c.label })),
+      ...catalog.spriteSheets
+        .filter((s) => s.group === 'objects')
+        .map((s) => ({ id: s.id, label: s.label })),
+    ]
+    const sheets = catalog.spriteSheets
+      .filter((s) => s.group !== 'objects')
+      .map((s) => ({ id: s.id, label: s.label }))
+    return { objects, sheets }
+  }, [catalog])
   const [active, setActive] = useState(groups.objects[0]?.id ?? '')
   const [query, setQuery] = useState('')
+
+  // Single crop/fit editor shared by every upload tile, exposed as a
+  // promise-returning `openEditor` so grids can `await` the committed result.
+  const [pending, setPending] = useState<{
+    file: File
+    w: number
+    h: number
+  } | null>(null)
+  const resolveRef = useRef<(v: string | null) => void>(() => {})
+  const openEditor = useCallback<OpenEditor>((file, size) => {
+    return new Promise<string | null>((resolve) => {
+      resolveRef.current = resolve
+      setPending({ file, w: size.w, h: size.h })
+    })
+  }, [])
+  const finishEditor = (result: string | null) => {
+    resolveRef.current(result)
+    resolveRef.current = () => {}
+    setPending(null)
+  }
 
   const category = catalog.spriteCategories.find((c) => c.id === active)
   const sheet = catalog.spriteSheets.find((s) => s.id === active)
 
   return (
     <div className='space-y-4 pt-4'>
+      {pending && (
+        <ImageEditorDialog
+          file={pending.file}
+          targetW={pending.w}
+          targetH={pending.h}
+          onCommit={finishEditor}
+          onCancel={() => finishEditor(null)}
+        />
+      )}
       <div className='flex flex-wrap items-end gap-3'>
         <div className='space-y-1'>
           <Label>Category</Label>
@@ -104,10 +138,16 @@ export function AssetsTab({
           categoryId={category.id}
           query={query}
           setObject={setObject}
+          openEditor={openEditor}
         />
       )}
       {sheet && (
-        <SheetGrid sheet={sheet} project={project} setSheetCell={setSheetCell} />
+        <SheetGrid
+          sheet={sheet}
+          project={project}
+          setSheetCell={setSheetCell}
+          openEditor={openEditor}
+        />
       )}
     </div>
   )
@@ -115,8 +155,9 @@ export function AssetsTab({
 
 function editedInCategory(p: ProjectState, c: Catalog, catId: string): number {
   const objs = c.spriteObjects[catId] ?? []
-  return objs.filter((o) => p.objects[objId(catId, o.key)]?.sprites.some(Boolean))
-    .length
+  return objs.filter((o) =>
+    p.objects[objId(catId, o.key)]?.sprites.some(Boolean)
+  ).length
 }
 
 /** Edit count for an Objects-group entry: a sprite category or an object-grouped sheet. */
@@ -132,33 +173,41 @@ function CategoryGrid({
   categoryId,
   query,
   setObject,
+  openEditor,
 }: {
   catalog: Catalog
   project: ProjectState
   categoryId: string
   query: string
   setObject: (catId: string, key: string, edit: ObjectEdit | null) => void
+  openEditor: OpenEditor
 }) {
   const cat = catalog.spriteCategories.find((c) => c.id === categoryId)!
   const ratio = cat.px / cat.py
   const objects = (catalog.spriteObjects[categoryId] ?? []).filter((o) => {
     const q = query.trim().toLowerCase()
-    return !q || o.key.toLowerCase().includes(q) || o.name.toLowerCase().includes(q)
+    return (
+      !q || o.key.toLowerCase().includes(q) || o.name.toLowerCase().includes(q)
+    )
   })
 
   const onUpload = async (key: string, file: File) => {
     const prev = project.objects[objId(categoryId, key)]
-    const sprites = cat.frames > 1
-      ? await extractFrames(file, cat.frames)
-      : [await fileToDataUrl(file)]
-    setObject(categoryId, key, { sprites, soul: prev?.soul })
+    // Animated categories (blinds) still ingest a whole frame-strip/GIF.
+    if (cat.frames > 1) {
+      const sprites = await extractFrames(file, cat.frames)
+      setObject(categoryId, key, { sprites, soul: prev?.soul })
+      return
+    }
+    const edited = await openEditor(file, { w: cat.px, h: cat.py })
+    if (!edited) return
+    setObject(categoryId, key, { sprites: [edited], soul: prev?.soul })
   }
   const onSoul = async (key: string, file: File) => {
     const prev = project.objects[objId(categoryId, key)]
-    setObject(categoryId, key, {
-      sprites: prev?.sprites ?? [],
-      soul: await fileToDataUrl(file),
-    })
+    const edited = await openEditor(file, { w: cat.px, h: cat.py })
+    if (!edited) return
+    setObject(categoryId, key, { sprites: prev?.sprites ?? [], soul: edited })
   }
 
   return (
@@ -185,7 +234,9 @@ function CategoryGrid({
               />
               {o.soul && (
                 <div className='flex items-center gap-1'>
-                  <span className='text-[10px] text-muted-foreground'>soul</span>
+                  <span className='text-[10px] text-muted-foreground'>
+                    soul
+                  </span>
                   <UploadTile
                     label='soul'
                     small
@@ -213,17 +264,21 @@ function SheetGrid({
   sheet,
   project,
   setSheetCell,
+  openEditor,
 }: {
   sheet: CatalogSheet
   project: ProjectState
   setSheetCell: (sheetId: string, index: number, dataUrl: string | null) => void
+  openEditor: OpenEditor
 }) {
   const edits: SheetEdit = project.sheets[sheet.id] ?? {}
   const ratio = sheet.px / sheet.py
+  const cellSize = { w: sheet.px, h: sheet.py }
 
   if (sheet.mode === 'whole') {
-    const wholeRatio =
-      ((sheet.cols ?? 1) * sheet.px) / ((sheet.rows ?? 1) * sheet.py)
+    const wholeW = (sheet.cols ?? 1) * sheet.px
+    const wholeH = (sheet.rows ?? 1) * sheet.py
+    const wholeRatio = wholeW / wholeH
     return (
       <div className='space-y-3'>
         <p className='text-muted-foreground text-xs'>{sheet.note}</p>
@@ -232,7 +287,10 @@ function SheetGrid({
             label={sheet.label}
             ratio={wholeRatio}
             preview={edits[0]}
-            onFile={async (f) => setSheetCell(sheet.id, 0, await fileToDataUrl(f))}
+            onFile={async (f) => {
+              const edited = await openEditor(f, { w: wholeW, h: wholeH })
+              if (edited) setSheetCell(sheet.id, 0, edited)
+            }}
             onClear={() => setSheetCell(sheet.id, 0, null)}
           />
         </div>
@@ -270,9 +328,10 @@ function SheetGrid({
                   small
                   ratio={ratio}
                   preview={edits[i]}
-                  onFile={async (f) =>
-                    setSheetCell(sheet.id, i, await fileToDataUrl(f))
-                  }
+                  onFile={async (f) => {
+                    const edited = await openEditor(f, cellSize)
+                    if (edited) setSheetCell(sheet.id, i, edited)
+                  }}
                 />
               </div>
             ))}
@@ -287,8 +346,10 @@ function SheetGrid({
     sheet.cells.length > 0
       ? sheet.cells.length
       : (sheet.cols ?? 1) * (sheet.rows ?? 1)
-  const onFile = async (index: number, file: File) =>
-    setSheetCell(sheet.id, index, await fileToDataUrl(file))
+  const onFile = async (index: number, file: File) => {
+    const edited = await openEditor(file, cellSize)
+    if (edited) setSheetCell(sheet.id, index, edited)
+  }
 
   return (
     <div className='space-y-3'>
