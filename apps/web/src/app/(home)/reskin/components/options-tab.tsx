@@ -9,9 +9,13 @@ import { UploadTile } from './upload-tile'
 export function OptionsTab({
   options,
   setOptions,
+  onExeFile,
+  borderReady,
 }: {
   options: ProjectOptions
   setOptions: (next: ProjectOptions) => void
+  onExeFile: (file: File | null) => void
+  borderReady: boolean
 }) {
   return (
     <div className='max-w-md space-y-4 pt-4'>
@@ -26,8 +30,8 @@ export function OptionsTab({
           }
         />
         <p className='text-muted-foreground text-xs'>
-          Sets the mod's name and badge in-game and the download filename. The mod
-          id stays <code>CustomReskin</code> so packs never collide.
+          Sets the mod's name and badge in-game and the download filename. The
+          mod id stays <code>CustomReskin</code> so packs never collide.
         </p>
       </div>
       <div className='space-y-2'>
@@ -39,8 +43,8 @@ export function OptionsTab({
           onChange={(e) => setOptions({ ...options, author: e.target.value })}
         />
         <p className='text-muted-foreground text-xs'>
-          Comma-separated. <strong>Virtualized</strong> is always credited first;
-          anyone you add follows.
+          Comma-separated. <strong>Virtualized</strong> is always credited
+          first; anyone you add follows.
         </p>
       </div>
       <div className='space-y-2'>
@@ -67,6 +71,21 @@ export function OptionsTab({
         </div>
         <p className='text-muted-foreground text-xs'>
           Shown next to the mod in Steamodded's list. A square image works best.
+        </p>
+      </div>
+      <div className='space-y-2'>
+        <Label htmlFor='reskin-exe'>Card border (optional)</Label>
+        <input
+          id='reskin-exe'
+          type='file'
+          accept='.exe'
+          className='block w-full text-sm file:mr-3 file:rounded file:border file:border-input file:bg-transparent file:px-3 file:py-1 file:text-sm hover:file:border-primary'
+          onChange={(e) => onExeFile(e.target.files?.[0] ?? null)}
+        />
+        <p className='text-muted-foreground text-xs'>
+          {borderReady
+            ? '✓ Border loaded. Card uploads can now be wrapped in the vanilla Joker border.'
+            : "Select your own Balatro.exe to unlock wrapping uploads in the game's Joker border. The file is read locally in your browser and never uploaded."}
         </p>
       </div>
     </div>

@@ -9,6 +9,7 @@ import { AssetsTab } from './components/assets-tab'
 import { LocalizationTab } from './components/localization-tab'
 import { OptionsTab } from './components/options-tab'
 import catalogJson from './data/catalog.json'
+import { type BorderTemplate, extractJokerBorder } from './lib/exeAssets'
 import { generatePack } from './lib/generate'
 import { importPack } from './lib/importProject'
 import {
@@ -24,7 +25,32 @@ const catalog = catalogJson as unknown as Catalog
 export function ReskinStudio() {
   const [project, setProject] = useState<ProjectState>(emptyProject)
   const [busy, setBusy] = useState(false)
+  const [border, setBorder] = useState<BorderTemplate | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
+
+  // Optional: read the user's own Balatro.exe locally to lift a card-border
+  // template. Never uploaded; only their own generated pack uses it.
+  const onExeFile = useCallback(async (file: File | null) => {
+    if (!file) {
+      setBorder(null)
+      return
+    }
+    setBusy(true)
+    try {
+      const buf = new Uint8Array(await file.arrayBuffer())
+      setBorder(await extractJokerBorder(buf))
+      toast.success('Joker border loaded', {
+        description: 'Card uploads can now wrap art in the vanilla border.',
+      })
+    } catch (e) {
+      setBorder(null)
+      toast.error('Could not read Balatro.exe', {
+        description: e instanceof Error ? e.message : String(e),
+      })
+    } finally {
+      setBusy(false)
+    }
+  }, [])
 
   const setObject = useCallback(
     (catId: string, key: string, edit: ObjectEdit | null) => {
@@ -191,6 +217,7 @@ export function ReskinStudio() {
             project={project}
             setObject={setObject}
             setSheetCell={setSheetCell}
+            border={border}
           />
         </TabsContent>
         <TabsContent value='localization'>
@@ -201,7 +228,12 @@ export function ReskinStudio() {
           />
         </TabsContent>
         <TabsContent value='options'>
-          <OptionsTab options={project.options} setOptions={setOptions} />
+          <OptionsTab
+            options={project.options}
+            setOptions={setOptions}
+            onExeFile={onExeFile}
+            borderReady={Boolean(border)}
+          />
         </TabsContent>
       </Tabs>
     </div>

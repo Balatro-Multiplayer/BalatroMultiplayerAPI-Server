@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import type { BorderTemplate } from '../lib/exeAssets'
 import { extractFrames, extractFramesNative } from '../lib/image'
 import {
   type Catalog,
@@ -35,6 +36,7 @@ export type OpenEditor = (
     round?: boolean
     mask?: string
     maskBox?: { x: number; y: number; w: number; h: number }
+    border?: BorderTemplate
   }
 ) => Promise<string | null>
 
@@ -43,11 +45,13 @@ export function AssetsTab({
   project,
   setObject,
   setSheetCell,
+  border,
 }: {
   catalog: Catalog
   project: ProjectState
   setObject: (catId: string, key: string, edit: ObjectEdit | null) => void
   setSheetCell: (sheetId: string, index: number, dataUrl: string | null) => void
+  border: BorderTemplate | null
 }) {
   const groups = useMemo(() => {
     const objects = [
@@ -73,6 +77,7 @@ export function AssetsTab({
     round: boolean
     mask?: string
     maskBox?: { x: number; y: number; w: number; h: number }
+    border?: BorderTemplate
   } | null>(null)
   const resolveRef = useRef<(v: string | null) => void>(() => {})
   const openEditor = useCallback<OpenEditor>((file, size) => {
@@ -85,6 +90,7 @@ export function AssetsTab({
         round: size.round ?? false,
         mask: size.mask,
         maskBox: size.maskBox,
+        border: size.border,
       })
     })
   }, [])
@@ -107,6 +113,7 @@ export function AssetsTab({
           roundCornersDefault={pending.round}
           vanillaMask={pending.mask}
           maskBox={pending.maskBox}
+          border={pending.border}
           onCommit={finishEditor}
           onCancel={() => finishEditor(null)}
         />
@@ -159,6 +166,7 @@ export function AssetsTab({
           query={query}
           setObject={setObject}
           openEditor={openEditor}
+          border={border}
         />
       )}
       {sheet && (
@@ -194,6 +202,7 @@ function CategoryGrid({
   query,
   setObject,
   openEditor,
+  border,
 }: {
   catalog: Catalog
   project: ProjectState
@@ -201,6 +210,7 @@ function CategoryGrid({
   query: string
   setObject: (catId: string, key: string, edit: ObjectEdit | null) => void
   openEditor: OpenEditor
+  border: BorderTemplate | null
 }) {
   const cat = catalog.spriteCategories.find((c) => c.id === categoryId)!
   const ratio = cat.px / cat.py
@@ -238,6 +248,8 @@ function CategoryGrid({
       round: cat.registry === 'P_CENTERS',
       mask: obj?.mask,
       maskBox: obj?.maskBox,
+      // The extracted border is a Joker frame (71×95); offer it on jokers.
+      border: categoryId === 'Joker' ? (border ?? undefined) : undefined,
     })
     if (!edited) return
     setObject(categoryId, key, { sprites: [edited], soul: prev?.soul })

@@ -18,8 +18,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import type { BorderTemplate } from '../lib/exeAssets'
 import {
   applyMask,
+  compositeBorder,
   cropImage,
   type FitMode,
   fileToDataUrl,
@@ -89,6 +91,7 @@ export function ImageEditorDialog({
   roundCornersDefault = false,
   vanillaMask,
   maskBox,
+  border,
   onCommit,
   onCancel,
 }: {
@@ -98,6 +101,7 @@ export function ImageEditorDialog({
   roundCornersDefault?: boolean
   vanillaMask?: string // base64 PNG silhouette for an odd-shaped object
   maskBox?: Rect // footprint of that silhouette within the cell
+  border?: BorderTemplate // optional card frame lifted from the user's Balatro.exe
   onCommit: (dataUrl: string) => void
   onCancel: () => void
 }) {
@@ -109,16 +113,22 @@ export function ImageEditorDialog({
   const [shapeOn, setShapeOn] = useState(
     roundCornersDefault || Boolean(vanillaMask)
   )
+  const [borderOn, setBorderOn] = useState(false)
   const [preview, setPreview] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const dragRef = useRef<DragState | null>(null)
 
   // Fit the cropped upload to the target cell, then apply the card shape:
+  //  - border: clip art to the frame's interior and overlay the vanilla border.
   //  - vanilla mask: fit art into the real footprint box and clip to the exact
   //    silhouette (half/square joker etc.)
   //  - otherwise: full-cell fit, optionally clipped to rounded corners.
   const applyShape = useCallback(
     async (cropped: string) => {
+      if (borderOn && border) {
+        const fitted = await fitInto(cropped, targetW, targetH, fitMode)
+        return compositeBorder(fitted, border.interior, border.ring)
+      }
       if (shapeOn && vanillaMask) {
         const box = maskBox ?? { x: 0, y: 0, w: targetW, h: targetH }
         const fittedBox = await fitInto(cropped, box.w, box.h, fitMode)
@@ -132,7 +142,7 @@ export function ImageEditorDialog({
       )
       return applyMask(fitted, roundedCornerMask(targetW, targetH, radius))
     },
-    [shapeOn, vanillaMask, maskBox, fitMode, targetW, targetH]
+    [borderOn, border, shapeOn, vanillaMask, maskBox, fitMode, targetW, targetH]
   )
 
   useEffect(() => {
@@ -331,6 +341,17 @@ export function ImageEditorDialog({
                 {vanillaMask ? 'Fit to card shape' : 'Round card corners'}
               </Label>
             </div>
+
+            {border && (
+              <div className='flex items-center gap-2'>
+                <Switch
+                  id='border-on'
+                  checked={borderOn}
+                  onCheckedChange={setBorderOn}
+                />
+                <Label htmlFor='border-on'>Add Joker border</Label>
+              </div>
+            )}
 
             <div className='space-y-1'>
               <Label>
