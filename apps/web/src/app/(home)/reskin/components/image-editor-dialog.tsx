@@ -19,15 +19,18 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import {
+  applyMask,
   cropImage,
   type FitMode,
   fileToDataUrl,
   fitInto,
   loadImage,
   type Rect,
+  roundedCornerMask,
 } from '../lib/image'
 
 const MAX_DISPLAY = 360 // px the source preview is fit within (may upscale)
+const CORNER_RADIUS_RATIO = 0.12 // rounded-corner radius as a fraction of the short side
 const MIN_CROP = 4 // smallest allowed crop side, in source pixels
 
 type DragMode = 'move' | 'nw' | 'ne' | 'sw' | 'se'
@@ -82,12 +85,14 @@ export function ImageEditorDialog({
   file,
   targetW,
   targetH,
+  roundCornersDefault = false,
   onCommit,
   onCancel,
 }: {
   file: File
   targetW: number
   targetH: number
+  roundCornersDefault?: boolean
   onCommit: (dataUrl: string) => void
   onCancel: () => void
 }) {
@@ -96,9 +101,22 @@ export function ImageEditorDialog({
   const [rect, setRect] = useState<Rect | null>(null)
   const [fitMode, setFitMode] = useState<FitMode>('stretch')
   const [aspectLock, setAspectLock] = useState(false)
+  const [roundCorners, setRoundCorners] = useState(roundCornersDefault)
   const [preview, setPreview] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const dragRef = useRef<DragState | null>(null)
+
+  // Clip the fitted cell to a rounded-card silhouette (transparent corners).
+  const applyRound = useCallback(
+    async (dataUrl: string) => {
+      if (!roundCorners) return dataUrl
+      const radius = Math.round(
+        Math.min(targetW, targetH) * CORNER_RADIUS_RATIO
+      )
+      return applyMask(dataUrl, roundedCornerMask(targetW, targetH, radius))
+    },
+    [roundCorners, targetW, targetH]
+  )
 
   useEffect(() => {
     let live = true
@@ -126,12 +144,13 @@ export function ImageEditorDialog({
     ;(async () => {
       const cropped = await cropImage(src, rect)
       const fitted = await fitInto(cropped, targetW, targetH, fitMode)
-      if (live) setPreview(fitted)
+      const out = await applyRound(fitted)
+      if (live) setPreview(out)
     })()
     return () => {
       live = false
     }
-  }, [src, rect, fitMode, targetW, targetH])
+  }, [src, rect, fitMode, targetW, targetH, applyRound])
 
   const handleMove = useCallback((e: PointerEvent) => {
     const d = dragRef.current
@@ -187,7 +206,7 @@ export function ImageEditorDialog({
     try {
       const cropped = await cropImage(src, rect)
       const fitted = await fitInto(cropped, targetW, targetH, fitMode)
-      onCommit(fitted)
+      onCommit(await applyRound(fitted))
     } finally {
       setBusy(false)
     }
@@ -285,6 +304,15 @@ export function ImageEditorDialog({
                 onCheckedChange={setAspectLock}
               />
               <Label htmlFor='aspect-lock'>Lock crop to card shape</Label>
+            </div>
+
+            <div className='flex items-center gap-2'>
+              <Switch
+                id='round-corners'
+                checked={roundCorners}
+                onCheckedChange={setRoundCorners}
+              />
+              <Label htmlFor='round-corners'>Round card corners</Label>
             </div>
 
             <div className='space-y-1'>

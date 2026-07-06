@@ -25,10 +25,11 @@ import { ImageEditorDialog } from './image-editor-dialog'
 import { UploadTile } from './upload-tile'
 
 /** Open the crop/fit editor for a single upload; resolves with the committed
- *  PNG data URL, or null if the user cancelled. */
+ *  PNG data URL, or null if the user cancelled. `round` pre-enables rounded-corner
+ *  masking (default for card-shaped P_CENTERS sprites). */
 export type OpenEditor = (
   file: File,
-  size: { w: number; h: number }
+  size: { w: number; h: number; round?: boolean }
 ) => Promise<string | null>
 
 export function AssetsTab({
@@ -63,12 +64,13 @@ export function AssetsTab({
     file: File
     w: number
     h: number
+    round: boolean
   } | null>(null)
   const resolveRef = useRef<(v: string | null) => void>(() => {})
   const openEditor = useCallback<OpenEditor>((file, size) => {
     return new Promise<string | null>((resolve) => {
       resolveRef.current = resolve
-      setPending({ file, w: size.w, h: size.h })
+      setPending({ file, w: size.w, h: size.h, round: size.round ?? false })
     })
   }, [])
   const finishEditor = (result: string | null) => {
@@ -87,6 +89,7 @@ export function AssetsTab({
           file={pending.file}
           targetW={pending.w}
           targetH={pending.h}
+          roundCornersDefault={pending.round}
           onCommit={finishEditor}
           onCancel={() => finishEditor(null)}
         />
@@ -209,7 +212,11 @@ function CategoryGrid({
       setObject(categoryId, key, { sprites: frames, fps, soul: prev?.soul })
       return
     }
-    const edited = await openEditor(file, { w: cat.px, h: cat.py })
+    const edited = await openEditor(file, {
+      w: cat.px,
+      h: cat.py,
+      round: cat.registry === 'P_CENTERS',
+    })
     if (!edited) return
     setObject(categoryId, key, { sprites: [edited], soul: prev?.soul })
   }
