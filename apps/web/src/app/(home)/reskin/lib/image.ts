@@ -239,6 +239,30 @@ export async function cropImage(src: string, rect: Rect): Promise<string> {
   return c.toDataURL('image/png')
 }
 
+/** Draw `src` into `box` on an otherwise-transparent `cellW × cellH` canvas.
+ *  Used to place footprint-fitted art at a card's real position within the cell. */
+export async function placeInto(
+  src: string,
+  cellW: number,
+  cellH: number,
+  box: Rect
+): Promise<string> {
+  const img = await loadImage(src)
+  const c = newCanvas(cellW, cellH)
+  ctxOf(c).drawImage(
+    img,
+    0,
+    0,
+    img.width,
+    img.height,
+    box.x,
+    box.y,
+    box.w,
+    box.h
+  )
+  return c.toDataURL('image/png')
+}
+
 export type FitMode = 'stretch' | 'contain' | 'cover'
 
 /** Resize `src` into a `dstW × dstH` image.

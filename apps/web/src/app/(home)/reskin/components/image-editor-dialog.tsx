@@ -25,6 +25,7 @@ import {
   fileToDataUrl,
   fitInto,
   loadImage,
+  placeInto,
   type Rect,
   roundedCornerMask,
 } from '../lib/image'
@@ -86,6 +87,8 @@ export function ImageEditorDialog({
   targetW,
   targetH,
   roundCornersDefault = false,
+  vanillaMask,
+  maskBox,
   onCommit,
   onCancel,
 }: {
@@ -93,6 +96,8 @@ export function ImageEditorDialog({
   targetW: number
   targetH: number
   roundCornersDefault?: boolean
+  vanillaMask?: string // base64 PNG silhouette for an odd-shaped object
+  maskBox?: Rect // footprint of that silhouette within the cell
   onCommit: (dataUrl: string) => void
   onCancel: () => void
 }) {
@@ -101,21 +106,33 @@ export function ImageEditorDialog({
   const [rect, setRect] = useState<Rect | null>(null)
   const [fitMode, setFitMode] = useState<FitMode>('stretch')
   const [aspectLock, setAspectLock] = useState(false)
-  const [roundCorners, setRoundCorners] = useState(roundCornersDefault)
+  const [shapeOn, setShapeOn] = useState(
+    roundCornersDefault || Boolean(vanillaMask)
+  )
   const [preview, setPreview] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const dragRef = useRef<DragState | null>(null)
 
-  // Clip the fitted cell to a rounded-card silhouette (transparent corners).
-  const applyRound = useCallback(
-    async (dataUrl: string) => {
-      if (!roundCorners) return dataUrl
+  // Fit the cropped upload to the target cell, then apply the card shape:
+  //  - vanilla mask: fit art into the real footprint box and clip to the exact
+  //    silhouette (half/square joker etc.)
+  //  - otherwise: full-cell fit, optionally clipped to rounded corners.
+  const applyShape = useCallback(
+    async (cropped: string) => {
+      if (shapeOn && vanillaMask) {
+        const box = maskBox ?? { x: 0, y: 0, w: targetW, h: targetH }
+        const fittedBox = await fitInto(cropped, box.w, box.h, fitMode)
+        const placed = await placeInto(fittedBox, targetW, targetH, box)
+        return applyMask(placed, `data:image/png;base64,${vanillaMask}`)
+      }
+      const fitted = await fitInto(cropped, targetW, targetH, fitMode)
+      if (!shapeOn) return fitted
       const radius = Math.round(
         Math.min(targetW, targetH) * CORNER_RADIUS_RATIO
       )
-      return applyMask(dataUrl, roundedCornerMask(targetW, targetH, radius))
+      return applyMask(fitted, roundedCornerMask(targetW, targetH, radius))
     },
-    [roundCorners, targetW, targetH]
+    [shapeOn, vanillaMask, maskBox, fitMode, targetW, targetH]
   )
 
   useEffect(() => {
@@ -143,14 +160,13 @@ export function ImageEditorDialog({
     let live = true
     ;(async () => {
       const cropped = await cropImage(src, rect)
-      const fitted = await fitInto(cropped, targetW, targetH, fitMode)
-      const out = await applyRound(fitted)
+      const out = await applyShape(cropped)
       if (live) setPreview(out)
     })()
     return () => {
       live = false
     }
-  }, [src, rect, fitMode, targetW, targetH, applyRound])
+  }, [src, rect, applyShape])
 
   const handleMove = useCallback((e: PointerEvent) => {
     const d = dragRef.current
@@ -205,8 +221,7 @@ export function ImageEditorDialog({
     setBusy(true)
     try {
       const cropped = await cropImage(src, rect)
-      const fitted = await fitInto(cropped, targetW, targetH, fitMode)
-      onCommit(await applyRound(fitted))
+      onCommit(await applyShape(cropped))
     } finally {
       setBusy(false)
     }
@@ -308,11 +323,13 @@ export function ImageEditorDialog({
 
             <div className='flex items-center gap-2'>
               <Switch
-                id='round-corners'
-                checked={roundCorners}
-                onCheckedChange={setRoundCorners}
+                id='shape-on'
+                checked={shapeOn}
+                onCheckedChange={setShapeOn}
               />
-              <Label htmlFor='round-corners'>Round card corners</Label>
+              <Label htmlFor='shape-on'>
+                {vanillaMask ? 'Fit to card shape' : 'Round card corners'}
+              </Label>
             </div>
 
             <div className='space-y-1'>

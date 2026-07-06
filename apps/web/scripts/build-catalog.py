@@ -11,6 +11,7 @@ Re-runnable. Override the game path with BALATRO_EXE.
 
 Usage: python3 scripts/build-catalog.py
 """
+import base64
 import json
 import os
 import re
@@ -19,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.dirname(HERE)
@@ -120,6 +122,148 @@ def png_dims_from_zip(z, path):
     return struct.unpack(">II", data[16:24])
 
 
+# --- odd-shape silhouette masks -------------------------------------------
+# For objects whose vanilla art fills only part of the card cell (half/square
+# joker, cut-outs, polaroids), we ship a 1-bit alpha silhouette so the studio
+# can fit user art onto the real footprint. Shape-only (no colours) derived
+# data; the coloured art itself is never bundled. Vanilla 1x sheet per set:
+MASK_ATLAS_BY_SET = {"Joker": "Jokers.png"}
+MASK_ALPHA_THRESHOLD = 16  # alpha >= this counts as opaque
+MASK_ODD_COVERAGE = 0.85  # ship a mask when opaque area / rounded-rect area < this
+MASK_CORNER_RADIUS = 8  # rounded-rect corner radius used for the reference area
+
+
+def decode_png_rgba(data):
+    """Decode a non-interlaced 8-bit RGBA PNG to (w, h, bytearray). Stdlib only."""
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    w, h = struct.unpack(">II", data[16:24])
+    assert data[24] == 8 and data[25] == 6 and data[28] == 0, "expect 8-bit RGBA"
+    idat = bytearray()
+    i = 8
+    while i < len(data):
+        ln = struct.unpack(">I", data[i : i + 4])[0]
+        typ = data[i + 4 : i + 8]
+        if typ == b"IDAT":
+            idat += data[i + 8 : i + 8 + ln]
+        i += 12 + ln
+        if typ == b"IEND":
+            break
+    raw = zlib.decompress(bytes(idat))
+    stride = w * 4
+    out = bytearray(h * stride)
+    prev = bytearray(stride)
+    p = 0
+    for y in range(h):
+        ft = raw[p]
+        p += 1
+        line = bytearray(raw[p : p + stride])
+        p += stride
+        if ft == 1:
+            for x in range(4, stride):
+                line[x] = (line[x] + line[x - 4]) & 255
+        elif ft == 2:
+            for x in range(stride):
+                line[x] = (line[x] + prev[x]) & 255
+        elif ft == 3:
+            for x in range(stride):
+                a = line[x - 4] if x >= 4 else 0
+                line[x] = (line[x] + ((a + prev[x]) >> 1)) & 255
+        elif ft == 4:
+            for x in range(stride):
+                a = line[x - 4] if x >= 4 else 0
+                b = prev[x]
+                c = prev[x - 4] if x >= 4 else 0
+                pp = a + b - c
+                pa, pb, pc = abs(pp - a), abs(pp - b), abs(pp - c)
+                pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+                line[x] = (line[x] + pr) & 255
+        out[y * stride : (y + 1) * stride] = line
+        prev = line
+    return w, h, out
+
+
+def encode_png_rgba(w, h, px):
+    """Encode a bytearray of RGBA into a minimal PNG (filter 0). Stdlib only."""
+
+    def chunk(typ, body):
+        return (
+            struct.pack(">I", len(body))
+            + typ
+            + body
+            + struct.pack(">I", zlib.crc32(typ + body) & 0xFFFFFFFF)
+        )
+
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)
+    stride = w * 4
+    raw = bytearray()
+    for y in range(h):
+        raw.append(0)  # filter type 0 (none)
+        raw += px[y * stride : (y + 1) * stride]
+    idat = zlib.compress(bytes(raw), 9)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", idat)
+        + chunk(b"IEND", b"")
+    )
+
+
+def parse_pos(body):
+    m = re.search(r"pos\s*=\s*\{\s*x\s*=\s*(\d+)\s*,\s*y\s*=\s*(\d+)", body)
+    return {"x": int(m.group(1)), "y": int(m.group(2))} if m else None
+
+
+def _rr_area(cw, ch, r):
+    def inside(x, y):
+        cx = r - 1 if x < r else (cw - r if x >= cw - r else None)
+        cy = r - 1 if y < r else (ch - r if y >= ch - r else None)
+        if cx is None or cy is None:
+            return True
+        return (x - cx) ** 2 + (y - cy) ** 2 <= r * r
+
+    return sum(1 for y in range(ch) for x in range(cw) if inside(x, y))
+
+
+def build_masks(z, objects):
+    """Return {(set, key): (mask_b64, box)} for objects whose vanilla footprint
+    is notably smaller than a full card (odd shapes worth a silhouette)."""
+    out = {}
+    for setname, atlasfile in MASK_ATLAS_BY_SET.items():
+        try:
+            w, h, px = decode_png_rgba(z.read("resources/textures/1x/" + atlasfile))
+        except Exception as e:  # noqa: BLE001 - missing/odd atlas is non-fatal
+            print(f"  mask: skipping {atlasfile}: {e}")
+            continue
+        cw, ch = SIZE_BY_SET[setname]
+        cols = w // cw
+        rr_area = _rr_area(cw, ch, MASK_CORNER_RADIUS)
+        for o in objects:
+            if o["set"] != setname or not o.get("pos"):
+                continue
+            cx, cy = o["pos"]["x"], o["pos"]["y"]
+            ox0, oy0 = cx * cw, cy * ch
+            if ox0 + cw > w or oy0 + ch > h:
+                continue
+            cell = bytearray(cw * ch * 4)
+            opaque = 0
+            minx, miny, maxx, maxy = cw, ch, -1, -1
+            for y in range(ch):
+                for x in range(cw):
+                    a = px[((oy0 + y) * w + (ox0 + x)) * 4 + 3]
+                    if a >= MASK_ALPHA_THRESHOLD:
+                        opaque += 1
+                        i = (y * cw + x) * 4
+                        cell[i : i + 4] = b"\xff\xff\xff\xff"
+                        minx, maxx = min(minx, x), max(maxx, x)
+                        miny, maxy = min(miny, y), max(maxy, y)
+            if maxx < 0 or opaque / rr_area >= MASK_ODD_COVERAGE:
+                continue
+            b64 = base64.b64encode(encode_png_rgba(cw, ch, cell)).decode()
+            box = {"x": minx, "y": miny, "w": maxx - minx + 1, "h": maxy - miny + 1}
+            out[(setname, o["key"])] = (b64, box)
+    return out
+
+
 def table_body(src, name):
     """Return the body (without outer braces) of `self.<name> = { ... }`."""
     m = re.search(r"self\." + name + r"\s*=\s*\{", src)
@@ -200,6 +344,7 @@ def parse_centers(g):
                 "set": s,
                 "name": field_str(eb, "name") or key,
                 "soul": "soul_pos" in eb,
+                "pos": parse_pos(eb),
             }
         )
     return objs
@@ -217,6 +362,7 @@ def parse_simple(g, table, set_name):
                 "set": set_name,
                 "name": field_str(eb, "name") or key,
                 "soul": False,
+                "pos": parse_pos(eb),
             }
         )
     return out
@@ -250,6 +396,8 @@ def main():
     objects += parse_simple(g, "P_BLINDS", "Blind")
     objects += parse_simple(g, "P_SEALS", "Seal")
 
+    masks = build_masks(z, objects)
+
     cats = {}
     for o in objects:
         s = o["set"]
@@ -274,8 +422,13 @@ def main():
         if o["soul"]:
             cat["soul"] = True
         entry = {"key": o["key"], "name": o["name"]}
+        if o.get("pos"):
+            entry["pos"] = o["pos"]
         if o["soul"]:
             entry["soul"] = True
+        mk = masks.get((s, o["key"]))
+        if mk:
+            entry["mask"], entry["maskBox"] = mk
         cat["objects"].append(entry)
 
     sprite_categories = [

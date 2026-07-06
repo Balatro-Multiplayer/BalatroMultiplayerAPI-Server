@@ -15,6 +15,12 @@ export interface CatalogObject {
   key: string
   name: string
   soul?: boolean
+  pos?: { x: number; y: number } // cell in the vanilla atlas
+  // Odd-shaped objects (half/square joker, cut-outs) ship a 1-bit alpha
+  // silhouette (base64 PNG, no data-URL prefix) plus the tight footprint box,
+  // so uploads can be fit onto and clipped to the real card shape.
+  mask?: string
+  maskBox?: { x: number; y: number; w: number; h: number }
 }
 
 export interface CatalogSheetCell {

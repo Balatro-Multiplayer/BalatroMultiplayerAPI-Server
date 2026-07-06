@@ -29,7 +29,13 @@ import { UploadTile } from './upload-tile'
  *  masking (default for card-shaped P_CENTERS sprites). */
 export type OpenEditor = (
   file: File,
-  size: { w: number; h: number; round?: boolean }
+  size: {
+    w: number
+    h: number
+    round?: boolean
+    mask?: string
+    maskBox?: { x: number; y: number; w: number; h: number }
+  }
 ) => Promise<string | null>
 
 export function AssetsTab({
@@ -65,12 +71,21 @@ export function AssetsTab({
     w: number
     h: number
     round: boolean
+    mask?: string
+    maskBox?: { x: number; y: number; w: number; h: number }
   } | null>(null)
   const resolveRef = useRef<(v: string | null) => void>(() => {})
   const openEditor = useCallback<OpenEditor>((file, size) => {
     return new Promise<string | null>((resolve) => {
       resolveRef.current = resolve
-      setPending({ file, w: size.w, h: size.h, round: size.round ?? false })
+      setPending({
+        file,
+        w: size.w,
+        h: size.h,
+        round: size.round ?? false,
+        mask: size.mask,
+        maskBox: size.maskBox,
+      })
     })
   }, [])
   const finishEditor = (result: string | null) => {
@@ -90,6 +105,8 @@ export function AssetsTab({
           targetW={pending.w}
           targetH={pending.h}
           roundCornersDefault={pending.round}
+          vanillaMask={pending.mask}
+          maskBox={pending.maskBox}
           onCommit={finishEditor}
           onCancel={() => finishEditor(null)}
         />
@@ -212,10 +229,15 @@ function CategoryGrid({
       setObject(categoryId, key, { sprites: frames, fps, soul: prev?.soul })
       return
     }
+    const obj = (catalog.spriteObjects[categoryId] ?? []).find(
+      (x) => x.key === key
+    )
     const edited = await openEditor(file, {
       w: cat.px,
       h: cat.py,
       round: cat.registry === 'P_CENTERS',
+      mask: obj?.mask,
+      maskBox: obj?.maskBox,
     })
     if (!edited) return
     setObject(categoryId, key, { sprites: [edited], soul: prev?.soul })
