@@ -12,8 +12,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { atlasFileFor, posFor } from '../lib/atlasOverrides'
 import { type EdgeOption, edgeOptionsFor } from '../lib/edges'
-import { getAtlasCells } from '../lib/exeAssets'
+import { getAtlasCell, getAtlasCells } from '../lib/exeAssets'
+import { filledSilhouette } from '../lib/image'
 import {
   type Catalog,
   type CatalogSheet,
@@ -60,7 +62,7 @@ export function AssetsTab({
   // per active category from its atlas and cached across category switches.
   const [defaults, setDefaults] = useState<Record<string, string>>({})
   const defaultsCache = useRef<Map<string, Record<string, string>>>(new Map())
-  const atlasFile = category?.atlasFile
+  const atlasFile = category ? atlasFileFor(category) : undefined
   useEffect(() => {
     if (!exeBuf || !category || !atlasFile) {
       setDefaults({})
@@ -73,12 +75,13 @@ export function AssetsTab({
     }
     let cancelled = false
     const cells = (catalog.spriteObjects[category.id] ?? [])
-      .filter((o) => o.pos)
-      .map((o) => ({
-        id: o.key,
+      .map((o) => ({ o, pos: posFor(category.id, o) }))
+      .filter((x) => x.pos)
+      .map((x) => ({
+        id: x.o.key,
         rect: {
-          x: o.pos!.x * category.px,
-          y: o.pos!.y * category.py,
+          x: x.pos!.x * category.px,
+          y: x.pos!.y * category.py,
           w: category.px,
           h: category.py,
         },
@@ -145,6 +148,7 @@ export function AssetsTab({
           query={query}
           setObject={setObject}
           defaults={defaults}
+          exeBuf={exeBuf}
         />
       )}
       {sheet && (
@@ -152,6 +156,7 @@ export function AssetsTab({
           sheet={sheet}
           project={project}
           setSheetCell={setSheetCell}
+          exeBuf={exeBuf}
         />
       )}
     </div>
@@ -179,6 +184,7 @@ function CategoryGrid({
   query,
   setObject,
   defaults,
+  exeBuf,
 }: {
   catalog: Catalog
   project: ProjectState
@@ -186,6 +192,7 @@ function CategoryGrid({
   query: string
   setObject: (catId: string, key: string, edit: ObjectEdit | null) => void
   defaults: Record<string, string>
+  exeBuf: Uint8Array | null
 }) {
   const { openAsset } = useAssetModal()
   const cat = catalog.spriteCategories.find((c) => c.id === categoryId)!
@@ -222,6 +229,27 @@ function CategoryGrid({
       cat.artPx ?? (cat.registry === 'P_CENTERS' ? 69 : undefined)
     const artH =
       cat.artPy ?? (cat.registry === 'P_CENTERS' ? 93 : undefined)
+    // Blinds: load the vanilla animation frames (a row of the atlas) on demand,
+    // for the chip silhouette and the shine overlay.
+    const loadFrames =
+      cat.frames > 1 && exeBuf && cat.atlasFile && o.pos
+        ? async (): Promise<string[]> => {
+            if (!exeBuf || !cat.atlasFile || !o.pos) return []
+            const row = o.pos.y
+            const cells = Array.from({ length: cat.frames }, (_, f) => ({
+              id: `f${f}`,
+              rect: { x: f * cat.px, y: row * cat.py, w: cat.px, h: cat.py },
+            }))
+            const map = await getAtlasCells(
+              exeBuf,
+              `resources/textures/1x/${cat.atlasFile}`,
+              cells
+            )
+            return Array.from({ length: cat.frames }, (_, f) => map[`f${f}`]).filter(
+              (s): s is string => Boolean(s)
+            )
+          }
+        : undefined
     openAsset({
       kind: 'object',
       title: o.name,
@@ -233,6 +261,7 @@ function CategoryGrid({
       framesCount: cat.frames,
       edges,
       defaultPreview: defaults[key],
+      loadFrames,
       value: project.objects[objId(categoryId, key)],
       commit: (edit: ObjectEdit) => setObject(categoryId, key, edit),
     })
@@ -280,14 +309,42 @@ function SheetGrid({
   sheet,
   project,
   setSheetCell,
+  exeBuf,
 }: {
   sheet: CatalogSheet
   project: ProjectState
   setSheetCell: (sheetId: string, index: number, dataUrl: string | null) => void
+  exeBuf: Uint8Array | null
 }) {
   const { openAsset } = useAssetModal()
   const edits: SheetEdit = project.sheets[sheet.id] ?? {}
   const ratio = sheet.px / sheet.py
+
+  // Stake chips are circular — clip uploads to the vanilla chip silhouette.
+  const [clipShape, setClipShape] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    if (sheet.id !== 'chips' || !exeBuf) {
+      setClipShape(undefined)
+      return
+    }
+    let cancelled = false
+    getAtlasCell(exeBuf, 'resources/textures/1x/chips.png', {
+      x: 0,
+      y: 0,
+      w: sheet.px,
+      h: sheet.py,
+    })
+      .then((cell) => filledSilhouette(cell, { threshold: 128 }))
+      .then((s) => {
+        if (!cancelled) setClipShape(s)
+      })
+      .catch(() => {
+        if (!cancelled) setClipShape(undefined)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [sheet.id, sheet.px, sheet.py, exeBuf])
 
   if (sheet.mode === 'whole') {
     const wholeW = (sheet.cols ?? 1) * sheet.px
@@ -404,6 +461,7 @@ function SheetGrid({
                   targetW: sheet.px,
                   targetH: sheet.py,
                   value: edits[i],
+                  clipShape,
                   commit: (d: string | null) => setSheetCell(sheet.id, i, d),
                 })
               }

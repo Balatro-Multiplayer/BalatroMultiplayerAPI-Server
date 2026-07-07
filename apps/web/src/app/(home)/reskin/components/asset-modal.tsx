@@ -27,8 +27,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { clipBlindFrames, composeBlindSingle } from '../lib/blinds'
 import { buildEdge, type EdgeOption } from '../lib/edges'
 import {
+  applyMask,
   cropImage,
   extractFrames,
   extractFramesNative,
@@ -71,6 +74,8 @@ export type AssetRequest =
       framesCount?: number // category frame count (blinds)
       edges?: EdgeOption[] // shape/border options (sources pre-resolved)
       defaultPreview?: string // the object's vanilla cell: silhouette + preview
+      // Vanilla animation frames (blinds), for the chip shape + shine overlay.
+      loadFrames?: () => Promise<string[]>
       value: ObjectEdit | undefined
       commit: (edit: ObjectEdit) => void
     })
@@ -78,6 +83,7 @@ export type AssetRequest =
       kind: 'cell'
       value: string | undefined
       commit: (dataUrl: string | null) => void
+      clipShape?: string // mask a cell upload is clipped to (e.g. the chip shape)
       // Animated sheet main tile: ingest a strip/GIF into N cells at once.
       animatedStrip?: { frames: number; onStrip: (slices: string[]) => void }
     })
@@ -159,6 +165,10 @@ function AssetModal({
     target: 'main' | 'soul' | 'cell' | 'icon'
   } | null>(null)
   const [busy, setBusy] = useState(false)
+  // Animated-object (blind) upload: how to read the file + whether to add the
+  // game's shine when a single image is used.
+  const [animMode, setAnimMode] = useState<'single' | 'sheet' | 'gif'>('single')
+  const [overlay, setOverlay] = useState(true)
   const mainRef = useRef<HTMLInputElement>(null)
   const soulRef = useRef<HTMLInputElement>(null)
 
@@ -176,7 +186,14 @@ function AssetModal({
       try {
         if (request.kind === 'object') {
           if (request.caps.animated && (request.framesCount ?? 1) > 1) {
-            const sprites = await extractFrames(file, request.framesCount ?? 1)
+            // Single image is cropped, then composed with the chip shape/shine.
+            if (animMode === 'single') {
+              setCropping({ file, target: 'main' })
+              return
+            }
+            const frames = await extractFrames(file, request.framesCount ?? 1)
+            const vanilla = request.loadFrames ? await request.loadFrames() : []
+            const sprites = await clipBlindFrames(frames, vanilla[0])
             commitObject({ ...work, sprites, base: undefined, render: undefined })
             return
           }
@@ -193,7 +210,7 @@ function AssetModal({
           }
           setCropping({ file, target: 'main' })
         } else if (request.kind === 'cell') {
-          if (request.animatedStrip) {
+          if (request.animatedStrip && animMode !== 'single') {
             const slices = await extractFrames(file, request.animatedStrip.frames)
             request.animatedStrip.onStrip(slices)
             setCellValue(slices[0])
@@ -207,7 +224,7 @@ function AssetModal({
         setBusy(false)
       }
     },
-    [request, work, commitObject]
+    [request, work, commitObject, animMode]
   )
 
   // Render an object sprite from a base + settings, lifting the edge assets
@@ -235,7 +252,28 @@ function AssetModal({
       const target = cropping?.target
       setBusy(true)
       try {
-        if (request.kind === 'object' && target === 'main') {
+        if (
+          request.kind === 'object' &&
+          target === 'main' &&
+          request.caps.animated &&
+          (request.framesCount ?? 1) > 1
+        ) {
+          // Single-image blind: clip to the chip shape (+ optional shine).
+          const vanilla = request.loadFrames ? await request.loadFrames() : []
+          let sprites: string[]
+          if (vanilla.length) {
+            sprites = await composeBlindSingle(cropped, vanilla, {
+              targetW: request.targetW,
+              targetH: request.targetH,
+              fit,
+              overlay,
+            })
+          } else {
+            const one = await fitInto(cropped, request.targetW, request.targetH, fit)
+            sprites = Array.from({ length: request.framesCount ?? 1 }, () => one)
+          }
+          commitObject({ ...work, sprites, base: undefined, render: undefined })
+        } else if (request.kind === 'object' && target === 'main') {
           const firstUpload = !work.base && work.sprites.length === 0
           // Default new card art to the object's own silhouette.
           const hasShape = request.edges?.some((e) => e.value === 'shape')
@@ -249,8 +287,22 @@ function AssetModal({
         } else if (request.kind === 'object' && target === 'soul') {
           const soul = await fitInto(cropped, request.targetW, request.targetH, fit)
           commitObject({ ...work, soul })
+        } else if (
+          request.kind === 'cell' &&
+          request.animatedStrip &&
+          animMode === 'single'
+        ) {
+          // Single image → repeat across the animated sheet's frames.
+          const one = await fitInto(cropped, request.targetW, request.targetH, fit)
+          request.animatedStrip.onStrip(
+            Array.from({ length: request.animatedStrip.frames }, () => one)
+          )
+          setCellValue(one)
         } else if (request.kind === 'cell' || request.kind === 'icon') {
-          const final = await fitInto(cropped, request.targetW, request.targetH, fit)
+          let final = await fitInto(cropped, request.targetW, request.targetH, fit)
+          if (request.kind === 'cell' && request.clipShape) {
+            final = await applyMask(final, request.clipShape)
+          }
           request.commit(final)
           setCellValue(final)
         }
@@ -259,7 +311,7 @@ function AssetModal({
         setCropping(null)
       }
     },
-    [cropping, request, work, commitObject, buildObjectSprite]
+    [cropping, request, work, commitObject, buildObjectSprite, overlay, animMode]
   )
 
   const setEdge = useCallback(
@@ -390,6 +442,40 @@ function AssetModal({
                   if (mainRef.current) mainRef.current.value = ''
                 }}
               />
+              {((obj && caps?.animated) ||
+                (request.kind === 'cell' && request.animatedStrip)) && (
+                <div className='space-y-1'>
+                  <Label>Upload as</Label>
+                  <Select
+                    value={animMode}
+                    onValueChange={(v) =>
+                      setAnimMode(v as 'single' | 'sheet' | 'gif')
+                    }
+                  >
+                    <SelectTrigger className='w-48'>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='single'>Single image</SelectItem>
+                      <SelectItem value='sheet'>Sprite sheet</SelectItem>
+                      <SelectItem value='gif'>GIF</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {animMode === 'single' && obj?.loadFrames && (
+                    <div className='flex items-center gap-2 pt-1'>
+                      <Switch
+                        id='blind-overlay'
+                        checked={overlay}
+                        disabled={busy}
+                        onCheckedChange={setOverlay}
+                      />
+                      <Label htmlFor='blind-overlay'>
+                        Add the game’s shine animation
+                      </Label>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className='flex flex-wrap gap-2'>
                 <Button
                   size='sm'
@@ -414,7 +500,9 @@ function AssetModal({
               {isAnim && (
                 <p className='text-muted-foreground text-xs'>
                   {caps?.animated
-                    ? `Animated (${obj?.framesCount ?? work.sprites.length} frames): upload a GIF or horizontal frame-strip.`
+                    ? animMode === 'single'
+                      ? `${obj?.framesCount ?? 21}-frame blind: your image is clipped to the chip shape${obj?.loadFrames && overlay ? ', with the game’s shine added' : ''}.`
+                      : `${obj?.framesCount ?? 21}-frame blind: upload a GIF or horizontal frame-strip.`
                     : `Animated GIF (${work.sprites.length}f @ ${work.fps ?? 10}fps). Shape/border options apply to stills only.`}
                 </p>
               )}

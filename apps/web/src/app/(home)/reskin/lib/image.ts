@@ -399,6 +399,60 @@ export async function filledSilhouette(
   return c.toDataURL('image/png')
 }
 
+/** The additive light one frame adds over a base frame (frameF − base, clamped
+ *  ≥0 per channel, base scaled to frameF's size). This isolates the moving shine
+ *  on Balatro's animated blind chips, independent of the chip's colour. */
+export async function lightDelta(frameF: string, base: string): Promise<string> {
+  const [f, b] = await Promise.all([loadImage(frameF), loadImage(base)])
+  const w = f.width || 1
+  const h = f.height || 1
+  const cf = newCanvas(w, h)
+  const fctx = ctxOf(cf)
+  fctx.drawImage(f, 0, 0)
+  const fData = fctx.getImageData(0, 0, w, h).data
+  const cb = newCanvas(w, h)
+  const bctx = ctxOf(cb)
+  bctx.drawImage(b, 0, 0, w, h)
+  const bData = bctx.getImageData(0, 0, w, h).data
+  const out = fctx.createImageData(w, h)
+  const op = out.data
+  for (let i = 0; i < w * h; i++) {
+    const k = i * 4
+    op[k] = Math.max(0, fData[k]! - bData[k]!)
+    op[k + 1] = Math.max(0, fData[k + 1]! - bData[k + 1]!)
+    op[k + 2] = Math.max(0, fData[k + 2]! - bData[k + 2]!)
+    op[k + 3] = 255
+  }
+  fctx.putImageData(out, 0, 0)
+  return cf.toDataURL('image/png')
+}
+
+/** Add `overlay`'s RGB onto `base` within base's opaque pixels (a glow/screen),
+ *  keeping base's alpha. Used to paint the extracted blind shine onto custom art. */
+export async function addOverlay(base: string, overlay: string): Promise<string> {
+  const [bi, oi] = await Promise.all([loadImage(base), loadImage(overlay)])
+  const w = bi.width || 1
+  const h = bi.height || 1
+  const cb = newCanvas(w, h)
+  const bctx = ctxOf(cb)
+  bctx.drawImage(bi, 0, 0)
+  const bImg = bctx.getImageData(0, 0, w, h)
+  const bp = bImg.data
+  const co = newCanvas(w, h)
+  const octx = ctxOf(co)
+  octx.drawImage(oi, 0, 0, w, h)
+  const op = octx.getImageData(0, 0, w, h).data
+  for (let i = 0; i < w * h; i++) {
+    const k = i * 4
+    if (bp[k + 3]! === 0) continue
+    bp[k] = Math.min(255, bp[k]! + op[k]!)
+    bp[k + 1] = Math.min(255, bp[k + 1]! + op[k + 1]!)
+    bp[k + 2] = Math.min(255, bp[k + 2]! + op[k + 2]!)
+  }
+  bctx.putImageData(bImg, 0, 0)
+  return cb.toDataURL('image/png')
+}
+
 /** Clip `art` to `mask` (mask scaled to art size) via destination-in. */
 export async function applyMask(art: string, mask: string): Promise<string> {
   const [a, m] = await Promise.all([loadImage(art), loadImage(mask)])
