@@ -136,8 +136,6 @@ export const SHADER_OPTIONS = [
   'booster',
   'hologram',
   'debuff',
-  'played',
-  'vortex',
   'gold_seal',
 ] as const
 

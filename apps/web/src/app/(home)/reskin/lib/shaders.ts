@@ -58,11 +58,19 @@ function transpile(src: string): string {
   return `${header}\n${s}\n${main}`
 }
 
+// Transpiled fragments are stable for a given file, so cache them — a grid can
+// mount many shader canvases and each would otherwise re-parse the exe archive.
+const fragCache = new Map<string, string>()
+
 /** Read a shader .fs from the exe and transpile it to a WebGL1 fragment shader. */
 export async function loadShaderFragment(
   exe: Uint8Array,
   file: string
 ): Promise<string> {
+  const cached = fragCache.get(file)
+  if (cached) return cached
   const src = await readMember(exe, `resources/shaders/${file}.fs`)
-  return transpile(src)
+  const frag = transpile(src)
+  fragCache.set(file, frag)
+  return frag
 }

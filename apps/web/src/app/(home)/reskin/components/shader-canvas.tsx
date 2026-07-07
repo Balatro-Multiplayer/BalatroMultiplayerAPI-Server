@@ -45,25 +45,25 @@ function buildProgram(
 
 /** Live WebGL preview of a Balatro edition shader applied to a sprite. Reads the
  *  shader from the exe, animates it via the same time-driven uniforms the game
- *  uses (dissolve/burn neutralized). */
+ *  uses (dissolve/burn neutralized). Sizes itself to its container; pointer
+ *  events pass through so an underlying tile stays clickable. */
 export function ShaderCanvas({
   sprite,
   option,
   exeBuf,
-  width,
-  height,
 }: {
   sprite: string
   option: string
   exeBuf: Uint8Array
-  width: number
-  height: number
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
+    // Match the canvas resolution to its laid-out display size.
+    canvas.width = Math.round(canvas.clientWidth) || 128
+    canvas.height = Math.round(canvas.clientHeight) || 128
     let raf = 0
     let disposed = false
     let cleanup = () => {}
@@ -113,8 +113,8 @@ export function ShaderCanvas({
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-      const w = img.naturalWidth || width
-      const h = img.naturalHeight || height
+      const w = img.naturalWidth || canvas.width
+      const h = img.naturalHeight || canvas.height
 
       gl.useProgram(prog)
       gl.enable(gl.BLEND)
@@ -170,14 +170,12 @@ export function ShaderCanvas({
       cancelAnimationFrame(raf)
       cleanup()
     }
-  }, [sprite, option, exeBuf, width, height])
+  }, [sprite, option, exeBuf])
 
   return (
     <canvas
       ref={canvasRef}
-      width={width}
-      height={height}
-      className='absolute inset-0 h-full w-full'
+      className='pointer-events-none absolute inset-0 h-full w-full'
       style={{ imageRendering: 'pixelated' }}
     />
   )

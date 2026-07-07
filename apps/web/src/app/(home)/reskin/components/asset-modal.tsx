@@ -448,8 +448,6 @@ function AssetModal({
                       sprite={shaderBase}
                       option={shaderOption}
                       exeBuf={shaderExe}
-                      width={Math.round(dispW)}
-                      height={Math.round(dispH)}
                     />
                   </>
                 ) : previewMain ? (

@@ -2,9 +2,11 @@
 
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { ShaderCanvas } from './shader-canvas'
 
 /** A click-to-edit tile that previews the user's own image (or faded vanilla
- *  art). Clicking opens the shared asset modal; the hover-X quick-clears. */
+ *  art). Clicking opens the shared asset modal; the hover-X quick-clears. When a
+ *  shader + exe are given, the real edition shader animates over the art. */
 export function UploadTile({
   label,
   sublabel,
@@ -12,6 +14,8 @@ export function UploadTile({
   defaultPreview,
   ratio = 71 / 95,
   small = false,
+  shaderOption,
+  shaderExe,
   onOpen,
   onClear,
 }: {
@@ -21,9 +25,12 @@ export function UploadTile({
   defaultPreview?: string // vanilla art shown faded when there's no upload
   ratio?: number
   small?: boolean
+  shaderOption?: string
+  shaderExe?: Uint8Array | null
   onOpen: () => void
   onClear?: () => void
 }) {
+  const art = preview ?? defaultPreview
   return (
     <div className={cn('group relative', small ? 'w-10' : 'w-full')}>
       <button
@@ -36,22 +43,22 @@ export function UploadTile({
           preview ? 'border-primary' : 'border-dashed'
         )}
       >
-        {preview ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={preview}
-            alt={label}
-            className='h-[95%] w-[95%] object-contain'
-            style={{ imageRendering: 'pixelated' }}
-          />
-        ) : defaultPreview ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={defaultPreview}
-            alt={`${label} (default)`}
-            className='h-[95%] w-[95%] object-contain opacity-40'
-            style={{ imageRendering: 'pixelated' }}
-          />
+        {art ? (
+          <div className='relative h-[95%] w-[95%]'>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={art}
+              alt={label}
+              className={cn(
+                'absolute inset-0 h-full w-full object-contain',
+                !preview && 'opacity-40'
+              )}
+              style={{ imageRendering: 'pixelated' }}
+            />
+            {shaderOption && shaderExe && (
+              <ShaderCanvas sprite={art} option={shaderOption} exeBuf={shaderExe} />
+            )}
+          </div>
         ) : (
           <span className='px-1 text-center text-[10px] text-muted-foreground'>
             {small ? '+' : 'Edit'}

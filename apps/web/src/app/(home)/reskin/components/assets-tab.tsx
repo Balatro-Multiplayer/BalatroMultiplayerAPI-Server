@@ -296,6 +296,8 @@ function CategoryGrid({
               ratio={ratio}
               preview={edit?.sprites[0]}
               defaultPreview={defaults[o.key]}
+              shaderOption={edit?.shader}
+              shaderExe={exeBuf}
               onOpen={() => openObject(o.key)}
               onClear={() => setObject(categoryId, o.key, null)}
             />
