@@ -1,48 +1,34 @@
 'use client'
 
 import { X } from 'lucide-react'
-import { useRef } from 'react'
 import { cn } from '@/lib/utils'
 
-/** A square click-to-upload tile that previews the user's own image. */
+/** A click-to-edit tile that previews the user's own image (or faded vanilla
+ *  art). Clicking opens the shared asset modal; the hover-X quick-clears. */
 export function UploadTile({
   label,
   sublabel,
   preview,
   defaultPreview,
-  accept = 'image/png,image/*',
   ratio = 71 / 95,
   small = false,
-  onFile,
+  onOpen,
   onClear,
 }: {
   label: string
   sublabel?: string
   preview?: string
   defaultPreview?: string // vanilla art shown faded when there's no upload
-  accept?: string
   ratio?: number
   small?: boolean
-  onFile: (file: File) => void
+  onOpen: () => void
   onClear?: () => void
 }) {
-  const ref = useRef<HTMLInputElement>(null)
   return (
     <div className={cn('group relative', small ? 'w-10' : 'w-full')}>
-      <input
-        ref={ref}
-        type='file'
-        accept={accept}
-        className='hidden'
-        onChange={(e) => {
-          const f = e.target.files?.[0]
-          if (f) onFile(f)
-          if (ref.current) ref.current.value = ''
-        }}
-      />
       <button
         type='button'
-        onClick={() => ref.current?.click()}
+        onClick={onOpen}
         title={label}
         style={{ aspectRatio: String(ratio) }}
         className={cn(
@@ -68,7 +54,7 @@ export function UploadTile({
           />
         ) : (
           <span className='px-1 text-center text-[10px] text-muted-foreground'>
-            {small ? '+' : 'Upload'}
+            {small ? '+' : 'Edit'}
           </span>
         )}
       </button>

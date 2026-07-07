@@ -4,7 +4,7 @@
 // relative to the ZIP's start, not byte 0 — we recover that base. Nothing is
 // uploaded; the file is read locally and only the user's own output uses it.
 
-import { alphaMask, applyMask, cropImage, erodeMask, type Rect } from './image'
+import { cropImage, type Rect } from './image'
 import { flattenLoc, parseLocLua } from './locLua'
 import type { LocValues } from './types'
 
@@ -140,44 +140,3 @@ export async function readLocFromExe(
   })
 }
 
-/** A card frame lifted from the vanilla base Joker: its coloured outer border
- *  ring plus the interior mask user art is drawn into and clipped to. */
-export interface BorderTemplate {
-  ring: string // coloured border pixels (transparent interior)
-  interior: string // mask of the interior region
-}
-
-// The plain Joker (j_joker) sits at cell (0,0) in Jokers.png.
-const JOKER_ATLAS = 'Jokers.png'
-const JOKER_PX = 71
-const JOKER_PY = 95
-const DEFAULT_RING_WIDTH = 4
-
-/** Build a border template from the user's Balatro.exe. Reads the base Joker
- *  cell, takes its silhouette, and splits it into an outer ring (the frame) and
- *  an interior region. Applied later via compositeBorder. */
-export async function extractJokerBorder(
-  exe: Uint8Array,
-  opts: { scale?: 1 | 2; ringWidth?: number } = {}
-): Promise<BorderTemplate> {
-  const scale = opts.scale ?? 1
-  const px = JOKER_PX * scale
-  const py = JOKER_PY * scale
-  const cell = await getAtlasCell(
-    exe,
-    `resources/textures/${scale}x/${JOKER_ATLAS}`,
-    {
-      x: 0,
-      y: 0,
-      w: px,
-      h: py,
-    }
-  )
-  const { maskDataUrl } = await alphaMask(cell, { threshold: 16 })
-  const { ring, interior } = await erodeMask(
-    maskDataUrl,
-    (opts.ringWidth ?? DEFAULT_RING_WIDTH) * scale
-  )
-  const ringImg = await applyMask(cell, ring)
-  return { ring: ringImg, interior }
-}

@@ -6,6 +6,10 @@ export interface CatalogCategory {
   registry: 'P_CENTERS' | 'P_BLINDS' | 'P_TAGS' | 'P_SEALS' | 'P_STAKES'
   px: number
   py: number
+  // Internal opaque art footprint (a representative object's alpha bbox), for the
+  // crop aspect lock. Jokers ≈ 69×93 inside the 71×95 cell. Falls back to px/py.
+  artPx?: number
+  artPy?: number
   frames: number // 1 for static, >1 for animated (blinds = 21)
   animated: boolean
   soul: boolean // any object in the category has a soul overlay
@@ -81,12 +85,39 @@ export interface Catalog {
 
 // --- project (editor) state -------------------------------------------------
 
+/** The card-edge treatment applied to an object. `shape` clips art to the
+ *  object's own vanilla silhouette; the rest lift a coloured border from a
+ *  vanilla cell and composite it. Which options an object exposes is
+ *  type-specific (see lib/edges.ts). Undefined = none. */
+export type EdgeMode =
+  | 'shape'
+  | 'outline'
+  | 'text-white'
+  | 'text-black'
+  | 'text'
+  | 'border'
+
+/** Non-destructive render settings recomputed from `ObjectEdit.base` into the
+ *  final `sprites[0]`. Toggling any of these re-derives the sprite from the
+ *  un-clipped base, so edge/fit are reversible. */
+export interface RenderSettings {
+  fit?: 'stretch' | 'contain' | 'cover' // how the cropped art fills the cell
+  edge?: EdgeMode // card edge/border treatment
+}
+
 /** One object's uploaded art. `sprites` length equals the category frame count
  *  (1 for static, 21 for blinds). A static object with >1 sprite is an uploaded
  *  GIF animation; `fps` is its playback rate (Balatro plays it on its own
- *  per-object animation atlas). `soul` is the optional overlay layer. */
+ *  per-object animation atlas). `soul` is the optional overlay layer.
+ *
+ *  For a static still, `sprites[0]` is the FINAL packed art and is always
+ *  recomputed as `renderSprite(base, render)`; `base` is the cropped source art
+ *  kept so `render` toggles stay reversible. Animations (sprites.length > 1)
+ *  have no base/render — their frames are baked at import. */
 export interface ObjectEdit {
-  sprites: string[] // PNG data URLs
+  sprites: string[] // PNG data URLs (final art)
+  base?: string // cropped source art for a still, pre-shape/border (reversibility)
+  render?: RenderSettings
   soul?: string
   fps?: number // animation rate when sprites.length > 1 (uploaded GIF)
   shader?: string // default shader/edition applied in-game (see SHADER_OPTIONS)
@@ -123,7 +154,7 @@ export interface ProjectOptions {
 }
 
 export interface ProjectState {
-  schema: 2
+  schema: 3
   options: ProjectOptions
   objects: Record<string, ObjectEdit> // key = `${categoryId}/${objectKey}`
   sheets: Record<string, SheetEdit> // key = sheetId
@@ -132,7 +163,7 @@ export interface ProjectState {
 
 export function emptyProject(): ProjectState {
   return {
-    schema: 2,
+    schema: 3,
     options: { displayName: 'My Reskin', author: '', version: '1.0.0' },
     objects: {},
     sheets: {},

@@ -1,19 +1,37 @@
 'use client'
 
 import { Download, RotateCcw, Upload } from 'lucide-react'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { AssetModalProvider } from './components/asset-modal'
 import { AssetsTab } from './components/assets-tab'
+import { ExeImport } from './components/exe-import'
 import { LocalizationTab } from './components/localization-tab'
 import { OptionsTab } from './components/options-tab'
 import catalogJson from './data/catalog.json'
+import { readLocFromExe } from './lib/exeAssets'
 import {
-  type BorderTemplate,
-  extractJokerBorder,
-  readLocFromExe,
-} from './lib/exeAssets'
+  fileFromSaved,
+  forgetExe,
+  pickExeHandle,
+  recallExe,
+  rememberBytes,
+  rememberHandle,
+  type SavedExe,
+  supportsFsAccess,
+} from './lib/exeStore'
 import { generatePack } from './lib/generate'
 import { importPack } from './lib/importProject'
 import {
@@ -29,37 +47,117 @@ const catalog = catalogJson as unknown as Catalog
 export function ReskinStudio() {
   const [project, setProject] = useState<ProjectState>(emptyProject)
   const [busy, setBusy] = useState(false)
-  const [border, setBorder] = useState<BorderTemplate | null>(null)
   const [exeBuf, setExeBuf] = useState<Uint8Array | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
 
   // Optional: read the user's own Balatro.exe locally to lift a card-border
-  // template. Never uploaded; only their own generated pack uses it.
-  const onExeFile = useCallback(async (file: File | null) => {
-    if (!file) {
-      setBorder(null)
-      setExeBuf(null)
-      return
-    }
+  // template, vanilla art defaults, and in-game text. Never uploaded; only
+  // their own generated pack uses it. We remember it (a file handle on
+  // Chromium, else the raw bytes) so a reload can re-import it in one click.
+  const [canPickHandle, setCanPickHandle] = useState(false)
+  const [savedExe, setSavedExe] = useState<SavedExe | null>(null)
+  const [reimportOpen, setReimportOpen] = useState(false)
+
+  // Read the given exe locally and light up the exe-backed features. Returns
+  // whether it succeeded so callers only persist a reference on success.
+  const applyExe = useCallback(async (file: File): Promise<boolean> => {
     setBusy(true)
     try {
       const buf = new Uint8Array(await file.arrayBuffer())
-      const b = await extractJokerBorder(buf)
       setExeBuf(buf)
-      setBorder(b)
       toast.success('Balatro.exe loaded', {
         description:
-          'Vanilla art now shows as defaults, the Joker border is available, and text can be edited.',
+          'Vanilla art now shows as defaults, borders and shapes are available, and text can be edited.',
       })
+      return true
     } catch (e) {
-      setBorder(null)
       setExeBuf(null)
       toast.error('Could not read Balatro.exe', {
         description: e instanceof Error ? e.message : String(e),
       })
+      return false
     } finally {
       setBusy(false)
     }
+  }, [])
+
+  // Chromium path: pick a file handle we can persist and re-open later.
+  const onPickExe = useCallback(async () => {
+    try {
+      const handle = await pickExeHandle()
+      if (!handle) return
+      const file = await handle.getFile()
+      if (await applyExe(file)) {
+        await rememberHandle(handle)
+        setSavedExe({ kind: 'handle', name: handle.name, handle })
+      }
+    } catch (e) {
+      toast.error('Could not read Balatro.exe', {
+        description: e instanceof Error ? e.message : String(e),
+      })
+    }
+  }, [applyExe])
+
+  // Fallback path (non-Chromium <input>): persist the raw bytes instead.
+  const onExeFile = useCallback(
+    async (file: File | null) => {
+      if (!file) {
+        setExeBuf(null)
+        setSavedExe(null)
+        await forgetExe()
+        return
+      }
+      if (await applyExe(file)) {
+        await rememberBytes(file)
+        setSavedExe({ kind: 'bytes', name: file.name, blob: file })
+      }
+    },
+    [applyExe]
+  )
+
+  const onForgetExe = useCallback(async () => {
+    setExeBuf(null)
+    setSavedExe(null)
+    await forgetExe()
+  }, [])
+
+  // On load, if we have a remembered exe, ask to re-import it. "No" forgets it.
+  useEffect(() => {
+    setCanPickHandle(supportsFsAccess())
+    let cancelled = false
+    recallExe().then((saved) => {
+      if (cancelled || !saved) return
+      setSavedExe(saved)
+      setReimportOpen(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const onReimportYes = useCallback(async () => {
+    setReimportOpen(false)
+    if (!savedExe) return
+    try {
+      const file = await fileFromSaved(savedExe)
+      if (!file) {
+        toast.error('Balatro.exe permission was declined', {
+          description: 'It is still remembered — reload to try again.',
+        })
+        return
+      }
+      await applyExe(file)
+    } catch (e) {
+      toast.error('Could not re-import Balatro.exe', {
+        description: e instanceof Error ? e.message : String(e),
+      })
+    }
+  }, [savedExe, applyExe])
+
+  const onReimportNo = useCallback(async () => {
+    setReimportOpen(false)
+    setSavedExe(null)
+    await forgetExe()
   }, [])
 
   const setObject = useCallback(
@@ -125,6 +223,32 @@ export function ReskinStudio() {
     0
   )
 
+  // Unsaved-changes guard: any edit marks the project dirty; generating a mod
+  // clears it (and a later edit re-marks it), warning before leaving the page.
+  const [dirty, setDirty] = useState(false)
+  useEffect(() => {
+    const sprites =
+      Object.keys(project.objects).length +
+      Object.values(project.sheets).reduce(
+        (n, c) => n + Object.keys(c).length,
+        0
+      )
+    const texts = Object.keys(project.loc).reduce(
+      (n, l) => n + Object.keys(project.loc[l] ?? {}).length,
+      0
+    )
+    setDirty(sprites > 0 || texts > 0 || Boolean(project.options.icon))
+  }, [project])
+  useEffect(() => {
+    if (!dirty) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [dirty])
+
   async function onGenerate() {
     setBusy(true)
     try {
@@ -143,6 +267,7 @@ export function ReskinStudio() {
       toast.success(`Generated ${fileName}`, {
         description: 'Unzip it into your Balatro Mods folder.',
       })
+      setDirty(false)
       for (const w of warnings) toast.warning(w)
     } catch (e) {
       toast.error('Failed to generate pack', {
@@ -171,6 +296,7 @@ export function ReskinStudio() {
   }
 
   return (
+    <AssetModalProvider>
     <div className='space-y-4'>
       <div className='flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-3'>
         <div className='text-muted-foreground text-sm'>
@@ -220,6 +346,15 @@ export function ReskinStudio() {
         </div>
       </div>
 
+      <ExeImport
+        canPickHandle={canPickHandle}
+        onPickExe={onPickExe}
+        onExeFile={onExeFile}
+        onForgetExe={onForgetExe}
+        savedExeName={savedExe?.name ?? null}
+        borderReady={Boolean(exeBuf)}
+      />
+
       <Tabs defaultValue='sprites'>
         <TabsList>
           <TabsTrigger value='sprites'>Sprites</TabsTrigger>
@@ -232,7 +367,6 @@ export function ReskinStudio() {
             project={project}
             setObject={setObject}
             setSheetCell={setSheetCell}
-            border={border}
             exeBuf={exeBuf}
           />
         </TabsContent>
@@ -248,11 +382,31 @@ export function ReskinStudio() {
           <OptionsTab
             options={project.options}
             setOptions={setOptions}
-            onExeFile={onExeFile}
-            borderReady={Boolean(border)}
+            exeBuf={exeBuf}
           />
         </TabsContent>
       </Tabs>
+
+      <AlertDialog open={reimportOpen} onOpenChange={setReimportOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Import Balatro.exe again?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You imported{' '}
+              <span className='font-medium text-foreground'>
+                {savedExe?.name ?? 'Balatro.exe'}
+              </span>{' '}
+              last time. Re-import it to show vanilla art, the Joker border, and
+              in-game text. Choosing <strong>No</strong> forgets it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={onReimportNo}>No</AlertDialogCancel>
+            <AlertDialogAction onClick={onReimportYes}>Yes</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+    </AssetModalProvider>
   )
 }

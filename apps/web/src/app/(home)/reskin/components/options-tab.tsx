@@ -1,22 +1,68 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { fileToDataUrl } from '../lib/image'
-import type { ProjectOptions } from '../lib/types'
+import { type EdgeOption, edgeOptionsFor } from '../lib/edges'
+import { getAtlasCell } from '../lib/exeAssets'
+import type { ObjectEdit, ProjectOptions } from '../lib/types'
+import { useAssetModal } from './asset-modal'
 import { UploadTile } from './upload-tile'
 
 export function OptionsTab({
   options,
   setOptions,
-  onExeFile,
-  borderReady,
+  exeBuf,
 }: {
   options: ProjectOptions
   setOptions: (next: ProjectOptions) => void
-  onExeFile: (file: File | null) => void
-  borderReady: boolean
+  exeBuf: Uint8Array | null
 }) {
+  const { openAsset } = useAssetModal()
+
+  // The Uncommon Tag cell (tags.png, 0,0). The mod icon borrows the Tag modal:
+  // its Shape and Border are lifted from this tag so the icon looks native.
+  const [tagCell, setTagCell] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    if (!exeBuf) {
+      setTagCell(undefined)
+      return
+    }
+    let cancelled = false
+    getAtlasCell(exeBuf, 'resources/textures/1x/tags.png', {
+      x: 0,
+      y: 0,
+      w: 34,
+      h: 34,
+    })
+      .then((c) => {
+        if (!cancelled) setTagCell(c)
+      })
+      .catch(() => {
+        if (!cancelled) setTagCell(undefined)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [exeBuf])
+
+  const openIcon = () => {
+    const edges: EdgeOption[] = edgeOptionsFor('Tag', 'tag_uncommon')
+      .map((opt) => ({ ...opt, source: tagCell }))
+      .filter((opt) => opt.value === 'shape' || Boolean(opt.source))
+    openAsset({
+      kind: 'object',
+      title: 'Mod icon',
+      targetW: 34,
+      targetH: 34,
+      caps: {},
+      edges,
+      defaultPreview: tagCell,
+      value: options.icon ? { sprites: [options.icon] } : undefined,
+      commit: (edit: ObjectEdit) =>
+        setOptions({ ...options, icon: edit.sprites[0] }),
+    })
+  }
   return (
     <div className='max-w-md space-y-4 pt-4'>
       <div className='space-y-2'>
@@ -63,29 +109,12 @@ export function OptionsTab({
             label='Icon'
             ratio={1}
             preview={options.icon}
-            onFile={async (f) =>
-              setOptions({ ...options, icon: await fileToDataUrl(f) })
-            }
+            onOpen={openIcon}
             onClear={() => setOptions({ ...options, icon: undefined })}
           />
         </div>
         <p className='text-muted-foreground text-xs'>
           Shown next to the mod in Steamodded's list. A square image works best.
-        </p>
-      </div>
-      <div className='space-y-2'>
-        <Label htmlFor='reskin-exe'>Import Balatro.exe (optional)</Label>
-        <input
-          id='reskin-exe'
-          type='file'
-          accept='.exe'
-          className='block w-full text-sm file:mr-3 file:rounded file:border file:border-input file:bg-transparent file:px-3 file:py-1 file:text-sm hover:file:border-primary'
-          onChange={(e) => onExeFile(e.target.files?.[0] ?? null)}
-        />
-        <p className='text-muted-foreground text-xs'>
-          {borderReady
-            ? '✓ Loaded. Vanilla art shows as faded defaults, the Joker border is available, and the Localization tab is unlocked.'
-            : 'Select your own Balatro.exe to show each object’s vanilla art as a reference, wrap uploads in the Joker border, and edit in-game text. The file is read locally in your browser and never uploaded.'}
         </p>
       </div>
     </div>

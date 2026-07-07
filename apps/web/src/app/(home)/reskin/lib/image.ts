@@ -2,6 +2,8 @@
 // packing/compositing, and frame extraction. No game assets are referenced.
 // Pixel-art scaling uses nearest-neighbour (imageSmoothingEnabled = false).
 
+import type { RenderSettings } from './types'
+
 export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
@@ -338,6 +340,65 @@ export async function alphaMask(
   return { maskDataUrl: c.toDataURL('image/png'), bbox }
 }
 
+/** A white silhouette of `src` with interior holes filled — the card's outer
+ *  outline, not the art's transparent gaps. Transparent pixels reachable from
+ *  the border are flood-filled as "outside"; everything else (opaque pixels plus
+ *  any enclosed transparent holes, e.g. Black Hole's glowing vortex) becomes the
+ *  shape. Odd outer shapes (half/square joker) are preserved because their gaps
+ *  connect to the border. */
+export async function filledSilhouette(
+  src: string,
+  opts: { threshold?: number } = {}
+): Promise<string> {
+  const threshold = opts.threshold ?? 128
+  const img = await loadImage(src)
+  const w = img.width || 1
+  const h = img.height || 1
+  const c = newCanvas(w, h)
+  const ctx = ctxOf(c)
+  ctx.drawImage(img, 0, 0)
+  const data = ctx.getImageData(0, 0, w, h).data
+  const isOpaque = (i: number) => data[i * 4 + 3]! >= threshold
+  const outside = new Uint8Array(w * h)
+  const stack: number[] = []
+  const push = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return
+    const i = y * w + x
+    if (outside[i] || isOpaque(i)) return
+    outside[i] = 1
+    stack.push(i)
+  }
+  for (let x = 0; x < w; x++) {
+    push(x, 0)
+    push(x, h - 1)
+  }
+  for (let y = 0; y < h; y++) {
+    push(0, y)
+    push(w - 1, y)
+  }
+  while (stack.length) {
+    const i = stack.pop()!
+    const x = i % w
+    const y = (i / w) | 0
+    push(x - 1, y)
+    push(x + 1, y)
+    push(x, y - 1)
+    push(x, y + 1)
+  }
+  const out = ctx.createImageData(w, h)
+  const op = out.data
+  for (let i = 0; i < w * h; i++) {
+    if (!outside[i]) {
+      op[i * 4] = 255
+      op[i * 4 + 1] = 255
+      op[i * 4 + 2] = 255
+      op[i * 4 + 3] = 255
+    }
+  }
+  ctx.putImageData(out, 0, 0)
+  return c.toDataURL('image/png')
+}
+
 /** Clip `art` to `mask` (mask scaled to art size) via destination-in. */
 export async function applyMask(art: string, mask: string): Promise<string> {
   const [a, m] = await Promise.all([loadImage(art), loadImage(mask)])
@@ -440,4 +501,33 @@ export async function compositeBorder(
   ctx.drawImage(base, 0, 0, c.width, c.height)
   ctx.drawImage(over, 0, 0)
   return c.toDataURL('image/png')
+}
+
+/** Render a final cell sprite from a cropped `base`, the non-destructive
+ *  `render` settings, and precomputed edge assets (`interior` silhouette + a
+ *  lifted `ring`; see lib/edges.ts):
+ *   - no edge:  a plain full-cell fit.
+ *   - 'shape':  fit, then clip to the object's silhouette.
+ *   - border:   fit clipped to the silhouette, with the ring composited over it.
+ *  This is the single source of truth shared by the editor and any re-render. */
+export async function renderSprite(
+  base: string,
+  render: RenderSettings,
+  cell: {
+    targetW: number
+    targetH: number
+    interior?: string // silhouette mask data URL (art is clipped to it)
+    ring?: string // lifted coloured border data URL
+  }
+): Promise<string> {
+  const fit = render.fit ?? 'stretch'
+  const fitted = await fitInto(base, cell.targetW, cell.targetH, fit)
+  if (!render.edge) return fitted
+  if (render.edge === 'shape') {
+    return cell.interior ? applyMask(fitted, cell.interior) : fitted
+  }
+  if (cell.ring && cell.interior) {
+    return compositeBorder(fitted, cell.interior, cell.ring)
+  }
+  return cell.interior ? applyMask(fitted, cell.interior) : fitted
 }

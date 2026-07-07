@@ -268,16 +268,23 @@ def resolve_atlas_files(z, sprite_categories, sprite_objects):
         if ox + pw > w or oy + ph > h:
             print(f"  atlasFile: {cat['id']} sample out of bounds in {fn}; skip")
             continue
-        opaque = sum(
-            1
-            for y in range(ph)
-            for x in range(pw)
-            if px[((oy + y) * w + (ox + x)) * 4 + 3] >= MASK_ALPHA_THRESHOLD
-        )
+        # Opaque pixel count + tight bbox of the sample cell. The bbox is the
+        # category's internal art footprint (e.g. jokers 69x93 inside the 71x95
+        # cell), used by the editor's crop aspect lock.
+        opaque = 0
+        minx, miny, maxx, maxy = pw, ph, -1, -1
+        for y in range(ph):
+            for x in range(pw):
+                if px[((oy + y) * w + (ox + x)) * 4 + 3] >= MASK_ALPHA_THRESHOLD:
+                    opaque += 1
+                    minx, maxx = min(minx, x), max(maxx, x)
+                    miny, maxy = min(miny, y), max(maxy, y)
         if opaque == 0:
             print(f"  atlasFile: {cat['id']} sample empty in {fn}; skip")
             continue
         cat["atlasFile"] = fn
+        cat["artPx"] = maxx - minx + 1
+        cat["artPy"] = maxy - miny + 1
 
 
 def build_masks(z, objects):
