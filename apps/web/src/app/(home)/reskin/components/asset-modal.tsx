@@ -434,13 +434,24 @@ function AssetModal({
                 style={{ width: dispW, height: dispH }}
               >
                 {shaderOption && shaderBase && shaderExe ? (
-                  <ShaderCanvas
-                    sprite={shaderBase}
-                    option={shaderOption}
-                    exeBuf={shaderExe}
-                    width={Math.round(dispW)}
-                    height={Math.round(dispH)}
-                  />
+                  <>
+                    {/* base art, then the shader overlay on top (the game draws
+                        the card, then the edition as a second pass) */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={shaderBase}
+                      alt='preview'
+                      className='absolute inset-0 h-full w-full object-contain'
+                      style={{ imageRendering: 'pixelated' }}
+                    />
+                    <ShaderCanvas
+                      sprite={shaderBase}
+                      option={shaderOption}
+                      exeBuf={shaderExe}
+                      width={Math.round(dispW)}
+                      height={Math.round(dispH)}
+                    />
+                  </>
                 ) : previewMain ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
