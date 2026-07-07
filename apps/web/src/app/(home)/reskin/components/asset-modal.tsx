@@ -145,6 +145,31 @@ const isGif = (f: File) =>
 const SHADER_NONE = '__none__'
 const EDGE_NONE = '__none__'
 
+/** Apply the chosen edge (shape/border) to each frame of an object. The edge
+ *  assets (silhouette + ring) are computed once, then applied per frame — so a
+ *  still is just a single-frame case and a GIF gets the edge on every frame. */
+async function applyEdgeToFrames(
+  req: Extract<AssetRequest, { kind: 'object' }>,
+  frames: string[],
+  render: RenderSettings
+): Promise<string[]> {
+  const option = req.edges?.find((e) => e.value === render.edge)
+  const { interior, ring } = await buildEdge(option, req.defaultPreview, {
+    w: req.targetW,
+    h: req.targetH,
+  })
+  return Promise.all(
+    frames.map((f) =>
+      renderSprite(f, render, {
+        targetW: req.targetW,
+        targetH: req.targetH,
+        interior,
+        ring,
+      })
+    )
+  )
+}
+
 function AssetModal({
   request,
   onClose,
@@ -199,12 +224,17 @@ function AssetModal({
           }
           if (request.caps.gif && isGif(file)) {
             const { frames, fps } = await extractFramesNative(file)
+            // Default the animation to the object's silhouette, applied per frame.
+            const hasShape = request.edges?.some((e) => e.value === 'shape')
+            const render: RenderSettings = hasShape ? { edge: 'shape' } : {}
+            const sprites = await applyEdgeToFrames(request, frames, render)
             commitObject({
               ...work,
-              sprites: frames,
+              sprites,
+              baseFrames: frames,
               fps,
               base: undefined,
-              render: undefined,
+              render,
             })
             return
           }
@@ -227,22 +257,12 @@ function AssetModal({
     [request, work, commitObject, animMode]
   )
 
-  // Render an object sprite from a base + settings, lifting the edge assets
-  // (silhouette + border ring) for the chosen edge option.
+  // Render an object sprite from a base + settings, applying the edge.
   const buildObjectSprite = useCallback(
     async (base: string, render: RenderSettings): Promise<string> => {
       if (request.kind !== 'object') return base
-      const option = request.edges?.find((e) => e.value === render.edge)
-      const { interior, ring } = await buildEdge(option, request.defaultPreview, {
-        w: request.targetW,
-        h: request.targetH,
-      })
-      return renderSprite(base, render, {
-        targetW: request.targetW,
-        targetH: request.targetH,
-        interior,
-        ring,
-      })
+      const [sprite] = await applyEdgeToFrames(request, [base], render)
+      return sprite ?? base
     },
     [request]
   )
@@ -320,6 +340,12 @@ function AssetModal({
       setBusy(true)
       try {
         const render = { ...(work.render ?? {}), edge }
+        // GIF object: re-apply the edge to every kept raw frame.
+        if (work.baseFrames?.length) {
+          const sprites = await applyEdgeToFrames(request, work.baseFrames, render)
+          commitObject({ ...work, render, sprites })
+          return
+        }
         const hasUpload = Boolean(work.base)
         const renderBase = work.base ?? request.defaultPreview
         if (renderBase && (hasUpload || edge)) {
@@ -341,7 +367,13 @@ function AssetModal({
 
   const removeMain = useCallback(() => {
     if (request.kind === 'object') {
-      commitObject({ ...work, sprites: [], base: undefined, render: undefined })
+      commitObject({
+        ...work,
+        sprites: [],
+        base: undefined,
+        baseFrames: undefined,
+        render: undefined,
+      })
     } else {
       request.commit(null)
       setCellValue(undefined)
@@ -503,7 +535,7 @@ function AssetModal({
                     ? animMode === 'single'
                       ? `${obj?.framesCount ?? 21}-frame blind: your image is clipped to the chip shape${obj?.loadFrames && overlay ? ', with the game’s shine added' : ''}.`
                       : `${obj?.framesCount ?? 21}-frame blind: upload a GIF or horizontal frame-strip.`
-                    : `Animated GIF (${work.sprites.length}f @ ${work.fps ?? 10}fps). Shape/border options apply to stills only.`}
+                    : `Animated GIF (${work.sprites.length}f @ ${work.fps ?? 10}fps). Border options apply to every frame.`}
                 </p>
               )}
 
@@ -545,8 +577,9 @@ function AssetModal({
                 </div>
               )}
 
-              {/* edge treatment: shape clip or a lifted border (stills only) */}
-              {obj && !isAnim && obj.edges && obj.edges.length > 0 && (
+              {/* edge treatment: shape clip or a lifted border. Applies to stills
+                  and GIF objects (per frame); blind categories shape themselves. */}
+              {obj && !caps?.animated && obj.edges && obj.edges.length > 0 && (
                 <div className='space-y-1'>
                   <Label>Border</Label>
                   <Select

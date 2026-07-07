@@ -117,6 +117,7 @@ export interface RenderSettings {
 export interface ObjectEdit {
   sprites: string[] // PNG data URLs (final art)
   base?: string // cropped source art for a still, pre-shape/border (reversibility)
+  baseFrames?: string[] // raw GIF frames pre-edge (reversibility for animations)
   render?: RenderSettings
   soul?: string
   fps?: number // animation rate when sprites.length > 1 (uploaded GIF)

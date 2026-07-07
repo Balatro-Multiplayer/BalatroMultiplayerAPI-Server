@@ -41,7 +41,7 @@ export function UploadTile({
           <img
             src={preview}
             alt={label}
-            className='max-h-full max-w-full object-contain'
+            className='h-[95%] w-[95%] object-contain'
             style={{ imageRendering: 'pixelated' }}
           />
         ) : defaultPreview ? (
@@ -49,7 +49,7 @@ export function UploadTile({
           <img
             src={defaultPreview}
             alt={`${label} (default)`}
-            className='max-h-full max-w-full object-contain opacity-40'
+            className='h-[95%] w-[95%] object-contain opacity-40'
             style={{ imageRendering: 'pixelated' }}
           />
         ) : (
