@@ -262,6 +262,7 @@ function CategoryGrid({
       edges,
       defaultPreview: defaults[key],
       loadFrames,
+      exeBuf,
       value: project.objects[objId(categoryId, key)],
       commit: (edit: ObjectEdit) => setObject(categoryId, key, edit),
     })

@@ -30,6 +30,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { clipBlindFrames, composeBlindSingle } from '../lib/blinds'
 import { buildEdge, type EdgeOption } from '../lib/edges'
+import { ShaderCanvas } from './shader-canvas'
 import {
   applyMask,
   cropImage,
@@ -76,6 +77,7 @@ export type AssetRequest =
       defaultPreview?: string // the object's vanilla cell: silhouette + preview
       // Vanilla animation frames (blinds), for the chip shape + shine overlay.
       loadFrames?: () => Promise<string[]>
+      exeBuf?: Uint8Array | null // for the live shader preview (reads .fs from it)
       value: ObjectEdit | undefined
       commit: (edit: ObjectEdit) => void
     })
@@ -399,6 +401,12 @@ function AssetModal({
     obj && (work.sprites.length > 1 || obj.caps.animated)
   )
 
+  // Live edition-shader preview: the real game shader on the current art.
+  const shaderBase = previewMain ?? previewDefault
+  const shaderExe = obj?.exeBuf ?? null
+  const shaderOption =
+    obj && work.shader && shaderExe && shaderBase ? work.shader : undefined
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className='max-w-4xl'>
@@ -425,7 +433,15 @@ function AssetModal({
                 className='relative bg-[length:12px_12px] bg-[repeating-conic-gradient(#0002_0_25%,transparent_0_50%)]'
                 style={{ width: dispW, height: dispH }}
               >
-                {previewMain ? (
+                {shaderOption && shaderBase && shaderExe ? (
+                  <ShaderCanvas
+                    sprite={shaderBase}
+                    option={shaderOption}
+                    exeBuf={shaderExe}
+                    width={Math.round(dispW)}
+                    height={Math.round(dispH)}
+                  />
+                ) : previewMain ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={previewMain}
@@ -634,7 +650,8 @@ function AssetModal({
                     </SelectContent>
                   </Select>
                   <p className='text-muted-foreground text-xs'>
-                    A default edition/shader applied in-game (visual only).
+                    A default edition applied in-game — previewed live above with
+                    the real game shader (needs Balatro.exe).
                   </p>
                 </div>
               )}
