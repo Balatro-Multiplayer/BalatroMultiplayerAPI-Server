@@ -39,6 +39,13 @@ export type ActionEnemyInfo = {
 	handsLeft: number
 	skips: number
 	lives: number
+} | {
+	action: 'enemyInfo'
+    noScore: true
+	score: null
+	handsLeft: number
+	skips: number
+	lives: number
 }
 export type ActionEndPvP = { action: 'endPvP'; lost: boolean, pvpTimerLost?: boolean }
 export type ActionLobbyOptions = { action: 'lobbyOptions', gamemode: string }

@@ -262,7 +262,16 @@ const playHandAction = (
 			skips: client.skips,
 			lives: client.lives,
 		});
-	}
+	} else {
+        enemy.sendAction({
+			action: "enemyInfo",
+			handsLeft,
+			score: null,
+			skips: client.skips,
+			lives: client.lives,
+            noScore: true
+		});
+    }
 
 	// On our first hand of the blind, send the enemy's current state to us. If
 	// they have already played, this is the score that was withheld until now;
@@ -276,7 +285,16 @@ const playHandAction = (
 			skips: enemy.skips,
 			lives: enemy.lives,
 		});
-	}
+	} else {
+        client.sendAction({
+			action: "enemyInfo",
+			handsLeft: enemy.handsLeft,
+			score: null,
+			skips: enemy.skips,
+			lives: enemy.lives,
+            noScore: true
+		});
+    }
 
 	// This info is only sent on a boss blind, so it shouldn't
 	// affect other blinds
