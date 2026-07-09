@@ -1,5 +1,5 @@
 import type Client from "./Client.js";
-import type { InsaneInt } from "./InsaneInt.js";
+import { InsaneInt } from "./InsaneInt.js";
 import GameModes from "./GameMode.js";
 import type {
 	ActionLobbyInfo,
@@ -350,6 +350,7 @@ class Lobby {
 			this.host.setLocation("Blind Select");
 			this.host.furthestBlind = 0;
 			this.host.skips = 0;
+            this.host.score = new InsaneInt(0, 0, 0);
 		}
 		if (this.guest) {
 			this.guest.isReady = false;
@@ -357,6 +358,7 @@ class Lobby {
 			this.guest.setLocation("Blind Select");
 			this.guest.furthestBlind = 0;
 			this.guest.skips = 0;
+            this.guest.score = new InsaneInt(0, 0, 0);
 		}
 		this.tcgBets.clear();
 		this.firstReadyAt = null;
