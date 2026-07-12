@@ -513,6 +513,7 @@ const server = createServer((socket) => {
                             actionArgs as ActionHandlerArgs<ActionDataSyncRequest>,
                             client,
                         )
+                        break
 					case 'handyMPExtensionEnable':
 						actionHandlers.handyMPExtensionEnable(
 							actionArgs as ActionHandlerArgs<ActionHandyMPExtensionEnable>,
