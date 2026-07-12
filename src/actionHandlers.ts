@@ -941,7 +941,7 @@ const dataSyncAction = (
 
     enemy.sendAction({
         action: "dataSync",
-        timer: timer
+        timer: Number.isNaN(timer) ? undefined : Number(timer)
     })
 }
 
