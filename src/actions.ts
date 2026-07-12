@@ -62,6 +62,7 @@ export type ActionGetNemesisStatsRequest = { action: 'endGameStatsRequested' }
 export type ActionReceiveNemesisStatsRequest = { action: 'nemesisEndGameStats', reroll_count: string, reroll_cost_total:string, vouchers:string }
 export type ActionStartAnteTimer = { action: 'startAnteTimer', time: number, isPvP?: boolean }
 export type ActionPauseAnteTimer = { action: 'pauseAnteTimer', time: number }
+export type ActionDataSyncResponse = { action: "dataSync", timer?: number }
 // Handy Actions (Server to Client)
 export type ActionHandyMPExtensionLobbyEnabled = { action: 'handyMPExtensionLobbyEnabled', enabled: boolean }
 // TCG Actions (Server to Client)
@@ -115,6 +116,7 @@ export type ActionServerToClient =
 	| ActionTcgPlayerStatus
 	| ActionTcgStartTurn
 	| ActionModded
+    | ActionDataSyncResponse
     | ActionHandyMPExtensionLobbyEnabled
 // Client to Server
 export type ActionUsername = { action: 'username'; username: string; modHash: string }
@@ -175,6 +177,7 @@ export type ActionTcgEndTurn = { action: 'tcgEndTurn', [key: string]: unknown }
 export type ActionModdedRequest = { action: 'moddedAction', modId: string, modAction: string, target?: 'nemesis' | 'all', [key: string]: unknown }
 // Handy Actions (Client to Server)
 export type ActionRejoinLobby = { action: 'rejoinLobby'; code: string; reconnectToken: string }
+export type ActionDataSyncRequest = { action: "dataSync", timer?: number }
 export type ActionHandyMPExtensionEnable = { action: 'handyMPExtensionEnable', [key: string]: unknown }
 export type ActionHandyMPExtensionDisable = { action: 'handyMPExtensionDisable', [key: string]: unknown }
 export type ActionClientToServer =
@@ -230,6 +233,7 @@ export type ActionClientToServer =
 	| ActionTcgEndTurn
 	| ActionModdedRequest
 	| ActionRejoinLobby
+    | ActionDataSyncRequest
     | ActionHandyMPExtensionEnable
     | ActionHandyMPExtensionDisable
 // Utility actions
