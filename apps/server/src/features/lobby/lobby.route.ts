@@ -151,7 +151,8 @@ export function createLobbyRouter(service: LobbyService): Router {
 
 			const lobby = getLobby(code)
 			if (!lobby) throw new AppError('Lobby not found', 404)
-			if (!lobby.hasPlayer(session.playerId)) throw new AppError('Not a member of this lobby', 403)
+			if (!lobby.hasPlayer(session.playerId))
+				throw new AppError('Not a member of this lobby', 403)
 
 			const { message } = req.body
 			if (!message || typeof message !== 'string') {
@@ -162,15 +163,42 @@ export function createLobbyRouter(service: LobbyService): Router {
 			}
 
 			const displayName = session.getDisplayName()
-			const result = await processAndPublishMessage(lobby, session.playerId, displayName, message)
+			const result = await processAndPublishMessage(
+				lobby,
+				session.playerId,
+				displayName,
+				message,
+			)
 
 			if (!result.ok) {
-				if (result.reason === 'empty') throw new AppError('Message cannot be empty', 400)
-				if (result.reason === 'moderated') throw new AppError('Message was rejected by moderation', 403)
-				throw new AppError('Failed to send message', 500)
+				switch (result.reason) {
+					case 'empty':
+						throw new AppError('Message cannot be empty', 400)
+					case 'moderated':
+						throw new AppError('Message was rejected by moderation', 403)
+					case 'muted':
+						throw new AppError(
+							result.mutedUntil
+								? `You are muted until ${result.mutedUntil}`
+								: 'You are muted',
+							403,
+						)
+					case 'rate_limited':
+						// Headers set before next(err) survive: errorHandler writes
+						// status/body onto this same res (pinned by the route test).
+						res.setHeader(
+							'Retry-After',
+							Math.ceil((result.retryAfterMs ?? 1000) / 1000),
+						)
+						throw new AppError('Slow down and try again shortly', 429)
+					case 'moderation_unavailable':
+						throw new AppError('Chat is temporarily unavailable', 503)
+				}
 			}
 
-			res.json({ ok: true })
+			// publishText is present only when moderation rewrote the message — the
+			// sender's client uses it to show what other players actually received.
+			res.json({ ok: true, publishText: result.publishText })
 		} catch (err) {
 			next(err)
 		}
@@ -184,7 +212,8 @@ export function createLobbyRouter(service: LobbyService): Router {
 
 			const lobby = getLobby(code)
 			if (!lobby) throw new AppError('Lobby not found', 404)
-			if (!lobby.hasPlayer(session.playerId)) throw new AppError('Not a member of this lobby', 403)
+			if (!lobby.hasPlayer(session.playerId))
+				throw new AppError('Not a member of this lobby', 403)
 
 			const { reportedPlayerId, type, message } = req.body
 
@@ -194,11 +223,20 @@ export function createLobbyRouter(service: LobbyService): Router {
 			if (!type || typeof type !== 'string' || type.length > 64) {
 				throw new AppError('Missing or invalid type (max 64 characters)', 400)
 			}
-			if (message !== undefined && (typeof message !== 'string' || message.length > 500)) {
+			if (
+				message !== undefined &&
+				(typeof message !== 'string' || message.length > 500)
+			) {
 				throw new AppError('Invalid message (max 500 characters)', 400)
 			}
 
-			await submitReport(lobby, session.playerId, reportedPlayerId, type, message)
+			await submitReport(
+				lobby,
+				session.playerId,
+				reportedPlayerId,
+				type,
+				message,
+			)
 
 			res.json({ ok: true })
 		} catch (err) {

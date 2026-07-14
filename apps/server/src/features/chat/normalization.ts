@@ -1,5 +1,6 @@
-// The original message is always what gets published and logged.
-// Normalization is only for allowlist key lookup.
+// Normalization is only for allowlist key lookup. The published text is the
+// player's original unless the moderation service supplies a rewrite; the
+// reported-lobby evidence buffer always keeps the original.
 export function normalizeForAllowlist(message: string): string | null {
 	const trimmed = message.trim()
 	if (trimmed === '') return null

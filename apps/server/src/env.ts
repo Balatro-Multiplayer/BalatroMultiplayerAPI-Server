@@ -64,4 +64,13 @@ export const env = {
 	// When true, only players holding the 'tester' privilege may create lobbies or
 	// queue for matches. Everyone else is rejected. Off by default.
 	TESTING_MODE: optionalBool('TESTING_MODE', false),
+
+	// Moderation service bridge. Unset URL = legacy local pipeline (obscenity);
+	// set it to route free-form chat through the external moderation service.
+	// Outage policy: 'off' (chat 503s) or 'presets' (allowlist-only) when the
+	// service is unreachable — free-form never proceeds unmoderated.
+	MODERATION_SERVICE_URL: optional('MODERATION_SERVICE_URL', ''),
+	MODERATION_BEARER_TOKEN: optional('MODERATION_BEARER_TOKEN', ''),
+	MODERATION_TIMEOUT_MS: Number(optional('MODERATION_TIMEOUT_MS', '1500')),
+	MODERATION_OUTAGE_POLICY: optional('MODERATION_OUTAGE_POLICY', 'off'),
 } as const
