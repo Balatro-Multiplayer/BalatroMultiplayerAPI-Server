@@ -3,6 +3,16 @@ import { env } from '../../env.js'
 import type { LobbyEvent } from '../../shared/types/index.js'
 import type { ModConfig } from '../../state/config.js'
 
+const ACTIONS_TOPIC_FILTER = 'lobby/+/players/+/actions'
+const ACTIONS_TOPIC_RE = /^lobby\/([^/]+)\/players\/([^/]+)\/actions$/
+
+interface ActionEnvelope {
+	action: string
+	from: string
+	to: string
+	params: Record<string, unknown>
+}
+
 class MqttService {
 	private client: mqtt.MqttClient | null = null
 
@@ -145,6 +155,42 @@ class MqttService {
 	): Promise<void> {
 		const topic = `lobby/${lobbyCode}/players/${playerId}/state`
 		await this.publish(topic, '', { qos: 1, retain: true })
+	}
+
+	// Subscribes to every player's per-lobby actions topic and invokes `handler`
+	// for broadcasts/sends of the given MPAPI ActionType key. The envelope is
+	// `{cid, action, from, to, params}` (see BalatroMultiplayerAPI's
+	// api/action/instance.lua) -- `from` is always the topic's own playerId
+	// segment, since each player publishes their own actions to their own
+	// subtopic. Multiple calls (one per actionKey) share the same wildcard
+	// subscription and just add another filtered listener.
+	async subscribeToLobbyActions(
+		actionKey: string,
+		handler: (lobbyCode: string, playerId: string, params: Record<string, unknown>) => void,
+	): Promise<void> {
+		if (!this.client) throw new Error('MQTT client not connected')
+
+		await new Promise<void>((resolve, reject) => {
+			this.client!.subscribe(ACTIONS_TOPIC_FILTER, { qos: 1 }, (err) => {
+				if (err) reject(err)
+				else resolve()
+			})
+		})
+
+		this.client.on('message', (topic, payload) => {
+			const match = ACTIONS_TOPIC_RE.exec(topic)
+			if (!match) return
+
+			let envelope: ActionEnvelope
+			try {
+				envelope = JSON.parse(payload.toString())
+			} catch {
+				return
+			}
+			if (envelope.action !== actionKey) return
+
+			handler(match[1], match[2], envelope.params ?? {})
+		})
 	}
 
 	private publish(
