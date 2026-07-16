@@ -249,8 +249,9 @@ const playHandAction = (
 	// player has genuinely played this blind. Hand counts can vary in this game, so
 	// handsLeft is not a reliable signal.
 	const playedRealHand = client.score.greaterThan(new InsaneInt(0, 0, 0));
-	const wasFirstHand = playedRealHand && !client.playedThisBlind;
 	if (playedRealHand) client.playedThisBlind = true;
+
+    const isHostTurn = lobby.host.score.equalTo(lobby.guest.score) ? lobby.host.firstReady : lobby.host.score.greaterThan(lobby.guest.score)
 
 	// Reveal our score to the enemy immediately, unless we're withholding it
 	// until they have also committed a hand this blind. This stops a player from
@@ -262,22 +263,42 @@ const playHandAction = (
 			score: client.score.toString(),
 			skips: client.skips,
 			lives: client.lives,
+            pvpTimerOrder: isHostTurn ? "host" : "guest"
 		});
-	}
+	} else {
+        enemy.sendAction({
+			action: "enemyInfo",
+			handsLeft,
+			score: null,
+			skips: client.skips,
+			lives: client.lives,
+            noScore: true,
+		});
+    }
 
 	// On our first hand of the blind, send the enemy's current state to us. If
 	// they have already played, this is the score that was withheld until now;
 	// if they haven't, it's their reset state (score 0, full hands) — enough for
 	// us to stop masking their hand count now that we've committed our own hand.
-	if (hideScore && wasFirstHand) {
+	if (!hideScore || client.playedThisBlind) {
 		client.sendAction({
 			action: "enemyInfo",
 			handsLeft: enemy.handsLeft,
 			score: enemy.score.toString(),
 			skips: enemy.skips,
 			lives: enemy.lives,
+            pvpTimerOrder: isHostTurn ? "host" : "guest"
 		});
-	}
+	} else {
+        client.sendAction({
+			action: "enemyInfo",
+			handsLeft: enemy.handsLeft,
+			score: null,
+			skips: enemy.skips,
+			lives: enemy.lives,
+            noScore: true,
+		});
+    }
 
 	// This info is only sent on a boss blind, so it shouldn't
 	// affect other blinds
