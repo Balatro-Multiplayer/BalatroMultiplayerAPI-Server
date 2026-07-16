@@ -2,6 +2,7 @@ import { eq, lt } from 'drizzle-orm'
 import type {
 	InsertRunParams,
 	LobbyRunStatus,
+	RunWithLogs,
 	UpsertPlayerLogParams,
 } from '../../contracts/IReplayLogRepository.js'
 import { db } from '../db/index.js'
@@ -64,4 +65,38 @@ export async function purgeExpiredRunLogs(): Promise<number> {
 		.delete(matchRunLogs)
 		.where(lt(matchRunLogs.expiresAt, new Date()))
 	return result.rowCount ?? 0
+}
+
+export async function getRunWithLogs(
+	runId: string,
+): Promise<RunWithLogs | undefined> {
+	const [run] = await db.select().from(lobbyRuns).where(eq(lobbyRuns.id, runId))
+	if (!run) return undefined
+
+	const logs = await db
+		.select({
+			playerId: matchRunLogs.playerId,
+			compressedEvents: matchRunLogs.compressedEvents,
+			carbonHash: matchRunLogs.carbonHash,
+			eventCount: matchRunLogs.eventCount,
+			status: matchRunLogs.status,
+		})
+		.from(matchRunLogs)
+		.where(eq(matchRunLogs.runId, runId))
+
+	return {
+		run: {
+			id: run.id,
+			lobbyCode: run.lobbyCode,
+			modId: run.modId,
+			lobbyType: run.lobbyType,
+			status: run.status as LobbyRunStatus,
+			startedAt: run.startedAt,
+			finalizedAt: run.finalizedAt,
+		},
+		logs: logs.map((log) => ({
+			...log,
+			status: log.status as RunWithLogs['logs'][number]['status'],
+		})),
+	}
 }

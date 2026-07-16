@@ -1,9 +1,11 @@
 import type {
 	IReplayLogRepository,
 	LobbyRunStatus,
+	RunWithLogs,
 } from '../../contracts/IReplayLogRepository.js'
 import * as replayLogGateway from '../../infrastructure/gateways/replay-log.gateway.js'
 import { compressToBase64 } from '../../shared/utils/compression.js'
+import { AppError } from '../../shared/utils/errors.js'
 import { getLobby } from '../../state/index.js'
 
 // Indefinite (NULL expiresAt) is reserved for flagged/disputed runs -- Phase 8's
@@ -24,6 +26,13 @@ interface PlayerBuffer {
 interface RunBuffer {
 	runId: string
 	players: Map<string, PlayerBuffer>
+}
+
+export interface SpectatorSnapshotEntry {
+	playerId: string
+	ante: string | null
+	score: string | null
+	handsRemaining: number | null
 }
 
 interface ReplayLogServiceDeps {
@@ -120,7 +129,60 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 		return runs.has(lobbyCode)
 	}
 
-	return { handleActionLogEvent, finalizeRun, hasBufferedRun }
+	// Phase 6: GET /api/runs/:runId/replay. Restricted to the run's own
+	// participants -- there's no broader "public replay" access tier designed
+	// yet, so this is the conservative default.
+	async function getReplay(
+		runId: string,
+		requesterId: string,
+	): Promise<RunWithLogs> {
+		const result = await repository.getRunWithLogs(runId)
+		if (!result) throw new AppError('Run not found', 404)
+		if (!result.logs.some((log) => log.playerId === requesterId)) {
+			throw new AppError('Not a participant in this run', 403)
+		}
+		return result
+	}
+
+	// Phase 7: best-effort one-time state snapshot for a spectator joining a
+	// live match, derived from whatever the in-memory buffer has observed so
+	// far for each player (their most recent ante marker and hand result).
+	// Returns [] for a lobby with no buffered run yet (e.g. still in the menu).
+	function getSpectatorSnapshot(lobbyCode: string): SpectatorSnapshotEntry[] {
+		const run = runs.get(lobbyCode)
+		if (!run) return []
+
+		const snapshot: SpectatorSnapshotEntry[] = []
+		for (const [playerId, buf] of run.players) {
+			let ante: string | null = null
+			let score: string | null = null
+			let handsRemaining: number | null = null
+
+			for (const event of buf.events) {
+				if (event.opcode === 'set_ante_key' && typeof event.args === 'string') {
+					ante = event.args
+				} else if (
+					event.opcode === 'hand_result' &&
+					Array.isArray(event.args)
+				) {
+					const [s, h] = event.args
+					if (typeof s === 'string') score = s
+					if (typeof h === 'number') handsRemaining = h
+				}
+			}
+
+			snapshot.push({ playerId, ante, score, handsRemaining })
+		}
+		return snapshot
+	}
+
+	return {
+		handleActionLogEvent,
+		finalizeRun,
+		hasBufferedRun,
+		getReplay,
+		getSpectatorSnapshot,
+	}
 }
 
 // Module-level singleton, matching mqttService/gracePeriodService -- the
