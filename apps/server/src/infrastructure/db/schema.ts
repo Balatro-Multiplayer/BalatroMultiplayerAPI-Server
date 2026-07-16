@@ -23,7 +23,9 @@ export const players = pgTable(
 		discordIdHash: text('discord_id_hash'),
 		discordUsername: varchar('discord_username', { length: 64 }),
 		useDiscordName: boolean('use_discord_name').notNull().default(false),
-		preferredJoker: varchar('preferred_joker', { length: 64 }).notNull().default('j_joker'),
+		preferredJoker: varchar('preferred_joker', { length: 64 })
+			.notNull()
+			.default('j_joker'),
 		privileges: text('privileges').array().notNull().default(sql`'{}'::text[]`),
 		steamName: varchar('steam_name', { length: 64 }).notNull(),
 		chatEnabled: boolean('chat_enabled').notNull().default(false),
@@ -125,7 +127,9 @@ export const flaggedMessages = pgTable('flagged_messages', {
 	playerId: text('player_id').notNull(),
 	message: text('message').notNull(),
 	matches: jsonb('matches').notNull(),
-	flaggedAt: timestamp('flagged_at', { withTimezone: true }).notNull().defaultNow(),
+	flaggedAt: timestamp('flagged_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
 	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 })
 
@@ -139,7 +143,9 @@ export const reports = pgTable('reports', {
 	// Client-defined category string (e.g. "harassment", "cheating")
 	type: varchar('type', { length: 64 }).notNull(),
 	message: text('message'),
-	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	createdAt: timestamp('created_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
 })
 
 // Chat messages saved when a lobby receives a report.
@@ -174,8 +180,12 @@ export const matchmakingMatches = pgTable('matchmaking_matches', {
 	// Server-stamped moment the run actually began — basis for server-measured
 	// timing leaderboards (e.g. speedrun fastest time). NULL until the host starts.
 	gameStartedAt: timestamp('game_started_at', { withTimezone: true }),
-	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+	createdAt: timestamp('created_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
 })
 
 export const matchmakingRatings = pgTable(
@@ -199,7 +209,9 @@ export const matchmakingRatings = pgTable(
 		bestAt: timestamp('best_at', { withTimezone: true }),
 		lastMatchAt: timestamp('last_match_at', { withTimezone: true }),
 		decayAppliedAt: timestamp('decay_applied_at', { withTimezone: true }),
-		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
 	},
 	(t) => [
 		primaryKey({ columns: [t.playerId, t.modId, t.gameMode, t.season] }),
@@ -222,7 +234,9 @@ export const leaderboardCache = pgTable(
 		gamesPlayed: integer('games_played').notNull(),
 		// Cached copy of the player's secondary season best for display alongside rank.
 		seasonBest: bigint('season_best', { mode: 'number' }),
-		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
 	},
 	(t) => [
 		primaryKey({ columns: [t.modId, t.gameMode, t.season, t.rank] }),
@@ -244,7 +258,9 @@ export const modBranches = pgTable('mod_branches', {
 	id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
 	name: text('name').notNull().unique(),
 	description: text('description'),
-	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	createdAt: timestamp('created_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
 })
 
 export const modReleases = pgTable('mod_release', {
@@ -259,7 +275,9 @@ export const modReleases = pgTable('mod_release', {
 		.notNull()
 		.default(1)
 		.references(() => modBranches.id),
-	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	createdAt: timestamp('created_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
 	updatedAt: timestamp('updated_at', { withTimezone: true })
 		.notNull()
 		.defaultNow()
@@ -282,10 +300,58 @@ export const playerBans = pgTable(
 		banType: text('ban_type').notNull(), // 'chat' | 'queue' | 'account'
 		expiresAt: timestamp('expires_at', { withTimezone: true }), // null = indefinite
 		issuedBy: text('issued_by').notNull(), // moderator display name or 'system'
-		issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
+		issuedAt: timestamp('issued_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
 		reason: text('reason').notNull().default(''),
 		liftedAt: timestamp('lifted_at', { withTimezone: true }), // set when lifted early
 		liftedBy: text('lifted_by'),
 	},
 	(t) => [index('player_bans_player_idx').on(t.playerId)],
+)
+
+// One row per game run, any lobby type (matchmaking/private/practice). This is
+// the anchor `matchRunLogs` hangs off of, since `matchmakingMatches` only
+// exists for ranked/casual queue games and practice/private runs need an
+// anchor too. Created the moment the server observes the first log event for
+// a lobby (see features/replay-log), finalized when the run ends one way or
+// another (result reported, host stops the game, or the lobby is abandoned).
+export const lobbyRuns = pgTable(
+	'lobby_runs',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		lobbyCode: varchar('lobby_code', { length: 6 }).notNull(),
+		modId: varchar('mod_id', { length: 128 }).notNull(),
+		lobbyType: varchar('lobby_type', { length: 16 }).notNull(), // 'public' | 'private'
+		matchmakingMatchId: varchar('matchmaking_match_id', { length: 36 }),
+		status: varchar('status', { length: 16 }).notNull().default('active'), // active | completed | abandoned | terminated
+		startedAt: timestamp('started_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+		finalizedAt: timestamp('finalized_at', { withTimezone: true }),
+	},
+	(t) => [index('lobby_runs_lobby_code_idx').on(t.lobbyCode)],
+)
+
+// One row per (run, player) -- the compact replay/anti-cheat artifact itself.
+// `compressedEvents` is the gzip+base64 block over the whole finalized carbon
+// stream (manifest + events + END + CHK), per lib/replay_log.lua's Phase 2
+// design: block-level compression, not per-event. `carbonHash` is the CHK
+// value the client itself computed and broadcast (verbatim, not recomputed
+// here) -- Phase 8 anti-cheat is what actually re-derives and compares it.
+export const matchRunLogs = pgTable(
+	'match_run_logs',
+	{
+		runId: uuid('run_id')
+			.notNull()
+			.references(() => lobbyRuns.id, { onDelete: 'cascade' }),
+		playerId: text('player_id').notNull(),
+		compressedEvents: text('compressed_events').notNull(),
+		carbonHash: text('carbon_hash'),
+		eventCount: integer('event_count').notNull().default(0),
+		status: varchar('status', { length: 16 }).notNull().default('partial'), // partial | complete
+		finalizedAt: timestamp('finalized_at', { withTimezone: true }),
+		expiresAt: timestamp('expires_at', { withTimezone: true }), // null = indefinite (flagged/disputed)
+	},
+	(t) => [primaryKey({ columns: [t.runId, t.playerId] })],
 )
