@@ -40,6 +40,7 @@ import type {
 	ActionRejoinLobby,
     ActionHandyMPExtensionEnable,
     ActionHandyMPExtensionDisable,
+    ActionDataSyncRequest,
 } from './actions.js'
 import { InsaneInt } from './InsaneInt.js'
 import { ABUSE_CONFIG, ConnectionMeter } from './abuse.js'
@@ -507,6 +508,12 @@ const server = createServer((socket) => {
 							client,
 						)
 						break
+                    case 'dataSync':
+                        actionHandlers.dataSync(
+                            actionArgs as ActionHandlerArgs<ActionDataSyncRequest>,
+                            client,
+                        )
+                        break
 					case 'handyMPExtensionEnable':
 						actionHandlers.handyMPExtensionEnable(
 							actionArgs as ActionHandlerArgs<ActionHandyMPExtensionEnable>,

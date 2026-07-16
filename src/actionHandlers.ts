@@ -37,6 +37,7 @@ import type {
 	ActionModdedRequest,
 	ActionHandyMPExtensionEnable,
 	ActionHandyMPExtensionDisable,
+    ActionDataSyncRequest,
 } from "./actions.js";
 import { generateSeed } from "./utils.js";
 import {
@@ -931,6 +932,19 @@ const streamLogLinesAction = (
 	});
 };
 
+const dataSyncAction = (
+    { timer }: ActionHandlerArgs<ActionDataSyncRequest>,
+    client: Client,
+ ) => {
+	const [lobby, enemy] = getEnemy(client);
+    if (!lobby || !enemy) return
+
+    enemy.sendAction({
+        action: "dataSync",
+        timer: Number.isNaN(timer) ? undefined : Number(timer)
+    })
+}
+
 export const actionHandlers = {
 	username: usernameAction,
 	createLobby: createLobbyAction,
@@ -985,6 +999,7 @@ export const actionHandlers = {
 	handyMPExtensionEnable: handyMPExtensionEnable,
 	handyMPExtensionDisable: handyMPExtensionDisable,
     failPvPTimer: failPvPTimerAction,
+    dataSync: dataSyncAction,
 } satisfies Partial<ActionHandlers>;
 
 /** Server-internal handler for connection drops (not a client action) */
