@@ -1,9 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { signJwt } from '../../features/auth/jwt.js'
 import {
 	authenticateClient,
 	authorizeAction,
 } from '../../features/emqx/emqx-auth.service.js'
-import { signJwt } from '../../features/auth/jwt.js'
+import {
+	clearAllSpectatorGrants,
+	grantSpectator,
+} from '../../infrastructure/mqtt/spectator-registry.js'
 import { Lobby, createSession, lobbies } from '../../state/index.js'
 
 function makeToken(playerId: string, steamName = 'Test') {
@@ -34,7 +38,11 @@ function setupLobbyWithChatPlayers(
 	lobbies.set(code, lobby)
 
 	for (const id of [hostId, ...playerIds]) {
-		const session = createSession(`User_${id}`, { id, tosAcceptedVersion: 1, chatEnabled: true })
+		const session = createSession(`User_${id}`, {
+			id,
+			tosAcceptedVersion: 1,
+			chatEnabled: true,
+		})
 		lobby.addPlayer(session)
 	}
 	return lobby
@@ -146,6 +154,62 @@ describe('emqx-auth.service', () => {
 					...base,
 					clientid: 'outsider',
 					topic: 'lobby/ABCDE/metadata',
+					action: 'subscribe',
+				})
+				expect(result.result).toBe('deny')
+			})
+		})
+
+		describe('spectator access', () => {
+			afterEach(() => {
+				clearAllSpectatorGrants()
+			})
+
+			it('allows a spectator to subscribe to any subtopic without lobby membership', async () => {
+				setupLobbyWithPlayer('ABCDE', 'host1')
+				createSession('Spectator', { id: 'spectator1' })
+				grantSpectator('spectator1', 'ABCDE')
+
+				for (const topic of [
+					'lobby/ABCDE/metadata',
+					'lobby/ABCDE/events',
+					'lobby/ABCDE/players/host1/actions',
+					'lobby/ABCDE/chat',
+				]) {
+					const result = await authorizeAction({
+						...base,
+						clientid: 'spectator1',
+						topic,
+						action: 'subscribe',
+					})
+					expect(result.result).toBe('allow')
+				}
+			})
+
+			it('denies a spectator from publishing', async () => {
+				setupLobbyWithPlayer('ABCDE', 'host1')
+				createSession('Spectator', { id: 'spectator1' })
+				grantSpectator('spectator1', 'ABCDE')
+
+				const result = await authorizeAction({
+					...base,
+					clientid: 'spectator1',
+					topic: 'lobby/ABCDE/players/spectator1/actions',
+					action: 'publish',
+				})
+				expect(result.result).toBe('deny')
+			})
+
+			it('does not grant access to a lobby the spectator was not granted for', async () => {
+				setupLobbyWithPlayer('ABCDE', 'host1')
+				setupLobbyWithPlayer('FGHIJ', 'host2')
+				createSession('Spectator', { id: 'spectator1' })
+				grantSpectator('spectator1', 'ABCDE')
+
+				const result = await authorizeAction({
+					...base,
+					clientid: 'spectator1',
+					topic: 'lobby/FGHIJ/metadata',
 					action: 'subscribe',
 				})
 				expect(result.result).toBe('deny')

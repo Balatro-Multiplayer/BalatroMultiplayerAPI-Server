@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest'
 import request from 'supertest'
-import { createTestApp } from './app.js'
+import { afterEach, describe, expect, it } from 'vitest'
 import { signJwt } from '../../features/auth/jwt.js'
-import { createSession } from '../../state/index.js'
+import {
+	clearAllSpectatorGrants,
+	grantSpectator,
+} from '../../infrastructure/mqtt/spectator-registry.js'
+import { createSession, lobbies } from '../../state/index.js'
+import { Lobby } from '../../state/lobby.js'
+import { createTestApp } from './app.js'
 
 const app = createTestApp()
 
@@ -15,7 +20,9 @@ function authHeader(playerId: string, steamName: string, lobbyCode?: string) {
 describe('lobby routes', () => {
 	describe('POST /api/lobbies', () => {
 		it('returns 401 without auth', async () => {
-			const res = await request(app).post('/api/lobbies').send({ modId: 'mod1' })
+			const res = await request(app)
+				.post('/api/lobbies')
+				.send({ modId: 'mod1' })
 			expect(res.status).toBe(401)
 		})
 
@@ -249,6 +256,82 @@ describe('lobby routes', () => {
 				.send({})
 
 			expect(metaRes.status).toBe(400)
+		})
+	})
+
+	describe('GET /:code/spectate', () => {
+		afterEach(() => {
+			clearAllSpectatorGrants()
+		})
+
+		it('returns 401 without auth', async () => {
+			const res = await request(app).get('/api/lobbies/ABCDE/spectate')
+			expect(res.status).toBe(401)
+		})
+
+		it('returns 404 for a lobby that does not exist', async () => {
+			const res = await request(app)
+				.get('/api/lobbies/ZZZZZ/spectate')
+				.set('Authorization', authHeader('spectator1', 'Watcher'))
+			expect(res.status).toBe(404)
+		})
+
+		it('returns 403 for a private lobby that has not opted in', async () => {
+			const createRes = await request(app)
+				.post('/api/lobbies')
+				.set('Authorization', authHeader('host1', 'Alice'))
+				.send({ modId: 'mod1' })
+			const code = createRes.body.lobby.code
+
+			const res = await request(app)
+				.get(`/api/lobbies/${code}/spectate`)
+				.set('Authorization', authHeader('spectator1', 'Watcher'))
+			expect(res.status).toBe(403)
+		})
+
+		it('allows spectating a private lobby that opted in via metadata', async () => {
+			const createRes = await request(app)
+				.post('/api/lobbies')
+				.set('Authorization', authHeader('host1', 'Alice'))
+				.send({ modId: 'mod1' })
+			const code = createRes.body.lobby.code
+
+			await request(app)
+				.put(`/api/lobbies/${code}/metadata`)
+				.set('Authorization', authHeader('host1', 'Alice', code))
+				.send({ metadata: { spectatable: true } })
+
+			const res = await request(app)
+				.get(`/api/lobbies/${code}/spectate`)
+				.set('Authorization', authHeader('spectator1', 'Watcher'))
+
+			expect(res.status).toBe(200)
+			expect(res.body.token).toBeDefined()
+			expect(res.body.snapshot).toEqual([])
+		})
+
+		it('always allows spectating a public (matchmaking) lobby', async () => {
+			const lobby = new Lobby('PUBLC', 'mod1', 'host1', 16, 'public')
+			lobbies.set(lobby.code, lobby)
+
+			const res = await request(app)
+				.get('/api/lobbies/PUBLC/spectate')
+				.set('Authorization', authHeader('spectator1', 'Watcher'))
+
+			expect(res.status).toBe(200)
+			expect(res.body.token).toBeDefined()
+		})
+
+		it('returns 429 once the lobby spectator cap is reached', async () => {
+			const lobby = new Lobby('PUBLC', 'mod1', 'host1', 16, 'public')
+			lobbies.set(lobby.code, lobby)
+			for (let i = 0; i < 50; i++) grantSpectator(`filler${i}`, 'PUBLC')
+
+			const res = await request(app)
+				.get('/api/lobbies/PUBLC/spectate')
+				.set('Authorization', authHeader('spectator1', 'Watcher'))
+
+			expect(res.status).toBe(429)
 		})
 	})
 })

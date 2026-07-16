@@ -15,6 +15,7 @@ import { loadConfigFromDb } from './infrastructure/gateways/config.gateway.js'
 import { purgeExpiredRunLogs } from './infrastructure/gateways/replay-log.gateway.js'
 import { clearAllGracePeriods } from './infrastructure/mqtt/grace-period.service.js'
 import { mqttService } from './infrastructure/mqtt/mqtt.service.js'
+import { clearAllSpectatorGrants } from './infrastructure/mqtt/spectator-registry.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import router, { matchmakingService } from './routes/index.js'
 import { startSessionCleanup, stopSessionCleanup } from './state/index.js'
@@ -39,6 +40,7 @@ async function shutdown() {
 	stopDailyJob()
 	stopSessionCleanup()
 	clearAllGracePeriods()
+	clearAllSpectatorGrants()
 
 	if (server) {
 		await new Promise<void>((resolve) => {

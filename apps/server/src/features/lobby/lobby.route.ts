@@ -1,12 +1,15 @@
 import { Router } from 'express'
-import { authenticate } from '../../middleware/authenticate.js'
-import { processAndPublishMessage } from '../chat/chat.service.js'
-import { submitReport } from '../../infrastructure/gateways/report.gateway.js'
-import { getLobby, getSession } from '../../state/index.js'
-import { getConfig } from '../../state/config.js'
-import { AppError } from '../../shared/utils/errors.js'
-import { assertCanPlay } from '../../shared/utils/access.js'
 import { hasActiveBan } from '../../infrastructure/gateways/ban.gateway.js'
+import { submitReport } from '../../infrastructure/gateways/report.gateway.js'
+import { grantSpectator } from '../../infrastructure/mqtt/spectator-registry.js'
+import { authenticate } from '../../middleware/authenticate.js'
+import { assertCanPlay } from '../../shared/utils/access.js'
+import { AppError } from '../../shared/utils/errors.js'
+import { getConfig } from '../../state/config.js'
+import { getLobby, getSession } from '../../state/index.js'
+import { signJwt } from '../auth/jwt.js'
+import { processAndPublishMessage } from '../chat/chat.service.js'
+import { replayLogService } from '../replay-log/replay-log.service.js'
 import type { LobbyService } from './lobby.service.js'
 
 export function createLobbyRouter(service: LobbyService): Router {
@@ -131,6 +134,36 @@ export function createLobbyRouter(service: LobbyService): Router {
 		}
 	})
 
+	// Access tiers per design doc §26.3: matchmaking (public) lobbies are always
+	// spectatable; private lobbies require the host to have set
+	// metadata.spectatable = true; there is no separate "practice" lobby type in
+	// this codebase, so a private lobby that hasn't opted in covers that case.
+	router.get('/:code/spectate', async (req, res, next) => {
+		try {
+			const lobby = getLobby(req.params.code)
+			if (!lobby) throw new AppError('Lobby not found', 404)
+
+			const spectatable =
+				lobby.type === 'public' || lobby.metadata.spectatable === true
+			if (!spectatable) throw new AppError('This lobby is not spectatable', 403)
+
+			if (!grantSpectator(req.player!.playerId, lobby.code)) {
+				throw new AppError('Spectator limit reached for this lobby', 429)
+			}
+
+			const token = signJwt({
+				playerId: req.player!.playerId,
+				steamName: req.player!.steamName,
+				lobbyCode: lobby.code,
+			})
+			const snapshot = replayLogService.getSpectatorSnapshot(lobby.code)
+
+			res.json({ token, snapshot })
+		} catch (err) {
+			next(err)
+		}
+	})
+
 	router.post('/:code/chat', async (req, res, next) => {
 		try {
 			const { code } = req.params
@@ -151,7 +184,8 @@ export function createLobbyRouter(service: LobbyService): Router {
 
 			const lobby = getLobby(code)
 			if (!lobby) throw new AppError('Lobby not found', 404)
-			if (!lobby.hasPlayer(session.playerId)) throw new AppError('Not a member of this lobby', 403)
+			if (!lobby.hasPlayer(session.playerId))
+				throw new AppError('Not a member of this lobby', 403)
 
 			const { message } = req.body
 			if (!message || typeof message !== 'string') {
@@ -162,11 +196,18 @@ export function createLobbyRouter(service: LobbyService): Router {
 			}
 
 			const displayName = session.getDisplayName()
-			const result = await processAndPublishMessage(lobby, session.playerId, displayName, message)
+			const result = await processAndPublishMessage(
+				lobby,
+				session.playerId,
+				displayName,
+				message,
+			)
 
 			if (!result.ok) {
-				if (result.reason === 'empty') throw new AppError('Message cannot be empty', 400)
-				if (result.reason === 'moderated') throw new AppError('Message was rejected by moderation', 403)
+				if (result.reason === 'empty')
+					throw new AppError('Message cannot be empty', 400)
+				if (result.reason === 'moderated')
+					throw new AppError('Message was rejected by moderation', 403)
 				throw new AppError('Failed to send message', 500)
 			}
 
@@ -184,7 +225,8 @@ export function createLobbyRouter(service: LobbyService): Router {
 
 			const lobby = getLobby(code)
 			if (!lobby) throw new AppError('Lobby not found', 404)
-			if (!lobby.hasPlayer(session.playerId)) throw new AppError('Not a member of this lobby', 403)
+			if (!lobby.hasPlayer(session.playerId))
+				throw new AppError('Not a member of this lobby', 403)
 
 			const { reportedPlayerId, type, message } = req.body
 
@@ -194,11 +236,20 @@ export function createLobbyRouter(service: LobbyService): Router {
 			if (!type || typeof type !== 'string' || type.length > 64) {
 				throw new AppError('Missing or invalid type (max 64 characters)', 400)
 			}
-			if (message !== undefined && (typeof message !== 'string' || message.length > 500)) {
+			if (
+				message !== undefined &&
+				(typeof message !== 'string' || message.length > 500)
+			) {
 				throw new AppError('Invalid message (max 500 characters)', 400)
 			}
 
-			await submitReport(lobby, session.playerId, reportedPlayerId, type, message)
+			await submitReport(
+				lobby,
+				session.playerId,
+				reportedPlayerId,
+				type,
+				message,
+			)
 
 			res.json({ ok: true })
 		} catch (err) {

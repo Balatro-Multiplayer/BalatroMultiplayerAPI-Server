@@ -1,13 +1,14 @@
 import { Router } from 'express'
 import { env } from '../../env.js'
-import {
-	authenticateClient,
-	authorizeAction,
-} from './emqx-auth.service.js'
 import { startGracePeriod } from '../../infrastructure/mqtt/grace-period.service.js'
-import { leaveAllQueues } from '../matchmaking/queue.js'
+import { revokeSpectator } from '../../infrastructure/mqtt/spectator-registry.js'
+import type {
+	EmqxAuthRequest,
+	EmqxAuthzRequest,
+} from '../../shared/types/index.js'
 import { getSession, removeSession } from '../../state/index.js'
-import type { EmqxAuthRequest, EmqxAuthzRequest } from '../../shared/types/index.js'
+import { leaveAllQueues } from '../matchmaking/queue.js'
+import { authenticateClient, authorizeAction } from './emqx-auth.service.js'
 
 const router = Router()
 
@@ -58,6 +59,7 @@ async function releasePlayerLobbyOrSession(clientid: string): Promise<void> {
 
 async function handleClientDisconnected(clientid: string): Promise<void> {
 	if (isSystemClientId(clientid)) return
+	revokeSpectator(clientid)
 	await releasePlayerLobbyOrSession(clientid)
 }
 

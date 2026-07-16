@@ -1,10 +1,14 @@
 import { env } from '../../env.js'
-import { getLobby, getSession } from '../../state/index.js'
-import { getConfig } from '../../state/config.js'
-import { Lobby } from '../../state/lobby.js'
-import type { EmqxAuthRequest, EmqxAuthzRequest } from '../../shared/types/index.js'
-import { verifyJwt } from '../auth/jwt.js'
 import { hasActiveBan } from '../../infrastructure/gateways/ban.gateway.js'
+import { getSpectatorGrant } from '../../infrastructure/mqtt/spectator-registry.js'
+import type {
+	EmqxAuthRequest,
+	EmqxAuthzRequest,
+} from '../../shared/types/index.js'
+import { getConfig } from '../../state/config.js'
+import { getLobby, getSession } from '../../state/index.js'
+import type { Lobby } from '../../state/lobby.js'
+import { verifyJwt } from '../auth/jwt.js'
 
 type Action = 'publish' | 'subscribe'
 type AuthzResult = { result: 'allow' | 'deny' }
@@ -28,7 +32,10 @@ function verifyPlayerSessionToken(token: string): { playerId: string } | null {
 	return { playerId: payload.playerId }
 }
 
-function clientIdMatchesToken(clientid: string, tokenPlayerId: string): boolean {
+function clientIdMatchesToken(
+	clientid: string,
+	tokenPlayerId: string,
+): boolean {
 	return clientid === tokenPlayerId
 }
 
@@ -183,6 +190,15 @@ function authorizeLobbyTopic(
 	action: Action,
 ): AuthzResult {
 	const lobbyCode = parts[1]
+
+	// A spectator grant (GET /api/lobbies/:code/spectate) gives read-only
+	// subscribe on the whole lobby/{code}/+/+ tree without lobby membership --
+	// per design doc §26.3 -- and is checked before the normal membership path
+	// below, since a spectator is deliberately not in `lobby.players`.
+	if (getSpectatorGrant(clientid)?.lobbyCode === lobbyCode) {
+		return allowIf(action === 'subscribe')
+	}
+
 	const lobby = getLobby(lobbyCode)
 	if (!lobby) return deny()
 	if (!lobby.hasPlayer(clientid)) return deny()
