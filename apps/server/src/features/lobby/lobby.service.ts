@@ -1,11 +1,12 @@
-import { Lobby, getLobby, getSession, lobbies } from '../../state/index.js'
+import type { IGracePeriodService } from '../../contracts/IGracePeriodService.js'
+import type { IMatchmakingCoordinator } from '../../contracts/IMatchmakingCoordinator.js'
+import type { IMessageBus } from '../../contracts/IMessageBus.js'
 import type { JwtPayload } from '../../shared/types/index.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { generateLobbyCode } from '../../shared/utils/lobby-code.js'
+import { Lobby, getLobby, getSession, lobbies } from '../../state/index.js'
 import { signJwt } from '../auth/jwt.js'
-import type { IMessageBus } from '../../contracts/IMessageBus.js'
-import type { IGracePeriodService } from '../../contracts/IGracePeriodService.js'
-import type { IMatchmakingCoordinator } from '../../contracts/IMatchmakingCoordinator.js'
+import { replayLogService } from '../replay-log/replay-log.service.js'
 
 interface LobbyServiceDeps {
 	messageBus: IMessageBus
@@ -18,7 +19,11 @@ export type LobbyService = ReturnType<typeof createLobbyService>
 export function createLobbyService(deps: LobbyServiceDeps) {
 	const { messageBus, gracePeriodService, matchmakingCoordinator } = deps
 
-	async function createLobby(player: JwtPayload, modId: string, maxPlayers?: number) {
+	async function createLobby(
+		player: JwtPayload,
+		modId: string,
+		maxPlayers?: number,
+	) {
 		const session = getSession(player.playerId)
 		if (!session) throw new AppError('Player session not found', 401)
 
@@ -32,7 +37,8 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 			attempts++
 		} while (attempts < 10)
 
-		if (attempts >= 10) throw new AppError('Failed to generate unique lobby code', 500)
+		if (attempts >= 10)
+			throw new AppError('Failed to generate unique lobby code', 500)
 
 		const lobby = new Lobby(code, modId, player.playerId, maxPlayers, 'private')
 		lobby.addPlayer(session)
@@ -69,7 +75,8 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		}
 
 		if (session.lobbyCode) throw new AppError('Already in a lobby', 409)
-		if (lobby.hasPlayer(player.playerId)) throw new AppError('Already in this lobby', 409)
+		if (lobby.hasPlayer(player.playerId))
+			throw new AppError('Already in this lobby', 409)
 		if (lobby.isFull) throw new AppError('Lobby is full', 409)
 
 		lobby.addPlayer(session)
@@ -80,7 +87,10 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		})
 
 		if (lobby.type === 'private') {
-			await matchmakingCoordinator.updateGroupQueueOnLobbyJoin(lobby.code, player.playerId)
+			await matchmakingCoordinator.updateGroupQueueOnLobbyJoin(
+				lobby.code,
+				player.playerId,
+			)
 		}
 
 		if (lobby.type === 'public') {
@@ -112,7 +122,8 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 
 		const lobby = getLobby(code)
 		if (!lobby) throw new AppError('Lobby not found', 404)
-		if (!lobby.hasPlayer(player.playerId)) throw new AppError('Not in this lobby', 400)
+		if (!lobby.hasPlayer(player.playerId))
+			throw new AppError('Not in this lobby', 400)
 
 		lobby.removePlayer(player.playerId)
 
@@ -140,6 +151,7 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 				})
 				await messageBus.cleanupLobbyTopics(lobby.code, [player.playerId])
 				lobbies.delete(lobby.code)
+				await replayLogService.finalizeRun(lobby.code, 'terminated')
 			} else {
 				const newHostId = lobby.players.keys().next().value!
 				lobby.hostId = newHostId
@@ -156,6 +168,7 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		if (lobby.isEmpty) {
 			await messageBus.cleanupLobbyTopics(lobby.code, [player.playerId])
 			lobbies.delete(lobby.code)
+			await replayLogService.finalizeRun(lobby.code, 'terminated')
 		}
 
 		const token = signJwt({
@@ -184,10 +197,15 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		}))
 	}
 
-	async function setMetadata(player: JwtPayload, code: string, metadata: Record<string, unknown>) {
+	async function setMetadata(
+		player: JwtPayload,
+		code: string,
+		metadata: Record<string, unknown>,
+	) {
 		const lobby = getLobby(code)
 		if (!lobby) throw new AppError('Lobby not found', 404)
-		if (lobby.hostId !== player.playerId) throw new AppError('Only the host can set metadata', 403)
+		if (lobby.hostId !== player.playerId)
+			throw new AppError('Only the host can set metadata', 403)
 
 		lobby.metadata = { ...lobby.metadata, ...metadata }
 
@@ -207,5 +225,12 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		return lobby.metadata
 	}
 
-	return { createLobby, joinLobby, leaveLobby, getLobbyInfo, getLobbyPlayers, setMetadata }
+	return {
+		createLobby,
+		joinLobby,
+		leaveLobby,
+		getLobbyInfo,
+		getLobbyPlayers,
+		setMetadata,
+	}
 }

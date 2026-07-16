@@ -1,5 +1,11 @@
-import { getSession, getLobby, lobbies, removeSession } from '../../state/index.js'
 import { syncMatchLobbyState } from '../../features/matchmaking/matchmaking.service.js'
+import { replayLogService } from '../../features/replay-log/replay-log.service.js'
+import {
+	getLobby,
+	getSession,
+	lobbies,
+	removeSession,
+} from '../../state/index.js'
 import { mqttService } from './mqtt.service.js'
 
 const GRACE_PERIOD_MS = 2 * 60 * 1000 // 2 minutes
@@ -114,6 +120,7 @@ async function expireGracePeriod(playerId: string): Promise<void> {
 			})
 			await mqttService.cleanupLobbyTopics(entry.lobbyCode)
 			lobbies.delete(entry.lobbyCode)
+			await replayLogService.finalizeRun(entry.lobbyCode, 'abandoned')
 			return
 		}
 
@@ -138,6 +145,7 @@ async function expireGracePeriod(playerId: string): Promise<void> {
 		})
 		await mqttService.cleanupLobbyTopics(entry.lobbyCode)
 		lobbies.delete(entry.lobbyCode)
+		await replayLogService.finalizeRun(entry.lobbyCode, 'abandoned')
 	}
 }
 

@@ -28,6 +28,7 @@ import type { StoredLobbyState } from '../../shared/types/index.js'
 import type { IMessageBus } from '../../contracts/IMessageBus.js'
 import type { IBanRepository } from '../../contracts/IBanRepository.js'
 import type { IMatchRepository } from '../../contracts/IMatchRepository.js'
+import { replayLogService } from '../replay-log/replay-log.service.js'
 import {
 	isRanked,
 	leaveAllQueues,
@@ -552,6 +553,7 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 			await matchRepository.updateMatchStatus(matchId, 'resolved')
 			matches.delete(matchId)
 			matchByLobby.delete(match.lobbyCode)
+			await replayLogService.finalizeRun(match.lobbyCode, 'completed')
 			return
 		}
 
@@ -567,6 +569,7 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 
 		matches.delete(matchId)
 		matchByLobby.delete(match.lobbyCode)
+		await replayLogService.finalizeRun(match.lobbyCode, 'completed')
 
 		const timestamp = new Date().toISOString()
 		for (const pid of match.playerIds) {

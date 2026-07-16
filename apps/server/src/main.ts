@@ -1,18 +1,23 @@
+import type { Server } from 'node:http'
+import { lt } from 'drizzle-orm'
 import express from 'express'
 import type { Express, Request, Response } from 'express'
-import type { Server } from 'node:http'
-import { pool, db } from './infrastructure/db/index.js'
-import { flaggedMessages } from './infrastructure/db/schema.js'
-import { lt } from 'drizzle-orm'
 import { env } from './env.js'
+import {
+	startDailyJob,
+	stopDailyJob,
+} from './features/matchmaking/matchmaking.service.js'
+import { replayLogService } from './features/replay-log/replay-log.service.js'
+import { db, pool } from './infrastructure/db/index.js'
+import { flaggedMessages } from './infrastructure/db/schema.js'
+import { provisionEmqxWebhook } from './infrastructure/emqx/emqx-provision.service.js'
+import { loadConfigFromDb } from './infrastructure/gateways/config.gateway.js'
+import { purgeExpiredRunLogs } from './infrastructure/gateways/replay-log.gateway.js'
+import { clearAllGracePeriods } from './infrastructure/mqtt/grace-period.service.js'
+import { mqttService } from './infrastructure/mqtt/mqtt.service.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import router, { matchmakingService } from './routes/index.js'
-import { clearAllGracePeriods } from './infrastructure/mqtt/grace-period.service.js'
-import { startDailyJob, stopDailyJob } from './features/matchmaking/matchmaking.service.js'
-import { provisionEmqxWebhook } from './infrastructure/emqx/emqx-provision.service.js'
-import { mqttService } from './infrastructure/mqtt/mqtt.service.js'
 import { startSessionCleanup, stopSessionCleanup } from './state/index.js'
-import { loadConfigFromDb } from './infrastructure/gateways/config.gateway.js'
 
 const app = express()
 
@@ -53,9 +58,19 @@ async function shutdown() {
 
 async function purgeExpiredFlaggedMessages() {
 	try {
-		await db.delete(flaggedMessages).where(lt(flaggedMessages.expiresAt, new Date()))
+		await db
+			.delete(flaggedMessages)
+			.where(lt(flaggedMessages.expiresAt, new Date()))
 	} catch (err) {
 		console.error('[cleanup] Failed to purge expired flagged messages:', err)
+	}
+}
+
+async function purgeExpiredRunLogsJob() {
+	try {
+		await purgeExpiredRunLogs()
+	} catch (err) {
+		console.error('[cleanup] Failed to purge expired run logs:', err)
 	}
 }
 
@@ -68,7 +83,7 @@ async function start() {
 		// Load private features if available (not present in public builds)
 		const privatePath: string = '@v-rtualized/bmp-internal'
 		try {
-			const { registerPrivate } = await import(privatePath) as PrivateModule
+			const { registerPrivate } = (await import(privatePath)) as PrivateModule
 			await registerPrivate(app)
 		} catch {
 			// running without private features
@@ -78,6 +93,16 @@ async function start() {
 
 		await mqttService.connect()
 		await provisionEmqxWebhook()
+		await mqttService.subscribeToLobbyActions(
+			'game_log_event',
+			(lobbyCode, playerId, params) => {
+				void replayLogService
+					.handleActionLogEvent(lobbyCode, playerId, params)
+					.catch((err) =>
+						console.error('[replay-log] Failed to buffer event:', err),
+					)
+			},
+		)
 
 		await matchmakingService.restoreMatchesFromDb()
 		matchmakingService.startMatchmaking()
@@ -87,6 +112,9 @@ async function start() {
 
 		void purgeExpiredFlaggedMessages()
 		setInterval(() => void purgeExpiredFlaggedMessages(), 60 * 60 * 1000)
+
+		void purgeExpiredRunLogsJob()
+		setInterval(() => void purgeExpiredRunLogsJob(), 60 * 60 * 1000).unref()
 
 		server = app.listen(env.PORT, () => {
 			console.log(`[server] API server listening on port ${env.PORT}`)
