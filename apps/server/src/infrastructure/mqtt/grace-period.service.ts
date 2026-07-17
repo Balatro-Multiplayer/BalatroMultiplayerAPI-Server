@@ -1,3 +1,4 @@
+import { isRanked } from '../../features/matchmaking/queue.js'
 import { syncMatchLobbyState } from '../../features/matchmaking/matchmaking.service.js'
 import { replayLogService } from '../../features/replay-log/replay-log.service.js'
 import {
@@ -6,6 +7,7 @@ import {
 	lobbies,
 	removeSession,
 } from '../../state/index.js'
+import { matchByLobby } from '../../state/matchmaking.js'
 import { mqttService } from './mqtt.service.js'
 
 const GRACE_PERIOD_MS = 2 * 60 * 1000 // 2 minutes
@@ -99,6 +101,25 @@ async function expireGracePeriod(playerId: string): Promise<void> {
 	}
 
 	lobby.removePlayer(playerId)
+
+	// Ranked-match auto-forfeit: the disconnected player loses on time, ELO
+	// applied as a loss/win exactly like a normal reportResult. Dynamically
+	// imports routes/index.js (the composition root, which holds the fully
+	// wired matchmakingService singleton) rather than a static import, since
+	// routes/index.ts already statically imports this module (as
+	// gracePeriodService) -- a static import back would be a real cycle. By
+	// the time a grace period actually expires (minutes after startup),
+	// routes/index.ts has long since finished evaluating, so this is safe.
+	// Casual/practice/private lobbies have no ranked match to forfeit --
+	// matchByLobby only holds ranked+casual matchmaking matches, and isRanked
+	// narrows to ranked specifically (casual has the same pre-existing gap,
+	// out of scope here).
+	const match = matchByLobby.get(entry.lobbyCode)
+	if (match && isRanked(match.gameMode)) {
+		const remaining = [...lobby.players.keys()].filter((id) => !gracePeriods.has(id))
+		const { matchmakingService } = await import('../../routes/index.js')
+		await matchmakingService.autoForfeitMatch(match.matchId, playerId, remaining)
+	}
 
 	await mqttService.cleanupPlayerState(entry.lobbyCode, playerId)
 

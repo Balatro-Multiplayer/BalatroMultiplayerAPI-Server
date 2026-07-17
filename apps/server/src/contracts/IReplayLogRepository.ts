@@ -1,5 +1,6 @@
 export type LobbyRunStatus = 'active' | 'completed' | 'abandoned' | 'terminated'
 export type PlayerLogStatus = 'partial' | 'complete'
+export type FlagReason = 'hash_mismatch' | 'elapsed_time_gate'
 
 export interface InsertRunParams {
 	lobbyCode: string
@@ -15,6 +16,7 @@ export interface UpsertPlayerLogParams {
 	carbonHash: string | null
 	eventCount: number
 	status: PlayerLogStatus
+	flagReason: FlagReason | null
 	expiresAt: Date | null
 }
 
@@ -34,6 +36,7 @@ export interface PlayerLogRow {
 	carbonHash: string | null
 	eventCount: number
 	status: PlayerLogStatus
+	flagReason: FlagReason | null
 }
 
 export interface RunWithLogs {

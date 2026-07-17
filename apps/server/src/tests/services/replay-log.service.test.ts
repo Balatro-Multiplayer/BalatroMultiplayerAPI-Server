@@ -1,8 +1,21 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import type { IReplayLogRepository } from '../../contracts/IReplayLogRepository.js'
 import { createReplayLogService } from '../../features/replay-log/replay-log.service.js'
 import { lobbies } from '../../state/index.js'
 import { Lobby } from '../../state/lobby.js'
+
+// Mirrors replay-log.service.ts's private canonicalHashInput -- gameplay
+// events only (framing opcodes excluded), encoded as [t, opcode, args]
+// positional tuples. Duplicated here the same way the PvP-side Lua tests
+// mirror lib/replay_log.lua's canonical_hash_input, since the function itself
+// isn't exported (it's an implementation detail of verifyPlayerHash).
+function expectedCarbonHash(events: { t: number; opcode: string; args?: unknown }[]) {
+	const tuples = events
+		.filter((e) => !['manifest', 'end', 'chk'].includes(e.opcode))
+		.map((e) => [e.t, e.opcode, e.args ?? null])
+	return createHash('sha256').update(JSON.stringify(tuples)).digest('hex')
+}
 
 function makeMockRepository(): IReplayLogRepository {
 	return {
@@ -252,6 +265,7 @@ describe('replay-log.service', () => {
 						carbonHash: null,
 						eventCount: 1,
 						status: 'complete',
+						flagReason: null,
 					},
 				],
 			})
@@ -331,6 +345,133 @@ describe('replay-log.service', () => {
 				{ playerId: 'p1', ante: 'bl_big', score: '67890', handsRemaining: 2 },
 			])
 			lobbies.delete('ABCDE')
+		})
+	})
+
+	describe('verifyPlayerHash', () => {
+		it('returns unavailable when nothing is buffered for the lobby', () => {
+			const repository = makeMockRepository()
+			const service = createReplayLogService({ repository })
+
+			expect(service.verifyPlayerHash('GHOST', 'p1')).toBe('unavailable')
+		})
+
+		it('returns unavailable when the player never reached a chk event', async () => {
+			const repository = makeMockRepository()
+			const service = createReplayLogService({ repository })
+			putLobby('ABCDE')
+
+			await service.handleActionLogEvent('ABCDE', 'p1', {
+				t: 0,
+				opcode: 'select_blind',
+				args: [0],
+			})
+
+			expect(service.verifyPlayerHash('ABCDE', 'p1')).toBe('unavailable')
+			lobbies.delete('ABCDE')
+		})
+
+		it('returns match when the recomputed hash equals the client-submitted chk carbon hash', async () => {
+			const repository = makeMockRepository()
+			const service = createReplayLogService({ repository })
+			putLobby('FGHIJ')
+
+			const events = [
+				{ t: 0, opcode: 'select_blind', args: [0] },
+				{ t: 10, opcode: 'buy', args: [1, 2] },
+			]
+			for (const ev of events) {
+				await service.handleActionLogEvent('FGHIJ', 'p1', ev)
+			}
+			await service.handleActionLogEvent('FGHIJ', 'p1', {
+				t: 20,
+				opcode: 'chk',
+				args: { carbon: expectedCarbonHash(events), human: 'x' },
+			})
+
+			expect(service.verifyPlayerHash('FGHIJ', 'p1')).toBe('match')
+			lobbies.delete('FGHIJ')
+		})
+
+		it('returns mismatch when the submitted hash does not match the buffered events', async () => {
+			const repository = makeMockRepository()
+			const service = createReplayLogService({ repository })
+			putLobby('KLMNO')
+
+			await service.handleActionLogEvent('KLMNO', 'p1', {
+				t: 0,
+				opcode: 'select_blind',
+				args: [0],
+			})
+			await service.handleActionLogEvent('KLMNO', 'p1', {
+				t: 20,
+				opcode: 'chk',
+				args: { carbon: 'not-the-real-hash', human: 'x' },
+			})
+
+			expect(service.verifyPlayerHash('KLMNO', 'p1')).toBe('mismatch')
+			lobbies.delete('KLMNO')
+		})
+	})
+
+	describe('countHandResultEvents', () => {
+		it('returns 0 when nothing is buffered for the lobby', () => {
+			const repository = makeMockRepository()
+			const service = createReplayLogService({ repository })
+
+			expect(service.countHandResultEvents('GHOST', 'p1')).toBe(0)
+		})
+
+		it('counts only the given player\'s hand_result events', async () => {
+			const repository = makeMockRepository()
+			const service = createReplayLogService({ repository })
+			putLobby('PQRST')
+
+			await service.handleActionLogEvent('PQRST', 'p1', { t: 0, opcode: 'hand_result', args: ['1', 3] })
+			await service.handleActionLogEvent('PQRST', 'p1', { t: 1, opcode: 'select_blind', args: [0] })
+			await service.handleActionLogEvent('PQRST', 'p1', { t: 2, opcode: 'hand_result', args: ['2', 2] })
+			await service.handleActionLogEvent('PQRST', 'p2', { t: 0, opcode: 'hand_result', args: ['9', 3] })
+
+			expect(service.countHandResultEvents('PQRST', 'p1')).toBe(2)
+			expect(service.countHandResultEvents('PQRST', 'p2')).toBe(1)
+			lobbies.delete('PQRST')
+		})
+	})
+
+	describe('finalizeRun with flags', () => {
+		it('forces expiresAt to null and records flagReason for a flagged player, leaves others on the normal TTL', async () => {
+			const repository = makeMockRepository()
+			const service = createReplayLogService({ repository })
+			putLobby('UVWXY')
+
+			await service.handleActionLogEvent('UVWXY', 'p1', { t: 0, opcode: 'select_blind', args: [0] })
+			await service.handleActionLogEvent('UVWXY', 'p2', { t: 0, opcode: 'select_blind', args: [0] })
+
+			await service.finalizeRun('UVWXY', 'completed', new Map([['p1', 'hash_mismatch']]))
+
+			expect(repository.upsertPlayerLog).toHaveBeenCalledWith(
+				expect.objectContaining({ playerId: 'p1', flagReason: 'hash_mismatch', expiresAt: null }),
+			)
+			const p2Call = vi
+				.mocked(repository.upsertPlayerLog)
+				.mock.calls.find((call) => call[0].playerId === 'p2')
+			expect(p2Call?.[0].flagReason).toBeNull()
+			expect(p2Call?.[0].expiresAt).not.toBeNull()
+			lobbies.delete('UVWXY')
+		})
+
+		it('defaults every player to flagReason null when no flags map is given', async () => {
+			const repository = makeMockRepository()
+			const service = createReplayLogService({ repository })
+			putLobby('ZABCD')
+
+			await service.handleActionLogEvent('ZABCD', 'p1', { t: 0, opcode: 'select_blind', args: [0] })
+			await service.finalizeRun('ZABCD', 'completed')
+
+			expect(repository.upsertPlayerLog).toHaveBeenCalledWith(
+				expect.objectContaining({ flagReason: null }),
+			)
+			lobbies.delete('ZABCD')
 		})
 	})
 })

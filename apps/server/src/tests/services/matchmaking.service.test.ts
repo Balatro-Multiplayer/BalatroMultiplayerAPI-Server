@@ -1,6 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
 import { db } from '../../infrastructure/db/index.js'
+
+// Anti-cheat (Phase 8) tests need verifyPlayerHash/countHandResultEvents to
+// return controlled values -- the real singleton only derives those from a
+// live in-memory buffer, which requires handleActionLogEvent to have
+// succeeded against a real (unmocked) DB. Mocking the collaborator here tests
+// the actual boundary this file owns: does resolveRankedResult call
+// evaluateAntiCheat correctly and thread its result into finalizeRun --
+// not replayLogService's own internals, already covered by
+// replay-log.service.test.ts.
+vi.mock('../../features/replay-log/replay-log.service.js', () => ({
+	replayLogService: {
+		handleActionLogEvent: vi.fn().mockResolvedValue(undefined),
+		finalizeRun: vi.fn().mockResolvedValue(undefined),
+		hasBufferedRun: vi.fn().mockReturnValue(false),
+		getReplay: vi.fn(),
+		getSpectatorSnapshot: vi.fn().mockReturnValue([]),
+		verifyPlayerHash: vi.fn().mockReturnValue('unavailable'),
+		countHandResultEvents: vi.fn().mockReturnValue(0),
+	},
+}))
+
 import {
 	checkSeasonRollover,
 	createMatchmakingService,
@@ -11,6 +32,7 @@ import {
 	runDecay,
 	runRankedQueue,
 } from '../../features/matchmaking/matchmaking.service.js'
+import { replayLogService } from '../../features/replay-log/replay-log.service.js'
 import { matches, matchByLobby, playerQueues, queues } from '../../state/matchmaking.js'
 import { createSession, lobbies } from '../../state/index.js'
 import { Lobby } from '../../state/lobby.js'
@@ -693,6 +715,142 @@ describe('matchmaking.service', () => {
 					{ playerId: 'rguest', place: 2 },
 				]),
 			).rejects.toThrow('No active season')
+		})
+
+		describe('anti-cheat (Phase 8)', () => {
+			// vi.clearAllMocks() (global beforeEach) resets call history but NOT a
+			// mockImplementation set by a previous test -- these mocks are on a
+			// module-level singleton shared across every test in this file (see the
+			// vi.mock factory above), so without an explicit reset here, one test's
+			// verifyPlayerHash/countHandResultEvents override leaks into the next.
+			beforeEach(() => {
+				vi.mocked(replayLogService.verifyPlayerHash).mockReturnValue('unavailable')
+				vi.mocked(replayLogService.countHandResultEvents).mockReturnValue(0)
+			})
+
+			it('flags a hash mismatch but still applies ELO normally', async () => {
+				const matchRepository = makeMockMatchRepository()
+				vi.mocked(matchRepository.getCurrentSeason).mockResolvedValue({ id: 1, name: 'Season 1' })
+				vi.mocked(matchRepository.applyRatingTransaction).mockResolvedValue([
+					{ playerId: 'rhost', newRating: 620, delta: 20, isPlacement: false, gamesPlayed: 11 },
+					{ playerId: 'rguest', newRating: 580, delta: -20, isPlacement: false, gamesPlayed: 11 },
+				])
+				vi.mocked(replayLogService.verifyPlayerHash).mockImplementation((_code, playerId) =>
+					playerId === 'rhost' ? 'mismatch' : 'match',
+				)
+				const { service } = makeService({ matchRepository })
+				const { host } = setupRankedMatch('r7', 'RNKL7')
+
+				await service.reportResult(host, 'r7', [
+					{ playerId: 'rhost', place: 1 },
+					{ playerId: 'rguest', place: 2 },
+				])
+
+				// ELO still applied despite the flag -- flag, don't reject.
+				expect(matchRepository.applyRatingTransaction).toHaveBeenCalled()
+				const flags = vi.mocked(replayLogService.finalizeRun).mock.calls[0][2]
+				expect(flags?.get('rhost')).toBe('hash_mismatch')
+				expect(flags?.get('rguest')).toBeUndefined()
+			})
+
+			it('flags the elapsed-time gate when reported hand count implies an impossibly fast run', async () => {
+				const matchRepository = makeMockMatchRepository()
+				vi.mocked(matchRepository.getCurrentSeason).mockResolvedValue({ id: 1, name: 'Season 1' })
+				vi.mocked(matchRepository.applyRatingTransaction).mockResolvedValue([
+					{ playerId: 'rhost', newRating: 620, delta: 20, isPlacement: false, gamesPlayed: 11 },
+					{ playerId: 'rguest', newRating: 580, delta: -20, isPlacement: false, gamesPlayed: 11 },
+				])
+				// 100 hands * MIN_MS_PER_HAND (3000ms) = 300s minimum -- the match's
+				// createdAt is "now" (setupRankedMatch), so real elapsed time is ~0ms.
+				vi.mocked(replayLogService.countHandResultEvents).mockImplementation((_code, playerId) =>
+					playerId === 'rhost' ? 100 : 0,
+				)
+				const { service } = makeService({ matchRepository })
+				const { host } = setupRankedMatch('r8', 'RNKL8')
+
+				await service.reportResult(host, 'r8', [
+					{ playerId: 'rhost', place: 1 },
+					{ playerId: 'rguest', place: 2 },
+				])
+
+				const flags = vi.mocked(replayLogService.finalizeRun).mock.calls[0][2]
+				expect(flags?.get('rhost')).toBe('elapsed_time_gate')
+				expect(flags?.get('rguest')).toBeUndefined()
+			})
+
+			it('passes an empty flags map through to finalizeRun for a clean result', async () => {
+				const matchRepository = makeMockMatchRepository()
+				vi.mocked(matchRepository.getCurrentSeason).mockResolvedValue({ id: 1, name: 'Season 1' })
+				vi.mocked(matchRepository.applyRatingTransaction).mockResolvedValue([
+					{ playerId: 'rhost', newRating: 620, delta: 20, isPlacement: false, gamesPlayed: 11 },
+					{ playerId: 'rguest', newRating: 580, delta: -20, isPlacement: false, gamesPlayed: 11 },
+				])
+				const { service } = makeService({ matchRepository })
+				const { host } = setupRankedMatch('r9', 'RNKL9')
+
+				await service.reportResult(host, 'r9', [
+					{ playerId: 'rhost', place: 1 },
+					{ playerId: 'rguest', place: 2 },
+				])
+
+				expect(replayLogService.finalizeRun).toHaveBeenCalledWith(
+					'RNKL9',
+					'completed',
+					new Map(),
+				)
+			})
+		})
+
+		describe('autoForfeitMatch (Phase 8.4)', () => {
+			it('is a no-op when the match is already resolved', async () => {
+				const matchRepository = makeMockMatchRepository()
+				const { service } = makeService({ matchRepository })
+
+				await service.autoForfeitMatch('never-existed', 'someone', ['someone-else'])
+
+				expect(matchRepository.applyRatingTransaction).not.toHaveBeenCalled()
+				expect(matchRepository.updateMatchStatus).not.toHaveBeenCalled()
+			})
+
+			it('resolves the match with the disconnected player placed last when one player remains', async () => {
+				const matchRepository = makeMockMatchRepository()
+				vi.mocked(matchRepository.getCurrentSeason).mockResolvedValue({ id: 1, name: 'Season 1' })
+				vi.mocked(matchRepository.applyRatingTransaction).mockResolvedValue([
+					{ playerId: 'rhost', newRating: 620, delta: 20, isPlacement: false, gamesPlayed: 11 },
+					{ playerId: 'rguest', newRating: 580, delta: -20, isPlacement: false, gamesPlayed: 11 },
+				])
+				const { service } = makeService({ matchRepository })
+				setupRankedMatch('f1', 'FRFT1')
+
+				await service.autoForfeitMatch('f1', 'rguest', ['rhost'])
+
+				expect(matchRepository.applyRatingTransaction).toHaveBeenCalledWith(
+					'f1',
+					expect.anything(),
+					1,
+					[
+						{ playerId: 'rhost', place: 1 },
+						{ playerId: 'rguest', place: 2 },
+					],
+				)
+				expect(replayLogService.finalizeRun).toHaveBeenCalledWith('FRFT1', 'completed', expect.any(Map))
+				expect(matches.has('f1')).toBe(false)
+				expect(matchByLobby.has('FRFT1')).toBe(false)
+			})
+
+			it('cancels with no ELO when no players remain connected', async () => {
+				const matchRepository = makeMockMatchRepository()
+				const { service } = makeService({ matchRepository })
+				setupRankedMatch('f2', 'FRFT2')
+
+				await service.autoForfeitMatch('f2', 'rhost', [])
+
+				expect(matchRepository.applyRatingTransaction).not.toHaveBeenCalled()
+				expect(matchRepository.updateMatchStatus).toHaveBeenCalledWith('f2', 'resolved')
+				expect(replayLogService.finalizeRun).toHaveBeenCalledWith('FRFT2', 'abandoned')
+				expect(matches.has('f2')).toBe(false)
+				expect(matchByLobby.has('FRFT2')).toBe(false)
+			})
 		})
 	})
 })

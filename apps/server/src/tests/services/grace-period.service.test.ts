@@ -1,5 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
+
+// The ranked-forfeit branch dynamically imports routes/index.js (the
+// composition root) to reach the fully-wired matchmakingService singleton --
+// see grace-period.service.ts's expireGracePeriod for why (routes/index.ts
+// already statically imports this module, so a static import back would be a
+// real cycle). Mocked here so this stays a unit test against the contract
+// (autoForfeitMatch gets called with the right args) rather than exercising
+// the real matchmaking gateway stack against setup.ts's minimal db mock.
+vi.mock('../../routes/index.js', () => ({
+	matchmakingService: {
+		autoForfeitMatch: vi.fn().mockResolvedValue(undefined),
+	},
+}))
+
 import {
 	cancelGracePeriod,
 	cancelGracePeriodSilently,
@@ -9,8 +23,11 @@ import {
 	isInGracePeriod,
 	startGracePeriod,
 } from '../../infrastructure/mqtt/grace-period.service.js'
+import { matchmakingService } from '../../routes/index.js'
 import { createSession, getLobby, lobbies } from '../../state/index.js'
 import { Lobby } from '../../state/lobby.js'
+import { matchByLobby } from '../../state/matchmaking.js'
+import type { Match } from '../../shared/types/index.js'
 
 function setupLobbyWithPlayers(
 	...players: { id: string; steamName: string }[]
@@ -235,6 +252,80 @@ describe('grace-period.service', () => {
 			// host1 was the one who disconnected, host was transferred to player2 already)
 			// Actually host was transferred to player2 during startGracePeriod
 			expect(lobby.hostId).toBe('player2')
+		})
+
+		describe('ranked auto-forfeit (Phase 8.4)', () => {
+			function setupRankedMatch(matchId: string, lobbyCode: string, hostId: string, guestId: string): Match {
+				const match: Match = {
+					matchId,
+					lobbyCode,
+					modId: 'mod1',
+					gameMode: 'ranked:1v1',
+					playerIds: [hostId, guestId],
+					createdAt: new Date(),
+				}
+				matchByLobby.set(lobbyCode, match)
+				return match
+			}
+
+			it('calls autoForfeitMatch with the remaining connected player when one player disconnects', async () => {
+				setupLobbyWithPlayers(
+					{ id: 'host1', steamName: 'Alice' },
+					{ id: 'player1', steamName: 'Bob' },
+				)
+				setupRankedMatch('m1', 'TESTLB', 'host1', 'player1')
+
+				await startGracePeriod('player1')
+				await expireGracePeriod('player1')
+
+				expect(matchmakingService.autoForfeitMatch).toHaveBeenCalledWith('m1', 'player1', ['host1'])
+			})
+
+			it('calls autoForfeitMatch with no remaining players when both are in grace', async () => {
+				setupLobbyWithPlayers(
+					{ id: 'host1', steamName: 'Alice' },
+					{ id: 'player1', steamName: 'Bob' },
+				)
+				setupRankedMatch('m2', 'TESTLB', 'host1', 'player1')
+
+				await startGracePeriod('player1')
+				await startGracePeriod('host1')
+				await expireGracePeriod('player1')
+
+				expect(matchmakingService.autoForfeitMatch).toHaveBeenCalledWith('m2', 'player1', [])
+			})
+
+			it('does not call autoForfeitMatch for a non-ranked (casual) match', async () => {
+				setupLobbyWithPlayers(
+					{ id: 'host1', steamName: 'Alice' },
+					{ id: 'player1', steamName: 'Bob' },
+				)
+				matchByLobby.set('TESTLB', {
+					matchId: 'm3',
+					lobbyCode: 'TESTLB',
+					modId: 'mod1',
+					gameMode: 'casual:1v1',
+					playerIds: ['host1', 'player1'],
+					createdAt: new Date(),
+				})
+
+				await startGracePeriod('player1')
+				await expireGracePeriod('player1')
+
+				expect(matchmakingService.autoForfeitMatch).not.toHaveBeenCalled()
+			})
+
+			it('does not call autoForfeitMatch when the lobby has no associated match (private/practice)', async () => {
+				setupLobbyWithPlayers(
+					{ id: 'host1', steamName: 'Alice' },
+					{ id: 'player1', steamName: 'Bob' },
+				)
+
+				await startGracePeriod('player1')
+				await expireGracePeriod('player1')
+
+				expect(matchmakingService.autoForfeitMatch).not.toHaveBeenCalled()
+			})
 		})
 	})
 

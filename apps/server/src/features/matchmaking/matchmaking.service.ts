@@ -29,6 +29,8 @@ import type { IMessageBus } from '../../contracts/IMessageBus.js'
 import type { IBanRepository } from '../../contracts/IBanRepository.js'
 import type { IMatchRepository } from '../../contracts/IMatchRepository.js'
 import { replayLogService } from '../replay-log/replay-log.service.js'
+import type { FlagReason } from '../../contracts/IReplayLogRepository.js'
+import { MIN_MS_PER_HAND } from './anti-cheat.config.js'
 import {
 	isRanked,
 	leaveAllQueues,
@@ -534,6 +536,70 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		await matchRepository.setMatchGameStarted(matchId, now)
 	}
 
+	// Phase 8: hash-mismatch and elapsed-time-gate checks, evaluated per player
+	// against replayLogService's live buffer -- must run BEFORE finalizeRun
+	// clears it. Flags, doesn't reject: a flagged result still applies ELO
+	// normally (see resolveRankedResult) -- rejecting outright would strand the
+	// match with no moderator remediation path (cross-validation/conflict
+	// review is a separate, out-of-scope piece of work). This mirrors
+	// matchmaking.gateway.ts's applySecondaryMetric, which already warns and
+	// skips rather than rejecting on an implausible metric.
+	function evaluateAntiCheat(
+		match: Match,
+		placements: PlacementEntry[],
+	): Map<string, FlagReason> {
+		const flags = new Map<string, FlagReason>()
+		const elapsedMs = Date.now() - match.createdAt.getTime()
+		for (const p of placements) {
+			if (replayLogService.verifyPlayerHash(match.lobbyCode, p.playerId) === 'mismatch') {
+				flags.set(p.playerId, 'hash_mismatch')
+				continue
+			}
+			const minExpectedMs =
+				replayLogService.countHandResultEvents(match.lobbyCode, p.playerId) * MIN_MS_PER_HAND
+			if (elapsedMs < minExpectedMs) flags.set(p.playerId, 'elapsed_time_gate')
+		}
+		return flags
+	}
+
+	// The ranked resolution path -- shared by a normal host-submitted
+	// reportResult and Phase 8.4's autoForfeitMatch (a disconnected player is
+	// simply placed last in the same placements shape). Anti-cheat is
+	// evaluated here, before matches/matchByLobby are cleared and before
+	// finalizeRun clears replayLogService's buffer, since both reads depend on
+	// that buffer still being live.
+	async function resolveRankedResult(
+		matchId: string,
+		match: Match,
+		placements: PlacementEntry[],
+	): Promise<void> {
+		const season = await matchRepository.getCurrentSeason()
+		if (!season) throw new AppError('No active season', 500)
+
+		const flags = evaluateAntiCheat(match, placements)
+
+		const ratingResults = await matchRepository.applyRatingTransaction(
+			matchId,
+			match,
+			season.id,
+			placements,
+		)
+
+		matches.delete(matchId)
+		matchByLobby.delete(match.lobbyCode)
+		await replayLogService.finalizeRun(match.lobbyCode, 'completed', flags)
+
+		const timestamp = new Date().toISOString()
+		for (const pid of match.playerIds) {
+			await messageBus.publishToPlayer(pid, 'matchmaking', {
+				type: 'match_resolved',
+				matchId,
+				ratings: ratingResults,
+				timestamp,
+			})
+		}
+	}
+
 	async function reportResult(
 		session: PlayerSession,
 		matchId: string,
@@ -557,29 +623,41 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 			return
 		}
 
-		const season = await matchRepository.getCurrentSeason()
-		if (!season) throw new AppError('No active season', 500)
+		await resolveRankedResult(matchId, match, placements)
+	}
 
-		const ratingResults = await matchRepository.applyRatingTransaction(
-			matchId,
-			match,
-			season.id,
-			placements,
-		)
+	// Phase 8.4: the ranked-match counterpart of a host-submitted reportResult,
+	// triggered by grace-period.service.ts's expireGracePeriod when a
+	// disconnected player's 2-minute grace period runs out mid-match. Not
+	// exposed over HTTP -- there's no player action here, just the server
+	// resolving a match nobody is left to report.
+	async function autoForfeitMatch(
+		matchId: string,
+		disconnectedPlayerId: string,
+		remainingConnectedPlayerIds: string[],
+	): Promise<void> {
+		const match = matches.get(matchId)
+		if (!match) return // already resolved (e.g. the other player's grace expired first) -- no-op
 
-		matches.delete(matchId)
-		matchByLobby.delete(match.lobbyCode)
-		await replayLogService.finalizeRun(match.lobbyCode, 'completed')
-
-		const timestamp = new Date().toISOString()
-		for (const pid of match.playerIds) {
-			await messageBus.publishToPlayer(pid, 'matchmaking', {
-				type: 'match_resolved',
-				matchId,
-				ratings: ratingResults,
-				timestamp,
-			})
+		if (remainingConnectedPlayerIds.length === 0) {
+			// Both players disconnected -- no legitimate winner to forfeit to.
+			// Cancel with no ELO applied to either side (§9.8).
+			await matchRepository.updateMatchStatus(matchId, 'resolved')
+			matches.delete(matchId)
+			matchByLobby.delete(match.lobbyCode)
+			await replayLogService.finalizeRun(match.lobbyCode, 'abandoned')
+			return
 		}
+
+		// place=1 for every remaining player, last place for the disconnected one
+		// -- correct for ranked's current 1v1-only shape (see gameMode strings
+		// like "ranked:1v1"); would tie multiple remaining players for first in
+		// a hypothetical >2-player ranked match, which doesn't exist today.
+		const placements: PlacementEntry[] = match.playerIds.map((id) => ({
+			playerId: id,
+			place: id === disconnectedPlayerId ? match.playerIds.length : 1,
+		}))
+		await resolveRankedResult(matchId, match, placements)
 	}
 
 	return {
@@ -594,5 +672,6 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		restorePlayerMatchSession,
 		markRunStart,
 		reportResult,
+		autoForfeitMatch,
 	}
 }

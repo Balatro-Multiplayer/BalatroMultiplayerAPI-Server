@@ -34,6 +34,7 @@ export async function upsertPlayerLog(
 			carbonHash: params.carbonHash ?? undefined,
 			eventCount: params.eventCount,
 			status: params.status,
+			flagReason: params.flagReason ?? undefined,
 			finalizedAt,
 			expiresAt: params.expiresAt ?? undefined,
 		})
@@ -44,6 +45,7 @@ export async function upsertPlayerLog(
 				carbonHash: params.carbonHash ?? undefined,
 				eventCount: params.eventCount,
 				status: params.status,
+				flagReason: params.flagReason ?? undefined,
 				finalizedAt,
 				expiresAt: params.expiresAt ?? undefined,
 			},
@@ -80,6 +82,7 @@ export async function getRunWithLogs(
 			carbonHash: matchRunLogs.carbonHash,
 			eventCount: matchRunLogs.eventCount,
 			status: matchRunLogs.status,
+			flagReason: matchRunLogs.flagReason,
 		})
 		.from(matchRunLogs)
 		.where(eq(matchRunLogs.runId, runId))
@@ -97,6 +100,7 @@ export async function getRunWithLogs(
 		logs: logs.map((log) => ({
 			...log,
 			status: log.status as RunWithLogs['logs'][number]['status'],
+			flagReason: log.flagReason as RunWithLogs['logs'][number]['flagReason'],
 		})),
 	}
 }

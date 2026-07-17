@@ -338,7 +338,8 @@ export const lobbyRuns = pgTable(
 // stream (manifest + events + END + CHK), per lib/replay_log.lua's Phase 2
 // design: block-level compression, not per-event. `carbonHash` is the CHK
 // value the client itself computed and broadcast (verbatim, not recomputed
-// here) -- Phase 8 anti-cheat is what actually re-derives and compares it.
+// here) -- Phase 8's evaluateAntiCheat is what actually re-derives and
+// compares it, recording the outcome in `flagReason`.
 export const matchRunLogs = pgTable(
 	'match_run_logs',
 	{
@@ -350,6 +351,10 @@ export const matchRunLogs = pgTable(
 		carbonHash: text('carbon_hash'),
 		eventCount: integer('event_count').notNull().default(0),
 		status: varchar('status', { length: 16 }).notNull().default('partial'), // partial | complete
+		// null | 'hash_mismatch' | 'elapsed_time_gate' -- set by Phase 8's
+		// evaluateAntiCheat at ranked result resolution. A non-null value forces
+		// expiresAt to null (see below) regardless of the normal 30-day TTL.
+		flagReason: varchar('flag_reason', { length: 32 }),
 		finalizedAt: timestamp('finalized_at', { withTimezone: true }),
 		expiresAt: timestamp('expires_at', { withTimezone: true }), // null = indefinite (flagged/disputed)
 	},
