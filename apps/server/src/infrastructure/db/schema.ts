@@ -109,6 +109,17 @@ export const serverConfig = pgTable('server_config', {
 		.defaultNow(),
 })
 
+// Singleton row (id = 1) holding the weekly cocktail composition. Defaults to
+// the in-code SEED (weekly-cocktail.ts) when no row exists yet.
+export const weeklyCocktail = pgTable('weekly_cocktail', {
+	id: integer('id').primaryKey().default(1),
+	name: varchar('name', { length: 40 }).notNull(),
+	decks: text('decks').array().notNull(),
+	updatedAt: timestamp('updated_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+})
+
 // One row per official mod — version string and download URL.
 export const modVersions = pgTable('mod_versions', {
 	modId: varchar('mod_id', { length: 64 }).primaryKey(),

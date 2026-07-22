@@ -11,6 +11,9 @@ import { createAuthRouter } from '../features/auth/auth.route.js'
 import { createLobbyRouter } from '../features/lobby/lobby.route.js'
 import { createMatchmakingRouter } from '../features/matchmaking/matchmaking.route.js'
 import adminRouter from '../features/admin/admin.route.js'
+import configRouter from '../features/draft/config.route.js'
+import draftRouter from '../features/draft/draft.route.js'
+import weeklyCocktailAdminRouter from '../features/draft/weekly-cocktail-admin.route.js'
 import emqxRouter from '../features/emqx/emqx.route.js'
 import releasesRouter from '../features/releases/releases.route.js'
 import statsRouter from '../features/stats/stats.route.js'
@@ -36,12 +39,15 @@ export const lobbyService = createLobbyService({
 const router = Router()
 
 router.use('/api/auth', createAuthRouter(authService))
+router.use('/api/config', configRouter)
 router.use('/api/lobbies', createLobbyRouter(lobbyService))
+router.use('/api/matches', draftRouter)
 router.use('/api/matchmaking', createMatchmakingRouter(matchmakingService))
 router.use('/api/stats', statsRouter)
 router.use('/api/releases', releasesRouter)
 router.use('/api/webadmin', webadminRouter)
 router.use('/emqx', emqxRouter)
 router.use('/admin', adminRouter)
+router.use('/admin', weeklyCocktailAdminRouter)
 
 export default router
