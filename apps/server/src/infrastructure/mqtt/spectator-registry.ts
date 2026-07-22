@@ -5,7 +5,6 @@
 // In-memory only -- spectating is not persisted, matching the design doc's
 // "the server records the spectator in memory only (no DB row)".
 
-const SPECTATOR_CAP_PER_LOBBY = 50
 const SPECTATOR_GRANT_TTL_MS = 6 * 60 * 60 * 1000 // safety net; normal exit is MQTT disconnect
 
 interface SpectatorGrant {
@@ -20,15 +19,12 @@ export function countSpectators(lobbyCode: string): number {
 	return spectatorsByLobby.get(lobbyCode)?.size ?? 0
 }
 
-// Returns false (grants nothing) once the lobby's spectator cap is reached.
-export function grantSpectator(playerId: string, lobbyCode: string): boolean {
+export function grantSpectator(playerId: string, lobbyCode: string): void {
 	const existing = grants.get(playerId)
 	if (existing) {
-		if (existing.lobbyCode === lobbyCode) return true
+		if (existing.lobbyCode === lobbyCode) return
 		revokeSpectator(playerId)
 	}
-
-	if (countSpectators(lobbyCode) >= SPECTATOR_CAP_PER_LOBBY) return false
 
 	const timer = setTimeout(
 		() => revokeSpectator(playerId),
@@ -43,8 +39,6 @@ export function grantSpectator(playerId: string, lobbyCode: string): boolean {
 		spectatorsByLobby.set(lobbyCode, set)
 	}
 	set.add(playerId)
-
-	return true
 }
 
 export function getSpectatorGrant(

@@ -13,7 +13,7 @@ describe('spectator-registry', () => {
 	})
 
 	it('grants a spectator and reports the lobby they hold a grant for', () => {
-		expect(grantSpectator('p1', 'ABCDE')).toBe(true)
+		grantSpectator('p1', 'ABCDE')
 		expect(getSpectatorGrant('p1')).toEqual({ lobbyCode: 'ABCDE' })
 		expect(countSpectators('ABCDE')).toBe(1)
 	})
@@ -47,18 +47,18 @@ describe('spectator-registry', () => {
 		expect(() => revokeSpectator('nobody')).not.toThrow()
 	})
 
-	it('rejects new spectators once the per-lobby cap is reached', () => {
-		for (let i = 0; i < 50; i++) {
-			expect(grantSpectator(`p${i}`, 'ABCDE')).toBe(true)
-		}
-		expect(grantSpectator('p50', 'ABCDE')).toBe(false)
-		expect(countSpectators('ABCDE')).toBe(50)
-	})
-
-	it('a lobby at cap does not block spectators of a different lobby', () => {
-		for (let i = 0; i < 50; i++) {
+	it('has no per-lobby spectator cap', () => {
+		for (let i = 0; i < 60; i++) {
 			grantSpectator(`p${i}`, 'ABCDE')
 		}
-		expect(grantSpectator('other', 'FGHIJ')).toBe(true)
+		expect(countSpectators('ABCDE')).toBe(60)
+	})
+
+	it('spectators of one lobby do not affect a different lobby', () => {
+		for (let i = 0; i < 10; i++) {
+			grantSpectator(`p${i}`, 'ABCDE')
+		}
+		grantSpectator('other', 'FGHIJ')
+		expect(countSpectators('FGHIJ')).toBe(1)
 	})
 })

@@ -1,10 +1,7 @@
 import request from 'supertest'
 import { afterEach, describe, expect, it } from 'vitest'
 import { signJwt } from '../../features/auth/jwt.js'
-import {
-	clearAllSpectatorGrants,
-	grantSpectator,
-} from '../../infrastructure/mqtt/spectator-registry.js'
+import { clearAllSpectatorGrants } from '../../infrastructure/mqtt/spectator-registry.js'
 import { createSession, lobbies } from '../../state/index.js'
 import { Lobby } from '../../state/lobby.js'
 import { createTestApp } from './app.js'
@@ -320,18 +317,6 @@ describe('lobby routes', () => {
 
 			expect(res.status).toBe(200)
 			expect(res.body.token).toBeDefined()
-		})
-
-		it('returns 429 once the lobby spectator cap is reached', async () => {
-			const lobby = new Lobby('PUBLC', 'mod1', 'host1', 16, 'public')
-			lobbies.set(lobby.code, lobby)
-			for (let i = 0; i < 50; i++) grantSpectator(`filler${i}`, 'PUBLC')
-
-			const res = await request(app)
-				.get('/api/lobbies/PUBLC/spectate')
-				.set('Authorization', authHeader('spectator1', 'Watcher'))
-
-			expect(res.status).toBe(429)
 		})
 	})
 })

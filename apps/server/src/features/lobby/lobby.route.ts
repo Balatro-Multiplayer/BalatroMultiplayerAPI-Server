@@ -147,9 +147,7 @@ export function createLobbyRouter(service: LobbyService): Router {
 				lobby.type === 'public' || lobby.metadata.spectatable === true
 			if (!spectatable) throw new AppError('This lobby is not spectatable', 403)
 
-			if (!grantSpectator(req.player!.playerId, lobby.code)) {
-				throw new AppError('Spectator limit reached for this lobby', 429)
-			}
+			grantSpectator(req.player!.playerId, lobby.code)
 
 			const token = signJwt({
 				playerId: req.player!.playerId,
