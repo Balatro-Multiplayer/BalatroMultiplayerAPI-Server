@@ -13,6 +13,8 @@ import { provisionEmqxWebhook } from './infrastructure/emqx/emqx-provision.servi
 import { mqttService } from './infrastructure/mqtt/mqtt.service.js'
 import { startSessionCleanup, stopSessionCleanup } from './state/index.js'
 import { loadConfigFromDb } from './infrastructure/gateways/config.gateway.js'
+import { loadWeeklyCocktail } from './features/draft/weekly-cocktail.js'
+import { validateDraftPolicies } from './features/draft/draft-policy.js'
 
 const app = express()
 
@@ -64,6 +66,8 @@ type PrivateModule = { registerPrivate: (app: Express) => Promise<void> }
 async function start() {
 	try {
 		await loadConfigFromDb()
+		await loadWeeklyCocktail()
+		validateDraftPolicies()
 
 		// Load private features if available (not present in public builds)
 		const privatePath: string = '@v-rtualized/bmp-internal'
