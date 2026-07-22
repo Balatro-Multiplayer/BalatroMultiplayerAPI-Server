@@ -15,7 +15,10 @@ function webAdmin(req: Request, res: Response, next: NextFunction) {
 	authenticate(req, res, async () => {
 		try {
 			const player = await findPlayerById(req.player!.playerId)
-			if (!player?.privileges.includes('admin')) {
+			const isAuthorized =
+				player?.privileges.includes('admin') ||
+				player?.privileges.includes('moderator')
+			if (!isAuthorized) {
 				res.status(403).json({ error: 'Forbidden' })
 				return
 			}
