@@ -95,6 +95,31 @@ describe('replay-log.service', () => {
 			lobbies.delete('FGHIJ')
 		})
 
+		it('only inserts one run when host and guest both broadcast their first event concurrently', async () => {
+			const repository = makeMockRepository()
+			repository.insertRun = vi.fn(
+				() => new Promise((resolve) => setTimeout(() => resolve('run-1'), 5)),
+			)
+			const service = createReplayLogService({ repository })
+			putLobby('KLMNO')
+
+			await Promise.all([
+				service.handleActionLogEvent('KLMNO', 'p1', {
+					t: 0,
+					opcode: 'manifest',
+					args: {},
+				}),
+				service.handleActionLogEvent('KLMNO', 'p2', {
+					t: 0,
+					opcode: 'manifest',
+					args: {},
+				}),
+			])
+
+			expect(repository.insertRun).toHaveBeenCalledTimes(1)
+			lobbies.delete('KLMNO')
+		})
+
 		it('ignores malformed events missing t or opcode', async () => {
 			const repository = makeMockRepository()
 			const service = createReplayLogService({ repository })
@@ -323,7 +348,7 @@ describe('replay-log.service', () => {
 			await service.handleActionLogEvent('ABCDE', 'p1', {
 				t: 0,
 				opcode: 'set_ante_key',
-				args: 'bl_small',
+				args: ['bl_small'],
 			})
 			await service.handleActionLogEvent('ABCDE', 'p1', {
 				t: 10,
@@ -333,7 +358,7 @@ describe('replay-log.service', () => {
 			await service.handleActionLogEvent('ABCDE', 'p1', {
 				t: 20,
 				opcode: 'set_ante_key',
-				args: 'bl_big',
+				args: ['bl_big'],
 			})
 			await service.handleActionLogEvent('ABCDE', 'p1', {
 				t: 30,

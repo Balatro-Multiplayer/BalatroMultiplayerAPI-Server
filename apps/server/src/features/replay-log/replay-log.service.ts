@@ -70,6 +70,12 @@ export type ReplayLogService = ReturnType<typeof createReplayLogService>
 export function createReplayLogService(deps: ReplayLogServiceDeps) {
 	const { repository } = deps
 	const runs = new Map<string, RunBuffer>()
+	// Host and guest each broadcast their own `manifest` event at match start,
+	// arriving as two near-simultaneous MQTT messages -- without memoizing the
+	// in-flight creation, both would see `runs.get(lobbyCode)` as unset (the
+	// `await insertRun` below hasn't resolved yet) and each insert their own
+	// lobby_runs row, orphaning one of them.
+	const pendingRunCreation = new Map<string, Promise<RunBuffer | null>>()
 
 	async function handleActionLogEvent(
 		lobbyCode: string,
@@ -86,17 +92,27 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 
 		let run = runs.get(lobbyCode)
 		if (!run) {
-			const lobby = getLobby(lobbyCode)
-			if (!lobby) return // lobby already gone -- nothing to anchor this run to
+			let pending = pendingRunCreation.get(lobbyCode)
+			if (!pending) {
+				pending = (async () => {
+					const lobby = getLobby(lobbyCode)
+					if (!lobby) return null // lobby already gone -- nothing to anchor this run to
 
-			const runId = await repository.insertRun({
-				lobbyCode,
-				modId: lobby.modId,
-				lobbyType: lobby.type,
-				matchmakingMatchId: null,
-			})
-			run = { runId, players: new Map() }
-			runs.set(lobbyCode, run)
+					const runId = await repository.insertRun({
+						lobbyCode,
+						modId: lobby.modId,
+						lobbyType: lobby.type,
+						matchmakingMatchId: null,
+					})
+					const created: RunBuffer = { runId, players: new Map() }
+					runs.set(lobbyCode, created)
+					return created
+				})()
+				pendingRunCreation.set(lobbyCode, pending)
+			}
+			run = (await pending) ?? undefined
+			pendingRunCreation.delete(lobbyCode)
+			if (!run) return
 		}
 
 		let playerBuf = run.players.get(playerId)
@@ -234,8 +250,12 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 			let handsRemaining: number | null = null
 
 			for (const event of buf.events) {
-				if (event.opcode === 'set_ante_key' && typeof event.args === 'string') {
-					ante = event.args
+				if (
+					event.opcode === 'set_ante_key' &&
+					Array.isArray(event.args) &&
+					typeof event.args[0] === 'string'
+				) {
+					ante = event.args[0]
 				} else if (
 					event.opcode === 'hand_result' &&
 					Array.isArray(event.args)
