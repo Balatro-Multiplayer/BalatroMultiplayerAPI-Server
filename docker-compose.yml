@@ -4,6 +4,8 @@ services:
     container_name: bmp-emqx
     ports:
       - "8883:8883"
+      # Plain MQTT for local dev clients (custom_server_secure=false -> port 1883).
+      - "1883:1883"
     environment:
       EMQX_NAME: bmp-emqx
     volumes:
