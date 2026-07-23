@@ -5,6 +5,8 @@ export const INITIAL_HIDDEN_RATING = 600
 export const PLACEMENT_GAMES = 5
 export const K_ESTABLISHED = 40
 export const RATING_FLOOR = 100
+// §11.10: the hard cap applySoftReset clamps down to after the symmetric pull
+// toward INITIAL_HIDDEN_RATING -- not itself the pull target.
 export const SOFT_RESET_ANCHOR = 1200
 export const RANKED_SPREAD_INITIAL = 150
 export const RANKED_SPREAD_EXPAND_RATE = 50
@@ -138,12 +140,13 @@ export function computeTeam(
 	return deltas
 }
 
-// Seasonal soft reset: compress distance above 1200 by half.
+// Seasonal soft reset (§11.9/§11.10): every rating is pulled halfway back
+// toward the same starting value new players get (600), whether currently
+// above or below it -- not just compressed down from above. Anything still
+// above 1200 after that pull is then hard-clamped down to exactly 1200.
 export function applySoftReset(rating: number): number {
-	if (rating > SOFT_RESET_ANCHOR) {
-		return Math.round(SOFT_RESET_ANCHOR + (rating - SOFT_RESET_ANCHOR) / 2)
-	}
-	return rating
+	const pulled = Math.round(INITIAL_HIDDEN_RATING + (rating - INITIAL_HIDDEN_RATING) / 2)
+	return Math.min(pulled, SOFT_RESET_ANCHOR)
 }
 
 export type RatingMode = 'solo' | 'ffa' | 'team'

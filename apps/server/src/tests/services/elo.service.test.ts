@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+	INITIAL_HIDDEN_RATING,
 	K_ESTABLISHED,
 	PLACEMENT_GAMES,
 	RATING_FLOOR,
@@ -361,29 +362,33 @@ describe('elo.service', () => {
 		})
 	})
 
+	// §11.9/§11.10: every rating is pulled halfway back toward
+	// INITIAL_HIDDEN_RATING (600) regardless of direction, then hard-clamped to
+	// SOFT_RESET_ANCHOR (1200) if still above it.
 	describe('applySoftReset', () => {
-		it('leaves ratings at or below SOFT_RESET_ANCHOR unchanged', () => {
-			expect(applySoftReset(SOFT_RESET_ANCHOR)).toBe(SOFT_RESET_ANCHOR)
-			expect(applySoftReset(1000)).toBe(1000)
-			expect(applySoftReset(RATING_FLOOR)).toBe(RATING_FLOOR)
+		it('leaves a rating exactly at the anchor unchanged', () => {
+			expect(applySoftReset(INITIAL_HIDDEN_RATING)).toBe(INITIAL_HIDDEN_RATING)
 		})
 
-		it('compresses ratings above anchor toward anchor by half', () => {
-			// 1600 → 1200 + (400)/2 = 1400
-			expect(applySoftReset(1600)).toBe(1400)
-			// 2400 → 1200 + (1200)/2 = 1800
-			expect(applySoftReset(2400)).toBe(1800)
+		it('pulls a rating above the anchor halfway back down', () => {
+			// 1000 → 600 + (400)/2 = 800
+			expect(applySoftReset(1000)).toBe(800)
 		})
 
-		it('result is always >= SOFT_RESET_ANCHOR for any input above anchor', () => {
-			expect(applySoftReset(99_999)).toBeGreaterThanOrEqual(SOFT_RESET_ANCHOR)
+		it('pulls a rating below the anchor halfway back up (symmetric, not just compression from above)', () => {
+			// 400 → 600 + (-200)/2 = 500
+			expect(applySoftReset(400)).toBe(500)
+			// RATING_FLOOR (100) → 600 + (-500)/2 = 350
+			expect(applySoftReset(RATING_FLOOR)).toBe(350)
 		})
 
-		it('approaches anchor for extreme ratings', () => {
-			const result = applySoftReset(99_999)
-			// Still above anchor but reasonable
-			expect(result).toBeLessThan(99_999)
-			expect(result).toBeGreaterThan(SOFT_RESET_ANCHOR)
+		it('hard-clamps to SOFT_RESET_ANCHOR when the pulled value is still above it', () => {
+			// 2400 → pulled to 600 + 1800/2 = 1500, then clamped to 1200
+			expect(applySoftReset(2400)).toBe(SOFT_RESET_ANCHOR)
+		})
+
+		it('never returns more than SOFT_RESET_ANCHOR for any input', () => {
+			expect(applySoftReset(99_999)).toBe(SOFT_RESET_ANCHOR)
 		})
 	})
 })
