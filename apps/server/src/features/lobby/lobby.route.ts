@@ -1,10 +1,12 @@
 import { Router } from 'express'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import { hasActiveBan } from '../../infrastructure/gateways/ban.gateway.js'
 import { isReportType, submitReport } from '../../infrastructure/gateways/report.gateway.js'
 import { grantSpectator } from '../../infrastructure/mqtt/spectator-registry.js'
 import { authenticate } from '../../middleware/authenticate.js'
 import { assertCanPlay } from '../../shared/utils/access.js'
 import { AppError } from '../../shared/utils/errors.js'
+import { env } from '../../env.js'
 import { getConfig } from '../../state/config.js'
 import { getLobby, getSession } from '../../state/index.js'
 import { signJwt } from '../auth/jwt.js'
@@ -16,6 +18,20 @@ export function createLobbyRouter(service: LobbyService): Router {
 	const router = Router()
 
 	router.use(authenticate)
+
+	// §14.3: rate limiting is enforced entirely server-side -- a modified client
+	// skips straight to POSTing this route, so the limit has to live here, not
+	// in the Lua client. Keyed by player id (not IP): auth already runs above,
+	// and chat spam is an account-scoped problem regardless of shared/NATed IPs.
+	const chatRateLimiter = rateLimit({
+		windowMs: 10 * 1000,
+		limit: 5,
+		standardHeaders: 'draft-7',
+		legacyHeaders: false,
+		message: { error: 'Too many chat messages, slow down' },
+		skip: () => env.NODE_ENV !== 'production',
+		keyGenerator: (req) => req.player?.playerId ?? ipKeyGenerator(req.ip ?? 'unknown'),
+	})
 
 	router.post('/', async (req, res, next) => {
 		try {
@@ -162,7 +178,7 @@ export function createLobbyRouter(service: LobbyService): Router {
 		}
 	})
 
-	router.post('/:code/chat', async (req, res, next) => {
+	router.post<{ code: string }>('/:code/chat', chatRateLimiter, async (req, res, next) => {
 		try {
 			const { code } = req.params
 			const session = getSession(req.player!.playerId)
