@@ -69,6 +69,19 @@ export async function purgeExpiredRunLogs(): Promise<number> {
 	return result.rowCount ?? 0
 }
 
+// Account-deletion side effect: gameplay logs aren't deleted (they may still
+// be needed for anti-cheat/replay purposes for the remainder of their normal
+// retention window), but the player is no longer identifiable via playerId
+// once their account is gone.
+export async function pseudonymizeRunLogsForPlayer(
+	playerId: string,
+): Promise<void> {
+	await db
+		.update(matchRunLogs)
+		.set({ playerId: `deleted_user_${playerId}` })
+		.where(eq(matchRunLogs.playerId, playerId))
+}
+
 export async function getRunWithLogs(
 	runId: string,
 ): Promise<RunWithLogs | undefined> {

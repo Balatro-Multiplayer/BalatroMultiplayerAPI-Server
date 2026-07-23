@@ -199,6 +199,7 @@ export function createLobbyRouter(service: LobbyService): Router {
 				session.playerId,
 				displayName,
 				message,
+				session.steamIdHash ?? null,
 			)
 
 			if (!result.ok) {

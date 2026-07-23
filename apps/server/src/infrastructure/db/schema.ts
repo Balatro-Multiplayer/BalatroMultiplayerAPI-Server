@@ -37,6 +37,12 @@ export const players = pgTable(
 		updatedAt: timestamp('updated_at', { withTimezone: true })
 			.notNull()
 			.defaultNow(),
+		// Set when the player deletes their account. The row is never hard-deleted:
+		// PII fields are cleared immediately (see softDeletePlayer), but steamIdHash
+		// survives so an active ban stays enforceable and re-signing in with the same
+		// Steam identity reactivates this same row instead of creating a fresh one.
+		// Null = active account.
+		deletedAt: timestamp('deleted_at', { withTimezone: true }),
 	},
 	(table) => [
 		uniqueIndex('players_steam_id_hash_idx')
@@ -294,9 +300,13 @@ export const playerBans = pgTable(
 	'player_bans',
 	{
 		id: uuid('id').primaryKey().defaultRandom(),
+		// Intentionally NOT onDelete: 'cascade' — players are soft-deleted, never
+		// hard-deleted, specifically so ban history survives account deletion
+		// (defense in depth: any future code path that did hard-delete a players
+		// row would fail loudly here instead of silently wiping ban records).
 		playerId: uuid('player_id')
 			.notNull()
-			.references(() => players.id, { onDelete: 'cascade' }),
+			.references(() => players.id),
 		banType: text('ban_type').notNull(), // 'chat' | 'queue' | 'account'
 		expiresAt: timestamp('expires_at', { withTimezone: true }), // null = indefinite
 		issuedBy: text('issued_by').notNull(), // moderator display name or 'system'

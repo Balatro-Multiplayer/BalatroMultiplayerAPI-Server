@@ -12,6 +12,7 @@ export interface PlayerRecord {
 	chatEnabled: boolean
 	chatBlocked: boolean
 	tosAcceptedVersion: number
+	deletedAt: Date | null
 }
 
 export interface IPlayerRepository {
@@ -26,12 +27,25 @@ export interface IPlayerRepository {
 		discordIdHash?: string
 	}): Promise<PlayerRecord>
 	linkSteam(playerId: string, steamIdHash: string): Promise<void>
-	linkDiscord(playerId: string, discordIdHash: string, discordUsername?: string): Promise<void>
+	linkDiscord(
+		playerId: string,
+		discordIdHash: string,
+		discordUsername?: string,
+	): Promise<void>
 	unlinkDiscord(playerId: string): Promise<void>
 	updateUseDiscordName(playerId: string, useDiscordName: boolean): Promise<void>
-	updateDiscordUsername(playerId: string, discordUsername: string): Promise<void>
+	updateDiscordUsername(
+		playerId: string,
+		discordUsername: string,
+	): Promise<void>
 	updatePreferredJoker(playerId: string, preferredJoker: string): Promise<void>
 	updateSteamName(playerId: string, steamName: string): Promise<void>
 	updateTosAcceptedVersion(playerId: string, version: number): Promise<void>
-	updateChatStatus(playerId: string, chatEnabled: boolean, chatBlocked: boolean): Promise<void>
+	updateChatStatus(
+		playerId: string,
+		chatEnabled: boolean,
+		chatBlocked: boolean,
+	): Promise<void>
+	softDeletePlayer(playerId: string): Promise<void>
+	reactivateIfDeleted(playerId: string): Promise<void>
 }

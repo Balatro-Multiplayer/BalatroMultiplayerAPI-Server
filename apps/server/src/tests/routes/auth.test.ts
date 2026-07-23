@@ -1,12 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
-import { createTestApp } from './app.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { env } from '../../env.js'
-import { lobbies, sessions, createSession } from '../../state/index.js'
-import { Lobby } from '../../state/lobby.js'
-import { redeemRefreshToken, issueRefreshToken } from '../../infrastructure/gateways/refresh-token.gateway.js'
-import { signTosPendingToken } from '../../features/auth/jwt.js'
+import { signJwt, signTosPendingToken } from '../../features/auth/jwt.js'
+import * as playerGateway from '../../infrastructure/gateways/player.gateway.js'
+import {
+	issueRefreshToken,
+	redeemRefreshToken,
+} from '../../infrastructure/gateways/refresh-token.gateway.js'
 import { setConfig } from '../../state/config.js'
+import { createSession, lobbies, sessions } from '../../state/index.js'
+import { Lobby } from '../../state/lobby.js'
+import { createTestApp } from './app.js'
 
 const app = createTestApp()
 const originalNodeEnv = env.NODE_ENV
@@ -153,9 +157,7 @@ describe('POST /api/auth/dev', () => {
 	})
 
 	it('returns 400 when steamName is missing', async () => {
-		const res = await request(devApp)
-			.post('/api/auth/dev')
-			.send({})
+		const res = await request(devApp).post('/api/auth/dev').send({})
 
 		expect(res.status).toBe(400)
 		expect(res.body.error).toMatch(/steamName/)
@@ -183,14 +185,12 @@ describe('POST /api/auth/dev', () => {
 		const playerId = authRes.body.player.id
 		const token = authRes.body.token
 
-		const emqxRes = await request(devApp)
-			.post('/emqx/auth')
-			.send({
-				clientid: playerId,
-				username: playerId,
-				password: token,
-				peerhost: '127.0.0.1',
-			})
+		const emqxRes = await request(devApp).post('/emqx/auth').send({
+			clientid: playerId,
+			username: playerId,
+			password: token,
+			peerhost: '127.0.0.1',
+		})
 
 		expect(emqxRes.status).toBe(200)
 		expect(emqxRes.body.result).toBe('allow')
@@ -298,7 +298,10 @@ describe('POST /api/auth/accept-tos', () => {
 	it('returns 401 for a regular JWT (wrong purpose)', async () => {
 		const { signJwt } = await import('../../features/auth/jwt.js')
 		createSession('Alice', { id: 'tos-wrong-jwt' })
-		const regularToken = signJwt({ playerId: 'tos-wrong-jwt', steamName: 'Alice' })
+		const regularToken = signJwt({
+			playerId: 'tos-wrong-jwt',
+			steamName: 'Alice',
+		})
 
 		const res = await request(app)
 			.post('/api/auth/accept-tos')
@@ -341,5 +344,131 @@ describe('POST /api/auth/accept-tos', () => {
 			.set('Authorization', `Bearer ${pendingToken}`)
 
 		expect(res.status).toBe(401)
+	})
+})
+
+describe('DELETE /api/auth/account', () => {
+	it('returns 401 when Authorization header is missing', async () => {
+		const res = await request(app).delete('/api/auth/account')
+		expect(res.status).toBe(401)
+	})
+
+	it('soft-deletes the player instead of hard-deleting', async () => {
+		createSession('Alice', { id: 'del-p1' })
+		const token = signJwt({ playerId: 'del-p1', steamName: 'Alice' })
+
+		const res = await request(app)
+			.delete('/api/auth/account')
+			.set('Authorization', `Bearer ${token}`)
+
+		expect(res.status).toBe(200)
+		expect(res.body).toEqual({ ok: true })
+		// The fix: deletion goes through softDeletePlayer, never a hard delete of
+		// the players row -- this is what keeps playerBans attached/enforceable
+		// instead of being cascade-deleted with it.
+		expect(vi.mocked(playerGateway.softDeletePlayer)).toHaveBeenCalledWith(
+			'del-p1',
+		)
+	})
+
+	it('clears the session on deletion', async () => {
+		createSession('Bob', { id: 'del-p2' })
+		const token = signJwt({ playerId: 'del-p2', steamName: 'Bob' })
+
+		await request(app)
+			.delete('/api/auth/account')
+			.set('Authorization', `Bearer ${token}`)
+
+		expect(sessions.has('del-p2')).toBe(false)
+	})
+})
+
+describe('Reactivation of a soft-deleted account on Steam re-signin', () => {
+	afterEach(() => {
+		vi.restoreAllMocks()
+	})
+
+	it('reuses the same player id and clears deletedAt instead of creating a fresh account', async () => {
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					response: {
+						params: {
+							result: 'OK',
+							steamid: '76561198055555',
+							ownersteamid: '76561198055555',
+							vacbanned: false,
+							publisherbanned: false,
+						},
+					},
+				}),
+				{ status: 200 },
+			),
+		)
+
+		vi.mocked(playerGateway.findPlayerBySteamIdHash).mockResolvedValueOnce({
+			id: 'previously-deleted-player',
+			steamIdHash: 'irrelevant-in-this-mock',
+			discordIdHash: null,
+			discordUsername: null,
+			useDiscordName: false,
+			preferredJoker: 'j_joker',
+			privileges: [],
+			steamName: '[deleted player]',
+			chatEnabled: false,
+			chatBlocked: false,
+			tosAcceptedVersion: 0,
+			deletedAt: new Date('2026-01-01T00:00:00Z'),
+		})
+
+		const res = await request(app)
+			.post('/api/auth/steam')
+			.send({ ticket: 'valid-hex', steamName: 'Alice' })
+
+		expect(res.status).toBe(200)
+		expect(res.body.player.id).toBe('previously-deleted-player')
+		expect(vi.mocked(playerGateway.reactivateIfDeleted)).toHaveBeenCalledWith(
+			'previously-deleted-player',
+		)
+	})
+
+	it('does not call reactivateIfDeleted for an account that was never deleted', async () => {
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					response: {
+						params: {
+							result: 'OK',
+							steamid: '76561198066666',
+							ownersteamid: '76561198066666',
+							vacbanned: false,
+							publisherbanned: false,
+						},
+					},
+				}),
+				{ status: 200 },
+			),
+		)
+
+		vi.mocked(playerGateway.findPlayerBySteamIdHash).mockResolvedValueOnce({
+			id: 'active-player',
+			steamIdHash: 'irrelevant-in-this-mock',
+			discordIdHash: null,
+			discordUsername: null,
+			useDiscordName: false,
+			preferredJoker: 'j_joker',
+			privileges: [],
+			steamName: 'Alice',
+			chatEnabled: false,
+			chatBlocked: false,
+			tosAcceptedVersion: 0,
+			deletedAt: null,
+		})
+
+		await request(app)
+			.post('/api/auth/steam')
+			.send({ ticket: 'valid-hex', steamName: 'Alice' })
+
+		expect(vi.mocked(playerGateway.reactivateIfDeleted)).not.toHaveBeenCalled()
 	})
 })

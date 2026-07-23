@@ -9,9 +9,10 @@ import {
 } from './features/matchmaking/matchmaking.service.js'
 import { replayLogService } from './features/replay-log/replay-log.service.js'
 import { db, pool } from './infrastructure/db/index.js'
-import { flaggedMessages } from './infrastructure/db/schema.js'
+import { chatLogs, flaggedMessages } from './infrastructure/db/schema.js'
 import { provisionEmqxWebhook } from './infrastructure/emqx/emqx-provision.service.js'
 import { loadConfigFromDb } from './infrastructure/gateways/config.gateway.js'
+import { purgeExpiredDeletedPlayerHashes } from './infrastructure/gateways/player.gateway.js'
 import { purgeExpiredRunLogs } from './infrastructure/gateways/replay-log.gateway.js'
 import { clearAllGracePeriods } from './infrastructure/mqtt/grace-period.service.js'
 import { mqttService } from './infrastructure/mqtt/mqtt.service.js'
@@ -76,6 +77,25 @@ async function purgeExpiredRunLogsJob() {
 	}
 }
 
+async function purgeExpiredChatLogsJob() {
+	try {
+		await db.delete(chatLogs).where(lt(chatLogs.expiresAt, new Date()))
+	} catch (err) {
+		console.error('[cleanup] Failed to purge expired chat logs:', err)
+	}
+}
+
+async function purgeExpiredDeletedPlayerHashesJob() {
+	try {
+		await purgeExpiredDeletedPlayerHashes()
+	} catch (err) {
+		console.error(
+			'[cleanup] Failed to purge expired deleted-player hashes:',
+			err,
+		)
+	}
+}
+
 type PrivateModule = { registerPrivate: (app: Express) => Promise<void> }
 
 async function start() {
@@ -117,6 +137,15 @@ async function start() {
 
 		void purgeExpiredRunLogsJob()
 		setInterval(() => void purgeExpiredRunLogsJob(), 60 * 60 * 1000).unref()
+
+		void purgeExpiredChatLogsJob()
+		setInterval(() => void purgeExpiredChatLogsJob(), 60 * 60 * 1000).unref()
+
+		void purgeExpiredDeletedPlayerHashesJob()
+		setInterval(
+			() => void purgeExpiredDeletedPlayerHashesJob(),
+			60 * 60 * 1000,
+		).unref()
 
 		server = app.listen(env.PORT, () => {
 			console.log(`[server] API server listening on port ${env.PORT}`)

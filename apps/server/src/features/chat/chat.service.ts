@@ -1,7 +1,8 @@
+import { insertReportedLobbyMessage } from '../../infrastructure/gateways/chat.gateway.js'
+import { logChat } from '../../infrastructure/gateways/history.gateway.js'
+import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
 import { getConfig } from '../../state/config.js'
 import type { Lobby } from '../../state/lobby.js'
-import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
-import { insertReportedLobbyMessage } from '../../infrastructure/gateways/chat.gateway.js'
 import { normalizeForAllowlist } from './normalization.js'
 import { moderateMessage } from './obscenity.js'
 
@@ -16,6 +17,7 @@ export async function processAndPublishMessage(
 	playerId: string,
 	displayName: string,
 	message: string,
+	steamIdHash: string | null = null,
 ): Promise<{ ok: boolean; reason?: string }> {
 	const normalized = normalizeForAllowlist(message)
 	if (normalized === null) {
@@ -29,10 +31,17 @@ export async function processAndPublishMessage(
 		}
 	}
 
-	await mqttService.publishChatMessage(lobby.code, playerId, displayName, message)
+	await mqttService.publishChatMessage(
+		lobby.code,
+		playerId,
+		displayName,
+		message,
+	)
 
 	const sentAt = new Date()
 	lobby.bufferMessage({ playerId, displayName, message, sentAt })
+
+	await logChat(lobby.code, playerId, message, steamIdHash)
 
 	if (lobby.isReported) {
 		await insertReportedLobbyMessage({

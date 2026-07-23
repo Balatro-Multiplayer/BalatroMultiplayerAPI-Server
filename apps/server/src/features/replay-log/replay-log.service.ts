@@ -12,7 +12,7 @@ import { getLobby } from '../../state/index.js'
 
 // Indefinite (NULL expiresAt) is reserved for flagged/disputed runs -- see
 // finalizeRun's flags param, set by matchmaking.service.ts's evaluateAntiCheat.
-const RUN_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const RUN_TTL_MS = 180 * 24 * 60 * 60 * 1000
 
 // Framing opcodes (see BalatroMultiplayerPvP's lib/replay_log.lua) are excluded
 // from the anti-cheat hash input on both sides -- they're emitted directly via
@@ -155,7 +155,8 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 			// A flagged row gets indefinite retention (mirrors the existing
 			// reports/flaggedMessages "null expiresAt = keep" convention) instead
 			// of the normal 30-day TTL, since it's a candidate for moderator review.
-			const expiresAt = flagReason !== null ? null : new Date(Date.now() + RUN_TTL_MS)
+			const expiresAt =
+				flagReason !== null ? null : new Date(Date.now() + RUN_TTL_MS)
 			await repository.upsertPlayerLog({
 				runId: run.runId,
 				playerId,

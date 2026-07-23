@@ -12,6 +12,8 @@ import { hashProviderId } from '../../shared/utils/hash.js'
 import { getConfig } from '../../state/config.js'
 import type { IPlayerRepository, PlayerRecord } from '../../contracts/IPlayerRepository.js'
 import type { IGracePeriodService } from '../../contracts/IGracePeriodService.js'
+import { pseudonymizeChatLogsForPlayer } from '../../infrastructure/gateways/history.gateway.js'
+import { pseudonymizeRunLogsForPlayer } from '../../infrastructure/gateways/replay-log.gateway.js'
 import { signJwt } from './jwt.js'
 
 type Provider = 'steam' | 'discord'
@@ -110,6 +112,10 @@ export function createAuthService(deps: AuthServiceDeps) {
 	): Promise<SessionAndToken> {
 		const session = createSession(steamName, dbPlayerToSessionInit(dbPlayer))
 		await playerRepository.updateSteamName(dbPlayer.id, steamName)
+		// A previously-deleted account is reactivated by simply signing back in
+		// with the same Steam identity (steamIdHash survives deletion for exactly
+		// this reason) -- a no-op if the account was never deleted.
+		if (dbPlayer.deletedAt) await playerRepository.reactivateIfDeleted(dbPlayer.id)
 		return sessionAndToken(session)
 	}
 
@@ -333,6 +339,18 @@ export function createAuthService(deps: AuthServiceDeps) {
 		return sessionAndToken(session)
 	}
 
+	// Soft-delete only -- never hard-deletes the players row. Hard-deleting
+	// would cascade or orphan playerBans, letting a banned player self-serve
+	// wipe their own ban by deleting their account. PII is cleared immediately;
+	// steamIdHash is kept until purgeExpiredDeletedPlayerHashes later clears it,
+	// once 12 months have passed and no ban is active (see that function's
+	// comment for why that's not an evasion loophole).
+	async function deleteAccount(playerId: string): Promise<void> {
+		await playerRepository.softDeletePlayer(playerId)
+		await pseudonymizeChatLogsForPlayer(playerId)
+		await pseudonymizeRunLogsForPlayer(playerId)
+	}
+
 	return {
 		authenticateWithSteam,
 		authenticateWithDiscord,
@@ -344,5 +362,6 @@ export function createAuthService(deps: AuthServiceDeps) {
 		setUseDiscordName,
 		setPreferredJoker,
 		acceptTos,
+		deleteAccount,
 	}
 }

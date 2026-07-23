@@ -44,6 +44,9 @@ vi.mock('../infrastructure/db/index.js', () => ({
 				where: vi.fn().mockResolvedValue(undefined),
 			}),
 		}),
+		// Only wired up as needed (e.g. purgeExpiredDeletedPlayerHashes); not
+		// every test path touches it. mockResolvedValue([]) as a safe default.
+		query: { players: { findMany: vi.fn().mockResolvedValue([]) } },
 	},
 	pool: {
 		end: vi.fn().mockResolvedValue(undefined),
@@ -59,8 +62,7 @@ vi.mock('../infrastructure/gateways/ban.gateway.js', () => ({
 	insertBan: vi.fn().mockResolvedValue(undefined),
 	liftBan: vi.fn().mockResolvedValue(null),
 	BAN_TYPES: ['chat', 'queue', 'account'],
-	isBanType: (v: unknown) =>
-		v === 'chat' || v === 'queue' || v === 'account',
+	isBanType: (v: unknown) => v === 'chat' || v === 'queue' || v === 'account',
 }))
 
 // Mock the EMQX admin client — no real broker in tests
@@ -80,6 +82,7 @@ const mockPlayerRecord = {
 	chatEnabled: false,
 	chatBlocked: false,
 	tosAcceptedVersion: 0,
+	deletedAt: null,
 }
 
 // Mock player.gateway — no real DB calls in tests
@@ -98,6 +101,9 @@ vi.mock('../infrastructure/gateways/player.gateway.js', () => ({
 	updatePreferredJoker: vi.fn().mockResolvedValue(undefined),
 	updateTosAcceptedVersion: vi.fn().mockResolvedValue(undefined),
 	updateChatStatus: vi.fn().mockResolvedValue(undefined),
+	softDeletePlayer: vi.fn().mockResolvedValue(undefined),
+	reactivateIfDeleted: vi.fn().mockResolvedValue(undefined),
+	purgeExpiredDeletedPlayerHashes: vi.fn().mockResolvedValue(0),
 }))
 
 // Reset in-memory state between tests
@@ -120,7 +126,9 @@ beforeEach(async () => {
 	linkState.linkStateNonces.clear()
 
 	// Clear grace periods
-	const gracePeriod = await import('../infrastructure/mqtt/grace-period.service.js')
+	const gracePeriod = await import(
+		'../infrastructure/mqtt/grace-period.service.js'
+	)
 	gracePeriod.clearAllGracePeriods()
 
 	// Reset server config — tosVersion 0 disables TOS gating in tests
@@ -141,10 +149,30 @@ beforeEach(async () => {
 	vi.mocked(playerDb.updateDiscordUsername).mockResolvedValue(undefined)
 	vi.mocked(playerDb.updateUseDiscordName).mockResolvedValue(undefined)
 	vi.mocked(playerDb.updatePreferredJoker).mockResolvedValue(undefined)
+	vi.mocked(playerDb.softDeletePlayer).mockResolvedValue(undefined)
+	vi.mocked(playerDb.reactivateIfDeleted).mockResolvedValue(undefined)
 
 	// Re-apply ban gateway defaults (cleared by vi.clearAllMocks above)
 	const banDb = await import('../infrastructure/gateways/ban.gateway.js')
 	vi.mocked(banDb.hasActiveBan).mockResolvedValue(false)
 	vi.mocked(banDb.getActiveBans).mockResolvedValue([])
 	vi.mocked(banDb.listBans).mockResolvedValue([])
+
+	// Re-apply the db mock's chainable implementations. vi.restoreAllMocks()
+	// (used in some test files to restore vi.spyOn(fetch) etc.) treats every
+	// plain vi.fn() -- including these, which were never a real spy -- as if
+	// mockReset() had been called, wiping mockReturnValue/mockResolvedValue
+	// back to a bare no-op. Without this, any code path exercising the real
+	// db.update()/db.insert()/db.query chain (not the per-gateway mocks above)
+	// silently breaks depending on test order.
+	const { db } = await import('../infrastructure/db/index.js')
+	vi.mocked(db.insert).mockReturnValue({
+		values: vi.fn().mockResolvedValue(undefined),
+	} as unknown as ReturnType<typeof db.insert>)
+	vi.mocked(db.update).mockReturnValue({
+		set: vi.fn().mockReturnValue({
+			where: vi.fn().mockResolvedValue(undefined),
+		}),
+	} as unknown as ReturnType<typeof db.update>)
+	vi.mocked(db.query.players.findMany).mockResolvedValue([])
 })

@@ -1,8 +1,5 @@
 import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
-import { db } from '../../infrastructure/db/index.js'
-import { matchmakingRatings, players } from '../../infrastructure/db/schema.js'
-import { eq } from 'drizzle-orm'
 import { authenticate } from '../../middleware/authenticate.js'
 import { authenticateAsTemp } from './auth.service.js'
 import type { AuthService } from './auth.service.js'
@@ -508,11 +505,7 @@ h1{color:#5865f2;margin-bottom:0.5rem}p{color:#a0a0b0}</style>
 		try {
 			const playerId = req.player!.playerId
 
-			await db.transaction(async (tx) => {
-				await tx.delete(matchmakingRatings).where(eq(matchmakingRatings.playerId, playerId))
-				await tx.delete(players).where(eq(players.id, playerId))
-			})
-
+			await service.deleteAccount(playerId)
 			removeSession(playerId)
 
 			res.json({ ok: true })

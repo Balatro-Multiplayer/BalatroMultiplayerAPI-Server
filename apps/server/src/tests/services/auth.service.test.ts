@@ -1,25 +1,28 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { IGracePeriodService } from '../../contracts/IGracePeriodService.js'
+import type {
+	IPlayerRepository,
+	PlayerRecord,
+} from '../../contracts/IPlayerRepository.js'
 import {
 	authenticateAsTemp,
 	createAuthService,
 } from '../../features/auth/auth.service.js'
 import { signJwt, verifyJwt } from '../../features/auth/jwt.js'
-import { validateSteamTicket } from '../../features/auth/steam.js'
 import {
 	generateLinkState,
 	linkStateNonces,
 	verifyLinkState,
 } from '../../features/auth/link-state.js'
+import { validateSteamTicket } from '../../features/auth/steam.js'
+import { hashProviderId } from '../../shared/utils/hash.js'
 import {
 	createSession,
+	discordIndex,
 	findByProvider,
 	sessions,
 	steamIndex,
-	discordIndex,
 } from '../../state/index.js'
-import { hashProviderId } from '../../shared/utils/hash.js'
-import type { IPlayerRepository, PlayerRecord } from '../../contracts/IPlayerRepository.js'
-import type { IGracePeriodService } from '../../contracts/IGracePeriodService.js'
 
 const mockPlayerRecord: PlayerRecord = {
 	id: 'db-player-id',
@@ -33,6 +36,7 @@ const mockPlayerRecord: PlayerRecord = {
 	chatEnabled: false,
 	chatBlocked: false,
 	tosAcceptedVersion: 0,
+	deletedAt: null,
 }
 
 function makeMockPlayerRepository(): IPlayerRepository {
@@ -51,10 +55,15 @@ function makeMockPlayerRepository(): IPlayerRepository {
 		updateSteamName: vi.fn().mockResolvedValue(undefined),
 		updateTosAcceptedVersion: vi.fn().mockResolvedValue(undefined),
 		updateChatStatus: vi.fn().mockResolvedValue(undefined),
+		softDeletePlayer: vi.fn().mockResolvedValue(undefined),
+		reactivateIfDeleted: vi.fn().mockResolvedValue(undefined),
 	}
 }
 
-function makeMockGracePeriodService(): Pick<IGracePeriodService, 'cancelGracePeriod'> {
+function makeMockGracePeriodService(): Pick<
+	IGracePeriodService,
+	'cancelGracePeriod'
+> {
 	return {
 		cancelGracePeriod: vi.fn().mockResolvedValue(true),
 	}
@@ -105,7 +114,10 @@ describe('auth.service', () => {
 	describe('authenticateWithSteam', () => {
 		it('creates a new session for unknown steam ID', async () => {
 			const { service } = makeAuthService()
-			const { session, token } = await service.authenticateWithSteam('steam1', 'Alice')
+			const { session, token } = await service.authenticateWithSteam(
+				'steam1',
+				'Alice',
+			)
 
 			expect(session.playerId).toBeDefined()
 			expect(session.steamName).toBe('Alice')
@@ -145,11 +157,13 @@ describe('auth.service', () => {
 		it('restores from DB when not in memory', async () => {
 			const { service, playerRepository } = makeAuthService()
 			const steamIdHash = hashProviderId('steam1')
-			vi.mocked(playerRepository.findPlayerBySteamIdHash).mockResolvedValueOnce({
-				...mockPlayerRecord,
-				steamIdHash,
-				discordIdHash: 'some-discord-hash',
-			})
+			vi.mocked(playerRepository.findPlayerBySteamIdHash).mockResolvedValueOnce(
+				{
+					...mockPlayerRecord,
+					steamIdHash,
+					discordIdHash: 'some-discord-hash',
+				},
+			)
 
 			const { session } = await service.authenticateWithSteam('steam1', 'Alice')
 
@@ -163,7 +177,10 @@ describe('auth.service', () => {
 	describe('authenticateWithDiscord', () => {
 		it('creates a new session for unknown discord ID', async () => {
 			const { service } = makeAuthService()
-			const { session, token } = await service.authenticateWithDiscord('disc1', 'Bob')
+			const { session, token } = await service.authenticateWithDiscord(
+				'disc1',
+				'Bob',
+			)
 
 			expect(session.playerId).toBeDefined()
 			expect(session.steamName).toBe('Bob')
@@ -186,7 +203,9 @@ describe('auth.service', () => {
 		it('restores from DB when not in memory', async () => {
 			const { service, playerRepository } = makeAuthService()
 			const discordIdHash = hashProviderId('disc1')
-			vi.mocked(playerRepository.findPlayerByDiscordIdHash).mockResolvedValueOnce({
+			vi.mocked(
+				playerRepository.findPlayerByDiscordIdHash,
+			).mockResolvedValueOnce({
 				...mockPlayerRecord,
 				steamIdHash: 'some-steam-hash',
 				discordIdHash,
@@ -241,7 +260,9 @@ describe('auth.service', () => {
 
 		it('allows re-linking same steam to same player', async () => {
 			const { service } = makeAuthService()
-			const session = createSession('Alice', { steamIdHash: hashProviderId('steam1') })
+			const session = createSession('Alice', {
+				steamIdHash: hashProviderId('steam1'),
+			})
 
 			const result = await service.linkSteamToPlayer(session.playerId, 'steam1')
 			expect(result.session.steamIdHash).toBe(hashProviderId('steam1'))
@@ -265,7 +286,10 @@ describe('auth.service', () => {
 			const { service } = makeAuthService()
 			const session = createSession('Alice', { steamIdHash: 'steam1' })
 
-			const result = await service.linkDiscordToPlayer(session.playerId, 'disc1')
+			const result = await service.linkDiscordToPlayer(
+				session.playerId,
+				'disc1',
+			)
 
 			expect(result.session.discordIdHash).toBe(hashProviderId('disc1'))
 			expect(findByProvider('discord', hashProviderId('disc1'))).toBe(session)
