@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
 import { createTestApp } from './app.js'
 import { signJwt } from '../../features/auth/jwt.js'
@@ -6,9 +6,24 @@ import { createSession } from '../../state/index.js'
 import { matches, matchByLobby, queues, playerQueues } from '../../state/matchmaking.js'
 import { Lobby } from '../../state/lobby.js'
 import { lobbies } from '../../state/index.js'
+import { db } from '../../infrastructure/db/index.js'
 import type { Match } from '../../shared/types/index.js'
 
 const app = createTestApp()
+
+// reportResult() falls back to a db.select (getResolvedMatchResult) when the
+// match is no longer in the in-memory map -- the base mock in tests/setup.ts
+// has no .select stub, so give it a default here (no resolved result, i.e.
+// the match genuinely doesn't exist). Mirrors report.test.ts's pattern.
+beforeEach(() => {
+	;(db as any).select = vi.fn().mockReturnValue({
+		from: vi.fn().mockReturnValue({
+			where: vi.fn().mockReturnValue({
+				limit: vi.fn().mockResolvedValue([]),
+			}),
+		}),
+	})
+})
 
 function authHeader(playerId: string, steamName: string, lobbyCode?: string) {
 	createSession(steamName, { id: playerId })
@@ -322,11 +337,20 @@ describe('matchmaking routes', () => {
 			expect(res.status).toBe(404)
 		})
 
-		it('returns 403 when caller is not the match host', async () => {
+		it('§11.6: allows a non-host participant to report the result', async () => {
 			makeMatch('m5', 'LOBBY5', 'p1', ['p1', 'p2'])
 			const res = await request(app)
 				.post('/api/matchmaking/matches/m5/result')
 				.set('Authorization', authHeader('p2', 'Bob'))
+				.send({ placements: [{ playerId: 'p1', place: 1 }, { playerId: 'p2', place: 2 }] })
+			expect(res.status).toBe(204)
+		})
+
+		it('returns 403 when caller was not a participant in the match', async () => {
+			makeMatch('m5b', 'LOBBY5B', 'p1', ['p1', 'p2'])
+			const res = await request(app)
+				.post('/api/matchmaking/matches/m5b/result')
+				.set('Authorization', authHeader('p3', 'Carol'))
 				.send({ placements: [{ playerId: 'p1', place: 1 }, { playerId: 'p2', place: 2 }] })
 			expect(res.status).toBe(403)
 		})

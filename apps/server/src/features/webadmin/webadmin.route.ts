@@ -7,6 +7,7 @@ import chatLogsRouter from './chat-logs.route.js'
 import reportsRouter from './reports.route.js'
 import seasonsRouter from './seasons.route.js'
 import matchesRouter from './matches.route.js'
+import matchConflictsRouter from './match-conflicts.route.js'
 import releasesRouter from './releases.route.js'
 
 const router = Router()
@@ -35,6 +36,7 @@ router.use(chatLogsRouter)
 router.use(reportsRouter)
 router.use(seasonsRouter)
 router.use(matchesRouter)
+router.use(matchConflictsRouter)
 router.use(releasesRouter)
 
 export default router

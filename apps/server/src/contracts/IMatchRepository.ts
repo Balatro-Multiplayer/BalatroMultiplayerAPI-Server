@@ -25,6 +25,12 @@ export interface SeasonRow {
 	endsAt: Date
 }
 
+export interface ResolvedMatchResult {
+	lobbyCode: string
+	placements: PlacementEntry[]
+	reportedBy: string
+}
+
 export interface IMatchRepository {
 	insertMatch(
 		matchId: string,
@@ -46,4 +52,6 @@ export interface IMatchRepository {
 	getCurrentSeason(): Promise<SeasonRow | undefined>
 	getPlayerCurrentRating(playerId: string, modId: string, gameMode: string): Promise<number>
 	setMatchGameStarted(matchId: string, startedAt: Date): Promise<void>
+	recordMatchResult(matchId: string, placements: PlacementEntry[], reportedBy: string): Promise<void>
+	getResolvedMatchResult(matchId: string): Promise<ResolvedMatchResult | undefined>
 }

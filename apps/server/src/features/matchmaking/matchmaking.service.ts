@@ -24,6 +24,7 @@ import {
 import {
 	updateMatchLobbyState,
 } from '../../infrastructure/gateways/matchmaking.gateway.js'
+import { insertMatchConflict } from '../../infrastructure/gateways/match-conflict.gateway.js'
 import type { StoredLobbyState } from '../../shared/types/index.js'
 import type { IMessageBus } from '../../contracts/IMessageBus.js'
 import type { IBanRepository } from '../../contracts/IBanRepository.js'
@@ -127,6 +128,16 @@ export function stopDailyJob(): void {
 		clearInterval(dailyJobInterval)
 		dailyJobInterval = null
 	}
+}
+
+// Pure: order-independent comparison by playerId+place only (a "conflicting"
+// report per §11.6/§21.5 means a different outcome, not a metric/tiebreak
+// discrepancy). Used by reportResult to decide whether a later report for an
+// already-resolved match is a no-op or needs flagging.
+function placementsMatch(a: PlacementEntry[], b: PlacementEntry[]): boolean {
+	if (a.length !== b.length) return false
+	const aByPlayer = new Map(a.map((p) => [p.playerId, p.place]))
+	return b.every((p) => aByPlayer.get(p.playerId) === p.place)
 }
 
 // --- Factory for infra-dependent operations ---
@@ -572,6 +583,7 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		matchId: string,
 		match: Match,
 		placements: PlacementEntry[],
+		reportedBy: string,
 	): Promise<void> {
 		const season = await matchRepository.getCurrentSeason()
 		if (!season) throw new AppError('No active season', 500)
@@ -584,6 +596,10 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 			season.id,
 			placements,
 		)
+		// Persisted so a later report for this matchId (§11.6 "first report
+		// wins") has something to compare against once the in-memory match
+		// below is gone, instead of just 404ing.
+		await matchRepository.recordMatchResult(matchId, placements, reportedBy)
 
 		matches.delete(matchId)
 		matchByLobby.delete(match.lobbyCode)
@@ -600,22 +616,54 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		}
 	}
 
+	// §11.6: any player in the match may report (not just the host), and the
+	// FIRST report received is authoritative. If the match already resolved
+	// (this is a later report for the same matchId), compare against the
+	// persisted result instead of 404ing: a matching report is a silent no-op,
+	// a differing one is flagged for manual moderator review (§21.5) without
+	// altering the already-applied outcome.
 	async function reportResult(
 		session: PlayerSession,
 		matchId: string,
 		placements: PlacementEntry[],
 	): Promise<void> {
 		const match = matches.get(matchId)
-		if (!match) throw new AppError('Match not found', 404)
+
+		if (!match) {
+			const resolved = await matchRepository.getResolvedMatchResult(matchId)
+			if (!resolved) throw new AppError('Match not found', 404)
+
+			const reporterWasParticipant = resolved.placements.some(
+				(p) => p.playerId === session.playerId,
+			)
+			if (!reporterWasParticipant) {
+				throw new AppError('Not a participant in this match', 403)
+			}
+
+			if (placementsMatch(resolved.placements, placements)) {
+				return
+			}
+
+			await insertMatchConflict({
+				matchId,
+				lobbyCode: resolved.lobbyCode,
+				firstReporterId: resolved.reportedBy,
+				firstPlacements: resolved.placements,
+				conflictingReporterId: session.playerId,
+				conflictingPlacements: placements,
+			})
+			return
+		}
+
+		if (!match.playerIds.includes(session.playerId)) {
+			throw new AppError('Not a participant in this match', 403)
+		}
 
 		const lobby = getLobby(match.lobbyCode)
 		if (!lobby) throw new AppError('Lobby not found', 404)
 
-		if (lobby.hostId !== session.playerId) {
-			throw new AppError('Only the match host can report results', 403)
-		}
-
 		if (!isRanked(match.gameMode)) {
+			await matchRepository.recordMatchResult(matchId, placements, session.playerId)
 			await matchRepository.updateMatchStatus(matchId, 'resolved')
 			matches.delete(matchId)
 			matchByLobby.delete(match.lobbyCode)
@@ -623,7 +671,7 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 			return
 		}
 
-		await resolveRankedResult(matchId, match, placements)
+		await resolveRankedResult(matchId, match, placements, session.playerId)
 	}
 
 	// Phase 8.4: the ranked-match counterpart of a host-submitted reportResult,
@@ -657,7 +705,7 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 			playerId: id,
 			place: id === disconnectedPlayerId ? match.playerIds.length : 1,
 		}))
-		await resolveRankedResult(matchId, match, placements)
+		await resolveRankedResult(matchId, match, placements, 'system')
 	}
 
 	return {

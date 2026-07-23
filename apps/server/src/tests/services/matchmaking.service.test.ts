@@ -68,6 +68,8 @@ function makeMockMatchRepository(): IMatchRepository {
 		getCurrentSeason: vi.fn().mockResolvedValue(null),
 		getPlayerCurrentRating: vi.fn().mockResolvedValue(600),
 		setMatchGameStarted: vi.fn().mockResolvedValue(undefined),
+		recordMatchResult: vi.fn().mockResolvedValue(undefined),
+		getResolvedMatchResult: vi.fn().mockResolvedValue(undefined),
 	}
 }
 
@@ -520,7 +522,7 @@ describe('matchmaking.service', () => {
 			).rejects.toThrow('Match not found')
 		})
 
-		it('throws 403 when a non-host player reports', async () => {
+		it('§11.6: a non-host participant can report (not just the host)', async () => {
 			const { service } = makeService()
 			const { guest } = setupCasualMatch('match-2', 'CODA2')
 			await expect(
@@ -528,7 +530,20 @@ describe('matchmaking.service', () => {
 					{ playerId: 'host1', place: 1 },
 					{ playerId: 'guest1', place: 2 },
 				]),
-			).rejects.toThrow('Only the match host can report results')
+			).resolves.toBeUndefined()
+			expect(matches.has('match-2')).toBe(false)
+		})
+
+		it('throws 403 when the reporter was not a participant in the match', async () => {
+			const { service } = makeService()
+			setupCasualMatch('match-2b', 'CODA2B')
+			const outsider = makeSession('outsider', 'Eve')
+			await expect(
+				service.reportResult(outsider, 'match-2b', [
+					{ playerId: 'host1', place: 1 },
+					{ playerId: 'guest1', place: 2 },
+				]),
+			).rejects.toThrow('Not a participant in this match')
 		})
 
 		it('throws 404 when the lobby has been removed', async () => {
@@ -549,6 +564,95 @@ describe('matchmaking.service', () => {
 					{ playerId: 'guest1', place: 2 },
 				]),
 			).rejects.toThrow('Lobby not found')
+		})
+
+		it('persists the result via recordMatchResult when a casual match resolves', async () => {
+			const matchRepository = makeMockMatchRepository()
+			const { service } = makeService({ matchRepository })
+			const { host } = setupCasualMatch('match-3', 'CODA3')
+			await service.reportResult(host, 'match-3', [
+				{ playerId: 'host1', place: 1 },
+				{ playerId: 'guest1', place: 2 },
+			])
+			expect(vi.mocked(matchRepository.recordMatchResult)).toHaveBeenCalledWith(
+				'match-3',
+				[
+					{ playerId: 'host1', place: 1 },
+					{ playerId: 'guest1', place: 2 },
+				],
+				'host1',
+			)
+		})
+
+		it('§11.6/§21.5: a second, matching report for an already-resolved match is a silent no-op', async () => {
+			const matchRepository = makeMockMatchRepository()
+			const { service } = makeService({ matchRepository })
+			const { host, guest } = setupCasualMatch('match-4', 'CODA4')
+			const placements = [
+				{ playerId: 'host1', place: 1 },
+				{ playerId: 'guest1', place: 2 },
+			]
+			await service.reportResult(host, 'match-4', placements)
+
+			// Simulate the persisted result the first report just wrote.
+			vi.mocked(matchRepository.getResolvedMatchResult).mockResolvedValue({
+				lobbyCode: 'CODA4',
+				placements,
+				reportedBy: 'host1',
+			})
+
+			vi.mocked(db.insert).mockClear()
+			await expect(
+				service.reportResult(guest, 'match-4', [
+					{ playerId: 'host1', place: 1 },
+					{ playerId: 'guest1', place: 2 },
+				]),
+			).resolves.toBeUndefined()
+			// A matching second report shouldn't insert a conflict row at all.
+			expect(vi.mocked(db.insert)).not.toHaveBeenCalled()
+		})
+
+		it('§11.6/§21.5: a second, differing report is flagged as a conflict, not applied', async () => {
+			const matchRepository = makeMockMatchRepository()
+			vi.mocked(matchRepository.getResolvedMatchResult).mockResolvedValue({
+				lobbyCode: 'CODA5',
+				placements: [
+					{ playerId: 'host1', place: 1 },
+					{ playerId: 'guest1', place: 2 },
+				],
+				reportedBy: 'host1',
+			})
+			const { service } = makeService({ matchRepository })
+			const guest = makeSession('guest1', 'Bob')
+
+			vi.mocked(db.insert).mockClear()
+			await service.reportResult(guest, 'match-5', [
+				{ playerId: 'host1', place: 2 },
+				{ playerId: 'guest1', place: 1 },
+			])
+
+			expect(vi.mocked(db.insert)).toHaveBeenCalledTimes(1)
+		})
+
+		it('§21.5: a differing report from a non-participant is rejected, not flagged', async () => {
+			const matchRepository = makeMockMatchRepository()
+			vi.mocked(matchRepository.getResolvedMatchResult).mockResolvedValue({
+				lobbyCode: 'CODA6',
+				placements: [
+					{ playerId: 'host1', place: 1 },
+					{ playerId: 'guest1', place: 2 },
+				],
+				reportedBy: 'host1',
+			})
+			const { service } = makeService({ matchRepository })
+			const outsider = makeSession('outsider', 'Eve')
+
+			await expect(
+				service.reportResult(outsider, 'match-6', [
+					{ playerId: 'host1', place: 2 },
+					{ playerId: 'guest1', place: 1 },
+				]),
+			).rejects.toThrow('Not a participant in this match')
 		})
 	})
 

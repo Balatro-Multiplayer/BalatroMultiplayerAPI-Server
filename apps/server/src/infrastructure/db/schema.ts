@@ -199,12 +199,36 @@ export const matchmakingMatches = pgTable('matchmaking_matches', {
 	// Server-stamped moment the run actually began — basis for server-measured
 	// timing leaderboards (e.g. speedrun fastest time). NULL until the host starts.
 	gameStartedAt: timestamp('game_started_at', { withTimezone: true }),
+	// The authoritative, first-applied result (§11.6: "first report wins").
+	// Persisted here (survives the in-memory match being torn down) so a LATER
+	// report for the same matchId can be compared against it instead of just
+	// 404ing -- a match, differing, no-op, or a matchResultConflicts row.
+	resultPlacements: jsonb('result_placements'),
+	resultReportedBy: text('result_reported_by'),
+	resultReportedAt: timestamp('result_reported_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),
 	updatedAt: timestamp('updated_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),
+})
+
+// A second report for an already-resolved match whose placements don't match
+// the first (authoritative) report. Per §21.5: the first report's outcome
+// always stands automatically -- this is purely a flag for manual moderator
+// review, never itself a trigger for a rating change.
+export const matchResultConflicts = pgTable('match_result_conflicts', {
+	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+	matchId: varchar('match_id', { length: 36 }).notNull(),
+	lobbyCode: varchar('lobby_code', { length: 6 }).notNull(),
+	firstReporterId: text('first_reporter_id').notNull(),
+	firstPlacements: jsonb('first_placements').notNull(),
+	conflictingReporterId: text('conflicting_reporter_id').notNull(),
+	conflictingPlacements: jsonb('conflicting_placements').notNull(),
+	status: varchar('status', { length: 16 }).notNull().default('open'), // open | resolved
+	resolutionNotes: text('resolution_notes'),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
 export const matchmakingRatings = pgTable(

@@ -214,6 +214,55 @@ export async function updateMatchStatus(
 		.where(eq(matchmakingMatches.matchId, matchId))
 }
 
+// Persists the authoritative, first-applied result (§11.6) -- called once, at
+// the moment a match first resolves (either branch of reportResult, or
+// autoForfeitMatch). Survives the in-memory match being torn down, so a LATER
+// report for the same matchId has something to compare against instead of a
+// bare 404.
+export async function recordMatchResult(
+	matchId: string,
+	placements: PlacementEntry[],
+	reportedBy: string,
+): Promise<void> {
+	await db
+		.update(matchmakingMatches)
+		.set({
+			resultPlacements: placements,
+			resultReportedBy: reportedBy,
+			resultReportedAt: new Date(),
+			updatedAt: new Date(),
+		})
+		.where(eq(matchmakingMatches.matchId, matchId))
+}
+
+export interface ResolvedMatchResult {
+	lobbyCode: string
+	placements: PlacementEntry[]
+	reportedBy: string
+}
+
+/** Looks up a previously-recorded result, or undefined if this match was never resolved (bogus id) or predates this feature. */
+export async function getResolvedMatchResult(
+	matchId: string,
+): Promise<ResolvedMatchResult | undefined> {
+	const [row] = await db
+		.select({
+			lobbyCode: matchmakingMatches.lobbyCode,
+			resultPlacements: matchmakingMatches.resultPlacements,
+			resultReportedBy: matchmakingMatches.resultReportedBy,
+		})
+		.from(matchmakingMatches)
+		.where(eq(matchmakingMatches.matchId, matchId))
+		.limit(1)
+
+	if (!row || !row.resultPlacements || !row.resultReportedBy) return undefined
+	return {
+		lobbyCode: row.lobbyCode,
+		placements: row.resultPlacements as PlacementEntry[],
+		reportedBy: row.resultReportedBy,
+	}
+}
+
 // Stamp the server-side run-start time. Idempotent: only the first call takes effect, so
 // the measured duration can't be shrunk by re-calling /start.
 export async function setMatchGameStarted(
