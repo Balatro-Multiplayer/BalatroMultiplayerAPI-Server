@@ -50,6 +50,7 @@ function playerPayload(session: PlayerSession, extra?: { isTemp?: boolean }) {
 		privileges: buildPrivilegeTable(session.privileges),
 		chatEnabled: session.chatEnabled,
 		chatBlocked: session.chatBlocked,
+		mutedPlayerIds: session.mutedPlayerIds,
 		...(extra?.isTemp ? { isTemp: true } : {}),
 	}
 }

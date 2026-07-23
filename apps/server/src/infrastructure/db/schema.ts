@@ -320,6 +320,28 @@ export const playerBans = pgTable(
 	(t) => [index('player_bans_player_idx').on(t.playerId)],
 )
 
+// A durable, self-service mute: muterId suppresses mutedId's chat messages on
+// their own client (never enforced server-side -- see mute.gateway.ts). Unlike
+// player_bans, cascading on delete is correct here: a mute has no forensic/
+// moderation value once either account is gone.
+export const playerMutes = pgTable(
+	'player_mutes',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		muterId: uuid('muter_id')
+			.notNull()
+			.references(() => players.id, { onDelete: 'cascade' }),
+		mutedId: uuid('muted_id')
+			.notNull()
+			.references(() => players.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [
+		uniqueIndex('player_mutes_pair_idx').on(t.muterId, t.mutedId),
+		index('player_mutes_muter_idx').on(t.muterId),
+	],
+)
+
 // One row per game run, any lobby type (matchmaking/private/practice). This is
 // the anchor `matchRunLogs` hangs off of, since `matchmakingMatches` only
 // exists for ranked/casual queue games and practice/private runs need an

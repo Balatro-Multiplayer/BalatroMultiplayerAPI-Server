@@ -65,6 +65,13 @@ vi.mock('../infrastructure/gateways/ban.gateway.js', () => ({
 	isBanType: (v: unknown) => v === 'chat' || v === 'queue' || v === 'account',
 }))
 
+// Mock the mute gateway — no real DB in tests. Default: no mutes.
+vi.mock('../infrastructure/gateways/mute.gateway.js', () => ({
+	addMute: vi.fn().mockResolvedValue(undefined),
+	removeMute: vi.fn().mockResolvedValue(undefined),
+	listMutes: vi.fn().mockResolvedValue([]),
+}))
+
 // Mock the EMQX admin client — no real broker in tests
 vi.mock('../infrastructure/emqx/emqx-admin.service.js', () => ({
 	kickClient: vi.fn().mockResolvedValue(true),
@@ -157,6 +164,12 @@ beforeEach(async () => {
 	vi.mocked(banDb.hasActiveBan).mockResolvedValue(false)
 	vi.mocked(banDb.getActiveBans).mockResolvedValue([])
 	vi.mocked(banDb.listBans).mockResolvedValue([])
+
+	// Re-apply mute gateway defaults (cleared by vi.clearAllMocks above)
+	const muteDb = await import('../infrastructure/gateways/mute.gateway.js')
+	vi.mocked(muteDb.addMute).mockResolvedValue(undefined)
+	vi.mocked(muteDb.removeMute).mockResolvedValue(undefined)
+	vi.mocked(muteDb.listMutes).mockResolvedValue([])
 
 	// Re-apply the db mock's chainable implementations. vi.restoreAllMocks()
 	// (used in some test files to restore vi.spyOn(fetch) etc.) treats every

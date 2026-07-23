@@ -7,6 +7,7 @@ import { createLobbyRouter } from '../features/lobby/lobby.route.js'
 import { createLobbyService } from '../features/lobby/lobby.service.js'
 import { createMatchmakingRouter } from '../features/matchmaking/matchmaking.route.js'
 import { createMatchmakingService } from '../features/matchmaking/matchmaking.service.js'
+import { createMutesRouter } from '../features/mutes/mutes.route.js'
 import releasesRouter from '../features/releases/releases.route.js'
 import { createReplayLogRouter } from '../features/replay-log/replay-log.route.js'
 import { replayLogService } from '../features/replay-log/replay-log.service.js'
@@ -40,6 +41,7 @@ const router = Router()
 router.use('/api/auth', createAuthRouter(authService))
 router.use('/api/lobbies', createLobbyRouter(lobbyService))
 router.use('/api/matchmaking', createMatchmakingRouter(matchmakingService))
+router.use('/api/mutes', createMutesRouter())
 router.use('/api/runs', createReplayLogRouter(replayLogService))
 router.use('/api/stats', statsRouter)
 router.use('/api/releases', releasesRouter)

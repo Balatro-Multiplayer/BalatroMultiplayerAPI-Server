@@ -14,6 +14,7 @@ import type { IPlayerRepository, PlayerRecord } from '../../contracts/IPlayerRep
 import type { IGracePeriodService } from '../../contracts/IGracePeriodService.js'
 import { pseudonymizeChatLogsForPlayer } from '../../infrastructure/gateways/history.gateway.js'
 import { pseudonymizeRunLogsForPlayer } from '../../infrastructure/gateways/replay-log.gateway.js'
+import { listMutes } from '../../infrastructure/gateways/mute.gateway.js'
 import { signJwt } from './jwt.js'
 
 type Provider = 'steam' | 'discord'
@@ -93,7 +94,8 @@ export function createAuthService(deps: AuthServiceDeps) {
 		if (existing) return existing
 		const dbPlayer = await playerRepository.findPlayerById(playerId)
 		if (!dbPlayer) throw new AppError('Player not found', 404)
-		return createSession(dbPlayer.steamName, dbPlayerToSessionInit(dbPlayer))
+		const mutedPlayerIds = await listMutes(dbPlayer.id)
+		return createSession(dbPlayer.steamName, dbPlayerToSessionInit(dbPlayer, { mutedPlayerIds }))
 	}
 
 	async function refreshSteamSessionOnReauth(
@@ -110,7 +112,8 @@ export function createAuthService(deps: AuthServiceDeps) {
 		dbPlayer: PlayerRecord,
 		steamName: string,
 	): Promise<SessionAndToken> {
-		const session = createSession(steamName, dbPlayerToSessionInit(dbPlayer))
+		const mutedPlayerIds = await listMutes(dbPlayer.id)
+		const session = createSession(steamName, dbPlayerToSessionInit(dbPlayer, { mutedPlayerIds }))
 		await playerRepository.updateSteamName(dbPlayer.id, steamName)
 		// A previously-deleted account is reactivated by simply signing back in
 		// with the same Steam identity (steamIdHash survives deletion for exactly
@@ -158,9 +161,10 @@ export function createAuthService(deps: AuthServiceDeps) {
 		dbPlayer: PlayerRecord,
 		discordName: string,
 	): Promise<SessionAndToken> {
+		const mutedPlayerIds = await listMutes(dbPlayer.id)
 		const session = createSession(
 			discordName,
-			dbPlayerToSessionInit(dbPlayer, { discordUsername: discordName }),
+			dbPlayerToSessionInit(dbPlayer, { discordUsername: discordName, mutedPlayerIds }),
 		)
 		await playerRepository.updateSteamName(dbPlayer.id, discordName)
 		await playerRepository.updateDiscordUsername(dbPlayer.id, discordName)
@@ -245,9 +249,10 @@ export function createAuthService(deps: AuthServiceDeps) {
 		const dbPlayer = await findImpersonationTarget(opts)
 		if (!dbPlayer) throw new AppError('Player not found', 404)
 
+		const mutedPlayerIds = await listMutes(dbPlayer.id)
 		const session = createSession(
 			dbPlayer.steamName,
-			dbPlayerToSessionInit(dbPlayer),
+			dbPlayerToSessionInit(dbPlayer, { mutedPlayerIds }),
 		)
 		return sessionAndToken(session)
 	}
