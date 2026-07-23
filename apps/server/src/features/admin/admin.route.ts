@@ -7,7 +7,6 @@ import { loadConfigFromDb } from '../../infrastructure/gateways/config.gateway.j
 import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
 import { db } from '../../infrastructure/db/index.js'
 import { seasons } from '../../infrastructure/db/schema.js'
-import bansRouter from './bans.route.js'
 
 const router = Router()
 
@@ -80,7 +79,5 @@ router.post('/set-season', async (req, res, next) => {
 		next(err)
 	}
 })
-
-router.use(bansRouter)
 
 export default router

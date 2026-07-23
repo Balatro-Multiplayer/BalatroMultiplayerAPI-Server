@@ -181,35 +181,41 @@ export default function AdminUsersPage() {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className='text-base'>Privileges</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <PrivilegeManager
-                    privileges={detail.privileges}
-                    privInput={privInput}
-                    isPending={privMutation.isPending}
-                    onRemove={(pr) =>
-                      privMutation.mutate({
-                        playerId: detail.id,
-                        privileges: detail.privileges.filter((x) => x !== pr),
-                      })
-                    }
-                    onInputChange={setPrivInput}
-                    onGrant={() => {
-                      const v = privInput.trim() as Privilege
-                      if (v && !detail.privileges.includes(v)) {
+              {/* Granting/revoking privileges is admin-only (matches the server-side
+                  gate on PATCH .../privileges) -- moderators can do everything else
+                  on this page, but this card is entirely absent for them, not just
+                  disabled. */}
+              {isAdmin && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className='text-base'>Privileges</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <PrivilegeManager
+                      privileges={detail.privileges}
+                      privInput={privInput}
+                      isPending={privMutation.isPending}
+                      onRemove={(pr) =>
                         privMutation.mutate({
                           playerId: detail.id,
-                          privileges: [...detail.privileges, v],
+                          privileges: detail.privileges.filter((x) => x !== pr),
                         })
-                        setPrivInput('')
                       }
-                    }}
-                  />
-                </CardContent>
-              </Card>
+                      onInputChange={setPrivInput}
+                      onGrant={() => {
+                        const v = privInput.trim() as Privilege
+                        if (v && !detail.privileges.includes(v)) {
+                          privMutation.mutate({
+                            playerId: detail.id,
+                            privileges: [...detail.privileges, v],
+                          })
+                          setPrivInput('')
+                        }
+                      }}
+                    />
+                  </CardContent>
+                </Card>
+              )}
             </div>
           )}
         </div>

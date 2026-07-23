@@ -75,6 +75,16 @@ router.get('/players/:id', async (req, res, next) => {
 
 router.patch('/players/:id/privileges', async (req, res, next) => {
 	try {
+		// Unlike every other route in this file, granting/revoking privileges is
+		// admin-only, not admin-or-moderator -- the router-level webAdmin gate
+		// alone would let a moderator hand themselves (or anyone) 'admin', a live
+		// self-escalation bug. Matches the design doc's "only ever granted
+		// directly by an admin."
+		const actingPlayer = await findPlayerById(req.player!.playerId)
+		if (!actingPlayer?.privileges.includes('admin')) {
+			throw new AppError('Only admins can grant or revoke privileges', 403)
+		}
+
 		const { privileges } = req.body as { privileges?: unknown }
 		if (!Array.isArray(privileges) || !privileges.every((p) => typeof p === 'string')) {
 			throw new AppError('privileges must be an array of strings', 400)
