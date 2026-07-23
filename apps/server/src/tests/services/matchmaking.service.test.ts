@@ -956,6 +956,113 @@ describe('matchmaking.service', () => {
 				expect(matchByLobby.has('FRFT2')).toBe(false)
 			})
 		})
+
+		describe('forfeitMatchForBan (§21.3)', () => {
+			function setupCasualMatch(matchId: string, code: string, hostId = 'chost', guestId = 'cguest') {
+				const host = makeSession(hostId, 'Alice')
+				const guest = makeSession(guestId, 'Bob')
+				host.lobbyCode = code
+				guest.lobbyCode = code
+				const lobby = new Lobby(code, 'mod1', hostId, 16, 'public')
+				lobby.players.set(hostId, host)
+				lobby.players.set(guestId, guest)
+				lobbies.set(code, lobby)
+				const match = {
+					matchId,
+					lobbyCode: code,
+					modId: 'mod1',
+					gameMode: 'mode1',
+					playerIds: [hostId, guestId],
+					createdAt: new Date(),
+				}
+				matches.set(matchId, match)
+				matchByLobby.set(code, match)
+				return { host, guest }
+			}
+
+			it('forfeits a ranked match instantly, placing the banned player last', async () => {
+				const matchRepository = makeMockMatchRepository()
+				vi.mocked(matchRepository.getCurrentSeason).mockResolvedValue({ id: 1, name: 'Season 1' })
+				vi.mocked(matchRepository.applyRatingTransaction).mockResolvedValue([
+					{ playerId: 'rhost', newRating: 620, delta: 20, isPlacement: false, gamesPlayed: 11 },
+					{ playerId: 'rguest', newRating: 580, delta: -20, isPlacement: false, gamesPlayed: 11 },
+				])
+				const { service } = makeService({ matchRepository })
+				const { guest } = setupRankedMatch('fb1', 'BANFRFT1')
+				guest.lobbyCode = 'BANFRFT1'
+
+				const kicked = await service.forfeitMatchForBan('rguest', 'account')
+
+				expect(kicked).toBe(true)
+				expect(matchRepository.applyRatingTransaction).toHaveBeenCalledWith(
+					'fb1',
+					expect.anything(),
+					1,
+					[
+						{ playerId: 'rhost', place: 1 },
+						{ playerId: 'rguest', place: 2 },
+					],
+				)
+				expect(matches.has('fb1')).toBe(false)
+				expect(matchByLobby.has('BANFRFT1')).toBe(false)
+				expect(mqttService.publishToPlayer).toHaveBeenCalledWith(
+					'rhost',
+					'matchmaking',
+					expect.objectContaining({ type: 'match_resolved', reason: 'ban', bannedPlayerId: 'rguest', banType: 'account' }),
+				)
+			})
+
+			it('forfeits a casual match instantly, closing the pre-existing no-forfeit-path gap', async () => {
+				const matchRepository = makeMockMatchRepository()
+				const { service } = makeService({ matchRepository })
+				setupCasualMatch('fb2', 'BANFRFT2')
+
+				const kicked = await service.forfeitMatchForBan('cguest', 'queue')
+
+				expect(kicked).toBe(true)
+				expect(matchRepository.applyRatingTransaction).not.toHaveBeenCalled()
+				expect(matchRepository.recordMatchResult).toHaveBeenCalledWith(
+					'fb2',
+					[
+						{ playerId: 'chost', place: 1 },
+						{ playerId: 'cguest', place: 2 },
+					],
+					'system',
+				)
+				expect(matchRepository.updateMatchStatus).toHaveBeenCalledWith('fb2', 'resolved')
+				expect(matches.has('fb2')).toBe(false)
+				expect(matchByLobby.has('BANFRFT2')).toBe(false)
+				expect(mqttService.publishToPlayer).toHaveBeenCalledWith(
+					'chost',
+					'matchmaking',
+					expect.objectContaining({ type: 'match_resolved', reason: 'ban', bannedPlayerId: 'cguest', banType: 'queue' }),
+				)
+			})
+
+			it('dequeues a queue-banned player who is currently searching but not in a match', async () => {
+				const { service } = makeService()
+				const session = makeSession('searching1', 'Searcher')
+				await service.joinQueue(session, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+				expect(playerQueues.get('searching1')?.size).toBe(1)
+
+				const kicked = await service.forfeitMatchForBan('searching1', 'queue')
+
+				expect(kicked).toBe(false)
+				expect(playerQueues.get('searching1')?.size ?? 0).toBe(0)
+			})
+
+			it('is a no-op for a banned player who is neither in a match nor queued', async () => {
+				const matchRepository = makeMockMatchRepository()
+				const { service } = makeService({ matchRepository })
+				makeSession('idle1', 'Idle')
+
+				const kicked = await service.forfeitMatchForBan('idle1', 'account')
+
+				expect(kicked).toBe(false)
+				expect(matchRepository.applyRatingTransaction).not.toHaveBeenCalled()
+				expect(matchRepository.updateMatchStatus).not.toHaveBeenCalled()
+			})
+		})
 	})
 })
 

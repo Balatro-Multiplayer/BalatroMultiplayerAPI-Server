@@ -584,6 +584,7 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		match: Match,
 		placements: PlacementEntry[],
 		reportedBy: string,
+		extra: Record<string, unknown> = {},
 	): Promise<void> {
 		const season = await matchRepository.getCurrentSeason()
 		if (!season) throw new AppError('No active season', 500)
@@ -612,6 +613,36 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 				matchId,
 				ratings: ratingResults,
 				timestamp,
+				...extra,
+			})
+		}
+	}
+
+	// The casual counterpart of resolveRankedResult -- no ELO, no season, just
+	// a system-driven resolution. Only reachable via forfeitMatchForBan today:
+	// a normal casual reportResult never calls this (it resolves inline and
+	// stays silent, see reportResult below), since a real player reporting
+	// doesn't need a "why did this resolve" notification the way a forced
+	// forfeit does.
+	async function resolveCasualForfeit(
+		matchId: string,
+		match: Match,
+		placements: PlacementEntry[],
+		extra: Record<string, unknown>,
+	): Promise<void> {
+		await matchRepository.recordMatchResult(matchId, placements, 'system')
+		await matchRepository.updateMatchStatus(matchId, 'resolved')
+		matches.delete(matchId)
+		matchByLobby.delete(match.lobbyCode)
+		await replayLogService.finalizeRun(match.lobbyCode, 'completed')
+
+		const timestamp = new Date().toISOString()
+		for (const pid of match.playerIds) {
+			await messageBus.publishToPlayer(pid, 'matchmaking', {
+				type: 'match_resolved',
+				matchId,
+				timestamp,
+				...extra,
 			})
 		}
 	}
@@ -674,22 +705,25 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		await resolveRankedResult(matchId, match, placements, session.playerId)
 	}
 
-	// Phase 8.4: the ranked-match counterpart of a host-submitted reportResult,
-	// triggered by grace-period.service.ts's expireGracePeriod when a
-	// disconnected player's 2-minute grace period runs out mid-match. Not
-	// exposed over HTTP -- there's no player action here, just the server
-	// resolving a match nobody is left to report.
+	// Phase 8.4: the counterpart of a host-submitted reportResult for a match
+	// nobody is left to report -- triggered by grace-period.service.ts's
+	// expireGracePeriod when a disconnected player's 2-minute grace period
+	// runs out mid-match (ranked only at that call site), and by
+	// forfeitMatchForBan below (ranked and casual both, since a ban's forfeit
+	// isn't gated on the same "give them a chance to reconnect" logic). Not
+	// exposed over HTTP directly -- there's no player action here.
 	async function autoForfeitMatch(
 		matchId: string,
-		disconnectedPlayerId: string,
+		forfeitingPlayerId: string,
 		remainingConnectedPlayerIds: string[],
+		extra: Record<string, unknown> = {},
 	): Promise<void> {
 		const match = matches.get(matchId)
 		if (!match) return // already resolved (e.g. the other player's grace expired first) -- no-op
 
 		if (remainingConnectedPlayerIds.length === 0) {
-			// Both players disconnected -- no legitimate winner to forfeit to.
-			// Cancel with no ELO applied to either side (§9.8).
+			// Everyone else disconnected too -- no legitimate winner to forfeit
+			// to. Cancel with no ELO applied to either side (§9.8).
 			await matchRepository.updateMatchStatus(matchId, 'resolved')
 			matches.delete(matchId)
 			matchByLobby.delete(match.lobbyCode)
@@ -697,15 +731,48 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 			return
 		}
 
-		// place=1 for every remaining player, last place for the disconnected one
+		// place=1 for every remaining player, last place for the forfeiting one
 		// -- correct for ranked's current 1v1-only shape (see gameMode strings
 		// like "ranked:1v1"); would tie multiple remaining players for first in
 		// a hypothetical >2-player ranked match, which doesn't exist today.
 		const placements: PlacementEntry[] = match.playerIds.map((id) => ({
 			playerId: id,
-			place: id === disconnectedPlayerId ? match.playerIds.length : 1,
+			place: id === forfeitingPlayerId ? match.playerIds.length : 1,
 		}))
-		await resolveRankedResult(matchId, match, placements, 'system')
+
+		if (isRanked(match.gameMode)) {
+			await resolveRankedResult(matchId, match, placements, 'system', extra)
+		} else {
+			await resolveCasualForfeit(matchId, match, placements, extra)
+		}
+	}
+
+	// §21.3: a ban takes effect immediately. If the banned player is currently
+	// inside an active match, that's an instant forfeit -- not the normal
+	// 2-minute disconnect grace period -- for ranked and casual matches alike
+	// (closing the pre-existing gap that casual had no forfeit path at all).
+	// If they're not in a match but a queue ban lands while they're still
+	// searching, dequeue them on the spot instead of waiting for their next
+	// joinQueue attempt to be rejected.
+	async function forfeitMatchForBan(
+		playerId: string,
+		banType: 'account' | 'queue',
+	): Promise<boolean> {
+		const session = getSession(playerId)
+		const match = session?.lobbyCode ? matchByLobby.get(session.lobbyCode) : undefined
+
+		if (!match || !match.playerIds.includes(playerId)) {
+			if (banType === 'queue') leaveAllQueues(playerId)
+			return false
+		}
+
+		const remaining = match.playerIds.filter((id) => id !== playerId)
+		await autoForfeitMatch(match.matchId, playerId, remaining, {
+			reason: 'ban',
+			bannedPlayerId: playerId,
+			banType,
+		})
+		return true
 	}
 
 	return {
@@ -721,5 +788,6 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		markRunStart,
 		reportResult,
 		autoForfeitMatch,
+		forfeitMatchForBan,
 	}
 }

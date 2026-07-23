@@ -126,15 +126,28 @@ router.post('/players/:id/bans', async (req, res, next) => {
 			reason: typeof reason === 'string' ? reason : '',
 		})
 
-		// Account bans take effect immediately: if the player is currently
-		// connected, notify and force-disconnect them. The disconnect webhook
-		// then runs the normal grace-period / lobby cleanup. Offline players are
-		// caught by the EMQX auth webhook on their next CONNECT.
-		if (type === 'account' && getSession(playerId)) {
-			await mqttService.publishToPlayer(playerId, 'notifications', {
-				type: 'banned', banType: 'account', reason: ban.reason,
-			}).catch((e) => console.error('[webadmin] ban notify failed:', e))
-			await kickClient(playerId)
+		// §21.3: account and queue bans take effect immediately. Account bans
+		// force-disconnect the player from the platform entirely (offline
+		// players are caught by the EMQX auth webhook on their next CONNECT);
+		// queue bans leave them connected but pull them out of matchmaking.
+		// Either way, if they're currently inside an active match, that's an
+		// instant forfeit -- not the normal 2-minute disconnect grace period --
+		// dynamically imported from the composition root the same way
+		// grace-period.service.ts does, to avoid a static import cycle back
+		// through webadmin.route.ts.
+		if (type === 'account' || type === 'queue') {
+			if (getSession(playerId)) {
+				await mqttService.publishToPlayer(playerId, 'notifications', {
+					type: 'banned', banType: type, reason: ban.reason,
+				}).catch((e) => console.error('[webadmin] ban notify failed:', e))
+			}
+
+			const { matchmakingService } = await import('../../routes/index.js')
+			await matchmakingService.forfeitMatchForBan(playerId, type)
+
+			if (type === 'account' && getSession(playerId)) {
+				await kickClient(playerId)
+			}
 		}
 
 		console.log(`[webadmin] ${req.player!.playerId} issued ${type} ban on ${playerId}`)

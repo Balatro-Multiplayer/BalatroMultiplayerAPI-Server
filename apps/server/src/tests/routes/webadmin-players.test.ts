@@ -2,8 +2,11 @@ import request from 'supertest'
 import { describe, expect, it, vi } from 'vitest'
 import { signJwt } from '../../features/auth/jwt.js'
 import * as playerGateway from '../../infrastructure/gateways/player.gateway.js'
+import { insertBan } from '../../infrastructure/gateways/ban.gateway.js'
+import { kickClient } from '../../infrastructure/emqx/emqx-admin.service.js'
 import { db } from '../../infrastructure/db/index.js'
 import { createSession } from '../../state/index.js'
+import { playerQueues } from '../../state/matchmaking.js'
 import { createTestApp } from './app.js'
 
 const app = createTestApp()
@@ -52,6 +55,48 @@ describe('PATCH /api/webadmin/players/:id/privileges', () => {
 
 		expect(res.status).toBe(200)
 		expect(res.body.privileges).toEqual(['moderator'])
+	})
+})
+
+describe('POST /api/webadmin/players/:id/bans — mid-match/mid-queue enforcement (§21.3)', () => {
+	it('dequeues an actively-searching player instantly on a queue ban', async () => {
+		const modToken = authAsAdmin('admin-3', 'Admin3')
+		createSession('Searcher', { id: 'searcher-1' })
+		vi.mocked(insertBan).mockResolvedValue({
+			id: 'ban-1', playerId: 'searcher-1', banType: 'queue', expiresAt: null,
+			issuedBy: 'admin:admin-3', issuedAt: new Date(), reason: 'test', liftedAt: null, liftedBy: null,
+		})
+
+		await request(app)
+			.post('/api/matchmaking/queue')
+			.set('Authorization', `Bearer ${signJwt({ playerId: 'searcher-1', steamName: 'Searcher' })}`)
+			.send({ modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+		expect(playerQueues.get('searcher-1')?.size).toBe(1)
+
+		const res = await request(app)
+			.post('/api/webadmin/players/searcher-1/bans')
+			.set('Authorization', modToken)
+			.send({ type: 'queue', reason: 'test' })
+
+		expect(res.status).toBe(201)
+		expect(playerQueues.get('searcher-1')?.size ?? 0).toBe(0)
+	})
+
+	it('still notifies and force-disconnects a connected player on an account ban', async () => {
+		const modToken = authAsAdmin('admin-4', 'Admin4')
+		createSession('Target', { id: 'target-2' })
+		vi.mocked(insertBan).mockResolvedValue({
+			id: 'ban-2', playerId: 'target-2', banType: 'account', expiresAt: null,
+			issuedBy: 'admin:admin-4', issuedAt: new Date(), reason: 'test', liftedAt: null, liftedBy: null,
+		})
+
+		const res = await request(app)
+			.post('/api/webadmin/players/target-2/bans')
+			.set('Authorization', modToken)
+			.send({ type: 'account', reason: 'test' })
+
+		expect(res.status).toBe(201)
+		expect(vi.mocked(kickClient)).toHaveBeenCalledWith('target-2')
 	})
 })
 
