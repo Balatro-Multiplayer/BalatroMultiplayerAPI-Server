@@ -148,6 +148,13 @@
       "when": 1789600000000,
       "tag": "0020_player_mutes",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789700000000,
+      "tag": "0021_reports_tables",
+      "breakpoints": true
     }
   ]
 }

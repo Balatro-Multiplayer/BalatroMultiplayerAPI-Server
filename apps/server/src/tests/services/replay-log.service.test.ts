@@ -301,6 +301,36 @@ describe('replay-log.service', () => {
 			)
 		})
 
+		it('a moderator bypasses the participant check', async () => {
+			const repository = makeMockRepository()
+			const runWithLogs = {
+				run: {
+					id: 'run-1',
+					lobbyCode: 'ABCDE',
+					modId: 'mod1',
+					lobbyType: 'public',
+					status: 'completed' as const,
+					startedAt: new Date(),
+					finalizedAt: new Date(),
+				},
+				logs: [
+					{
+						playerId: 'p1',
+						compressedEvents: 'x',
+						carbonHash: null,
+						eventCount: 1,
+						status: 'complete' as const,
+					},
+				],
+			}
+			vi.mocked(repository.getRunWithLogs).mockResolvedValue(runWithLogs)
+			const service = createReplayLogService({ repository })
+
+			await expect(
+				service.getReplay('run-1', 'someone-else', true),
+			).resolves.toEqual(runWithLogs)
+		})
+
 		it('returns the run for a participant', async () => {
 			const repository = makeMockRepository()
 			const runWithLogs = {

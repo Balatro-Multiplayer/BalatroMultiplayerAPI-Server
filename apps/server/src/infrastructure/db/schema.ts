@@ -146,9 +146,22 @@ export const reports = pgTable('reports', {
 	lobbyCode: varchar('lobby_code', { length: 6 }).notNull(),
 	reporterId: text('reporter_id').notNull(),
 	reportedId: text('reported_id').notNull(),
-	// Client-defined category string (e.g. "harassment", "cheating")
+	// Fixed taxonomy (see ReportType/REPORT_TYPES in report.gateway.ts), validated
+	// app-level only -- no DB CHECK constraint, matching playerBans.banType's
+	// precedent.
 	type: varchar('type', { length: 64 }).notNull(),
+	// The most recent lobbyRuns row for this report's lobbyCode at submission
+	// time (resolved in report.gateway.ts's submitReport()) -- nullable, since a
+	// report filed before any match started on this lobby has nothing to link.
+	// This is the actual "match" identifier §15.6 needs for replay/log linking;
+	// lobbyId above is a distinct, ephemeral, in-memory lobby-instance id.
+	runId: uuid('run_id'),
+	// 'open' | 'resolved' -- moderator-settable via PATCH .../resolve. One-way.
+	status: varchar('status', { length: 16 }).notNull().default('open'),
 	message: text('message'),
+	// Submitter-added detail from their scoped /reports/:id status page (§15.5),
+	// kept distinct from `message` (the in-game submission-time note).
+	additionalDetail: text('additional_detail'),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),

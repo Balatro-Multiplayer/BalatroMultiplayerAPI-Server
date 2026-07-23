@@ -115,3 +115,5 @@ export interface PlacementEntry {
 export type Privilege = 'admin' | 'moderator' | 'tester' | (string & {})
 export type BanType = 'chat' | 'queue' | 'account'
 export type MatchStatus = 'active' | 'resolved'
+export type ReportType = 'cheating' | 'chat_abuse' | 'griefing' | 'inappropriate_username' | 'other'
+export type ReportStatus = 'open' | 'resolved'

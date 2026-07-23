@@ -1,12 +1,41 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
 import { createTestApp } from './app.js'
 import { signJwt } from '../../features/auth/jwt.js'
 import { createSession } from '../../state/index.js'
 import { getLobby } from '../../state/index.js'
+import { db } from '../../infrastructure/db/index.js'
 import * as lobbyService from '../../features/lobby/lobby.service.js'
 
 const app = createTestApp()
+
+// submitReport() now does a db.select (getMostRecentRunForLobbyCode) before its
+// db.insert(...).returning(...) -- the base mock in tests/setup.ts has no
+// .select stub at all and its .insert().values() resolves bare (no
+// .returning()), so both need a per-suite default here. Mirrors the dual
+// awaitable-and-chainable trick runs.test.ts uses for insertRun's .returning().
+function installReportDbMocks(runRows: unknown[] = []) {
+	;(db as any).select = vi.fn().mockReturnValue({
+		from: vi.fn().mockReturnValue({
+			where: vi.fn().mockReturnValue({
+				orderBy: vi.fn().mockReturnValue({
+					limit: vi.fn().mockResolvedValue(runRows),
+				}),
+			}),
+		}),
+	})
+	;(db as any).insert = vi.fn().mockReturnValue({
+		values: vi.fn().mockImplementation(() => {
+			const p: any = Promise.resolve(undefined)
+			p.returning = vi.fn().mockResolvedValue([{ id: 1 }])
+			return p
+		}),
+	})
+}
+
+beforeEach(() => {
+	installReportDbMocks()
+})
 
 function authHeader(
 	playerId: string,
@@ -32,7 +61,7 @@ describe('POST /api/lobbies/:code/report', () => {
 		const code = await createLobby('host1', 'Alice')
 		const res = await request(app)
 			.post(`/api/lobbies/${code}/report`)
-			.send({ reportedPlayerId: 'guest1', type: 'harassment' })
+			.send({ reportedPlayerId: 'guest1', type: 'cheating' })
 		expect(res.status).toBe(401)
 	})
 
@@ -40,7 +69,7 @@ describe('POST /api/lobbies/:code/report', () => {
 		const res = await request(app)
 			.post('/api/lobbies/ZZZZZ/report')
 			.set('Authorization', authHeader('p1', 'Alice'))
-			.send({ reportedPlayerId: 'guest1', type: 'harassment' })
+			.send({ reportedPlayerId: 'guest1', type: 'cheating' })
 		expect(res.status).toBe(404)
 	})
 
@@ -49,7 +78,7 @@ describe('POST /api/lobbies/:code/report', () => {
 		const res = await request(app)
 			.post(`/api/lobbies/${code}/report`)
 			.set('Authorization', authHeader('outsider', 'Eve'))
-			.send({ reportedPlayerId: 'host1', type: 'harassment' })
+			.send({ reportedPlayerId: 'host1', type: 'cheating' })
 		expect(res.status).toBe(403)
 	})
 
@@ -58,7 +87,7 @@ describe('POST /api/lobbies/:code/report', () => {
 		const res = await request(app)
 			.post(`/api/lobbies/${code}/report`)
 			.set('Authorization', authHeader('host1', 'Alice', code))
-			.send({ type: 'harassment' })
+			.send({ type: 'cheating' })
 		expect(res.status).toBe(400)
 	})
 
@@ -71,12 +100,12 @@ describe('POST /api/lobbies/:code/report', () => {
 		expect(res.status).toBe(400)
 	})
 
-	it('returns 400 if type exceeds 64 characters', async () => {
+	it('returns 400 if type is not in the fixed taxonomy', async () => {
 		const code = await createLobby('host1', 'Alice')
 		const res = await request(app)
 			.post(`/api/lobbies/${code}/report`)
 			.set('Authorization', authHeader('host1', 'Alice', code))
-			.send({ reportedPlayerId: 'guest1', type: 'x'.repeat(65) })
+			.send({ reportedPlayerId: 'guest1', type: 'harassment' })
 		expect(res.status).toBe(400)
 	})
 
@@ -85,7 +114,7 @@ describe('POST /api/lobbies/:code/report', () => {
 		const res = await request(app)
 			.post(`/api/lobbies/${code}/report`)
 			.set('Authorization', authHeader('host1', 'Alice', code))
-			.send({ reportedPlayerId: 'guest1', type: 'harassment', message: 'x'.repeat(501) })
+			.send({ reportedPlayerId: 'guest1', type: 'cheating', message: 'x'.repeat(501) })
 		expect(res.status).toBe(400)
 	})
 
@@ -104,7 +133,7 @@ describe('POST /api/lobbies/:code/report', () => {
 		const res = await request(app)
 			.post(`/api/lobbies/${code}/report`)
 			.set('Authorization', authHeader('host1', 'Alice', code))
-			.send({ reportedPlayerId: 'guest1', type: 'harassment', message: 'They were being rude' })
+			.send({ reportedPlayerId: 'guest1', type: 'cheating', message: 'They were being rude' })
 		expect(res.status).toBe(200)
 		expect(res.body.ok).toBe(true)
 	})
@@ -114,7 +143,7 @@ describe('POST /api/lobbies/:code/report', () => {
 		await request(app)
 			.post(`/api/lobbies/${code}/report`)
 			.set('Authorization', authHeader('host1', 'Alice', code))
-			.send({ reportedPlayerId: 'guest1', type: 'harassment' })
+			.send({ reportedPlayerId: 'guest1', type: 'cheating' })
 
 		const lobby = getLobby(code)
 		expect(lobby?.isReported).toBe(true)
@@ -126,7 +155,7 @@ describe('POST /api/lobbies/:code/report', () => {
 		const res = await request(app)
 			.post(`/api/lobbies/${code}/report`)
 			.set('Authorization', authHeader('host1', 'Alice', code))
-			.send({ reportedPlayerId: 'former-player-id', type: 'harassment' })
+			.send({ reportedPlayerId: 'former-player-id', type: 'cheating' })
 		expect(res.status).toBe(200)
 	})
 
@@ -144,7 +173,7 @@ describe('POST /api/lobbies/:code/report', () => {
 		await request(app)
 			.post(`/api/lobbies/${code}/report`)
 			.set('Authorization', authHeader('host1', 'Alice', code))
-			.send({ reportedPlayerId: 'guest1', type: 'harassment' })
+			.send({ reportedPlayerId: 'guest1', type: 'cheating' })
 
 		// Should have called insert twice: once for the report, once for the buffer flush
 		expect(vi.mocked(db.insert)).toHaveBeenCalledTimes(2)
@@ -161,7 +190,7 @@ describe('POST /api/lobbies/:code/report', () => {
 		await request(app)
 			.post(`/api/lobbies/${code}/report`)
 			.set('Authorization', authHeader('host1', 'Alice', code))
-			.send({ reportedPlayerId: 'guest1', type: 'harassment' })
+			.send({ reportedPlayerId: 'guest1', type: 'cheating' })
 
 		vi.mocked(db.insert).mockClear()
 
@@ -172,5 +201,49 @@ describe('POST /api/lobbies/:code/report', () => {
 			.send({ reportedPlayerId: 'guest2', type: 'cheating' })
 
 		expect(vi.mocked(db.insert)).toHaveBeenCalledTimes(1)
+	})
+
+	it('resolves and stores runId from the most recent lobbyRuns row for the lobby code', async () => {
+		installReportDbMocks([{ id: 'run-42' }])
+		let insertedValues: any = null
+		;(db as any).insert = vi.fn().mockReturnValue({
+			values: vi.fn().mockImplementation((values: any) => {
+				insertedValues = values
+				const p: any = Promise.resolve(undefined)
+				p.returning = vi.fn().mockResolvedValue([{ id: 1 }])
+				return p
+			}),
+		})
+
+		const code = await createLobby('host1', 'Alice')
+		const res = await request(app)
+			.post(`/api/lobbies/${code}/report`)
+			.set('Authorization', authHeader('host1', 'Alice', code))
+			.send({ reportedPlayerId: 'guest1', type: 'cheating' })
+
+		expect(res.status).toBe(200)
+		expect(insertedValues.runId).toBe('run-42')
+	})
+
+	it('stores runId as null when no run exists for the lobby code', async () => {
+		installReportDbMocks([]) // no lobbyRuns row for this code
+		let insertedValues: any = null
+		;(db as any).insert = vi.fn().mockReturnValue({
+			values: vi.fn().mockImplementation((values: any) => {
+				insertedValues = values
+				const p: any = Promise.resolve(undefined)
+				p.returning = vi.fn().mockResolvedValue([{ id: 1 }])
+				return p
+			}),
+		})
+
+		const code = await createLobby('host1', 'Alice')
+		const res = await request(app)
+			.post(`/api/lobbies/${code}/report`)
+			.set('Authorization', authHeader('host1', 'Alice', code))
+			.send({ reportedPlayerId: 'guest1', type: 'cheating' })
+
+		expect(res.status).toBe(200)
+		expect(insertedValues.runId).toBeNull()
 	})
 })

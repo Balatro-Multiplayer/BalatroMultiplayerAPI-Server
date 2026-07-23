@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { hasActiveBan } from '../../infrastructure/gateways/ban.gateway.js'
-import { submitReport } from '../../infrastructure/gateways/report.gateway.js'
+import { isReportType, submitReport } from '../../infrastructure/gateways/report.gateway.js'
 import { grantSpectator } from '../../infrastructure/mqtt/spectator-registry.js'
 import { authenticate } from '../../middleware/authenticate.js'
 import { assertCanPlay } from '../../shared/utils/access.js'
@@ -232,8 +232,8 @@ export function createLobbyRouter(service: LobbyService): Router {
 			if (!reportedPlayerId || typeof reportedPlayerId !== 'string') {
 				throw new AppError('Missing or invalid reportedPlayerId', 400)
 			}
-			if (!type || typeof type !== 'string' || type.length > 64) {
-				throw new AppError('Missing or invalid type (max 64 characters)', 400)
+			if (!isReportType(type)) {
+				throw new AppError('Invalid report type', 400)
 			}
 			if (
 				message !== undefined &&
@@ -242,7 +242,7 @@ export function createLobbyRouter(service: LobbyService): Router {
 				throw new AppError('Invalid message (max 500 characters)', 400)
 			}
 
-			await submitReport(
+			const reportId = await submitReport(
 				lobby,
 				session.playerId,
 				reportedPlayerId,
@@ -250,7 +250,7 @@ export function createLobbyRouter(service: LobbyService): Router {
 				message,
 			)
 
-			res.json({ ok: true })
+			res.json({ ok: true, reportId })
 		} catch (err) {
 			next(err)
 		}

@@ -11,6 +11,8 @@ export type {
 	Privilege,
 	BanType,
 	MatchStatus,
+	ReportType,
+	ReportStatus,
 } from '@bmp/types'
 
 export type LobbyType = 'public' | 'private'

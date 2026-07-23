@@ -223,14 +223,18 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 
 	// Phase 6: GET /api/runs/:runId/replay. Restricted to the run's own
 	// participants -- there's no broader "public replay" access tier designed
-	// yet, so this is the conservative default.
+	// yet, so this is the conservative default. isModerator (resolved by the
+	// route from the requester's DB-stored privileges, same check webAdmin's
+	// middleware uses) bypasses the participant check, so a moderator can open
+	// the replay linked from a player report even when they weren't in the match.
 	async function getReplay(
 		runId: string,
 		requesterId: string,
+		isModerator = false,
 	): Promise<RunWithLogs> {
 		const result = await repository.getRunWithLogs(runId)
 		if (!result) throw new AppError('Run not found', 404)
-		if (!result.logs.some((log) => log.playerId === requesterId)) {
+		if (!isModerator && !result.logs.some((log) => log.playerId === requesterId)) {
 			throw new AppError('Not a participant in this run', 403)
 		}
 		return result

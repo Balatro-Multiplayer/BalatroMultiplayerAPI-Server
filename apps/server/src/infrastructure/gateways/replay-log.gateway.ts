@@ -1,4 +1,4 @@
-import { eq, lt } from 'drizzle-orm'
+import { desc, eq, lt } from 'drizzle-orm'
 import type {
 	InsertRunParams,
 	LobbyRunStatus,
@@ -80,6 +80,24 @@ export async function pseudonymizeRunLogsForPlayer(
 		.update(matchRunLogs)
 		.set({ playerId: `deleted_user_${playerId}` })
 		.where(eq(matchRunLogs.playerId, playerId))
+}
+
+// The "current match" for a report filed from this lobby code (§15.6):
+// codes get reused across different lobby instances over time, so this
+// resolves to whichever run is most recent for that code -- correct at
+// report-filing time, since that's necessarily the one just played. Returns
+// null if no run has ever started under this code (e.g. reported mid-lobby
+// before the match began).
+export async function getMostRecentRunForLobbyCode(
+	lobbyCode: string,
+): Promise<string | null> {
+	const [row] = await db
+		.select({ id: lobbyRuns.id })
+		.from(lobbyRuns)
+		.where(eq(lobbyRuns.lobbyCode, lobbyCode))
+		.orderBy(desc(lobbyRuns.startedAt))
+		.limit(1)
+	return row?.id ?? null
 }
 
 export async function getRunWithLogs(
