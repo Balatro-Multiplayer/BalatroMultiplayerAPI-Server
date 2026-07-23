@@ -122,12 +122,24 @@ export async function recomputeLeaderboard(
 			),
 		)
 
+	// §11.12: sorted primarily by rating, tiebroken by the mod's own secondary
+	// metric (seasonBest) -- not wins, which was stored/displayed but never
+	// actually used for sorting. Direction follows the mod's own metric config
+	// (lower is better for time-based boards); a mod with no secondary board
+	// falls back to wins as before.
+	const metricCfg = getMetricConfig(modId)
+	const tiebreak = metricCfg
+		? metricCfg.direction === 'asc'
+			? sql`r.season_best ASC NULLS LAST`
+			: sql`r.season_best DESC NULLS LAST`
+		: sql`r.wins DESC`
+
 	await tx.execute(sql`
 		INSERT INTO leaderboard_cache
 			(mod_id, game_mode, season, rank, player_id, display_name, rating, wins, losses, games_played, season_best, updated_at)
 		SELECT
 			${modId}, ${gameMode}, ${seasonId},
-			ROW_NUMBER() OVER (ORDER BY r.rating DESC, r.wins DESC) AS rank,
+			ROW_NUMBER() OVER (ORDER BY r.rating DESC, ${tiebreak}) AS rank,
 			r.player_id,
 			CASE WHEN p.use_discord_name AND p.discord_username IS NOT NULL
 				 THEN p.discord_username ELSE p.steam_name END,
@@ -143,7 +155,7 @@ export async function recomputeLeaderboard(
 		  AND r.game_mode = ${gameMode}
 		  AND r.season = ${seasonId}
 		  AND r.games_played >= ${PLACEMENT_GAMES}
-		ORDER BY r.rating DESC, r.wins DESC
+		ORDER BY r.rating DESC, ${tiebreak}
 		LIMIT ${LEADERBOARD_TOP_N}
 	`)
 }
