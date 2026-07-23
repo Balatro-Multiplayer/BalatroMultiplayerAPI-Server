@@ -121,6 +121,18 @@ function runDailyTasks(): void {
 			)
 		})
 		.catch((err) => console.error('[matchmaking] runDailyTasks import error:', err))
+
+	// §4.3: the client no longer redeems refresh tokens at all (every launch is a
+	// fresh Steam handshake now), so every token issued by /api/auth/steam is
+	// guaranteed-orphaned from the moment it's minted. Nothing was ever scheduled
+	// to reap these, so they'd otherwise accumulate in the DB unbounded.
+	import('../../infrastructure/gateways/refresh-token.gateway.js')
+		.then(({ cleanupExpiredTokens }) => {
+			cleanupExpiredTokens().catch((err) =>
+				console.error('[matchmaking] cleanupExpiredTokens error:', err),
+			)
+		})
+		.catch((err) => console.error('[matchmaking] cleanupExpiredTokens import error:', err))
 }
 
 export function stopDailyJob(): void {
