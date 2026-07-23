@@ -19,8 +19,11 @@ export interface MetricConfig {
 export const METRIC_CONFIG: Record<string, MetricConfig> = {
 	// PvP: season-high score, client-reported.
 	MultiplayerPvP: { kind: 'score', direction: 'desc', serverMeasured: false },
-	// Speedrun: season-best completion time, measured from the server clock.
-	MultiplayerSpeedrunning: { kind: 'time_ms', direction: 'asc', serverMeasured: true },
+	// §11.7/§16.8: season-best INDIVIDUAL run time, client-reported. A single
+	// match can contain multiple runs (e.g. White Stake Triple's best-of-3), so
+	// the server's one whole-match gameStartedAt timestamp can't measure this --
+	// only the client knows each individual run's own start/stop.
+	MultiplayerSpeedrunning: { kind: 'time_ms', direction: 'asc', serverMeasured: false },
 }
 
 export function getMetricConfig(modId: string): MetricConfig | undefined {
