@@ -345,6 +345,77 @@ describe('POST /api/auth/accept-tos', () => {
 
 		expect(res.status).toBe(401)
 	})
+
+	it('permanently blocks chat for a chat-ineligible (13-15) account', async () => {
+		setConfig({ tosVersion: 1, mods: [], chatAllowlist: new Set() })
+		createSession('Alice', { id: 'tos-underage', tosAcceptedVersion: 0 })
+		const pendingToken = signTosPendingToken('tos-underage')
+
+		const res = await request(app)
+			.post('/api/auth/accept-tos')
+			.set('Authorization', `Bearer ${pendingToken}`)
+			.send({ chatEligible: false })
+
+		expect(res.status).toBe(200)
+		expect(res.body.player).toMatchObject({
+			chatEnabled: false,
+			chatBlocked: true,
+		})
+		expect(vi.mocked(playerGateway.updateChatStatus)).toHaveBeenCalledWith(
+			'tos-underage',
+			false,
+			true,
+		)
+	})
+
+	it('enables chat for a chat-eligible (16+) account', async () => {
+		setConfig({ tosVersion: 1, mods: [], chatAllowlist: new Set() })
+		createSession('Alice', { id: 'tos-eligible', tosAcceptedVersion: 0 })
+		const pendingToken = signTosPendingToken('tos-eligible')
+
+		const res = await request(app)
+			.post('/api/auth/accept-tos')
+			.set('Authorization', `Bearer ${pendingToken}`)
+			.send({ chatEligible: true })
+
+		expect(res.status).toBe(200)
+		expect(res.body.player).toMatchObject({
+			chatEnabled: true,
+			chatBlocked: false,
+		})
+	})
+})
+
+describe('POST /api/auth/chat/enable', () => {
+	it('returns 403 for a permanently chat-blocked account', async () => {
+		createSession('Alice', { id: 'chat-blocked', chatBlocked: true })
+		const token = signJwt({ playerId: 'chat-blocked', steamName: 'Alice' })
+
+		const res = await request(app)
+			.post('/api/auth/chat/enable')
+			.set('Authorization', `Bearer ${token}`)
+
+		expect(res.status).toBe(403)
+	})
+
+	it('enables chat for a legacy account that predates the age-gate rollout', async () => {
+		createSession('Alice', {
+			id: 'legacy-account',
+			chatEnabled: false,
+			chatBlocked: false,
+		})
+		const token = signJwt({ playerId: 'legacy-account', steamName: 'Alice' })
+
+		const res = await request(app)
+			.post('/api/auth/chat/enable')
+			.set('Authorization', `Bearer ${token}`)
+
+		expect(res.status).toBe(200)
+		expect(res.body.player).toMatchObject({
+			chatEnabled: true,
+			chatBlocked: false,
+		})
+	})
 })
 
 describe('DELETE /api/auth/account', () => {

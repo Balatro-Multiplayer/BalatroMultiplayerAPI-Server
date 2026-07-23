@@ -331,9 +331,9 @@ export function createAuthService(deps: AuthServiceDeps) {
 		session.tosAcceptedVersion = tosVersion
 
 		if (chatEligible !== undefined) {
-			await playerRepository.updateChatStatus(playerId, chatEligible, false)
+			await playerRepository.updateChatStatus(playerId, chatEligible, !chatEligible)
 			session.chatEnabled = chatEligible
-			session.chatBlocked = false
+			session.chatBlocked = !chatEligible
 		}
 
 		return sessionAndToken(session)
