@@ -133,13 +133,50 @@ describe('grace-period.service', () => {
 			)
 		})
 
-		it('does not transfer host if no non-away players available', async () => {
+		// §7.8: previously a solo lobby's last occupant disconnecting just sat
+		// through the full 2-minute grace period like anyone else before the
+		// lobby was torn down. Now it closes immediately, since there is no one
+		// left to reconnect to.
+		it('tears down the lobby immediately when the last connected player disconnects', async () => {
 			setupLobbyWithPlayers({ id: 'host1', steamName: 'Alice' })
 
 			await startGracePeriod('host1')
 
-			const lobby = getLobby('TESTLB')!
-			expect(lobby.hostId).toBe('host1')
+			expect(lobbies.has('TESTLB')).toBe(false)
+			expect(isInGracePeriod('host1')).toBe(false)
+			expect(mqttService.publishEvent).toHaveBeenCalledWith(
+				'TESTLB',
+				expect.objectContaining({ type: 'lobby_closed' }),
+			)
+			expect(mqttService.cleanupLobbyTopics).toHaveBeenCalledWith('TESTLB')
+		})
+
+		it('does NOT tear down immediately while at least one player is still connected', async () => {
+			setupLobbyWithPlayers(
+				{ id: 'host1', steamName: 'Alice' },
+				{ id: 'player1', steamName: 'Bob' },
+			)
+
+			await startGracePeriod('player1')
+
+			expect(lobbies.has('TESTLB')).toBe(true)
+			expect(isInGracePeriod('player1')).toBe(true)
+		})
+
+		it('tears down immediately once the SECOND (and last) player also disconnects', async () => {
+			setupLobbyWithPlayers(
+				{ id: 'host1', steamName: 'Alice' },
+				{ id: 'player1', steamName: 'Bob' },
+			)
+
+			await startGracePeriod('player1')
+			await startGracePeriod('host1')
+
+			expect(lobbies.has('TESTLB')).toBe(false)
+			expect(mqttService.publishEvent).toHaveBeenCalledWith(
+				'TESTLB',
+				expect.objectContaining({ type: 'lobby_closed' }),
+			)
 		})
 
 		it('skips away players when finding next host', async () => {
@@ -303,10 +340,21 @@ describe('grace-period.service', () => {
 			)
 		})
 
-		it('closes lobby when last grace period expires', async () => {
+		it('closes lobby when the last grace period expires', async () => {
 			setupLobbyWithPlayers({ id: 'host1', steamName: 'Alice' })
 
-			await startGracePeriod('host1')
+			// Seed the grace-period entry directly rather than via
+			// startGracePeriod, so this test exercises expireGracePeriod's own
+			// lobby-closing logic in isolation from §7.8's immediate-teardown
+			// check (startGracePeriod would close this solo lobby itself before
+			// this test ever gets to call expireGracePeriod explicitly).
+			gracePeriods.set('host1', {
+				playerId: 'host1',
+				lobbyCode: 'TESTLB',
+				displayName: 'Alice',
+				disconnectedAt: new Date(),
+				timer: setTimeout(() => {}, 999999),
+			})
 			vi.mocked(mqttService.publishEvent).mockClear()
 
 			await expireGracePeriod('host1')

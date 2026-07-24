@@ -68,6 +68,22 @@ export async function startGracePeriod(playerId: string): Promise<void> {
 		displayName: session.getDisplayName(),
 		timestamp: new Date().toISOString(),
 	})
+
+	// §7.8: if this disconnect leaves no still-connected player in the lobby
+	// (every remaining member is now away), tear it down right now instead of
+	// making each of them separately wait out their own 2-minute timer first.
+	// expireGracePeriod already does the real teardown (remove player, ranked
+	// auto-forfeit, cleanup, lobby_closed + finalizeRun) and itself closes the
+	// lobby once the last player is removed, so calling it directly for every
+	// currently-away member is sufficient -- no separate teardown path needed.
+	const allAway = lobby.players.size > 0 && [...lobby.players.keys()].every((id) => gracePeriods.has(id))
+	if (allAway) {
+		for (const id of [...lobby.players.keys()]) {
+			const awayEntry = gracePeriods.get(id)
+			if (awayEntry) clearTimeout(awayEntry.timer)
+			await expireGracePeriod(id)
+		}
+	}
 }
 
 export async function cancelGracePeriod(playerId: string): Promise<boolean> {
