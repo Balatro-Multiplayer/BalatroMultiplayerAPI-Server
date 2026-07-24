@@ -319,4 +319,51 @@ describe('lobby routes', () => {
 			expect(res.body.token).toBeDefined()
 		})
 	})
+
+	describe('GET /spectatable', () => {
+		it('returns 401 without auth', async () => {
+			const res = await request(app).get('/api/lobbies/spectatable')
+			expect(res.status).toBe(401)
+		})
+
+		it('lists public lobbies but not private ones that have not opted in', async () => {
+			const publicLobby = new Lobby('PUBL2', 'mod1', 'host1', 16, 'public')
+			lobbies.set(publicLobby.code, publicLobby)
+
+			const createRes = await request(app)
+				.post('/api/lobbies')
+				.set('Authorization', authHeader('host2', 'Bob'))
+				.send({ modId: 'mod1' })
+			const privateCode = createRes.body.lobby.code
+
+			const res = await request(app)
+				.get('/api/lobbies/spectatable')
+				.set('Authorization', authHeader('spectator1', 'Watcher'))
+
+			expect(res.status).toBe(200)
+			const codes = res.body.lobbies.map((l: { code: string }) => l.code)
+			expect(codes).toContain('PUBL2')
+			expect(codes).not.toContain(privateCode)
+		})
+
+		it('includes a private lobby once it opts in via metadata', async () => {
+			const createRes = await request(app)
+				.post('/api/lobbies')
+				.set('Authorization', authHeader('host3', 'Carol'))
+				.send({ modId: 'mod1' })
+			const code = createRes.body.lobby.code
+
+			await request(app)
+				.put(`/api/lobbies/${code}/metadata`)
+				.set('Authorization', authHeader('host3', 'Carol', code))
+				.send({ metadata: { spectatable: true } })
+
+			const res = await request(app)
+				.get('/api/lobbies/spectatable')
+				.set('Authorization', authHeader('spectator1', 'Watcher'))
+
+			const codes = res.body.lobbies.map((l: { code: string }) => l.code)
+			expect(codes).toContain(code)
+		})
+	})
 })

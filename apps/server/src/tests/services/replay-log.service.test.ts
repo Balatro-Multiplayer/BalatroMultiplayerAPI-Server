@@ -24,6 +24,7 @@ function makeMockRepository(): IReplayLogRepository {
 		updateRunStatus: vi.fn().mockResolvedValue(undefined),
 		purgeExpiredRunLogs: vi.fn().mockResolvedValue(0),
 		getRunWithLogs: vi.fn().mockResolvedValue(undefined),
+		getRunsForPlayer: vi.fn().mockResolvedValue([]),
 	}
 }
 
@@ -258,6 +259,39 @@ describe('replay-log.service', () => {
 			const events = JSON.parse(decompressFromBase64(call.compressedEvents))
 			expect(events).toEqual([{ t: 5, opcode: 'play', args: [[1, 3, 5]] }])
 			lobbies.delete('JKLMN')
+		})
+	})
+
+	describe('listMyRuns', () => {
+		it('delegates to the repository with the requesting player id and a default limit', async () => {
+			const repository = makeMockRepository()
+			const runs = [
+				{
+					id: 'run-1',
+					lobbyCode: 'ABCDEF',
+					modId: 'mod1',
+					lobbyType: 'public',
+					status: 'completed' as const,
+					startedAt: new Date(),
+					finalizedAt: new Date(),
+				},
+			]
+			repository.getRunsForPlayer = vi.fn().mockResolvedValue(runs)
+			const service = createReplayLogService({ repository })
+
+			const result = await service.listMyRuns('p1')
+
+			expect(repository.getRunsForPlayer).toHaveBeenCalledWith('p1', 20)
+			expect(result).toEqual(runs)
+		})
+
+		it('returns an empty list when the player has no runs', async () => {
+			const repository = makeMockRepository()
+			const service = createReplayLogService({ repository })
+
+			const result = await service.listMyRuns('p1')
+
+			expect(result).toEqual([])
 		})
 	})
 

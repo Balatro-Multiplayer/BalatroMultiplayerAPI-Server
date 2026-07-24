@@ -3,6 +3,7 @@ import type {
 	FlagReason,
 	IReplayLogRepository,
 	LobbyRunStatus,
+	RunRow,
 	RunWithLogs,
 } from '../../contracts/IReplayLogRepository.js'
 import * as replayLogGateway from '../../infrastructure/gateways/replay-log.gateway.js'
@@ -240,6 +241,13 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 		return result
 	}
 
+	// §22.2: the discovery step a client-side "My Matches" replay list needs --
+	// previously nothing let a player find their own past run ids at all
+	// (getMostRecentRunForLobbyCode serves report-filing only, not browsing).
+	async function listMyRuns(playerId: string, limit = 20): Promise<RunRow[]> {
+		return repository.getRunsForPlayer(playerId, limit)
+	}
+
 	// Phase 7: best-effort one-time state snapshot for a spectator joining a
 	// live match, derived from whatever the in-memory buffer has observed so
 	// far for each player (their most recent ante marker and hand result).
@@ -281,6 +289,7 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 		finalizeRun,
 		hasBufferedRun,
 		getReplay,
+		listMyRuns,
 		getSpectatorSnapshot,
 		verifyPlayerHash,
 		countHandResultEvents,

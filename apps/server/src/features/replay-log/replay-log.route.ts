@@ -8,6 +8,18 @@ export function createReplayLogRouter(service: ReplayLogService): Router {
 
 	router.use(authenticate)
 
+	// §22.2: discovery step for a client-side "My Matches" replay list --
+	// previously there was no way for a player to find their own past run ids
+	// at all (getMostRecentRunForLobbyCode serves report-filing only).
+	router.get('/mine', async (req, res, next) => {
+		try {
+			const runs = await service.listMyRuns(req.player!.playerId)
+			res.json({ runs })
+		} catch (err) {
+			next(err)
+		}
+	})
+
 	router.get('/:runId/replay', async (req, res, next) => {
 		try {
 			// Same DB-authoritative privilege check webAdmin's middleware uses

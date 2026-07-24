@@ -50,4 +50,5 @@ export interface IReplayLogRepository {
 	updateRunStatus(runId: string, status: LobbyRunStatus): Promise<void>
 	purgeExpiredRunLogs(): Promise<number>
 	getRunWithLogs(runId: string): Promise<RunWithLogs | undefined>
+	getRunsForPlayer(playerId: string, limit: number): Promise<RunRow[]>
 }

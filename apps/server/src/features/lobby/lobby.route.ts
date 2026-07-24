@@ -8,7 +8,7 @@ import { assertCanPlay } from '../../shared/utils/access.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { env } from '../../env.js'
 import { getConfig } from '../../state/config.js'
-import { getLobby, getSession } from '../../state/index.js'
+import { getLobby, getSession, lobbies } from '../../state/index.js'
 import { signJwt } from '../auth/jwt.js'
 import { processAndPublishMessage } from '../chat/chat.service.js'
 import { replayLogService } from '../replay-log/replay-log.service.js'
@@ -31,6 +31,31 @@ export function createLobbyRouter(service: LobbyService): Router {
 		message: { error: 'Too many chat messages, slow down' },
 		skip: () => env.NODE_ENV !== 'production',
 		keyGenerator: (req) => req.player?.playerId ?? ipKeyGenerator(req.ip ?? 'unknown'),
+	})
+
+	// §22.3: discovery step for a client-side "Spectate" browser -- previously
+	// there was no way to find which live lobbies are even spectatable at all;
+	// GET /:code/spectate below already enforces the real access check
+	// (public, or private-with-metadata.spectatable) per lobby, this just lists
+	// the ones that would pass it. Registered before the `/:code` routes so it
+	// isn't swallowed by that param route.
+	router.get('/spectatable', async (req, res, next) => {
+		try {
+			const result = []
+			for (const lobby of lobbies.values()) {
+				const spectatable = lobby.type === 'public' || lobby.metadata.spectatable === true
+				if (spectatable) {
+					result.push({
+						code: lobby.code,
+						modId: lobby.modId,
+						playerCount: lobby.playerCount,
+					})
+				}
+			}
+			res.json({ lobbies: result })
+		} catch (err) {
+			next(err)
+		}
 	})
 
 	router.post('/', async (req, res, next) => {

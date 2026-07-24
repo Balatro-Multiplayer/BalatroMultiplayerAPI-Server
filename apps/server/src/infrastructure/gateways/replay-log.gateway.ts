@@ -1,7 +1,8 @@
-import { desc, eq, lt } from 'drizzle-orm'
+import { desc, eq, inArray, lt } from 'drizzle-orm'
 import type {
 	InsertRunParams,
 	LobbyRunStatus,
+	RunRow,
 	RunWithLogs,
 	UpsertPlayerLogParams,
 } from '../../contracts/IReplayLogRepository.js'
@@ -98,6 +99,43 @@ export async function getMostRecentRunForLobbyCode(
 		.orderBy(desc(lobbyRuns.startedAt))
 		.limit(1)
 	return row?.id ?? null
+}
+
+// §22.2: the discovery step a player-facing "My Matches" replay list needs --
+// previously nothing let a player find their own past run ids at all; the
+// only existing lookup (getMostRecentRunForLobbyCode) serves report-filing,
+// not browsing. Two queries (run ids this player has a log row for, then
+// those runs' own rows) rather than a join, since matchRunLogs has no FK
+// back to a single canonical "which runs is this player in" projection and
+// drizzle's own relational query builder isn't wired up elsewhere in this
+// gateway (every other function here is plain query-builder style).
+export async function getRunsForPlayer(
+	playerId: string,
+	limit: number,
+): Promise<RunRow[]> {
+	const logRows = await db
+		.select({ runId: matchRunLogs.runId })
+		.from(matchRunLogs)
+		.where(eq(matchRunLogs.playerId, playerId))
+	const runIds = [...new Set(logRows.map((r) => r.runId))]
+	if (runIds.length === 0) return []
+
+	const rows = await db
+		.select()
+		.from(lobbyRuns)
+		.where(inArray(lobbyRuns.id, runIds))
+		.orderBy(desc(lobbyRuns.startedAt))
+		.limit(limit)
+
+	return rows.map((run) => ({
+		id: run.id,
+		lobbyCode: run.lobbyCode,
+		modId: run.modId,
+		lobbyType: run.lobbyType,
+		status: run.status as LobbyRunStatus,
+		startedAt: run.startedAt,
+		finalizedAt: run.finalizedAt,
+	}))
 }
 
 export async function getRunWithLogs(
