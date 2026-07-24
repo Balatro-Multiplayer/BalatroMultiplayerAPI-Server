@@ -23,11 +23,21 @@ import {
 	isInGracePeriod,
 	startGracePeriod,
 } from '../../infrastructure/mqtt/grace-period.service.js'
+import { replayLogService } from '../../features/replay-log/replay-log.service.js'
+import { db } from '../../infrastructure/db/index.js'
 import { matchmakingService } from '../../routes/index.js'
 import { createSession, getLobby, lobbies } from '../../state/index.js'
 import { Lobby } from '../../state/lobby.js'
 import { matchByLobby } from '../../state/matchmaking.js'
 import type { Match } from '../../shared/types/index.js'
+
+function mockInsertReturningChain(row: { id: string }) {
+	return vi.fn().mockReturnValue({
+		values: vi.fn().mockReturnValue({
+			returning: vi.fn().mockResolvedValue([row]),
+		}),
+	})
+}
 
 function setupLobbyWithPlayers(
 	...players: { id: string; steamName: string }[]
@@ -178,6 +188,89 @@ describe('grace-period.service', () => {
 		it('returns false if not in grace period', async () => {
 			const result = await cancelGracePeriod('nobody')
 			expect(result).toBe(false)
+		})
+
+		// §22.5: the reconnecting client catches up over MQTT -- a push, not a
+		// REST pull -- the moment the server detects they're back. Each test
+		// uses its own lobby code (replayLogService's run buffer is
+		// process-global, not reset between tests) and restores db.insert
+		// afterward, since it overrides the shape other describe blocks in
+		// this file rely on for their own (unrelated) finalizeRun calls.
+		describe('§22.5 replay-tail catch-up', () => {
+			function setupLobbyWithPlayersAt(code: string, ...players: { id: string; steamName: string }[]) {
+				const [host, ...rest] = players
+				const sessions = players.map((p) => createSession(p.steamName, { id: p.id }))
+				const lobby = new Lobby(code, 'test-mod', host.id)
+				for (const session of sessions) lobby.addPlayer(session)
+				lobbies.set(code, lobby)
+				return lobby
+			}
+
+			it('pushes every other player\'s buffered tail to the reconnecting player', async () => {
+				setupLobbyWithPlayersAt(
+					'RECONN1',
+					{ id: 'host1', steamName: 'Alice' },
+					{ id: 'player1', steamName: 'Bob' },
+				)
+				const origInsert = (db as any).insert
+				;(db as any).insert = mockInsertReturningChain({ id: 'run-reconnect-1' })
+				await replayLogService.handleActionLogEvent('RECONN1', 'host1', {
+					t: 10, opcode: 'hand_result', args: ['1234', 3],
+				})
+				;(db as any).insert = origInsert
+
+				await startGracePeriod('player1')
+				vi.mocked(mqttService.publishToPlayer).mockClear()
+
+				await cancelGracePeriod('player1')
+
+				expect(mqttService.publishToPlayer).toHaveBeenCalledWith(
+					'player1',
+					'replay-tail',
+					expect.objectContaining({
+						type: 'replay_tail',
+						tails: [
+							{ playerId: 'host1', events: [{ t: 10, opcode: 'hand_result', args: ['1234', 3] }] },
+						],
+					}),
+				)
+			})
+
+			it('does not push when no other player has any buffered events', async () => {
+				setupLobbyWithPlayersAt(
+					'RECONN2',
+					{ id: 'host1', steamName: 'Alice' },
+					{ id: 'player1', steamName: 'Bob' },
+				)
+
+				await startGracePeriod('player1')
+				vi.mocked(mqttService.publishToPlayer).mockClear()
+
+				await cancelGracePeriod('player1')
+
+				expect(mqttService.publishToPlayer).not.toHaveBeenCalled()
+			})
+
+			it('never includes the reconnecting player\'s own buffered events', async () => {
+				setupLobbyWithPlayersAt(
+					'RECONN3',
+					{ id: 'host1', steamName: 'Alice' },
+					{ id: 'player1', steamName: 'Bob' },
+				)
+				const origInsert = (db as any).insert
+				;(db as any).insert = mockInsertReturningChain({ id: 'run-reconnect-2' })
+				await replayLogService.handleActionLogEvent('RECONN3', 'player1', {
+					t: 5, opcode: 'select_blind', args: [0],
+				})
+				;(db as any).insert = origInsert
+
+				await startGracePeriod('player1')
+				vi.mocked(mqttService.publishToPlayer).mockClear()
+
+				await cancelGracePeriod('player1')
+
+				expect(mqttService.publishToPlayer).not.toHaveBeenCalled()
+			})
 		})
 	})
 

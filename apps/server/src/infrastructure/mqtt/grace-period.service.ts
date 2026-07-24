@@ -85,7 +85,35 @@ export async function cancelGracePeriod(playerId: string): Promise<boolean> {
 		timestamp: new Date().toISOString(),
 	})
 
+	await pushReplayCatchUp(entry.lobbyCode, playerId)
+
 	return true
+}
+
+// §22.5: the reconnecting client catches up over MQTT -- the same channel
+// every other action already flows through -- instead of pulling a REST
+// endpoint itself. The server already knows the instant a player reconnects
+// (right here), so it pushes each other player's buffered tail directly
+// rather than waiting for the client to ask. MQTT doesn't backlog
+// non-retained messages, so this still has to read from the same live
+// in-memory run buffer replay/anti-cheat already use, not a retained topic --
+// only the transport (push vs. a REST pull) changes.
+async function pushReplayCatchUp(lobbyCode: string, reconnectedPlayerId: string): Promise<void> {
+	const lobby = getLobby(lobbyCode)
+	if (!lobby) return
+
+	const tails = [...lobby.players.keys()]
+		.filter((id) => id !== reconnectedPlayerId)
+		.map((id) => ({ playerId: id, events: replayLogService.getTail(lobbyCode, id, 0) }))
+		.filter((tail) => tail.events.length > 0)
+
+	if (tails.length === 0) return
+
+	await mqttService.publishToPlayer(reconnectedPlayerId, 'replay-tail', {
+		type: 'replay_tail',
+		tails,
+		timestamp: new Date().toISOString(),
+	})
 }
 
 async function expireGracePeriod(playerId: string): Promise<void> {
