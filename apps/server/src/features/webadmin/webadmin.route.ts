@@ -9,6 +9,7 @@ import seasonsRouter from './seasons.route.js'
 import matchesRouter from './matches.route.js'
 import matchConflictsRouter from './match-conflicts.route.js'
 import releasesRouter from './releases.route.js'
+import configRouter from './config.route.js'
 
 const router = Router()
 
@@ -38,5 +39,6 @@ router.use(seasonsRouter)
 router.use(matchesRouter)
 router.use(matchConflictsRouter)
 router.use(releasesRouter)
+router.use(configRouter)
 
 export default router

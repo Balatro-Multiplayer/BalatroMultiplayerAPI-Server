@@ -11,6 +11,7 @@ import {
   MessageSquare,
   PackageOpen,
   Palette,
+  Settings,
   Shield,
   Trophy,
   User,
@@ -141,6 +142,9 @@ function MobileAdminSection({ onClose }: { onClose: () => void }) {
         </MobileMenuLink>
         <MobileMenuLink href='/admin/games' icon={<Gamepad2 className='size-4' />} onClick={onClose}>
           Match History
+        </MobileMenuLink>
+        <MobileMenuLink href='/admin/config' icon={<Settings className='size-4' />} onClick={onClose}>
+          Configuration
         </MobileMenuLink>
       </div>
     </>

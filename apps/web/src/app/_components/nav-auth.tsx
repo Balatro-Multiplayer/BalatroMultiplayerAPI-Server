@@ -51,6 +51,9 @@ export function NavAuth() {
               <DropdownMenuItem asChild>
                 <Link href='/admin/games'>Match History</Link>
               </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href='/admin/config'>Configuration</Link>
+              </DropdownMenuItem>
             </>
           )}
           <DropdownMenuSeparator />
