@@ -193,6 +193,15 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		const isGroupQueue = !!session.lobbyCode
 		const lobby = isGroupQueue ? getLobby(session.lobbyCode!) : undefined
 
+		// §11.2: ranked matchmaking is always solo -- there's no queueing as a
+		// pre-formed group. Nothing in the request payload carries multiple
+		// player ids directly; a group queue is instead derived from the
+		// requester being host of their own private lobby, so this has to be
+		// checked here rather than at the request-schema level.
+		if (isGroupQueue && isRanked(gameMode)) {
+			throw new AppError('Ranked matchmaking does not support group/party queueing', 400)
+		}
+
 		if (isGroupQueue) {
 			if (!lobby) throw new AppError('Lobby not found', 404)
 			if (lobby.hostId !== session.playerId) {

@@ -195,6 +195,21 @@ describe('matchmaking.service', () => {
 					service.joinQueue(hostSession, { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 2 }),
 				).rejects.toThrow('Group size must leave room')
 			})
+
+			// §11.2: ranked matchmaking is always solo -- there's no queueing as a
+			// pre-formed group. A group queue isn't requested directly; it's derived
+			// from the requester being host of their own private lobby with other
+			// members already in it, so a ranked gameMode string has to be rejected
+			// here rather than at request-schema validation.
+			it('throws 400 when a lobby host tries to group-queue for a ranked gameMode', async () => {
+				const { service } = makeService()
+				const { hostSession } = makeGroupLobby('PRIV1', 'host1', 'guest1')
+				await expect(
+					service.joinQueue(hostSession, {
+						modId: 'mod1', gameMode: 'ranked:mode1', minPlayers: 2, maxPlayers: 2,
+					}),
+				).rejects.toThrow('Ranked matchmaking does not support group/party queueing')
+			})
 		})
 	})
 
