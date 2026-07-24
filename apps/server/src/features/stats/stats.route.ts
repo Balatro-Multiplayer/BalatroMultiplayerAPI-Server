@@ -6,7 +6,7 @@ import {
 	players,
 	seasons,
 } from '../../infrastructure/db/schema.js'
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import { getCurrentSeason } from '../../infrastructure/gateways/matchmaking.gateway.js'
 import { PLACEMENT_GAMES } from '../matchmaking/elo.service.js'
 import { AppError } from '../../shared/utils/errors.js'
@@ -242,6 +242,128 @@ router.get('/players/:id', async (req, res, next) => {
 			gamesPlayed: r?.gamesPlayed ?? null,
 			seasonBest: r?.seasonBest ?? null,
 		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+// §6.2: games played per hour over the last 7 days. matchmakingMatches.createdAt
+// is stamped at queue-match-formation time, already exists, no schema change.
+router.get('/activity', async (_req, res, next) => {
+	try {
+		const rows = await db.execute(sql`
+			SELECT date_trunc('hour', created_at) AS bucket, count(*)::int AS count
+			FROM matchmaking_matches
+			WHERE created_at >= now() - interval '7 days'
+			GROUP BY bucket
+			ORDER BY bucket ASC
+		`)
+		res.json({
+			buckets: rows.rows.map((r) => {
+				const row = r as { bucket: string; count: number }
+				return { hour: row.bucket, count: Number(row.count) }
+			}),
+		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+// §6.2: per-season summary. matchmakingMatches has no season column of its own
+// (unlike matchmakingRatings), so matches are attributed to a season by falling
+// within its [startedAt, endedAt ?? endsAt] range -- the same boundary
+// checkSeasonRollover itself uses to decide when a season ends.
+router.get('/season-overview', async (_req, res, next) => {
+	try {
+		const rows = await db.execute(sql`
+			SELECT
+				s.id, s.name, s.started_at, s.ends_at, s.ended_at,
+				(SELECT count(*)::int FROM matchmaking_matches m
+				 WHERE m.created_at >= s.started_at
+				   AND m.created_at < coalesce(s.ended_at, s.ends_at)) AS total_matches,
+				(SELECT count(*)::int FROM matchmaking_ratings r
+				 WHERE r.season = s.id AND r.games_played >= ${PLACEMENT_GAMES}) AS ranked_players
+			FROM seasons s
+			ORDER BY s.id DESC
+		`)
+		res.json({
+			seasons: rows.rows.map((r) => {
+				const row = r as {
+					id: number
+					name: string
+					started_at: string
+					ends_at: string
+					ended_at: string | null
+					total_matches: number
+					ranked_players: number
+				}
+				return {
+					id: row.id,
+					name: row.name,
+					startedAt: row.started_at,
+					endsAt: row.ends_at,
+					endedAt: row.ended_at,
+					totalMatches: Number(row.total_matches),
+					rankedPlayers: Number(row.ranked_players),
+				}
+			}),
+		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+// §6.2: browseable log of recent ranked matches. Global feed (every match, not
+// scoped to one player) -- a different shape from getRunsForPlayer (§22.2,
+// which is player-scoped by design for the "My Matches" replay list).
+router.get('/history', async (req, res, next) => {
+	try {
+		const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 25)))
+		const rows = await db
+			.select({
+				matchId: matchmakingMatches.matchId,
+				modId: matchmakingMatches.modId,
+				gameMode: matchmakingMatches.gameMode,
+				status: matchmakingMatches.status,
+				createdAt: matchmakingMatches.createdAt,
+				gameStartedAt: matchmakingMatches.gameStartedAt,
+			})
+			.from(matchmakingMatches)
+			.orderBy(desc(matchmakingMatches.createdAt))
+			.limit(limit)
+
+		res.json({ matches: rows })
+	} catch (err) {
+		next(err)
+	}
+})
+
+// §6.2: Stake Popularity. Deliberately a COARSE proxy, not true per-choice
+// tracking -- no schema anywhere records which stake an individual match was
+// actually played on (confirmed: matchmakingMatches/lobbyRuns/matchRunLogs
+// have no stake column; deck/stake drafting is client-side Lua only, see
+// §16.4). This buckets by gameMode string instead, which happens to carry a
+// real stake for SPDRN's two fixed-stake formats (spdrn_white_stake_triple =
+// White Stake, spdrn_gold_stake_single = Gold Stake) -- every other format
+// (variable-stake, or PvP with no stake concept at all) falls into "other".
+router.get('/stake-popularity', async (_req, res, next) => {
+	try {
+		const rows = await db
+			.select({
+				gameMode: matchmakingMatches.gameMode,
+				count: sql<number>`count(*)::int`,
+			})
+			.from(matchmakingMatches)
+			.groupBy(matchmakingMatches.gameMode)
+
+		const buckets: Record<string, number> = { 'White Stake': 0, 'Gold Stake': 0, Other: 0 }
+		for (const row of rows) {
+			if (row.gameMode.includes('white_stake_triple')) buckets['White Stake'] += row.count
+			else if (row.gameMode.includes('gold_stake_single')) buckets['Gold Stake'] += row.count
+			else buckets.Other += row.count
+		}
+
+		res.json({ buckets, coarse: true })
 	} catch (err) {
 		next(err)
 	}
