@@ -418,6 +418,39 @@ describe('POST /api/auth/chat/enable', () => {
 	})
 })
 
+describe('GET /api/auth/jokers', () => {
+	it('returns 401 without auth', async () => {
+		const res = await request(app).get('/api/auth/jokers')
+		expect(res.status).toBe(401)
+	})
+
+	it('returns the standard joker pool for a plain account', async () => {
+		createSession('Alice', { id: 'plain-account' })
+		const token = signJwt({ playerId: 'plain-account', steamName: 'Alice' })
+
+		const res = await request(app)
+			.get('/api/auth/jokers')
+			.set('Authorization', `Bearer ${token}`)
+
+		expect(res.status).toBe(200)
+		expect(res.body.jokers).toContain('j_joker')
+		expect(res.body.jokers).not.toContain('j_perkeo')
+	})
+
+	it("includes a privilege joker only for an account holding that privilege", async () => {
+		createSession('Bean', { id: 'privileged-account', privileges: ['bean'] })
+		const token = signJwt({ playerId: 'privileged-account', steamName: 'Bean' })
+
+		const res = await request(app)
+			.get('/api/auth/jokers')
+			.set('Authorization', `Bearer ${token}`)
+
+		expect(res.status).toBe(200)
+		expect(res.body.jokers).toContain('j_turtle_bean')
+		expect(res.body.jokers).not.toContain('j_vagabond')
+	})
+})
+
 describe('DELETE /api/auth/account', () => {
 	it('returns 401 when Authorization header is missing', async () => {
 		const res = await request(app).delete('/api/auth/account')

@@ -9,4 +9,6 @@ export interface Player {
   discordLinked: boolean
   discordUsername: string | null
   privileges: Privilege[]
+  chatEnabled: boolean
+  chatBlocked: boolean
 }

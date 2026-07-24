@@ -17,6 +17,7 @@ import { getLobby, getSession, removeSession } from '../../state/index.js'
 import type { PlayerSession } from '../../state/index.js'
 import { buildPrivilegeTable } from '../../shared/constants/privileges.js'
 import { findPlayerById, updateChatStatus } from '../../infrastructure/gateways/player.gateway.js'
+import { PRIVILEGE_JOKERS, STANDARD_JOKERS } from '../../shared/constants/jokers.js'
 
 function lobbyPayload(session: PlayerSession) {
 	if (!session.lobbyCode) return undefined
@@ -468,6 +469,27 @@ h1{color:#5865f2;margin-bottom:0.5rem}p{color:#a0a0b0}</style>
 			session.chatBlocked = false
 
 			res.json({ player: playerPayload(session) })
+		} catch (err) {
+			next(err)
+		}
+	})
+
+	// §5.2 avatar picker (website): the in-game client already validates its own
+	// preferredJoker choice against STANDARD_JOKERS/PRIVILEGE_JOKERS client-side
+	// with no server list to read -- the website has no such baked-in list, so it
+	// needs this to render real, valid choices instead of duplicating the set.
+	router.get('/jokers', authenticate, async (req, res, next) => {
+		try {
+			const session = getSession(req.player!.playerId)
+			if (!session) throw new AppError('Session not found', 401)
+
+			const privilegeJokers = Array.from(PRIVILEGE_JOKERS.entries())
+				.filter(([priv]) => session.privileges.includes(priv))
+				.map(([, joker]) => joker)
+
+			res.json({
+				jokers: [...STANDARD_JOKERS, ...privilegeJokers],
+			})
 		} catch (err) {
 			next(err)
 		}
