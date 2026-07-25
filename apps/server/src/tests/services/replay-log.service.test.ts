@@ -431,9 +431,58 @@ describe('replay-log.service', () => {
 			})
 
 			expect(service.getSpectatorSnapshot('ABCDE')).toEqual([
-				{ playerId: 'p1', ante: 'bl_big', score: '67890', handsRemaining: 2 },
+				{ playerId: 'p1', ante: 'bl_big', score: '67890', handsRemaining: 2, manifest: null },
 			])
 			lobbies.delete('ABCDE')
+		})
+
+		it('extracts the manifest fields a seeded local run bootstrap needs', async () => {
+			const repository = makeMockRepository()
+			const service = createReplayLogService({ repository })
+			putLobby('FIDEL')
+
+			await service.handleActionLogEvent('FIDEL', 'p1', {
+				t: 0,
+				opcode: 'manifest',
+				args: {
+					seed: 'ABCD1234',
+					deck: 'Red Deck',
+					sleeve: 'sleeve_none',
+					challenge: '',
+					ruleset: 'ruleset_mp_smallworld',
+					gamemode: 'pvp_smallworld',
+					stake: 1,
+					mod_version: '0.5.1',
+				},
+			})
+
+			const [entry] = service.getSpectatorSnapshot('FIDEL')
+			expect(entry.manifest).toEqual({
+				seed: 'ABCD1234',
+				deck: 'Red Deck',
+				sleeve: 'sleeve_none',
+				challenge: '',
+				ruleset: 'ruleset_mp_smallworld',
+				gamemode: 'pvp_smallworld',
+				stake: 1,
+			})
+			lobbies.delete('FIDEL')
+		})
+
+		it('leaves manifest null when the buffered manifest event is missing required fields', async () => {
+			const repository = makeMockRepository()
+			const service = createReplayLogService({ repository })
+			putLobby('BADMF')
+
+			await service.handleActionLogEvent('BADMF', 'p1', {
+				t: 0,
+				opcode: 'manifest',
+				args: { seed: 'ABCD1234' },
+			})
+
+			const [entry] = service.getSpectatorSnapshot('BADMF')
+			expect(entry.manifest).toBeNull()
+			lobbies.delete('BADMF')
 		})
 	})
 

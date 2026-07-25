@@ -39,6 +39,29 @@ export interface LogEvent {
 	args?: unknown
 }
 
+// The manifest event's args is the full PVP.RLOG.begin_run table (see
+// networking/action_handlers.lua's action_start_game) -- only the fields a
+// seeded local run bootstrap (PVP._start_playback) actually needs are
+// validated here.
+function isManifestArgs(args: unknown): args is {
+	seed: string
+	deck: string
+	sleeve?: string
+	challenge?: string
+	ruleset: string
+	gamemode: string
+	stake?: number
+} {
+	if (!args || typeof args !== 'object') return false
+	const a = args as Record<string, unknown>
+	return (
+		typeof a.seed === 'string' &&
+		typeof a.deck === 'string' &&
+		typeof a.ruleset === 'string' &&
+		typeof a.gamemode === 'string'
+	)
+}
+
 interface PlayerBuffer {
 	events: LogEvent[]
 	carbonHash: string | null
@@ -49,11 +72,27 @@ interface RunBuffer {
 	players: Map<string, PlayerBuffer>
 }
 
+// §22.3 full-fidelity spectate: the manifest fields a client needs to
+// bootstrap a seeded local run (PVP._start_playback) that reproduces this
+// player's exact cards -- same shape PVP.RLOG.begin_run records client-side
+// (lib/replay_log.lua's REQUIRED_MANIFEST_KEYS), a subset of the full
+// manifest event's own payload.
+export interface SpectatorManifest {
+	seed: string
+	deck: string
+	sleeve: string | null
+	challenge: string | null
+	ruleset: string
+	gamemode: string
+	stake: number | null
+}
+
 export interface SpectatorSnapshotEntry {
 	playerId: string
 	ante: string | null
 	score: string | null
 	handsRemaining: number | null
+	manifest: SpectatorManifest | null
 }
 
 interface ReplayLogServiceDeps {
@@ -261,6 +300,7 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 			let ante: string | null = null
 			let score: string | null = null
 			let handsRemaining: number | null = null
+			let manifest: SpectatorManifest | null = null
 
 			for (const event of buf.events) {
 				if (
@@ -276,10 +316,20 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 					const [s, h] = event.args
 					if (typeof s === 'string') score = s
 					if (typeof h === 'number') handsRemaining = h
+				} else if (event.opcode === 'manifest' && isManifestArgs(event.args)) {
+					manifest = {
+						seed: event.args.seed,
+						deck: event.args.deck,
+						sleeve: event.args.sleeve ?? null,
+						challenge: event.args.challenge ?? null,
+						ruleset: event.args.ruleset,
+						gamemode: event.args.gamemode,
+						stake: typeof event.args.stake === 'number' ? event.args.stake : null,
+					}
 				}
 			}
 
-			snapshot.push({ playerId, ante, score, handsRemaining })
+			snapshot.push({ playerId, ante, score, handsRemaining, manifest })
 		}
 		return snapshot
 	}
