@@ -116,7 +116,7 @@ async function start() {
 		await mqttService.connect()
 		await provisionEmqxWebhook()
 		await mqttService.subscribeToLobbyActions(
-			'game_log_event',
+			'pvp_log_event',
 			(lobbyCode, playerId, params) => {
 				void replayLogService
 					.handleActionLogEvent(lobbyCode, playerId, params)

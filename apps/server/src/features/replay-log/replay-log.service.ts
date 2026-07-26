@@ -101,7 +101,7 @@ interface ReplayLogServiceDeps {
 
 export type ReplayLogService = ReturnType<typeof createReplayLogService>
 
-// Buffers every player's `game_log_event` stream (see BalatroMultiplayerPvP's
+// Buffers every player's `pvp_log_event` stream (see BalatroMultiplayerPvP's
 // lib/replay_log.lua / pvp_api/replay_log_actions.lua) in memory, keyed by
 // lobby code, and flushes it to matchRunLogs once the run ends -- whether that
 // end is a clean result report or an abandoned/terminated lobby. This is the
@@ -247,7 +247,7 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 	// Reads the LIVE in-memory buffer, not the DB -- unlike getReplay, this
 	// serves a still-active match (there's no matchRunLogs row yet, or it's
 	// stale). A reconnecting client uses this to catch up on the opponent's
-	// game_log_event broadcasts it missed while disconnected (MQTT doesn't
+	// pvp_log_event broadcasts it missed while disconnected (MQTT doesn't
 	// backlog non-retained topic messages). Returns [] for a lobby with no
 	// buffered run, or a player with none of their own -- not an error, since
 	// "nothing missed yet" is a normal outcome, not a failure.
