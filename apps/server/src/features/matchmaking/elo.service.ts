@@ -1,6 +1,11 @@
 import type { PlacementEntry } from '../../shared/types/index.js'
 
 export const MATCHING_INTERVAL_MS = 2_000
+// §16.x: how long a queue that has reached minPlayers but not maxPlayers holds
+// off committing, to give a fuller lobby a chance to form before falling back
+// to the smaller group. Measured from the oldest queuedAt among the entries
+// that would be collected into that group.
+export const QUEUE_FILL_GRACE_MS = 15_000
 export const INITIAL_HIDDEN_RATING = 600
 export const PLACEMENT_GAMES = 5
 export const K_ESTABLISHED = 40

@@ -123,6 +123,8 @@ export function runCasualQueue(
 	entries: QueueEntry[],
 	minPlayers: number,
 	maxPlayers: number,
+	now: number = Date.now(),
+	graceMs = 0,
 ): QueueEntry[][] {
 	const remaining = [...entries]
 	const formed: QueueEntry[][] = []
@@ -145,6 +147,14 @@ export function runCasualQueue(
 
 		if (slots < minPlayers) break
 
+		// Under a full lobby: hold this group open so late joiners can still
+		// fill it, unless the oldest entry in it has already waited out the
+		// grace period -- at which point commit at whatever size is available.
+		if (slots < maxPlayers) {
+			const oldestQueuedAt = Math.min(...collected.map((e) => e.queuedAt.getTime()))
+			if (now - oldestQueuedAt < graceMs) break
+		}
+
 		formed.push(collected)
 		for (let i = toRemove.length - 1; i >= 0; i--) {
 			remaining.splice(toRemove[i], 1)
@@ -158,6 +168,8 @@ export function runRankedQueue(
 	entries: QueueEntry[],
 	minPlayers: number,
 	maxPlayers: number,
+	now: number = Date.now(),
+	graceMs = 0,
 ): QueueEntry[][] {
 	const remaining = [...entries].sort((a, b) => entryRating(a) - entryRating(b))
 	const formed: QueueEntry[][] = []
@@ -174,7 +186,7 @@ export function runRankedQueue(
 
 		const anchor = remaining[oldestIdx]
 		const anchorRating = entryRating(anchor)
-		const anchorWaitSecs = (Date.now() - anchor.queuedAt.getTime()) / 1000
+		const anchorWaitSecs = (now - anchor.queuedAt.getTime()) / 1000
 		const spread = Math.min(
 			RANKED_SPREAD_INITIAL +
 				Math.floor(anchorWaitSecs / 30) * RANKED_SPREAD_EXPAND_RATE,
@@ -196,13 +208,15 @@ export function runRankedQueue(
 			}
 		}
 
-		if (slots >= minPlayers) {
-			formed.push(collected)
-			for (let i = toRemove.length - 1; i >= 0; i--) {
-				remaining.splice(toRemove[i], 1)
-			}
-		} else {
-			break
+		if (slots < minPlayers) break
+
+		// Same fill-grace behavior as runCasualQueue: give a not-yet-full
+		// lobby a chance to grow before committing at less than maxPlayers.
+		if (slots < maxPlayers && anchorWaitSecs * 1000 < graceMs) break
+
+		formed.push(collected)
+		for (let i = toRemove.length - 1; i >= 0; i--) {
+			remaining.splice(toRemove[i], 1)
 		}
 	}
 

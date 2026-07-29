@@ -20,6 +20,7 @@ import { generateLobbyCode } from '../../shared/utils/lobby-code.js'
 import {
 	INITIAL_HIDDEN_RATING,
 	MATCHING_INTERVAL_MS,
+	QUEUE_FILL_GRACE_MS,
 } from './elo.service.js'
 import {
 	updateMatchLobbyState,
@@ -427,9 +428,10 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 			const first = queue[0]
 			const { modId, gameMode, minPlayers, maxPlayers } = first
 
+			const now = Date.now()
 			const formed = isRanked(gameMode)
-				? runRankedQueue(queue, minPlayers, maxPlayers)
-				: runCasualQueue(queue, minPlayers, maxPlayers)
+				? runRankedQueue(queue, minPlayers, maxPlayers, now, QUEUE_FILL_GRACE_MS)
+				: runCasualQueue(queue, minPlayers, maxPlayers, now, QUEUE_FILL_GRACE_MS)
 
 			for (const entries of formed) {
 				createMatch(entries, modId, gameMode).catch((err) =>
@@ -447,9 +449,10 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 			const first = queue[0]
 			const { modId, gameMode, minPlayers, maxPlayers } = first
 
+			const now = Date.now()
 			const formed = isRanked(gameMode)
-				? runRankedQueue(queue, minPlayers, maxPlayers)
-				: runCasualQueue(queue, minPlayers, maxPlayers)
+				? runRankedQueue(queue, minPlayers, maxPlayers, now, QUEUE_FILL_GRACE_MS)
+				: runCasualQueue(queue, minPlayers, maxPlayers, now, QUEUE_FILL_GRACE_MS)
 
 			for (const entries of formed) {
 				promises.push(createMatch(entries, modId, gameMode))

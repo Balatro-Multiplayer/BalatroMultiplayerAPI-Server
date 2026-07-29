@@ -33,6 +33,7 @@ import {
 	runRankedQueue,
 } from '../../features/matchmaking/matchmaking.service.js'
 import { replayLogService } from '../../features/replay-log/replay-log.service.js'
+import { QUEUE_FILL_GRACE_MS } from '../../features/matchmaking/elo.service.js'
 import { matches, matchByLobby, playerQueues, queues } from '../../state/matchmaking.js'
 import { createSession, lobbies } from '../../state/index.js'
 import { Lobby } from '../../state/lobby.js'
@@ -391,6 +392,30 @@ describe('matchmaking.service', () => {
 				expect(count).toBeLessThanOrEqual(3)
 			}
 		})
+
+		it('holds an under-max group open within the grace window', () => {
+			const now = Date.now()
+			const entries = [
+				makeSoloEntry('p1', { queuedAt: new Date(now) }),
+				makeSoloEntry('p2', { queuedAt: new Date(now) }),
+			]
+			expect(runCasualQueue(entries, 2, 4, now, 15_000)).toHaveLength(0)
+		})
+
+		it('commits an under-max group once the grace window elapses', () => {
+			const now = Date.now()
+			const entries = [
+				makeSoloEntry('p1', { queuedAt: new Date(now - 15_001) }),
+				makeSoloEntry('p2', { queuedAt: new Date(now - 15_001) }),
+			]
+			expect(runCasualQueue(entries, 2, 4, now, 15_000)).toHaveLength(1)
+		})
+
+		it('commits immediately at maxPlayers regardless of the grace window', () => {
+			const now = Date.now()
+			const entries = Array.from({ length: 4 }, (_, i) => makeSoloEntry(`p${i}`, { queuedAt: new Date(now) }))
+			expect(runCasualQueue(entries, 2, 4, now, 15_000)).toHaveLength(1)
+		})
 	})
 
 	describe('runRankedQueue', () => {
@@ -436,13 +461,39 @@ describe('matchmaking.service', () => {
 			]
 			expect(runRankedQueue(entries, 2, 4)).toHaveLength(0)
 		})
+
+		it('holds an under-max group open within the grace window', () => {
+			const now = Date.now()
+			const entries = [
+				makeSoloEntry('p1', { rating: 600, queuedAt: new Date(now) }),
+				makeSoloEntry('p2', { rating: 650, queuedAt: new Date(now) }),
+			]
+			expect(runRankedQueue(entries, 2, 4, now, 15_000)).toHaveLength(0)
+		})
+
+		it('commits an under-max group once the grace window elapses', () => {
+			const now = Date.now()
+			const entries = [
+				makeSoloEntry('p1', { rating: 600, queuedAt: new Date(now - 15_001) }),
+				makeSoloEntry('p2', { rating: 650, queuedAt: new Date(now - 15_001) }),
+			]
+			expect(runRankedQueue(entries, 2, 4, now, 15_000)).toHaveLength(1)
+		})
+
+		it('commits immediately at maxPlayers regardless of the grace window', () => {
+			const now = Date.now()
+			const entries = Array.from({ length: 4 }, (_, i) =>
+				makeSoloEntry(`p${i}`, { rating: 600 + i * 10, queuedAt: new Date(now) }),
+			)
+			expect(runRankedQueue(entries, 2, 4, now, 15_000)).toHaveLength(1)
+		})
 	})
 
 	describe('runMatchmakingCycle', () => {
 		it('matches two queued players and records the match', async () => {
 			const { service } = makeService()
-			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
-			await service.joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 2 })
+			await service.joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 2 })
 
 			await service.runMatchmakingCycle()
 
@@ -458,8 +509,8 @@ describe('matchmaking.service', () => {
 
 		it('notifies each matched player via MQTT', async () => {
 			const { service } = makeService()
-			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
-			await service.joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 2 })
+			await service.joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 2 })
 
 			await service.runMatchmakingCycle()
 
@@ -483,14 +534,55 @@ describe('matchmaking.service', () => {
 
 		it('forms separate matches for different gamemodes in one cycle', async () => {
 			const { service } = makeService()
-			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
-			await service.joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
-			await service.joinQueue(makeSession('p3', 'Carol'), { modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 4 })
-			await service.joinQueue(makeSession('p4', 'Dave'), { modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 2 })
+			await service.joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 2 })
+			await service.joinQueue(makeSession('p3', 'Carol'), { modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 2 })
+			await service.joinQueue(makeSession('p4', 'Dave'), { modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 2 })
 
 			await service.runMatchmakingCycle()
 
 			expect(matches.size).toBe(2)
+		})
+
+		it('holds a match open under maxPlayers within the fill-grace window instead of committing at minPlayers', async () => {
+			const { service } = makeService()
+			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+
+			await service.runMatchmakingCycle()
+
+			expect(matches.size).toBe(0)
+			expect(queues.get('mod1:mode1')).toHaveLength(2)
+		})
+
+		it('commits at minPlayers once the fill-grace window elapses without filling to maxPlayers', async () => {
+			const { service } = makeService()
+			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+
+			for (const entry of queues.get('mod1:mode1')!) {
+				entry.queuedAt = new Date(Date.now() - QUEUE_FILL_GRACE_MS - 1)
+			}
+
+			await service.runMatchmakingCycle()
+
+			expect(matches.size).toBe(1)
+			const [match] = matches.values()
+			expect(match.playerIds).toEqual(expect.arrayContaining(['p1', 'p2']))
+		})
+
+		it('commits immediately once the queue reaches maxPlayers, without waiting for the grace period', async () => {
+			const { service } = makeService()
+			await service.joinQueue(makeSession('p1', 'Alice'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(makeSession('p2', 'Bob'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(makeSession('p3', 'Carol'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+			await service.joinQueue(makeSession('p4', 'Dave'), { modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+
+			await service.runMatchmakingCycle()
+
+			expect(matches.size).toBe(1)
+			const [match] = matches.values()
+			expect(match.playerIds).toHaveLength(4)
 		})
 	})
 
