@@ -158,6 +158,48 @@ function placementsMatch(a: PlacementEntry[], b: PlacementEntry[]): boolean {
 export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 	const { messageBus, matchRepository, banRepository } = deps
 
+	// §11.6: every player's client reports the same match at roughly the same
+	// time (all of them react to the same match_found/player_won broadcast),
+	// so concurrent reportResult calls for one matchId are the common case,
+	// not a rare race. Claiming resolution here happens synchronously -- no
+	// `await` between the `matches.get` check in reportResult and this map
+	// read/write -- so only the first concurrent caller ever starts a
+	// resolution; every other one just awaits the same in-flight promise
+	// instead of independently racing into its own DB transaction (which used
+	// to crash the second one on a duplicate-key insert into
+	// matchmaking_ratings, reproduced live under a real 4-player match).
+	const inFlightResolutions = new Map<string, { reportedBy: string; placements: PlacementEntry[]; promise: Promise<void> }>()
+
+	function claimResolution(
+		matchId: string,
+		lobbyCode: string,
+		placements: PlacementEntry[],
+		reportedBy: string,
+		resolve: () => Promise<void>,
+	): Promise<void> {
+		const existing = inFlightResolutions.get(matchId)
+		if (!existing) {
+			const promise = resolve().finally(() => inFlightResolutions.delete(matchId))
+			inFlightResolutions.set(matchId, { reportedBy, placements, promise })
+			return promise
+		}
+		if (!placementsMatch(existing.placements, placements)) {
+			existing.promise
+				.then(() =>
+					insertMatchConflict({
+						matchId,
+						lobbyCode,
+						firstReporterId: existing.reportedBy,
+						firstPlacements: existing.placements,
+						conflictingReporterId: reportedBy,
+						conflictingPlacements: placements,
+					}),
+				)
+				.catch((err) => console.error('[matchmaking] concurrent-report conflict insert error:', err))
+		}
+		return existing.promise
+	}
+
 	async function joinQueue(
 		session: PlayerSession,
 		opts: QueueOpts,
@@ -718,15 +760,19 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		if (!lobby) throw new AppError('Lobby not found', 404)
 
 		if (!isRanked(match.gameMode)) {
-			await matchRepository.recordMatchResult(matchId, placements, session.playerId)
-			await matchRepository.updateMatchStatus(matchId, 'resolved')
-			matches.delete(matchId)
-			matchByLobby.delete(match.lobbyCode)
-			await replayLogService.finalizeRun(match.lobbyCode, 'completed')
+			await claimResolution(matchId, match.lobbyCode, placements, session.playerId, async () => {
+				await matchRepository.recordMatchResult(matchId, placements, session.playerId)
+				await matchRepository.updateMatchStatus(matchId, 'resolved')
+				matches.delete(matchId)
+				matchByLobby.delete(match.lobbyCode)
+				await replayLogService.finalizeRun(match.lobbyCode, 'completed')
+			})
 			return
 		}
 
-		await resolveRankedResult(matchId, match, placements, session.playerId)
+		await claimResolution(matchId, match.lobbyCode, placements, session.playerId, () =>
+			resolveRankedResult(matchId, match, placements, session.playerId),
+		)
 	}
 
 	// Phase 8.4: the counterpart of a host-submitted reportResult for a match
@@ -748,10 +794,12 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		if (remainingConnectedPlayerIds.length === 0) {
 			// Everyone else disconnected too -- no legitimate winner to forfeit
 			// to. Cancel with no ELO applied to either side (§9.8).
-			await matchRepository.updateMatchStatus(matchId, 'resolved')
-			matches.delete(matchId)
-			matchByLobby.delete(match.lobbyCode)
-			await replayLogService.finalizeRun(match.lobbyCode, 'abandoned')
+			await claimResolution(matchId, match.lobbyCode, [], 'system', async () => {
+				await matchRepository.updateMatchStatus(matchId, 'resolved')
+				matches.delete(matchId)
+				matchByLobby.delete(match.lobbyCode)
+				await replayLogService.finalizeRun(match.lobbyCode, 'abandoned')
+			})
 			return
 		}
 
@@ -764,11 +812,11 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 			place: id === forfeitingPlayerId ? match.playerIds.length : 1,
 		}))
 
-		if (isRanked(match.gameMode)) {
-			await resolveRankedResult(matchId, match, placements, 'system', extra)
-		} else {
-			await resolveCasualForfeit(matchId, match, placements, extra)
-		}
+		await claimResolution(matchId, match.lobbyCode, placements, 'system', () =>
+			isRanked(match.gameMode)
+				? resolveRankedResult(matchId, match, placements, 'system', extra)
+				: resolveCasualForfeit(matchId, match, placements, extra),
+		)
 	}
 
 	// §21.3: a ban takes effect immediately. If the banned player is currently

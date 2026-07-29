@@ -914,6 +914,35 @@ describe('matchmaking.service', () => {
 			expect(matchByLobby.has('RNKL5')).toBe(false)
 		})
 
+		it('deduplicates concurrent reportResult calls for the same match instead of racing into two DB transactions', async () => {
+			// Reproduced live: every player's client reports the same match at
+			// roughly the same time (all react to the same match_found/
+			// player_won broadcast), which used to race two independent
+			// applyRatingTransaction calls into the same DB rows and crash the
+			// second one on a duplicate-key insert.
+			const matchRepository = makeMockMatchRepository()
+			vi.mocked(matchRepository.getCurrentSeason).mockResolvedValue({ id: 1, name: 'Season 1' })
+			vi.mocked(matchRepository.applyRatingTransaction).mockResolvedValue([
+				{ playerId: 'rhost', newRating: 620, delta: 20, isPlacement: false, gamesPlayed: 11 },
+				{ playerId: 'rguest', newRating: 580, delta: -20, isPlacement: false, gamesPlayed: 11 },
+			])
+			const { service } = makeService({ matchRepository })
+			const { host, guest } = setupRankedMatch('r10', 'RNKL10')
+
+			const placements = [
+				{ playerId: 'rhost', place: 1 },
+				{ playerId: 'rguest', place: 2 },
+			]
+
+			await Promise.all([
+				service.reportResult(host, 'r10', placements),
+				service.reportResult(guest, 'r10', placements),
+			])
+
+			expect(matchRepository.applyRatingTransaction).toHaveBeenCalledTimes(1)
+			expect(matches.has('r10')).toBe(false)
+		})
+
 		it('throws No active season when getCurrentSeason returns null', async () => {
 			const matchRepository = makeMockMatchRepository()
 			vi.mocked(matchRepository.getCurrentSeason).mockResolvedValue(null)
