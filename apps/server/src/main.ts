@@ -4,7 +4,7 @@ import type { Server } from 'node:http'
 import { pool, db } from './infrastructure/db/index.js'
 import { flaggedMessages } from './infrastructure/db/schema.js'
 import { lt } from 'drizzle-orm'
-import { env } from './env.js'
+import { assertValidModerationConfig, env } from './env.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import router, { matchmakingService } from './routes/index.js'
 import { clearAllGracePeriods } from './infrastructure/mqtt/grace-period.service.js'
@@ -63,6 +63,11 @@ type PrivateModule = { registerPrivate: (app: Express) => Promise<void> }
 
 async function start() {
 	try {
+		assertValidModerationConfig(
+			env.MODERATION_SERVICE_URL,
+			env.MODERATION_BEARER_TOKEN,
+		)
+
 		await loadConfigFromDb()
 
 		// Load private features if available (not present in public builds)

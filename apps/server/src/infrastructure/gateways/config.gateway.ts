@@ -21,6 +21,11 @@ export async function loadConfigFromDb(): Promise<AppConfig> {
 		downloadUrl: row.downloadUrl,
 	}))
 
+	// Allowlisted messages short-circuit both the local obscenity filter and
+	// the moderation service bridge (chat.service.ts) — they never reach the
+	// service's transform tier (link stripping, community rewrites). Entries
+	// here must be link-free and rewrite-neutral, since nothing downstream
+	// will clean them.
 	const allowlistRows = await db.select().from(chatAllowlist)
 	const chatAllowlistSet = new Set(allowlistRows.map((r) => r.message))
 
