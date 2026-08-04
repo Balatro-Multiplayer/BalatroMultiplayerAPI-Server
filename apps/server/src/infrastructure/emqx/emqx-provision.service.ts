@@ -16,6 +16,14 @@ const CONNECTOR_NAME = 'bmp_http_connector'
 const ACTION_NAME = 'bmp_disconnect_hook'
 const RULE_ID = 'bmp_client_disconnected'
 
+// Same connector + webhook action as the disconnect rule (both just POST the
+// EMQX event body to /emqx/webhook, which dispatches on the `event` field) --
+// only the rule's source topic differs. Needed for the launcher-integrity
+// login challenge (launcher-integrity.service.ts's handleClientConnected),
+// which has to fire once the client's MQTT session actually exists, not just
+// once the REST auth call succeeds.
+const CONNECT_RULE_ID = 'bmp_client_connected'
+
 async function getToken(): Promise<string> {
 	const res = await fetch(`${EMQX_API}/login`, {
 		method: 'POST',
@@ -101,11 +109,27 @@ export async function provisionEmqxWebhook(): Promise<void> {
 			enable: true,
 		})
 		if (!created.ok)
-			throw new Error(
-				`Failed to create rule: ${JSON.stringify(created.data)}`,
-			)
+			throw new Error(`Failed to create rule: ${JSON.stringify(created.data)}`)
 		console.log('[emqx-provision] Created disconnect rule')
 	} else {
 		console.log('[emqx-provision] Disconnect rule already exists')
+	}
+
+	// 4. Connect rule (reuses the same connector + action from above)
+	const connectRule = await api(token, 'GET', `/rules/${CONNECT_RULE_ID}`)
+	if (connectRule.status === 404) {
+		const created = await api(token, 'POST', '/rules', {
+			id: CONNECT_RULE_ID,
+			sql: 'SELECT clientid, username, connected_at, event FROM "$events/client_connected"',
+			actions: [`http:${ACTION_NAME}`],
+			enable: true,
+		})
+		if (!created.ok)
+			throw new Error(
+				`Failed to create connect rule: ${JSON.stringify(created.data)}`,
+			)
+		console.log('[emqx-provision] Created connect rule')
+	} else {
+		console.log('[emqx-provision] Connect rule already exists')
 	}
 }

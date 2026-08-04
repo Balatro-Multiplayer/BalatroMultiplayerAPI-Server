@@ -7,6 +7,8 @@ import type {
 	EmqxAuthzRequest,
 } from '../../shared/types/index.js'
 import { getSession, removeSession } from '../../state/index.js'
+import { LOGIN_CHALLENGE_DELAY_MS } from '../launcher-integrity/launcher-integrity.config.js'
+import { launcherIntegrityService } from '../launcher-integrity/launcher-integrity.service.js'
 import { leaveAllQueues } from '../matchmaking/queue.js'
 import { authenticateClient, authorizeAction } from './emqx-auth.service.js'
 
@@ -40,8 +42,27 @@ function isClientDisconnectedEvent(event: string): boolean {
 	return event === 'client.disconnected'
 }
 
+function isClientConnectedEvent(event: string): boolean {
+	return event === 'client.connected'
+}
+
 function isSystemClientId(clientid: string): boolean {
 	return clientid === env.EMQX_SYSTEM_CLIENT_ID
+}
+
+// Delayed (not fired inline) so the client's own SUBSCRIBE to
+// player/{id}/challenge -- which it sends immediately after CONNECT -- has
+// time to land first; see launcher-integrity.config.ts's
+// LOGIN_CHALLENGE_DELAY_MS for why this is necessary (non-retained publish).
+function handleClientConnected(clientid: string): void {
+	if (isSystemClientId(clientid)) return
+	setTimeout(() => {
+		void launcherIntegrityService
+			.handleClientConnected(clientid)
+			.catch((err) =>
+				console.error('[launcher-integrity] handleClientConnected error:', err),
+			)
+	}, LOGIN_CHALLENGE_DELAY_MS).unref()
 }
 
 async function releasePlayerLobbyOrSession(clientid: string): Promise<void> {
@@ -60,6 +81,7 @@ async function releasePlayerLobbyOrSession(clientid: string): Promise<void> {
 async function handleClientDisconnected(clientid: string): Promise<void> {
 	if (isSystemClientId(clientid)) return
 	revokeSpectator(clientid)
+	launcherIntegrityService.clearSession(clientid)
 	await releasePlayerLobbyOrSession(clientid)
 }
 
@@ -72,6 +94,8 @@ router.post('/webhook', async (req, res) => {
 
 		if (isClientDisconnectedEvent(event)) {
 			await handleClientDisconnected(clientid)
+		} else if (isClientConnectedEvent(event)) {
+			handleClientConnected(clientid)
 		}
 
 		res.status(200).json(ok())

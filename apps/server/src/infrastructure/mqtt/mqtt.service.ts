@@ -6,6 +6,9 @@ import type { ModConfig } from '../../state/config.js'
 const ACTIONS_TOPIC_FILTER = 'lobby/+/players/+/actions'
 const ACTIONS_TOPIC_RE = /^lobby\/([^/]+)\/players\/([^/]+)\/actions$/
 
+const CHALLENGE_RESPONSE_TOPIC_FILTER = 'player/+/challenge-response'
+const CHALLENGE_RESPONSE_TOPIC_RE = /^player\/([^/]+)\/challenge-response$/
+
 interface ActionEnvelope {
 	action: string
 	from: string
@@ -128,10 +131,7 @@ class MqttService {
 		})
 	}
 
-	async clearPlayerInfo(
-		lobbyCode: string,
-		playerId: string,
-	): Promise<void> {
+	async clearPlayerInfo(lobbyCode: string, playerId: string): Promise<void> {
 		const topic = `lobby/${lobbyCode}/players/${playerId}/info`
 		await this.publish(topic, '', { qos: 1, retain: true })
 	}
@@ -143,16 +143,17 @@ class MqttService {
 		message: string,
 	): Promise<void> {
 		const topic = `lobby/${lobbyCode}/chat/${playerId}`
-		await this.publish(topic, JSON.stringify({ message, displayName, playerId }), {
-			qos: 1,
-			retain: false,
-		})
+		await this.publish(
+			topic,
+			JSON.stringify({ message, displayName, playerId }),
+			{
+				qos: 1,
+				retain: false,
+			},
+		)
 	}
 
-	async cleanupPlayerState(
-		lobbyCode: string,
-		playerId: string,
-	): Promise<void> {
+	async cleanupPlayerState(lobbyCode: string, playerId: string): Promise<void> {
 		const topic = `lobby/${lobbyCode}/players/${playerId}/state`
 		await this.publish(topic, '', { qos: 1, retain: true })
 	}
@@ -166,7 +167,11 @@ class MqttService {
 	// subscription and just add another filtered listener.
 	async subscribeToLobbyActions(
 		actionKey: string,
-		handler: (lobbyCode: string, playerId: string, params: Record<string, unknown>) => void,
+		handler: (
+			lobbyCode: string,
+			playerId: string,
+			params: Record<string, unknown>,
+		) => void,
 	): Promise<void> {
 		if (!this.client) throw new Error('MQTT client not connected')
 
@@ -190,6 +195,42 @@ class MqttService {
 			if (envelope.action !== actionKey) return
 
 			handler(match[1], match[2], envelope.params ?? {})
+		})
+	}
+
+	// Subscribes to every player's own challenge-response topic (see
+	// launcher-integrity.service.ts). Mirrors subscribeToLobbyActions's shape --
+	// a fixed-format wildcard subscription, one `message` listener added per
+	// call -- but this topic isn't lobby-scoped, since a login challenge fires
+	// before the player is necessarily in any lobby at all.
+	async subscribeToPlayerChallengeResponses(
+		handler: (playerId: string, payload: Record<string, unknown>) => void,
+	): Promise<void> {
+		if (!this.client) throw new Error('MQTT client not connected')
+
+		await new Promise<void>((resolve, reject) => {
+			this.client!.subscribe(
+				CHALLENGE_RESPONSE_TOPIC_FILTER,
+				{ qos: 1 },
+				(err) => {
+					if (err) reject(err)
+					else resolve()
+				},
+			)
+		})
+
+		this.client.on('message', (topic, payload) => {
+			const match = CHALLENGE_RESPONSE_TOPIC_RE.exec(topic)
+			if (!match) return
+
+			let body: Record<string, unknown>
+			try {
+				body = JSON.parse(payload.toString())
+			} catch {
+				return
+			}
+
+			handler(match[1], body)
 		})
 	}
 

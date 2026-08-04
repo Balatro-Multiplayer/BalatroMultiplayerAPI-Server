@@ -228,7 +228,9 @@ export const matchResultConflicts = pgTable('match_result_conflicts', {
 	conflictingPlacements: jsonb('conflicting_placements').notNull(),
 	status: varchar('status', { length: 16 }).notNull().default('open'), // open | resolved
 	resolutionNotes: text('resolution_notes'),
-	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	createdAt: timestamp('created_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
 })
 
 export const matchmakingRatings = pgTable(
@@ -371,7 +373,9 @@ export const playerMutes = pgTable(
 		mutedId: uuid('muted_id')
 			.notNull()
 			.references(() => players.id, { onDelete: 'cascade' }),
-		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		createdAt: timestamp('created_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
 	},
 	(t) => [
 		uniqueIndex('player_mutes_pair_idx').on(t.muterId, t.mutedId),
@@ -428,4 +432,120 @@ export const matchRunLogs = pgTable(
 		expiresAt: timestamp('expires_at', { withTimezone: true }), // null = indefinite (flagged/disputed)
 	},
 	(t) => [primaryKey({ columns: [t.runId, t.playerId] })],
+)
+
+// One row per mod known to the platform -- populated by the hourly BETModIndex
+// sync (features/mods/mods-sync.service.ts) and/or a direct admin edit via
+// PUT /api/webadmin/mods/:modId. `allowedInRankedSource` decides who wins on
+// the next sync: 'index' rows are freely overwritten from the fork, 'manual'
+// rows (an admin toggled this directly) are left alone until explicitly reset
+// back to 'index'. This is the launcher-facing catalog (GET /api/mods,
+// /api/mods/:id) -- distinct from modReleases/modBranches above, which is the
+// unrelated, pre-existing BMP launcher self-update channel.
+export const modRegistry = pgTable('mod_registry', {
+	// Slug form "Author@ModName", matching BETModIndex's folder-name convention.
+	id: varchar('id', { length: 128 }).primaryKey(),
+	title: varchar('title', { length: 128 }).notNull(),
+	author: varchar('author', { length: 128 }).notNull(),
+	categories: text('categories').array().notNull().default(sql`'{}'::text[]`),
+	requiresSteamodded: boolean('requires_steamodded').notNull().default(true),
+	requiresTalisman: boolean('requires_talisman').notNull().default(false),
+	repoUrl: text('repo_url'),
+	thumbnailUrl: text('thumbnail_url'),
+	description: text('description'),
+	latestVersion: varchar('latest_version', { length: 64 }),
+	latestDownloadUrl: text('latest_download_url'),
+	latestSha256: varchar('latest_sha256', { length: 64 }),
+	allowedInRanked: boolean('allowed_in_ranked').notNull().default(false),
+	allowedInRankedSource: varchar('allowed_in_ranked_source', { length: 16 })
+		.notNull()
+		.default('index'), // 'index' | 'manual'
+	sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }),
+	createdAt: timestamp('created_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+})
+
+// Historical per-version hashes -- a mod_profile_entries row can pin an exact
+// past version (not just "latest"), so latestSha256 above alone isn't enough.
+export const modRegistryVersions = pgTable(
+	'mod_registry_versions',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		modId: varchar('mod_id', { length: 128 })
+			.notNull()
+			.references(() => modRegistry.id, { onDelete: 'cascade' }),
+		version: varchar('version', { length: 64 }).notNull(),
+		sha256: varchar('sha256', { length: 64 }),
+		downloadUrl: text('download_url'),
+		releasedAt: timestamp('released_at', { withTimezone: true }),
+	},
+	(t) => [
+		uniqueIndex('mod_registry_versions_mod_version_idx').on(t.modId, t.version),
+	],
+)
+
+// Admin-authored named allowlists ("ranked mod profiles"). Info-only for now
+// (§ranked-mod-enforcement in the plan) -- nothing cross-checks a client's
+// actual installed mods against a profile at queue time yet; this is the data
+// the launcher/website read to decide what to install/allow client-side.
+export const modProfiles = pgTable('mod_profiles', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	name: varchar('name', { length: 128 }).notNull(),
+	slug: varchar('slug', { length: 128 }).notNull().unique(),
+	description: text('description'),
+	createdBy: uuid('created_by').references(() => players.id),
+	createdAt: timestamp('created_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+})
+
+export const modProfileEntries = pgTable(
+	'mod_profile_entries',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		profileId: uuid('profile_id')
+			.notNull()
+			.references(() => modProfiles.id, { onDelete: 'cascade' }),
+		modId: varchar('mod_id', { length: 128 })
+			.notNull()
+			.references(() => modRegistry.id, { onDelete: 'cascade' }),
+		// 'any' | an exact version string | a "min:<version>" string -- interpreted
+		// app-level only, matching playerBans.banType's precedent (no DB CHECK).
+		versionConstraint: varchar('version_constraint', { length: 64 })
+			.notNull()
+			.default('any'),
+		// Lets a profile explicitly blocklist a mod rather than only allowlist.
+		allowed: boolean('allowed').notNull().default(true),
+	},
+	(t) => [
+		uniqueIndex('mod_profile_entries_profile_mod_idx').on(t.profileId, t.modId),
+	],
+)
+
+// One row per launcher-integrity challenge that wasn't cleanly answered
+// (wrong response, timed out, or -- login challenges only -- explicitly
+// refused). Mirrors match_run_logs.flagReason's flag-for-moderator-review
+// shape: this table is an audit trail, not itself a ban -- account-level
+// action against a repeat offender stays a manual moderator call.
+export const launcherIntegrityEvents = pgTable(
+	'launcher_integrity_events',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		playerId: uuid('player_id')
+			.notNull()
+			.references(() => players.id),
+		kind: varchar('kind', { length: 16 }).notNull(), // 'login' | 'periodic'
+		reason: varchar('reason', { length: 16 }).notNull(), // 'wrong_response' | 'timeout' | 'refused'
+		occurredAt: timestamp('occurred_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [index('launcher_integrity_events_player_idx').on(t.playerId)],
 )

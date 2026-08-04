@@ -8,6 +8,7 @@ import { createLobbyService } from '../features/lobby/lobby.service.js'
 import { createMatchmakingRouter } from '../features/matchmaking/matchmaking.route.js'
 import { createMatchmakingService } from '../features/matchmaking/matchmaking.service.js'
 import { createMutesRouter } from '../features/mutes/mutes.route.js'
+import modsRouter from '../features/mods/mods.route.js'
 import releasesRouter from '../features/releases/releases.route.js'
 import { createReportsRouter } from '../features/reports/reports.route.js'
 import { createReplayLogRouter } from '../features/replay-log/replay-log.route.js'
@@ -47,6 +48,7 @@ router.use('/api/reports', createReportsRouter())
 router.use('/api/runs', createReplayLogRouter(replayLogService))
 router.use('/api/stats', statsRouter)
 router.use('/api/releases', releasesRouter)
+router.use('/api/mods', modsRouter)
 router.use('/api/webadmin', webadminRouter)
 router.use('/emqx', emqxRouter)
 router.use('/admin', adminRouter)

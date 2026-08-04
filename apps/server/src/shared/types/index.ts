@@ -13,6 +13,11 @@ export type {
 	MatchStatus,
 	ReportType,
 	ReportStatus,
+	ChallengeKind,
+	ChallengeIssuance,
+	ChallengeStrategy,
+	RegisterPrivateDeps,
+	LauncherIntegrityFailureReason,
 } from '@bmp/types'
 
 export type LobbyType = 'public' | 'private'

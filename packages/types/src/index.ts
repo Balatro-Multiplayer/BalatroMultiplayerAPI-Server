@@ -117,3 +117,38 @@ export type BanType = 'chat' | 'queue' | 'account'
 export type MatchStatus = 'active' | 'resolved'
 export type ReportType = 'cheating' | 'chat_abuse' | 'griefing' | 'inappropriate_username' | 'other'
 export type ReportStatus = 'open' | 'resolved'
+
+// --- Launcher integrity challenge/response (see registerPrivate below) ---
+
+export type ChallengeKind = 'login' | 'periodic'
+
+export interface ChallengeIssuance {
+	nonce: string
+	// Free-form hint for which algorithm/version issued this challenge -- opaque
+	// to the public server, meaningful only to the private ChallengeStrategy
+	// implementation and whatever launcher build answers it.
+	algorithm?: string
+	expiresAt: string
+}
+
+// Implemented only by the private bet-launcher-integrity-private package,
+// injected via registerPrivate's RegisterPrivateDeps.setChallengeStrategy. The
+// public server never embeds real verification logic -- see
+// apps/server/src/features/launcher-integrity/launcher-integrity.service.ts.
+export interface ChallengeStrategy {
+	issue(playerId: string, kind: ChallengeKind): Promise<ChallengeIssuance>
+	verify(
+		playerId: string,
+		issuance: ChallengeIssuance,
+		response: unknown,
+	): Promise<boolean>
+}
+
+export interface RegisterPrivateDeps {
+	setChallengeStrategy: (strategy: ChallengeStrategy) => void
+}
+
+export type LauncherIntegrityFailureReason =
+	| 'wrong_response'
+	| 'timeout'
+	| 'refused'

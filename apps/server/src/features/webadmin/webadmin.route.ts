@@ -10,6 +10,7 @@ import matchesRouter from './matches.route.js'
 import matchConflictsRouter from './match-conflicts.route.js'
 import releasesRouter from './releases.route.js'
 import configRouter from './config.route.js'
+import modsRouter from './mods.route.js'
 
 const router = Router()
 
@@ -40,5 +41,6 @@ router.use(matchesRouter)
 router.use(matchConflictsRouter)
 router.use(releasesRouter)
 router.use(configRouter)
+router.use(modsRouter)
 
 export default router

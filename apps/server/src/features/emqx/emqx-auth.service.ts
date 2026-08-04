@@ -90,8 +90,17 @@ function authorizePlayerNotificationTopic(
 	clientid: string,
 	action: Action,
 ): AuthzResult {
-	if (action !== 'subscribe') return deny()
 	const topicPlayerId = parts[1]
+	const subtopic = parts[2]
+	if (action === 'publish') {
+		// Every other player/{id}/... subtopic (matchmaking events, account
+		// changes, etc.) is server -> client only -- challenge-response is the
+		// one channel a client is allowed to publish on, and only its own
+		// (see launcher-integrity.service.ts).
+		return allowIf(
+			subtopic === 'challenge-response' && topicPlayerId === clientid,
+		)
+	}
 	return allowIf(topicPlayerId === clientid)
 }
 

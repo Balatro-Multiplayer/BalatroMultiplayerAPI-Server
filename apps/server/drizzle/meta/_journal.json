@@ -162,6 +162,13 @@
       "when": 1789800000000,
       "tag": "0022_match_result_conflicts",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789900000000,
+      "tag": "0023_mod_registry_and_launcher_integrity",
+      "breakpoints": true
     }
   ]
 }

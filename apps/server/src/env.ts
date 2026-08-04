@@ -64,4 +64,12 @@ export const env = {
 	// When true, only players holding the 'tester' privilege may create lobbies or
 	// queue for matches. Everyone else is rejected. Off by default.
 	TESTING_MODE: optionalBool('TESTING_MODE', false),
+
+	// Raw-HTTPS URL to BETModIndex's built dist/mods-index.json (the fork's
+	// build-index.yml output, combining upstream skyline69/balatro-mod-index
+	// with our bet-overrides/ overlay -- see that repo's README). Left blank
+	// until the fork exists; mods-sync.service.ts logs and no-ops rather than
+	// failing when unset, matching the "missing optional integration disables
+	// the feature, not the server" pattern used elsewhere in this file.
+	BET_MOD_INDEX_URL: optional('BET_MOD_INDEX_URL', ''),
 } as const

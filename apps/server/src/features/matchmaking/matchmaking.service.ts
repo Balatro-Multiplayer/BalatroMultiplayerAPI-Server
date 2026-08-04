@@ -1,12 +1,9 @@
-import { Lobby, getLobby, getSession, lobbies } from '../../state/index.js'
-import {
-	matchByLobby,
-	matches,
-	playerQueues,
-	queues,
-	queueKey,
-} from '../../state/matchmaking.js'
-import type { PlayerSession } from '../../state/player.js'
+import type { IBanRepository } from '../../contracts/IBanRepository.js'
+import type { IMatchRepository } from '../../contracts/IMatchRepository.js'
+import type { IMessageBus } from '../../contracts/IMessageBus.js'
+import type { FlagReason } from '../../contracts/IReplayLogRepository.js'
+import { insertMatchConflict } from '../../infrastructure/gateways/match-conflict.gateway.js'
+import { updateMatchLobbyState } from '../../infrastructure/gateways/matchmaking.gateway.js'
 import type {
 	GroupQueueEntry,
 	Match,
@@ -15,31 +12,33 @@ import type {
 	QueueOpts,
 	SoloQueueEntry,
 } from '../../shared/types/index.js'
+import type { StoredLobbyState } from '../../shared/types/index.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { generateLobbyCode } from '../../shared/utils/lobby-code.js'
+import { Lobby, getLobby, getSession, lobbies } from '../../state/index.js'
+import {
+	matchByLobby,
+	matches,
+	playerQueues,
+	queueKey,
+	queues,
+} from '../../state/matchmaking.js'
+import type { PlayerSession } from '../../state/player.js'
+import { launcherIntegrityService } from '../launcher-integrity/launcher-integrity.service.js'
+import { replayLogService } from '../replay-log/replay-log.service.js'
+import { MIN_MS_PER_HAND } from './anti-cheat.config.js'
 import {
 	INITIAL_HIDDEN_RATING,
 	MATCHING_INTERVAL_MS,
 	QUEUE_FILL_GRACE_MS,
 } from './elo.service.js'
 import {
-	updateMatchLobbyState,
-} from '../../infrastructure/gateways/matchmaking.gateway.js'
-import { insertMatchConflict } from '../../infrastructure/gateways/match-conflict.gateway.js'
-import type { StoredLobbyState } from '../../shared/types/index.js'
-import type { IMessageBus } from '../../contracts/IMessageBus.js'
-import type { IBanRepository } from '../../contracts/IBanRepository.js'
-import type { IMatchRepository } from '../../contracts/IMatchRepository.js'
-import { replayLogService } from '../replay-log/replay-log.service.js'
-import type { FlagReason } from '../../contracts/IReplayLogRepository.js'
-import { MIN_MS_PER_HAND } from './anti-cheat.config.js'
-import {
+	addToPlayerQueues,
+	getHostFromEntries,
+	getPlayerIdsFromEntries,
 	isRanked,
 	leaveAllQueues,
-	addToPlayerQueues,
 	removeFromPlayerQueues,
-	getPlayerIdsFromEntries,
-	getHostFromEntries,
 	runCasualQueue,
 	runRankedQueue,
 	totalPlayerCount,
@@ -73,7 +72,10 @@ export async function syncMatchLobbyState(lobbyCode: string): Promise<void> {
 	const lobby = getLobby(lobbyCode)
 	if (!lobby || lobby.type !== 'public') return
 
-	const playerInfos: Record<string, { displayName: string; preferredJoker: string }> = {}
+	const playerInfos: Record<
+		string,
+		{ displayName: string; preferredJoker: string }
+	> = {}
 	for (const [pid, session] of lobby.players) {
 		playerInfos[pid] = {
 			displayName: session.getDisplayName(),
@@ -116,12 +118,16 @@ export function startDailyJob(): void {
 function runDailyTasks(): void {
 	import('../../infrastructure/gateways/matchmaking.gateway.js')
 		.then(({ runDecay, checkSeasonRollover }) => {
-			runDecay().catch((err) => console.error('[matchmaking] runDecay error:', err))
+			runDecay().catch((err) =>
+				console.error('[matchmaking] runDecay error:', err),
+			)
 			checkSeasonRollover().catch((err) =>
 				console.error('[matchmaking] checkSeasonRollover error:', err),
 			)
 		})
-		.catch((err) => console.error('[matchmaking] runDailyTasks import error:', err))
+		.catch((err) =>
+			console.error('[matchmaking] runDailyTasks import error:', err),
+		)
 
 	// §4.3: the client no longer redeems refresh tokens at all (every launch is a
 	// fresh Steam handshake now), so every token issued by /api/auth/steam is
@@ -133,7 +139,9 @@ function runDailyTasks(): void {
 				console.error('[matchmaking] cleanupExpiredTokens error:', err),
 			)
 		})
-		.catch((err) => console.error('[matchmaking] cleanupExpiredTokens import error:', err))
+		.catch((err) =>
+			console.error('[matchmaking] cleanupExpiredTokens import error:', err),
+		)
 }
 
 export function stopDailyJob(): void {
@@ -168,7 +176,10 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 	// instead of independently racing into its own DB transaction (which used
 	// to crash the second one on a duplicate-key insert into
 	// matchmaking_ratings, reproduced live under a real 4-player match).
-	const inFlightResolutions = new Map<string, { reportedBy: string; placements: PlacementEntry[]; promise: Promise<void> }>()
+	const inFlightResolutions = new Map<
+		string,
+		{ reportedBy: string; placements: PlacementEntry[]; promise: Promise<void> }
+	>()
 
 	function claimResolution(
 		matchId: string,
@@ -179,7 +190,9 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 	): Promise<void> {
 		const existing = inFlightResolutions.get(matchId)
 		if (!existing) {
-			const promise = resolve().finally(() => inFlightResolutions.delete(matchId))
+			const promise = resolve().finally(() =>
+				inFlightResolutions.delete(matchId),
+			)
 			inFlightResolutions.set(matchId, { reportedBy, placements, promise })
 			return promise
 		}
@@ -195,7 +208,12 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 						conflictingPlacements: placements,
 					}),
 				)
-				.catch((err) => console.error('[matchmaking] concurrent-report conflict insert error:', err))
+				.catch((err) =>
+					console.error(
+						'[matchmaking] concurrent-report conflict insert error:',
+						err,
+					),
+				)
 		}
 		return existing.promise
 	}
@@ -207,10 +225,28 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		const { modId, gameMode, minPlayers, maxPlayers } = opts
 
 		if (minPlayers < 2) throw new AppError('minPlayers must be at least 2', 400)
-		if (maxPlayers < minPlayers) throw new AppError('maxPlayers must be >= minPlayers', 400)
+		if (maxPlayers < minPlayers)
+			throw new AppError('maxPlayers must be >= minPlayers', 400)
 
 		if (await banRepository.hasActiveBan(session.playerId, 'queue')) {
 			throw new AppError('You are banned from matchmaking', 403)
+		}
+
+		// Launcher-integrity gate: only enforced for ranked, and only when the
+		// challenge/response subsystem is actually enabled (a private
+		// ChallengeStrategy was supplied -- see launcher-integrity.service.ts's
+		// doc comment). A player who explicitly refused, or never answered, the
+		// login challenge stays blocked from ranked for the rest of this session
+		// without being asked again.
+		if (
+			isRanked(gameMode) &&
+			launcherIntegrityService.isEnabled() &&
+			!launcherIntegrityService.isLauncherVerified(session.playerId)
+		) {
+			throw new AppError(
+				'Launcher integrity verification required for ranked matchmaking',
+				403,
+			)
 		}
 
 		if (session.lobbyCode) {
@@ -242,7 +278,10 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		// requester being host of their own private lobby, so this has to be
 		// checked here rather than at the request-schema level.
 		if (isGroupQueue && isRanked(gameMode)) {
-			throw new AppError('Ranked matchmaking does not support group/party queueing', 400)
+			throw new AppError(
+				'Ranked matchmaking does not support group/party queueing',
+				400,
+			)
 		}
 
 		if (isGroupQueue) {
@@ -256,7 +295,10 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 
 			const groupPlayerIds = Array.from(lobby.players.keys())
 			if (groupPlayerIds.length >= maxPlayers) {
-				throw new AppError('Group size must leave room for at least one other player', 400)
+				throw new AppError(
+					'Group size must leave room for at least one other player',
+					400,
+				)
 			}
 
 			for (const pid of groupPlayerIds) {
@@ -274,7 +316,9 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 				totalRating += rating
 			}
 			const avgRating =
-				groupPlayerIds.length > 0 ? totalRating / groupPlayerIds.length : INITIAL_HIDDEN_RATING
+				groupPlayerIds.length > 0
+					? totalRating / groupPlayerIds.length
+					: INITIAL_HIDDEN_RATING
 
 			const entry: GroupQueueEntry = {
 				type: 'group',
@@ -299,7 +343,11 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 			}
 
 			const rating = isRanked(gameMode)
-				? await matchRepository.getPlayerCurrentRating(session.playerId, modId, gameMode)
+				? await matchRepository.getPlayerCurrentRating(
+						session.playerId,
+						modId,
+						gameMode,
+					)
 				: INITIAL_HIDDEN_RATING
 
 			const entry: SoloQueueEntry = {
@@ -338,12 +386,17 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 			if (entry.playerIds.length + 1 >= entry.maxPlayers) return
 
 			const rating = isRanked(entry.gameMode)
-				? await matchRepository.getPlayerCurrentRating(newPlayerId, entry.modId, entry.gameMode)
+				? await matchRepository.getPlayerCurrentRating(
+						newPlayerId,
+						entry.modId,
+						entry.gameMode,
+					)
 				: INITIAL_HIDDEN_RATING
 
 			const updatedPlayerIds = [...entry.playerIds, newPlayerId]
 			const avgRating =
-				(entry.avgRating * entry.playerIds.length + rating) / updatedPlayerIds.length
+				(entry.avgRating * entry.playerIds.length + rating) /
+				updatedPlayerIds.length
 
 			queue[idx] = { ...entry, playerIds: updatedPlayerIds, avgRating }
 			addToPlayerQueues([newPlayerId], key)
@@ -407,7 +460,10 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		}
 		lobbies.set(code, lobby)
 
-		const playerInfos: Record<string, { displayName: string; preferredJoker: string }> = {}
+		const playerInfos: Record<
+			string,
+			{ displayName: string; preferredJoker: string }
+		> = {}
 		for (const pid of playerIds) {
 			const session = getSession(pid)
 			if (session) {
@@ -440,7 +496,14 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 			playerInfos,
 		}
 
-		await matchRepository.insertMatch(matchId, code, modId, gameMode, playerIds, lobbyState)
+		await matchRepository.insertMatch(
+			matchId,
+			code,
+			modId,
+			gameMode,
+			playerIds,
+			lobbyState,
+		)
 
 		matches.set(matchId, matchRecord)
 		matchByLobby.set(code, matchRecord)
@@ -472,8 +535,20 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 
 			const now = Date.now()
 			const formed = isRanked(gameMode)
-				? runRankedQueue(queue, minPlayers, maxPlayers, now, QUEUE_FILL_GRACE_MS)
-				: runCasualQueue(queue, minPlayers, maxPlayers, now, QUEUE_FILL_GRACE_MS)
+				? runRankedQueue(
+						queue,
+						minPlayers,
+						maxPlayers,
+						now,
+						QUEUE_FILL_GRACE_MS,
+					)
+				: runCasualQueue(
+						queue,
+						minPlayers,
+						maxPlayers,
+						now,
+						QUEUE_FILL_GRACE_MS,
+					)
 
 			for (const entries of formed) {
 				createMatch(entries, modId, gameMode).catch((err) =>
@@ -493,8 +568,20 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 
 			const now = Date.now()
 			const formed = isRanked(gameMode)
-				? runRankedQueue(queue, minPlayers, maxPlayers, now, QUEUE_FILL_GRACE_MS)
-				: runCasualQueue(queue, minPlayers, maxPlayers, now, QUEUE_FILL_GRACE_MS)
+				? runRankedQueue(
+						queue,
+						minPlayers,
+						maxPlayers,
+						now,
+						QUEUE_FILL_GRACE_MS,
+					)
+				: runCasualQueue(
+						queue,
+						minPlayers,
+						maxPlayers,
+						now,
+						QUEUE_FILL_GRACE_MS,
+					)
 
 			for (const entries of formed) {
 				promises.push(createMatch(entries, modId, gameMode))
@@ -553,11 +640,15 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		}
 
 		if (activeMatches.length > 0) {
-			console.log(`[matchmaking] Restored ${activeMatches.length} active matches from DB`)
+			console.log(
+				`[matchmaking] Restored ${activeMatches.length} active matches from DB`,
+			)
 		}
 	}
 
-	async function restorePlayerMatchSession(session: PlayerSession): Promise<void> {
+	async function restorePlayerMatchSession(
+		session: PlayerSession,
+	): Promise<void> {
 		const activeMatch = await matchRepository.loadActiveMatches()
 
 		for (const row of activeMatch) {
@@ -585,7 +676,11 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 
 			const info = state.playerInfos?.[session.playerId]
 			if (info) {
-				await messageBus.publishPlayerInfo(row.lobbyCode, session.playerId, info)
+				await messageBus.publishPlayerInfo(
+					row.lobbyCode,
+					session.playerId,
+					info,
+				)
 			}
 
 			return
@@ -628,12 +723,16 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		const flags = new Map<string, FlagReason>()
 		const elapsedMs = Date.now() - match.createdAt.getTime()
 		for (const p of placements) {
-			if (replayLogService.verifyPlayerHash(match.lobbyCode, p.playerId) === 'mismatch') {
+			if (
+				replayLogService.verifyPlayerHash(match.lobbyCode, p.playerId) ===
+				'mismatch'
+			) {
 				flags.set(p.playerId, 'hash_mismatch')
 				continue
 			}
 			const minExpectedMs =
-				replayLogService.countHandResultEvents(match.lobbyCode, p.playerId) * MIN_MS_PER_HAND
+				replayLogService.countHandResultEvents(match.lobbyCode, p.playerId) *
+				MIN_MS_PER_HAND
 			if (elapsedMs < minExpectedMs) flags.set(p.playerId, 'elapsed_time_gate')
 		}
 		return flags
@@ -760,18 +859,32 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		if (!lobby) throw new AppError('Lobby not found', 404)
 
 		if (!isRanked(match.gameMode)) {
-			await claimResolution(matchId, match.lobbyCode, placements, session.playerId, async () => {
-				await matchRepository.recordMatchResult(matchId, placements, session.playerId)
-				await matchRepository.updateMatchStatus(matchId, 'resolved')
-				matches.delete(matchId)
-				matchByLobby.delete(match.lobbyCode)
-				await replayLogService.finalizeRun(match.lobbyCode, 'completed')
-			})
+			await claimResolution(
+				matchId,
+				match.lobbyCode,
+				placements,
+				session.playerId,
+				async () => {
+					await matchRepository.recordMatchResult(
+						matchId,
+						placements,
+						session.playerId,
+					)
+					await matchRepository.updateMatchStatus(matchId, 'resolved')
+					matches.delete(matchId)
+					matchByLobby.delete(match.lobbyCode)
+					await replayLogService.finalizeRun(match.lobbyCode, 'completed')
+				},
+			)
 			return
 		}
 
-		await claimResolution(matchId, match.lobbyCode, placements, session.playerId, () =>
-			resolveRankedResult(matchId, match, placements, session.playerId),
+		await claimResolution(
+			matchId,
+			match.lobbyCode,
+			placements,
+			session.playerId,
+			() => resolveRankedResult(matchId, match, placements, session.playerId),
 		)
 	}
 
@@ -794,12 +907,18 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		if (remainingConnectedPlayerIds.length === 0) {
 			// Everyone else disconnected too -- no legitimate winner to forfeit
 			// to. Cancel with no ELO applied to either side (§9.8).
-			await claimResolution(matchId, match.lobbyCode, [], 'system', async () => {
-				await matchRepository.updateMatchStatus(matchId, 'resolved')
-				matches.delete(matchId)
-				matchByLobby.delete(match.lobbyCode)
-				await replayLogService.finalizeRun(match.lobbyCode, 'abandoned')
-			})
+			await claimResolution(
+				matchId,
+				match.lobbyCode,
+				[],
+				'system',
+				async () => {
+					await matchRepository.updateMatchStatus(matchId, 'resolved')
+					matches.delete(matchId)
+					matchByLobby.delete(match.lobbyCode)
+					await replayLogService.finalizeRun(match.lobbyCode, 'abandoned')
+				},
+			)
 			return
 		}
 
@@ -831,7 +950,9 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		banType: 'account' | 'queue',
 	): Promise<boolean> {
 		const session = getSession(playerId)
-		const match = session?.lobbyCode ? matchByLobby.get(session.lobbyCode) : undefined
+		const match = session?.lobbyCode
+			? matchByLobby.get(session.lobbyCode)
+			: undefined
 
 		if (!match || !match.playerIds.includes(playerId)) {
 			if (banType === 'queue') leaveAllQueues(playerId)

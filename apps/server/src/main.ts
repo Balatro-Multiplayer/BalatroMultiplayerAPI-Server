@@ -3,10 +3,12 @@ import { lt } from 'drizzle-orm'
 import express from 'express'
 import type { Express, Request, Response } from 'express'
 import { env } from './env.js'
+import { launcherIntegrityService } from './features/launcher-integrity/launcher-integrity.service.js'
 import {
 	startDailyJob,
 	stopDailyJob,
 } from './features/matchmaking/matchmaking.service.js'
+import { syncModRegistry } from './features/mods/mods-sync.service.js'
 import { replayLogService } from './features/replay-log/replay-log.service.js'
 import { db, pool } from './infrastructure/db/index.js'
 import { chatLogs, flaggedMessages } from './infrastructure/db/schema.js'
@@ -19,6 +21,7 @@ import { mqttService } from './infrastructure/mqtt/mqtt.service.js'
 import { clearAllSpectatorGrants } from './infrastructure/mqtt/spectator-registry.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import router, { matchmakingService } from './routes/index.js'
+import type { RegisterPrivateDeps } from './shared/types/index.js'
 import { startSessionCleanup, stopSessionCleanup } from './state/index.js'
 
 const app = express()
@@ -42,6 +45,7 @@ async function shutdown() {
 	stopSessionCleanup()
 	clearAllGracePeriods()
 	clearAllSpectatorGrants()
+	launcherIntegrityService.clearAll()
 
 	if (server) {
 		await new Promise<void>((resolve) => {
@@ -96,17 +100,32 @@ async function purgeExpiredDeletedPlayerHashesJob() {
 	}
 }
 
-type PrivateModule = { registerPrivate: (app: Express) => Promise<void> }
+type PrivateModule = {
+	registerPrivate: (app: Express, deps: RegisterPrivateDeps) => Promise<void>
+}
+
+async function syncModRegistryJob() {
+	try {
+		await syncModRegistry()
+	} catch (err) {
+		console.error('[cleanup] Failed to sync mod registry:', err)
+	}
+}
 
 async function start() {
 	try {
 		await loadConfigFromDb()
 
-		// Load private features if available (not present in public builds)
+		// Load private features if available (not present in public builds).
+		// The real ChallengeStrategy (launcher-integrity.service.ts) lives here
+		// too -- see that module's doc comment for why running without it is
+		// expected and simply disables the feature, not an error.
 		const privatePath: string = '@v-rtualized/bmp-internal'
 		try {
 			const { registerPrivate } = (await import(privatePath)) as PrivateModule
-			await registerPrivate(app)
+			await registerPrivate(app, {
+				setChallengeStrategy: launcherIntegrityService.setChallengeStrategy,
+			})
 		} catch {
 			// running without private features
 		}
@@ -122,6 +141,18 @@ async function start() {
 					.handleActionLogEvent(lobbyCode, playerId, params)
 					.catch((err) =>
 						console.error('[replay-log] Failed to buffer event:', err),
+					)
+			},
+		)
+		await mqttService.subscribeToPlayerChallengeResponses(
+			(playerId, payload) => {
+				void launcherIntegrityService
+					.handleChallengeResponse(playerId, payload)
+					.catch((err) =>
+						console.error(
+							'[launcher-integrity] Failed to handle challenge response:',
+							err,
+						),
 					)
 			},
 		)
@@ -146,6 +177,9 @@ async function start() {
 			() => void purgeExpiredDeletedPlayerHashesJob(),
 			60 * 60 * 1000,
 		).unref()
+
+		void syncModRegistryJob()
+		setInterval(() => void syncModRegistryJob(), 60 * 60 * 1000).unref()
 
 		server = app.listen(env.PORT, () => {
 			console.log(`[server] API server listening on port ${env.PORT}`)
