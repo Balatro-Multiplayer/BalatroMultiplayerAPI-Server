@@ -2,7 +2,6 @@
 
 import { LogIn, Shield, User } from 'lucide-react'
 import Link from 'next/link'
-import { useAuth } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -12,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { useAuth } from '@/lib/auth'
 
 export function NavAuth() {
   const { player, isLoggedIn, isAdmin, isModerator, logout } = useAuth()
@@ -32,7 +32,7 @@ export function NavAuth() {
           {(isAdmin || isModerator) && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className='flex items-center gap-1.5 text-xs text-muted-foreground'>
+              <DropdownMenuLabel className='flex items-center gap-1.5 text-muted-foreground text-xs'>
                 <Shield className='size-3.5' />
                 Admin
               </DropdownMenuLabel>
@@ -54,10 +54,16 @@ export function NavAuth() {
               <DropdownMenuItem asChild>
                 <Link href='/admin/config'>Configuration</Link>
               </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href='/admin/ranked-mods'>Ranked Mods</Link>
+              </DropdownMenuItem>
             </>
           )}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={logout} className='text-destructive focus:text-destructive'>
+          <DropdownMenuItem
+            onClick={logout}
+            className='text-destructive focus:text-destructive'
+          >
             Sign Out
           </DropdownMenuItem>
         </DropdownMenuContent>
