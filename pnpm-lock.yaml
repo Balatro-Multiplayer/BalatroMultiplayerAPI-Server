@@ -241,6 +241,9 @@ importers:
 
   packages/internal:
     dependencies:
+      '@bmp/types':
+        specifier: workspace:*
+        version: link:../types
       express:
         specifier: ^5.0.0
         version: 5.2.1
