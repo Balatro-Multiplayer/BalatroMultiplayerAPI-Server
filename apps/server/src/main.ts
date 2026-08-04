@@ -178,7 +178,13 @@ async function start() {
 			60 * 60 * 1000,
 		).unref()
 
-		void syncModRegistryJob()
+		// Blocking, not fire-and-forget: the mod catalog (and every mod's
+		// server-computed hash) must be correct before the very first request
+		// is served, not eventually-consistent a few seconds after boot.
+		// syncModRegistryJob() already swallows its own errors (logs and
+		// returns), so a slow/broken BETModIndex fetch delays startup but never
+		// crashes it. Subsequent runs stay on the hourly background interval.
+		await syncModRegistryJob()
 		setInterval(() => void syncModRegistryJob(), 60 * 60 * 1000).unref()
 
 		server = app.listen(env.PORT, () => {
