@@ -51,11 +51,9 @@ export interface ModIndexEntryInput {
 	description: string | null
 	latestVersion: string | null
 	latestDownloadUrl: string | null
-	latestSha256: string | null
 	allowedInRanked: boolean
 	versions: Array<{
 		version: string
-		sha256: string | null
 		downloadUrl: string | null
 		releasedAt: string | null
 	}>
@@ -65,9 +63,16 @@ export interface ModIndexEntryInput {
 // when this row isn't currently a 'manual' override (an admin edit via
 // PUT /api/webadmin/mods/:modId wins until explicitly reset) -- see
 // modRegistry.allowedInRankedSource's doc comment in schema.ts.
+//
+// Deliberately never touches latestSha256/mod_registry_versions.sha256 here
+// -- the index carries no hash at all (see BETModIndex's bet-overrides/README.md),
+// this server computes it itself (see mods-sync.service.ts's hashing pass,
+// which runs after this upsert and needs the row/version to already exist).
+// Returns the resolved allowedInRanked so the caller can decide whether this
+// mod is even worth hashing.
 export async function upsertModFromIndex(
 	entry: ModIndexEntryInput,
-): Promise<void> {
+): Promise<{ allowedInRanked: boolean }> {
 	const existing = await db.query.modRegistry.findFirst({
 		where: eq(modRegistry.id, entry.id),
 	})
@@ -91,7 +96,6 @@ export async function upsertModFromIndex(
 			description: entry.description,
 			latestVersion: entry.latestVersion,
 			latestDownloadUrl: entry.latestDownloadUrl,
-			latestSha256: entry.latestSha256,
 			allowedInRanked,
 			allowedInRankedSource: 'index',
 			sourceUpdatedAt: new Date(),
@@ -109,7 +113,6 @@ export async function upsertModFromIndex(
 				description: entry.description,
 				latestVersion: entry.latestVersion,
 				latestDownloadUrl: entry.latestDownloadUrl,
-				latestSha256: entry.latestSha256,
 				allowedInRanked,
 				sourceUpdatedAt: new Date(),
 				updatedAt: new Date(),
@@ -122,15 +125,60 @@ export async function upsertModFromIndex(
 			.values({
 				modId: entry.id,
 				version: v.version,
-				sha256: v.sha256,
 				downloadUrl: v.downloadUrl,
 				releasedAt: v.releasedAt ? new Date(v.releasedAt) : null,
 			})
 			.onConflictDoUpdate({
 				target: [modRegistryVersions.modId, modRegistryVersions.version],
-				set: { sha256: v.sha256, downloadUrl: v.downloadUrl },
+				set: { downloadUrl: v.downloadUrl },
 			})
 	}
+
+	return { allowedInRanked }
+}
+
+// --- Server-computed hashes (mods-sync.service.ts) ---
+
+// Null when never computed yet, or when the version's own row is missing
+// (shouldn't happen post-upsertModFromIndex, but a fetch race with a
+// concurrent sync is cheap to guard against anyway).
+export async function getStoredHash(
+	modId: string,
+	version: string,
+): Promise<string | null> {
+	const row = await db.query.modRegistryVersions.findFirst({
+		where: and(
+			eq(modRegistryVersions.modId, modId),
+			eq(modRegistryVersions.version, version),
+		),
+	})
+	return row?.sha256 ?? null
+}
+
+// Stores a freshly computed hash on the version row, and mirrors it onto
+// modRegistry.latestSha256 only if this is still that mod's latest version
+// (a slow hash computation racing a newer sync could otherwise clobber a
+// newer version's already-computed hash with an older one).
+export async function storeComputedHash(
+	modId: string,
+	version: string,
+	sha256: string,
+): Promise<void> {
+	await db
+		.update(modRegistryVersions)
+		.set({ sha256 })
+		.where(
+			and(
+				eq(modRegistryVersions.modId, modId),
+				eq(modRegistryVersions.version, version),
+			),
+		)
+	await db
+		.update(modRegistry)
+		.set({ latestSha256: sha256 })
+		.where(
+			and(eq(modRegistry.id, modId), eq(modRegistry.latestVersion, version)),
+		)
 }
 
 // --- Admin: manual ranked-allowlist override (PUT/DELETE /api/webadmin/mods/:modId) ---
