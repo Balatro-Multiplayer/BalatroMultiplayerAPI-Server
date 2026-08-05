@@ -66,8 +66,8 @@ listeners.ssl.default {
   bind = "0.0.0.0:8883"
   max_connections = 10240
   ssl_options {
-    certfile = "/opt/emqx/etc/certs/emqxsl-cert.pem"
-    keyfile = "/opt/emqx/etc/certs/emqxsl-key.pem"
+    certfile = "/opt/emqx/etc/certs/fullchain.pem"
+    keyfile = "/opt/emqx/etc/certs/privkey.pem"
     verify = verify_none
   }
 }

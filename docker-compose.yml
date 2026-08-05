@@ -10,6 +10,11 @@ services:
       EMQX_NAME: bmp-emqx
     volumes:
       - ./apps/server/emqx/cluster.hocon:/opt/emqx/etc/cluster.hocon:ro
+      # Let's Encrypt cert for mqtt.balatromp.com, copied out of /etc/letsencrypt
+      # (root-only permissions there aren't readable by the non-root emqx
+      # container user) by /etc/letsencrypt/renewal-hooks/deploy/reload-emqx.sh,
+      # which also restarts this container on renewal.
+      - /root/emqx-certs/mqtt.balatromp.com:/opt/emqx/etc/certs:ro
       - emqx-data:/opt/emqx/data
       - emqx-log:/opt/emqx/log
     healthcheck:
