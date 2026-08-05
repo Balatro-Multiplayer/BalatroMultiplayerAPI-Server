@@ -1,7 +1,7 @@
 import type { IBanRepository } from '../../contracts/IBanRepository.js'
 import type { IMatchRepository } from '../../contracts/IMatchRepository.js'
 import type { IMessageBus } from '../../contracts/IMessageBus.js'
-import type { FlagReason } from '../../contracts/IReplayLogRepository.js'
+import type { FlagReason, LobbyRunStatus } from '../../contracts/IReplayLogRepository.js'
 import { insertMatchConflict } from '../../infrastructure/gateways/match-conflict.gateway.js'
 import { updateMatchLobbyState } from '../../infrastructure/gateways/matchmaking.gateway.js'
 import type {
@@ -750,6 +750,7 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		placements: PlacementEntry[],
 		reportedBy: string,
 		extra: Record<string, unknown> = {},
+		runStatus: LobbyRunStatus = 'completed',
 	): Promise<void> {
 		const season = await matchRepository.getCurrentSeason()
 		if (!season) throw new AppError('No active season', 500)
@@ -769,7 +770,7 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 
 		matches.delete(matchId)
 		matchByLobby.delete(match.lobbyCode)
-		await replayLogService.finalizeRun(match.lobbyCode, 'completed', flags)
+		await replayLogService.finalizeRun(match.lobbyCode, runStatus, flags)
 
 		const timestamp = new Date().toISOString()
 		for (const pid of match.playerIds) {
@@ -784,22 +785,23 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 	}
 
 	// The casual counterpart of resolveRankedResult -- no ELO, no season, just
-	// a system-driven resolution. Only reachable via forfeitMatchForBan today:
-	// a normal casual reportResult never calls this (it resolves inline and
-	// stays silent, see reportResult below), since a real player reporting
-	// doesn't need a "why did this resolve" notification the way a forced
-	// forfeit does.
+	// a system-driven resolution. Only reachable via autoForfeitMatch (grace-
+	// period expiry, an explicit leave, or forfeitMatchForBan): a normal
+	// casual reportResult never calls this (it resolves inline and stays
+	// silent, see reportResult below), since a real player reporting doesn't
+	// need a "why did this resolve" notification the way a forced forfeit does.
 	async function resolveCasualForfeit(
 		matchId: string,
 		match: Match,
 		placements: PlacementEntry[],
 		extra: Record<string, unknown>,
+		runStatus: LobbyRunStatus = 'completed',
 	): Promise<void> {
 		await matchRepository.recordMatchResult(matchId, placements, 'system')
 		await matchRepository.updateMatchStatus(matchId, 'resolved')
 		matches.delete(matchId)
 		matchByLobby.delete(match.lobbyCode)
-		await replayLogService.finalizeRun(match.lobbyCode, 'completed')
+		await replayLogService.finalizeRun(match.lobbyCode, runStatus)
 
 		const timestamp = new Date().toISOString()
 		for (const pid of match.playerIds) {
@@ -890,11 +892,12 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 
 	// Phase 8.4: the counterpart of a host-submitted reportResult for a match
 	// nobody is left to report -- triggered by grace-period.service.ts's
-	// expireGracePeriod when a disconnected player's 2-minute grace period
-	// runs out mid-match (ranked only at that call site), and by
-	// forfeitMatchForBan below (ranked and casual both, since a ban's forfeit
-	// isn't gated on the same "give them a chance to reconnect" logic). Not
-	// exposed over HTTP directly -- there's no player action here.
+	// expireGracePeriod whenever any player's 2-minute disconnect grace
+	// period runs out mid-match (ranked or casual), by forfeitMatchForLeave
+	// below (a player explicitly leaving mid-match), and by forfeitMatchForBan
+	// below (ranked and casual both, since a ban's forfeit isn't gated on the
+	// same "give them a chance to reconnect" logic). Not exposed over HTTP
+	// directly -- there's no player action here.
 	async function autoForfeitMatch(
 		matchId: string,
 		forfeitingPlayerId: string,
@@ -905,19 +908,23 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		if (!match) return // already resolved (e.g. the other player's grace expired first) -- no-op
 
 		if (remainingConnectedPlayerIds.length === 0) {
-			// Everyone else disconnected too -- no legitimate winner to forfeit
-			// to. Cancel with no ELO applied to either side (§9.8).
-			await claimResolution(
-				matchId,
-				match.lobbyCode,
-				[],
-				'system',
-				async () => {
-					await matchRepository.updateMatchStatus(matchId, 'resolved')
-					matches.delete(matchId)
-					matchByLobby.delete(match.lobbyCode)
-					await replayLogService.finalizeRun(match.lobbyCode, 'abandoned')
-				},
+			// Everyone else is gone too -- no legitimate winner to forfeit to,
+			// and no lobby should ever sit around empty with its match still
+			// "active". Close it immediately: a draw for ranked (equal
+			// placements route computeRatingDeltas through its draw path, so
+			// nobody's rating moves any more than a real draw would), and a
+			// plain system-recorded draw for casual (no rating to move, but the
+			// historical record stays consistent). The underlying run itself
+			// wasn't completed by anyone, so the replay log is still marked
+			// 'abandoned' even though the match record now resolves definitively.
+			const drawPlacements: PlacementEntry[] = match.playerIds.map((id) => ({
+				playerId: id,
+				place: 1,
+			}))
+			await claimResolution(matchId, match.lobbyCode, drawPlacements, 'system', () =>
+				isRanked(match.gameMode)
+					? resolveRankedResult(matchId, match, drawPlacements, 'system', extra, 'abandoned')
+					: resolveCasualForfeit(matchId, match, drawPlacements, extra, 'abandoned'),
 			)
 			return
 		}
@@ -968,6 +975,25 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		return true
 	}
 
+	// A player explicitly leaving a public matchmaking lobby mid-match is an
+	// immediate forfeit -- they're not disconnecting and might reconnect,
+	// they're choosing to go, so there's no 2-minute grace period to wait out.
+	// No-op if this lobby has no active match (private/practice lobbies, or a
+	// match that already resolved) -- lobby.service.ts calls this
+	// unconditionally on every leave rather than checking first.
+	async function forfeitMatchForLeave(
+		lobbyCode: string,
+		playerId: string,
+		remainingConnectedPlayerIds: string[],
+	): Promise<void> {
+		const match = matchByLobby.get(lobbyCode)
+		if (!match || !match.playerIds.includes(playerId)) return
+
+		await autoForfeitMatch(match.matchId, playerId, remainingConnectedPlayerIds, {
+			reason: 'left',
+		})
+	}
+
 	return {
 		joinQueue,
 		updateGroupQueueOnLobbyJoin,
@@ -982,5 +1008,6 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		reportResult,
 		autoForfeitMatch,
 		forfeitMatchForBan,
+		forfeitMatchForLeave,
 	}
 }

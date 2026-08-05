@@ -40,6 +40,7 @@ function makeMockMatchmakingCoordinator(): IMatchmakingCoordinator {
 		updateGroupQueueOnLobbyJoin: vi.fn().mockResolvedValue(undefined),
 		removeGroupQueueForLobby: vi.fn(),
 		syncMatchLobbyState: vi.fn().mockResolvedValue(undefined),
+		forfeitMatchForLeave: vi.fn().mockResolvedValue(undefined),
 	}
 }
 
@@ -206,6 +207,54 @@ describe('lobby.service', () => {
 
 			const decoded = verifyJwt(token)
 			expect(decoded?.lobbyCode).toBeUndefined()
+		})
+
+		it('forfeits any active match for this lobby, passing the remaining connected players', async () => {
+			const matchmakingCoordinator = makeMockMatchmakingCoordinator()
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator,
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+			const guest = makePlayer('guest1', 'Bob')
+			await service.joinLobby(guest, lobby.code)
+
+			await service.leaveLobby(guest, lobby.code)
+
+			expect(matchmakingCoordinator.forfeitMatchForLeave).toHaveBeenCalledWith(
+				lobby.code,
+				'guest1',
+				['host1'],
+			)
+		})
+
+		it('excludes a player currently in their disconnect grace period from "remaining connected"', async () => {
+			const gracePeriodService = makeMockGracePeriodService()
+			vi.mocked(gracePeriodService.isInGracePeriod).mockImplementation(
+				(playerId) => playerId === 'guest2',
+			)
+			const matchmakingCoordinator = makeMockMatchmakingCoordinator()
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService,
+				matchmakingCoordinator,
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+			const guest1 = makePlayer('guest1', 'Bob')
+			await service.joinLobby(guest1, lobby.code)
+			const guest2 = makePlayer('guest2', 'Carol')
+			await service.joinLobby(guest2, lobby.code)
+
+			await service.leaveLobby(host, lobby.code)
+
+			expect(matchmakingCoordinator.forfeitMatchForLeave).toHaveBeenCalledWith(
+				lobby.code,
+				'host1',
+				['guest1'],
+			)
 		})
 
 		it('transfers host when host leaves with players remaining', async () => {

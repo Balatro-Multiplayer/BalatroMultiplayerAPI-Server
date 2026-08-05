@@ -1,4 +1,3 @@
-import { isRanked } from '../../features/matchmaking/queue.js'
 import { syncMatchLobbyState } from '../../features/matchmaking/matchmaking.service.js'
 import { replayLogService } from '../../features/replay-log/replay-log.service.js'
 import {
@@ -146,20 +145,20 @@ async function expireGracePeriod(playerId: string): Promise<void> {
 
 	lobby.removePlayer(playerId)
 
-	// Ranked-match auto-forfeit: the disconnected player loses on time, ELO
-	// applied as a loss/win exactly like a normal reportResult. Dynamically
-	// imports routes/index.js (the composition root, which holds the fully
-	// wired matchmakingService singleton) rather than a static import, since
-	// routes/index.ts already statically imports this module (as
-	// gracePeriodService) -- a static import back would be a real cycle. By
-	// the time a grace period actually expires (minutes after startup),
-	// routes/index.ts has long since finished evaluating, so this is safe.
-	// Casual/practice/private lobbies have no ranked match to forfeit --
-	// matchByLobby only holds ranked+casual matchmaking matches, and isRanked
-	// narrows to ranked specifically (casual has the same pre-existing gap,
-	// out of scope here).
+	// Match auto-forfeit: the disconnected player loses on time -- ranked
+	// applies ELO as a loss/win exactly like a normal reportResult, casual
+	// just records the result (autoForfeitMatch branches on isRanked itself,
+	// see matchmaking.service.ts). Dynamically imports routes/index.js (the
+	// composition root, which holds the fully wired matchmakingService
+	// singleton) rather than a static import, since routes/index.ts already
+	// statically imports this module (as gracePeriodService) -- a static
+	// import back would be a real cycle. By the time a grace period actually
+	// expires (minutes after startup), routes/index.ts has long since
+	// finished evaluating, so this is safe. matchByLobby only holds
+	// ranked+casual matchmaking matches, so this is a no-op for practice/
+	// private lobbies.
 	const match = matchByLobby.get(entry.lobbyCode)
-	if (match && isRanked(match.gameMode)) {
+	if (match) {
 		const remaining = [...lobby.players.keys()].filter((id) => !gracePeriods.has(id))
 		const { matchmakingService } = await import('../../routes/index.js')
 		await matchmakingService.autoForfeitMatch(match.matchId, playerId, remaining)

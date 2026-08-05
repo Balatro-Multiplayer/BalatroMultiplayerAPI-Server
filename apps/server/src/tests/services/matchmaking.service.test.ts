@@ -1078,18 +1078,53 @@ describe('matchmaking.service', () => {
 				expect(matchByLobby.has('FRFT1')).toBe(false)
 			})
 
-			it('cancels with no ELO when no players remain connected', async () => {
+			it('resolves as a draw when no players remain connected -- an empty match should never stay active', async () => {
 				const matchRepository = makeMockMatchRepository()
+				vi.mocked(matchRepository.getCurrentSeason).mockResolvedValue({ id: 1, name: 'Season 1' })
+				vi.mocked(matchRepository.applyRatingTransaction).mockResolvedValue([
+					{ playerId: 'rhost', newRating: 600, delta: 0, isPlacement: false, gamesPlayed: 11 },
+					{ playerId: 'rguest', newRating: 600, delta: 0, isPlacement: false, gamesPlayed: 11 },
+				])
 				const { service } = makeService({ matchRepository })
 				setupRankedMatch('f2', 'FRFT2')
 
 				await service.autoForfeitMatch('f2', 'rhost', [])
 
-				expect(matchRepository.applyRatingTransaction).not.toHaveBeenCalled()
-				expect(matchRepository.updateMatchStatus).toHaveBeenCalledWith('f2', 'resolved')
-				expect(replayLogService.finalizeRun).toHaveBeenCalledWith('FRFT2', 'abandoned')
+				const drawPlacements = [
+					{ playerId: 'rhost', place: 1 },
+					{ playerId: 'rguest', place: 1 },
+				]
+				expect(matchRepository.applyRatingTransaction).toHaveBeenCalledWith(
+					'f2',
+					expect.objectContaining({ matchId: 'f2' }),
+					1,
+					drawPlacements,
+				)
+				expect(matchRepository.recordMatchResult).toHaveBeenCalledWith('f2', drawPlacements, 'system')
+				expect(replayLogService.finalizeRun).toHaveBeenCalledWith('FRFT2', 'abandoned', expect.any(Map))
 				expect(matches.has('f2')).toBe(false)
 				expect(matchByLobby.has('FRFT2')).toBe(false)
+			})
+
+			it('closes a casual match immediately (recorded as a system draw) when no players remain connected', async () => {
+				const matchRepository = makeMockMatchRepository()
+				const { service } = makeService({ matchRepository })
+				setupRankedMatch('f2c', 'FRFT2C')
+				matches.get('f2c')!.gameMode = 'mode1'
+				matchByLobby.get('FRFT2C')!.gameMode = 'mode1'
+
+				await service.autoForfeitMatch('f2c', 'rhost', [])
+
+				const drawPlacements = [
+					{ playerId: 'rhost', place: 1 },
+					{ playerId: 'rguest', place: 1 },
+				]
+				expect(matchRepository.applyRatingTransaction).not.toHaveBeenCalled()
+				expect(matchRepository.recordMatchResult).toHaveBeenCalledWith('f2c', drawPlacements, 'system')
+				expect(matchRepository.updateMatchStatus).toHaveBeenCalledWith('f2c', 'resolved')
+				expect(replayLogService.finalizeRun).toHaveBeenCalledWith('FRFT2C', 'abandoned')
+				expect(matches.has('f2c')).toBe(false)
+				expect(matchByLobby.has('FRFT2C')).toBe(false)
 			})
 		})
 

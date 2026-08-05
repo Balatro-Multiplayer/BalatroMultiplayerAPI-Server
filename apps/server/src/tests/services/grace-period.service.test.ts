@@ -436,7 +436,7 @@ describe('grace-period.service', () => {
 				expect(matchmakingService.autoForfeitMatch).toHaveBeenCalledWith('m2', 'player1', [])
 			})
 
-			it('does not call autoForfeitMatch for a non-ranked (casual) match', async () => {
+			it('calls autoForfeitMatch for a non-ranked (casual) match too -- casual has no separate reconnect grace of its own', async () => {
 				setupLobbyWithPlayers(
 					{ id: 'host1', steamName: 'Alice' },
 					{ id: 'player1', steamName: 'Bob' },
@@ -453,7 +453,7 @@ describe('grace-period.service', () => {
 				await startGracePeriod('player1')
 				await expireGracePeriod('player1')
 
-				expect(matchmakingService.autoForfeitMatch).not.toHaveBeenCalled()
+				expect(matchmakingService.autoForfeitMatch).toHaveBeenCalledWith('m3', 'player1', ['host1'])
 			})
 
 			it('does not call autoForfeitMatch when the lobby has no associated match (private/practice)', async () => {

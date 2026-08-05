@@ -127,6 +127,22 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 
 		lobby.removePlayer(player.playerId)
 
+		// An explicit leave mid-match is an immediate forfeit, not a disconnect
+		// -- no 2-minute grace period. No-op if this lobby has no active
+		// matchmaking match (private/practice lobbies, or an already-resolved
+		// match). "Remaining connected" excludes anyone currently mid-grace-
+		// period themselves, same as grace-period.service.ts's own expiry path,
+		// so a player who's merely disconnected (not actually present) never
+		// gets credited as the winner.
+		const remainingConnected = [...lobby.players.keys()].filter(
+			(id) => !gracePeriodService.isInGracePeriod(id),
+		)
+		await matchmakingCoordinator.forfeitMatchForLeave(
+			lobby.code,
+			player.playerId,
+			remainingConnected,
+		)
+
 		if (lobby.type === 'private') {
 			matchmakingCoordinator.removeGroupQueueForLobby(lobby.code)
 		}
