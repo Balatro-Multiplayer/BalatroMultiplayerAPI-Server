@@ -5,6 +5,7 @@ import type { JwtPayload } from '../../shared/types/index.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { generateLobbyCode } from '../../shared/utils/lobby-code.js'
 import { Lobby, getLobby, getSession, lobbies } from '../../state/index.js'
+import type { PlayerSession } from '../../state/player.js'
 import { signJwt } from '../auth/jwt.js'
 import { replayLogService } from '../replay-log/replay-log.service.js'
 
@@ -12,6 +13,20 @@ interface LobbyServiceDeps {
 	messageBus: IMessageBus
 	gracePeriodService: IGracePeriodService
 	matchmakingCoordinator: IMatchmakingCoordinator
+}
+
+// A session's lobbyCode can go stale if the lobby it referenced was ever torn
+// down through a path that didn't clear it -- e.g. a race between a grace-
+// period expiry deleting an abandoned lobby and that same player's client
+// reconnecting, observed live: the player's own still-valid JWT kept claiming
+// lobby membership for a lobby a direct lookup already 404'd. Treating a
+// dangling reference as "not in a lobby" (rather than trusting it blindly)
+// keeps a stale reference from permanently locking the player out of
+// creating or joining anything new.
+function clearStaleLobbyReference(session: PlayerSession): void {
+	if (session.lobbyCode && !getLobby(session.lobbyCode)) {
+		session.lobbyCode = undefined
+	}
 }
 
 export type LobbyService = ReturnType<typeof createLobbyService>
@@ -27,6 +42,7 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		const session = getSession(player.playerId)
 		if (!session) throw new AppError('Player session not found', 401)
 
+		clearStaleLobbyReference(session)
 		if (session.lobbyCode) throw new AppError('Already in a lobby', 409)
 
 		let code: string
@@ -74,6 +90,7 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 			return { lobby, token }
 		}
 
+		clearStaleLobbyReference(session)
 		if (session.lobbyCode) throw new AppError('Already in a lobby', 409)
 		if (lobby.hasPlayer(player.playerId))
 			throw new AppError('Already in this lobby', 409)
@@ -121,7 +138,14 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		if (!session) throw new AppError('Player session not found', 401)
 
 		const lobby = getLobby(code)
-		if (!lobby) throw new AppError('Lobby not found', 404)
+		if (!lobby) {
+			// The lobby this session still points at is already gone (see
+			// clearStaleLobbyReference above) -- there's nothing left to leave,
+			// so clear the dangling reference and succeed rather than 404ing a
+			// client that's just trying to get back to a clean state.
+			if (session.lobbyCode === code) session.lobbyCode = undefined
+			throw new AppError('Lobby not found', 404)
+		}
 		if (!lobby.hasPlayer(player.playerId))
 			throw new AppError('Not in this lobby', 400)
 

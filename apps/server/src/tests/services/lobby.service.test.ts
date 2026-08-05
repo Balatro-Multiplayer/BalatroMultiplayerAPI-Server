@@ -92,6 +92,25 @@ describe('lobby.service', () => {
 			)
 		})
 
+		it('self-heals when session.lobbyCode references a lobby that no longer exists', async () => {
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const player = makePlayer('host1', 'Alice')
+			const { lobby: staleLobby } = await service.createLobby(player, 'mod1')
+
+			// Simulate the lobby being torn down through a path that didn't clear
+			// session.lobbyCode (e.g. a raced grace-period expiry) instead of a
+			// normal leaveLobby call.
+			lobbies.delete(staleLobby.code)
+
+			const { lobby: newLobby } = await service.createLobby(player, 'mod2')
+			expect(newLobby.code).not.toBe(staleLobby.code)
+			expect(lobbies.has(newLobby.code)).toBe(true)
+		})
+
 		it('creates lobby with custom maxPlayers', async () => {
 			const service = createLobbyService({
 				messageBus: makeMockMessageBus(),
@@ -167,6 +186,24 @@ describe('lobby.service', () => {
 			await expect(service.joinLobby(guest, lobby.code)).rejects.toThrow(
 				'Already in a lobby',
 			)
+		})
+
+		it('self-heals when session.lobbyCode references a lobby that no longer exists', async () => {
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const playerA = makePlayer('playerA', 'Alice')
+			const { lobby: staleLobby } = await service.createLobby(playerA, 'mod1')
+			lobbies.delete(staleLobby.code)
+
+			const playerB = makePlayer('playerB', 'Bob')
+			const { lobby: realLobby } = await service.createLobby(playerB, 'mod1')
+
+			const { lobby: joinedLobby } = await service.joinLobby(playerA, realLobby.code)
+			expect(joinedLobby.code).toBe(realLobby.code)
+			expect(joinedLobby.hasPlayer('playerA')).toBe(true)
 		})
 
 		it('throws when lobby is full', async () => {
@@ -323,6 +360,26 @@ describe('lobby.service', () => {
 			await expect(service.leaveLobby(outsider, lobby.code)).rejects.toThrow(
 				'Not in this lobby',
 			)
+		})
+
+		it('clears the stale session reference even though the lobby is already gone', async () => {
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const player = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(player, 'mod1')
+			lobbies.delete(lobby.code)
+
+			await expect(service.leaveLobby(player, lobby.code)).rejects.toThrow(
+				'Lobby not found',
+			)
+
+			// The session is no longer stuck pointing at the deleted lobby -- a
+			// fresh create succeeds without needing a relaunch.
+			const { lobby: newLobby } = await service.createLobby(player, 'mod2')
+			expect(lobbies.has(newLobby.code)).toBe(true)
 		})
 	})
 
