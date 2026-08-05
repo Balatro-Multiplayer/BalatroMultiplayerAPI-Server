@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, notInArray } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
 	modProfileEntries,
@@ -135,6 +135,22 @@ export async function upsertModFromIndex(
 	}
 
 	return { allowedInRanked }
+}
+
+// Deletes any mod_registry row whose id wasn't in the most recent sync.
+// BETModIndex's build_index.py changed what "id" means for a mod (from the
+// always-unique folder slug to meta.json's own declared id, or the folder's
+// Modname half as a fallback) -- rows keyed by the old slug-based id will
+// never be touched by upsertModFromIndex again and would otherwise linger
+// forever. mod_profile_entries.mod_id cascades on delete, so a stale row
+// being referenced by an admin ranked-profile is cleaned up along with it.
+// Returns the number of rows removed, for the sync log line.
+export async function pruneModsMissingFrom(ids: string[]): Promise<number> {
+	const rows = await db
+		.delete(modRegistry)
+		.where(notInArray(modRegistry.id, ids))
+		.returning({ id: modRegistry.id })
+	return rows.length
 }
 
 // --- Server-computed hashes (mods-sync.service.ts) ---

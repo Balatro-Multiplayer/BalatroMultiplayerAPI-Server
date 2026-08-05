@@ -3,6 +3,7 @@ import { env } from '../../env.js'
 import type { ModIndexEntryInput } from '../../infrastructure/gateways/mods.gateway.js'
 import {
 	getStoredHash,
+	pruneModsMissingFrom,
 	storeComputedHash,
 	upsertModFromIndex,
 } from '../../infrastructure/gateways/mods.gateway.js'
@@ -93,11 +94,13 @@ async function hashAll(candidates: HashCandidate[]): Promise<number> {
 // comments) -- this sync never has to special-case "no override" itself,
 // the index it's fetching already encodes that default-deny.
 //
-// After every mod is upserted, hashes each one's latest download archive
-// (all of them now, not just ranked-allowed ones -- the launcher needs a
-// verifiable hash to auto-install any mod, not only ranked-eligible ones)
-// that doesn't already have a stored hash for that exact version. A mod's
-// hash is only ever recomputed when its version changes.
+// After every mod is upserted, prunes any mod_registry row whose id wasn't
+// in this sync (see pruneModsMissingFrom's doc comment) and hashes each
+// remaining mod's latest download archive (all of them now, not just
+// ranked-allowed ones -- the launcher needs a verifiable hash to
+// auto-install any mod, not only ranked-eligible ones) that doesn't already
+// have a stored hash for that exact version. A mod's hash is only ever
+// recomputed when its version changes.
 export async function syncModRegistry(): Promise<void> {
 	if (!env.BET_MOD_INDEX_URL) {
 		console.log(
@@ -111,8 +114,12 @@ export async function syncModRegistry(): Promise<void> {
 		throw new Error(`BETModIndex fetch failed: ${res.status}`)
 	}
 	const data = (await res.json()) as ModIndexFile
-	if (!Array.isArray(data.mods)) {
-		throw new Error('BETModIndex response missing a mods[] array')
+	if (!Array.isArray(data.mods) || data.mods.length === 0) {
+		// An empty mods[] is never legitimate for this index (it always carries
+		// hundreds of entries) -- treating it the same as a missing array, not
+		// just skipping the sync, matters because it's also what guards the
+		// prune below from wiping every row in mod_registry.
+		throw new Error('BETModIndex response missing a non-empty mods[] array')
 	}
 
 	const hashCandidates: HashCandidate[] = []
@@ -128,9 +135,11 @@ export async function syncModRegistry(): Promise<void> {
 		}
 	}
 
+	const pruned = await pruneModsMissingFrom(data.mods.map((entry) => entry.id))
+
 	const hashed = await hashAll(hashCandidates)
 
 	console.log(
-		`[mods-sync] Synced ${data.mods.length} mods from BETModIndex${hashed ? ` (${hashed} newly hashed)` : ''}`,
+		`[mods-sync] Synced ${data.mods.length} mods from BETModIndex${hashed ? ` (${hashed} newly hashed)` : ''}${pruned ? ` (${pruned} stale mods pruned)` : ''}`,
 	)
 }
