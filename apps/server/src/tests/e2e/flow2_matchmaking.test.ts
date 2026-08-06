@@ -38,6 +38,18 @@ beforeAll(async () => {
 				connectionString: process.env.E2E_DB_URL ?? 'postgresql://postgres:postgres@localhost:15432/bmp_e2e',
 			})
 			await client.connect()
+			// Same guard as globalSetup.seedDb: this block runs destructive
+			// UPDATEs, and a stray port-forward on 15432 would take them
+			// somewhere they must never go.
+			const dbCheck = await client.query<{ db: string }>(
+				'SELECT current_database() AS db',
+			)
+			if (dbCheck.rows[0]?.db !== 'bmp_e2e') {
+				await client.end()
+				throw new Error(
+					`Refusing to seed database "${dbCheck.rows[0]?.db}" — expected "bmp_e2e".`,
+				)
+			}
 			try {
 				await client.query(`UPDATE seasons SET ended_at = NOW() WHERE ended_at IS NULL`)
 				const res = await client.query<{ id: number }>(

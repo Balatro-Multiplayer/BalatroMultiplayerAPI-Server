@@ -36,8 +36,12 @@ services:
 
   api:
     build:
-      context: .
-      dockerfile: Dockerfile
+      # The monorepo root, not apps/server: this Dockerfile copies packages/
+      # and pnpm-workspace.yaml. With the wrong context the image cannot be
+      # rebuilt at all, which is how a three-week-old binary ended up under
+      # test.
+      context: ../..
+      dockerfile: apps/server/Dockerfile
     container_name: bmp-e2e-api
     hostname: api
     ports:
@@ -54,10 +58,16 @@ services:
       ADMIN_SECRET: e2e-admin-secret
       NODE_ENV: development
       PORT: 8788
+      # Chat is off by default; these tests exist to exercise it.
+      CHAT_ENABLED: "true"
+      MODERATION_SERVICE_URL: http://moderation:8001
+      MODERATION_BEARER_TOKEN: e2e-moderation-token
     depends_on:
       emqx:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      moderation:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8788/health"]
@@ -65,6 +75,31 @@ services:
       timeout: 3s
       retries: 12
       start_period: 15s
+    networks:
+      - bmp-e2e
+
+  # The guard GGUF is far too large to commit, so it is bind-mounted from the
+  # host. Point GUARD_MODEL_PATH at your own copy to run these tests.
+  moderation:
+    build:
+      context: ../..
+      dockerfile: apps/moderation/Dockerfile
+    container_name: bmp-e2e-moderation
+    hostname: moderation
+    environment:
+      MODERATION_BEARER_TOKEN: e2e-moderation-token
+      GUARD_MODEL: /model-cache/guard.gguf
+      GUARD_THREADS: "4"
+      # Enforce, not shadow: these tests assert that bad messages are BLOCKED.
+      SHADOW_MODE: "0"
+    volumes:
+      - ${GUARD_MODEL_PATH:-../../admin-local/moderation-proto/.model-cache/qwen3guard-gen-0.6b.Q8_0.gguf}:/model-cache/guard.gguf:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8001/health').then(r=>r.json()).then(j=>process.exit(j.model_loaded?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
     networks:
       - bmp-e2e
 

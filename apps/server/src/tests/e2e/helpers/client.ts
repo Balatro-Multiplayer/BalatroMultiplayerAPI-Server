@@ -204,6 +204,35 @@ export class GameClient {
 		return data.lobby
 	}
 
+	/**
+	 * Opts this account into chat. Accounts start with chat disabled (the age
+	 * gate), so without this every send is refused before moderation is ever
+	 * consulted.
+	 */
+	async enableChat(): Promise<void> {
+		const res = await this.http('POST', '/api/auth/chat/enable')
+		if (!res.ok) throw new Error(`enableChat failed: ${res.status} ${await res.text()}`)
+	}
+
+	/**
+	 * Sends a chat message. Unlike the other helpers this does NOT throw on a
+	 * non-2xx: a refusal is the interesting outcome for moderation tests, so
+	 * the caller gets the status and body to assert on.
+	 */
+	async sendChat(
+		message: string,
+		code = this._lobbyCode,
+	): Promise<{ status: number; body: { ok?: boolean; publishText?: string; error?: string } }> {
+		const res = await this.http('POST', `/api/lobbies/${code}/chat`, { message })
+		let body: { ok?: boolean; publishText?: string; error?: string } = {}
+		try {
+			body = (await res.json()) as typeof body
+		} catch {
+			// A body-less response is a legitimate outcome to assert on.
+		}
+		return { status: res.status, body }
+	}
+
 	async leaveLobby(): Promise<void> {
 		if (!this._lobbyCode) return
 		const res = await this.http('POST', `/api/lobbies/${this._lobbyCode}/leave`)
