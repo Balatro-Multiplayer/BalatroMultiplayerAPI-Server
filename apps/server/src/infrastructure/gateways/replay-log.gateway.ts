@@ -2,6 +2,7 @@ import { desc, eq, inArray, lt } from 'drizzle-orm'
 import type {
 	InsertRunParams,
 	LobbyRunStatus,
+	PaginatedRuns,
 	RunRow,
 	RunWithLogs,
 	UpsertPlayerLogParams,
@@ -111,31 +112,37 @@ export async function getMostRecentRunForLobbyCode(
 // gateway (every other function here is plain query-builder style).
 export async function getRunsForPlayer(
 	playerId: string,
-	limit: number,
-): Promise<RunRow[]> {
+	page: number,
+	pageSize: number,
+): Promise<PaginatedRuns> {
 	const logRows = await db
 		.select({ runId: matchRunLogs.runId })
 		.from(matchRunLogs)
 		.where(eq(matchRunLogs.playerId, playerId))
 	const runIds = [...new Set(logRows.map((r) => r.runId))]
-	if (runIds.length === 0) return []
+	const total = runIds.length
+	if (total === 0) return { runs: [], total: 0 }
 
 	const rows = await db
 		.select()
 		.from(lobbyRuns)
 		.where(inArray(lobbyRuns.id, runIds))
 		.orderBy(desc(lobbyRuns.startedAt))
-		.limit(limit)
+		.limit(pageSize)
+		.offset((page - 1) * pageSize)
 
-	return rows.map((run) => ({
-		id: run.id,
-		lobbyCode: run.lobbyCode,
-		modId: run.modId,
-		lobbyType: run.lobbyType,
-		status: run.status as LobbyRunStatus,
-		startedAt: run.startedAt,
-		finalizedAt: run.finalizedAt,
-	}))
+	return {
+		runs: rows.map((run) => ({
+			id: run.id,
+			lobbyCode: run.lobbyCode,
+			modId: run.modId,
+			lobbyType: run.lobbyType,
+			status: run.status as LobbyRunStatus,
+			startedAt: run.startedAt,
+			finalizedAt: run.finalizedAt,
+		})),
+		total,
+	}
 }
 
 export async function getRunWithLogs(

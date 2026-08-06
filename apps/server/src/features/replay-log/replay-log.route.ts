@@ -13,8 +13,10 @@ export function createReplayLogRouter(service: ReplayLogService): Router {
 	// at all (getMostRecentRunForLobbyCode serves report-filing only).
 	router.get('/mine', async (req, res, next) => {
 		try {
-			const runs = await service.listMyRuns(req.player!.playerId)
-			res.json({ runs })
+			const page = Math.max(1, Math.min(1000, Number.parseInt(String(req.query.page ?? '1'), 10) || 1))
+			const pageSize = Math.max(1, Math.min(50, Number.parseInt(String(req.query.pageSize ?? '20'), 10) || 20))
+			const result = await service.listMyRuns(req.player!.playerId, page, pageSize)
+			res.json(result)
 		} catch (err) {
 			next(err)
 		}

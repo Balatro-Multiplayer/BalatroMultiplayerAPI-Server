@@ -222,7 +222,18 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 			await repository.upsertPlayerLog({
 				runId: run.runId,
 				playerId,
-				compressedEvents: compressToBase64(JSON.stringify(buf.events)),
+				// Stored as [t, opcode, args] positional tuples -- the same shape
+				// canonicalHashInput already converts to for hashing (and what the
+				// client's own canonical_hash_input/encode_event_tuple broadcasts
+				// were always meant to mirror) -- not the raw {t, opcode, args}
+				// LogEvent objects buf.events holds in memory. MPAPI.playback.build_timeline
+				// (BalatroMultiplayerAPI/api/playback/timeline.lua) reads ev[1]/ev[2]/ev[3]
+				// positionally, so storing the object shape here left every downloaded
+				// replay's timeline silently empty (event.opcode being undefined
+				// each time, since there is no [1] key on an object) -- confirmed live.
+				compressedEvents: compressToBase64(
+					JSON.stringify(buf.events.map((e) => [e.t, e.opcode, e.args ?? null])),
+				),
 				carbonHash: buf.carbonHash,
 				eventCount: buf.events.length,
 				status: playerStatus,
@@ -305,8 +316,13 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 	// §22.2: the discovery step a client-side "My Matches" replay list needs --
 	// previously nothing let a player find their own past run ids at all
 	// (getMostRecentRunForLobbyCode serves report-filing only, not browsing).
-	async function listMyRuns(playerId: string, limit = 20): Promise<RunRow[]> {
-		return repository.getRunsForPlayer(playerId, limit)
+	async function listMyRuns(
+		playerId: string,
+		page = 1,
+		pageSize = 20,
+	): Promise<{ runs: RunRow[]; total: number; page: number; pageSize: number }> {
+		const { runs, total } = await repository.getRunsForPlayer(playerId, page, pageSize)
+		return { runs, total, page, pageSize }
 	}
 
 	// Phase 7: best-effort one-time state snapshot for a spectator joining a

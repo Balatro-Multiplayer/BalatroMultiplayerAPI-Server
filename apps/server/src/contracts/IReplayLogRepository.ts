@@ -44,11 +44,16 @@ export interface RunWithLogs {
 	logs: PlayerLogRow[]
 }
 
+export interface PaginatedRuns {
+	runs: RunRow[]
+	total: number
+}
+
 export interface IReplayLogRepository {
 	insertRun(params: InsertRunParams): Promise<string>
 	upsertPlayerLog(params: UpsertPlayerLogParams): Promise<void>
 	updateRunStatus(runId: string, status: LobbyRunStatus): Promise<void>
 	purgeExpiredRunLogs(): Promise<number>
 	getRunWithLogs(runId: string): Promise<RunWithLogs | undefined>
-	getRunsForPlayer(playerId: string, limit: number): Promise<RunRow[]>
+	getRunsForPlayer(playerId: string, page: number, pageSize: number): Promise<PaginatedRuns>
 }
