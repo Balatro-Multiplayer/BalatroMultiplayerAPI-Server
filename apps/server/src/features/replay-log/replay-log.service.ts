@@ -26,6 +26,26 @@ const FRAMING_OPCODES = new Set(['manifest', 'end', 'chk'])
 // order is unambiguous in JSON, sidestepping any Lua/JS key-order mismatch a
 // dict-shaped encoding would risk) -- so this must stay byte-for-byte aligned
 // with the Lua side's encoding rules, not just "produce valid JSON".
+//
+// Schema v2 (RLOG.SCHEMA_VERSION, lib/replay_log.lua): card-referencing
+// opcodes (play, discard, sell, buy/open_pack/voucher, pack_pick/use,
+// pack_skip, reorder) carry full card identity inline via RLOG.card_ref, so
+// `args` is opaque to this function but not to a human/tooling reader of the
+// stored log. A per-card reference is a JSON array whose FIRST element's sign
+// disambiguates the two shapes:
+//   already-seen : [ id, tag, tag, ... ]                  -- id > 0, this
+//                  card's identity was already sent earlier in the stream
+//                  under this id
+//   first-seen   : [ -id, kind, ident..., tag, tag, ... ]  -- id encoded
+//                  negative; kind is "pc" (playing card, ident = suit, value)
+//                  or Balatro's native ability.set ("Joker"/"Tarot"/"Planet"/
+//                  "Spectral"/"Voucher", ident = SMODS center key)
+// `tag...` (0-3 elements, on every reference, since enhancement/edition/seal
+// can mutate mid-run): "e:"+enhancement key (playing cards only, omitted when
+// none), "ed:"+edition type (omitted when none), "s:"+seal (playing cards
+// only, omitted when none). Card ids are scoped to a single run (reset each
+// begin_run), assigned in first-reference order -- there is no separate
+// dictionary event; identity is always inline on first use.
 function canonicalHashInput(events: readonly LogEvent[]): string {
 	const tuples = events
 		.filter((e) => !FRAMING_OPCODES.has(e.opcode))
