@@ -50,11 +50,45 @@ services:
       EMQX_BROKER_URL: mqtt://emqx:1883
       EMQX_API_URL: http://emqx:18083/api/v5
       WEB_BASE_URL: ${WEB_BASE_URL:-https://new.balatromp.com}
+      # Unset this and chat falls back to the local obscenity filter, exactly
+      # as before the bridge existed.
+      MODERATION_SERVICE_URL: ${MODERATION_SERVICE_URL-http://moderation:8001}
+      MODERATION_BEARER_TOKEN: ${MODERATION_BEARER_TOKEN:-dev-moderation-token}
     depends_on:
       emqx:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      moderation:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - bmp
+
+  moderation:
+    build:
+      context: .
+      dockerfile: apps/moderation/Dockerfile
+    container_name: bmp-moderation
+    # No host port: only the api talks to it, over the compose network.
+    environment:
+      MODERATION_BEARER_TOKEN: ${MODERATION_BEARER_TOKEN:-dev-moderation-token}
+      # Must equal the cpus limit below - llama.cpp threads spin-wait, so
+      # oversubscribing collapses throughput rather than degrading it.
+      GUARD_THREADS: ${GUARD_CPUS:-4}
+      # Logs what it WOULD block without blocking. Set 0 to enforce.
+      SHADOW_MODE: ${SHADOW_MODE:-1}
+    volumes:
+      # The GGUF is not in the image. Drop it here and the service finds it at
+      # the path baked into the Dockerfile.
+      - moderation-model-cache:/model-cache
+    deploy:
+      resources:
+        limits:
+          cpus: ${GUARD_CPUS:-4}
+          # ~3.7 GiB resident once the model loads; below ~4G the first
+          # judgement is an OOM kill.
+          memory: ${GUARD_MEMORY:-6G}
     restart: unless-stopped
     networks:
       - bmp
@@ -83,3 +117,4 @@ volumes:
   emqx-data:
   emqx-log:
   pg-data:
+  moderation-model-cache:

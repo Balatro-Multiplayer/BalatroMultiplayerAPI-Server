@@ -1,0 +1,5 @@
+# Deterministic pre-judge rewrites — EXAMPLE. Real rules live in the private
+# bmp-moderation-config repo. Format: `source => replacement` with an optional
+# `!! unless-regex` guard. See pipeline/rewrite.ts for full semantics.
+# (Real file contains crude game-abbreviation rewrites; omitted here.)
+gconnect => connect

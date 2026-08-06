@@ -1,0 +1,16 @@
+# Guard domain context — human-edited game vocabulary for the moderation guard.
+# Injected into every Qwen3Guard prompt (lines starting with # are stripped).
+# Add a line whenever a game term keeps false-flagging; restart the service to apply.
+# KEEP IT TERSE — every token here is prompt-prefill cost on every judgement.
+# Measured 2026-07-07: flips game-speak false positives to Safe ("white stake
+# fine?", "lets do black") without changing any real-harm verdict.
+Chat between players of Balatro, a poker roguelike video game. Read slang in game context:
+- stake colors ("white stake", "black stake", "gold stake") = difficulty levels, not race.
+- "cock"/"cocktail" = the in-game Cocktail deck, not sexual.
+- "joker"/"jokers" = playing cards.
+- "kill", "kill the blind", "kill/beat your blind", "kill this run", "blind" = game terms, not violence; a player's "blind" is their in-game round, so "i will kill your blind" is a match taunt.
+- "seed" = a Balatro run's RNG code; "rough/brutal/nasty/hard seed" = an unlucky run, NEVER sexual.
+- 5-letter all-caps codes ("NPJCW", "VUFMN") = lobby invite codes.
+- "type shit" = slang for "agreed".
+- trash talk ("you suck", "ez", "get rekt") = normal competitive banter.
+Only flag content harmful to a REAL person.

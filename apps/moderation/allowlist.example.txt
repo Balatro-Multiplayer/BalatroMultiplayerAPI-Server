@@ -1,0 +1,9 @@
+# Tier-0 fast-pass allowlist — EXAMPLE. Real data lives in the private
+# bmp-moderation-config repo (data-derived from chat export; contains real
+# player messages + PII, never published). One normalized message per line.
+gg
+glhf
+ggs
+good game
+nice
+well played
