@@ -15,19 +15,21 @@ import { getLobby } from '../../state/index.js'
 // finalizeRun's flags param, set by matchmaking.service.ts's evaluateAntiCheat.
 const RUN_TTL_MS = 180 * 24 * 60 * 60 * 1000
 
-// Framing opcodes (see BalatroMultiplayerPvP's lib/replay_log.lua) are excluded
-// from the anti-cheat hash input on both sides -- they're emitted directly via
-// emit_carbon, bypassing RLOG.record, so the client's own hash (computed over
-// RLOG._structured_events) never includes them either.
+// Framing opcodes (see BalatroMultiplayerAPI's api/replay/recorder.lua,
+// MPAPI.replay -- the generic recorder every mod's PVP.RLOG-style alias
+// points at) are excluded from the anti-cheat hash input on both sides --
+// they're emitted directly via emit_carbon, bypassing RLOG.record, so the
+// client's own hash (computed over RLOG._structured_events) never includes
+// them either.
 const FRAMING_OPCODES = new Set(['manifest', 'end', 'chk'])
 
-// Mirrors lib/replay_log.lua's canonical_hash_input/encode_event_tuple:
+// Mirrors api/replay/recorder.lua's canonical_hash_input/encode_event_tuple:
 // gameplay events only, encoded as [t, opcode, args] positional tuples (array
 // order is unambiguous in JSON, sidestepping any Lua/JS key-order mismatch a
 // dict-shaped encoding would risk) -- so this must stay byte-for-byte aligned
 // with the Lua side's encoding rules, not just "produce valid JSON".
 //
-// Schema v2 (RLOG.SCHEMA_VERSION, lib/replay_log.lua): card-referencing
+// Schema v2 (RLOG.SCHEMA_VERSION, api/replay/recorder.lua): card-referencing
 // opcodes (play, discard, sell, buy/open_pack/voucher, pack_pick/use,
 // pack_skip, reorder) carry full card identity inline via RLOG.card_ref, so
 // `args` is opaque to this function but not to a human/tooling reader of the
@@ -95,7 +97,7 @@ interface RunBuffer {
 // §22.3 full-fidelity spectate: the manifest fields a client needs to
 // bootstrap a seeded local run (PVP._start_playback) that reproduces this
 // player's exact cards -- same shape PVP.RLOG.begin_run records client-side
-// (lib/replay_log.lua's REQUIRED_MANIFEST_KEYS), a subset of the full
+// (api/replay/recorder.lua's REQUIRED_MANIFEST_KEYS), a subset of the full
 // manifest event's own payload.
 export interface SpectatorManifest {
 	seed: string
