@@ -1,0 +1,29 @@
+{
+	"name": "balatro-multiplayer-moderation",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "tsc",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"lint": "biome check .",
+		"dev": "tsx watch src/main.ts",
+		"start": "node dist/main.js"
+	},
+	"dependencies": {
+		"node-llama-cpp": "^3.19.0",
+		"obscenity": "^0.4.6"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "*",
+		"@types/node": "^22.0.0",
+		"fast-check": "^4.8.0",
+		"tsx": "^4.19.0",
+		"typescript": "^5.7.0",
+		"vitest": "^3.0.0"
+	},
+	"overrides": {
+		"esbuild": ">=0.25.0"
+	}
+}

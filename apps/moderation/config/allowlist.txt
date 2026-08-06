@@ -1,0 +1,5105 @@
+# Data-derived allowlist (tier-0 fast-pass) — generated from a 685-day chat
+# export, most frequent first. 5091 entries.
+# One NORMALIZED message per line (see normalizeForAllowlist). Lines starting
+# with # are ignored. Every entry was deterministic-clean AND judged Safe by
+# Qwen3Guard — review before shipping; delete any line you dislike.
+gg
+glhf
+ggs
+hi
+yo
+gl
+hello
+hey
+sure
+gl hf
+yeah
+glgl
+ok
+lol
+?
+oh
+u2
+damn
+howdy
+sup
+yes
+heyo
+ggwp
+yoo
+hii
+lmao
+good luck
+no
+yea
+wp
+ah
+sorry
+ye
+xd
+same
+yep
+o/
+okay
+heya
+alr
+yoyo
+ello
+nice
+gg wp
+wow
+you too
+hf
+np
+nah
+kk
+hello hello
+cocktail
+ghost white
+bet
+yooo
+helloo
+cool
+wait
+hiya
+all good
+hihi
+😭
+hello again
+i see
+gl gl
+ty
+haha
+idk
+thanks
+well played
+oops
+nope
+bruh
+yup
+yo yo
+hiii
+hi again
+aight
+what
+glhf!
+huh
+alright
+no worries
+k
+bro
+white
+glhf 🙂
+sounds good
+unlucky
+oof
+mb
+wtf
+dang
+what happened
+ahh
+true
+heyy
+gl hf 🙂
+hmm
+ggs tho
+random
+ggs man
+yeah sure
+thx
+have fun
+oh ok
+ohh
+well
+fr
+i did
+hahaha
+yoyoyo
+hi hi
+uh
+??
+ahhh
+me too
+hellooo
+nvm
+ohhh
+helo
+well gg
+hey hey
+one sec
+fair
+🙁
+wsg
+whats up
+rematch
+glhf 
+weird
+g
+im down
+omg
+ghost
+makes sense
+u too
+ggs wp
+my bad
+🙂
+stake
+yoooo
+wsp
+run it back
+random deck
+damn gg
+welp
+well ggs
+holy
+wassup
+oh no
+hfhf
+hi 🙂
+😄
+ya
+u 2
+what did you have
+sry
+lmfao
+hallo
+gg's
+wanna do cocktail
+fair enough
+gg man
+oh damn
+oop
+hmmm
+gotcha
+gl hf 
+uhh
+my game crashed
+crazy
+thank you
+wdym
+uhhh
+oh wow
+okok
+good game
+.
+all g
+interesting
+lets do it
+maybe
+hey again
+???
+lets go
+how
+yeah lol
+oh well
+ill join
+...
+heyhey
+oh lol
+gg bro
+sweet
+oi
+ggs bro
+tyty
+again
+unfortunate
+i think
+gg tho
+./random deck
+i mean
+so
+o
+yeah same
+hello there
+ikr
+glhf !
+up to you
+happens
+goodluck
+like
+yooooo
+yessir
+nw
+ohhhh
+yeah gg
+heey
+idc
+hell yeah
+no problem
+gll
+same code
+>randomdeck
+indeed
+you there
+random random
+got it
+hey 🙂
+crazy seed
+welcome back
+glhf :)
+1 sec
+ah ok
+for sure
+awesome
+glhff
+not really
+dude
+whoops
+no way
+cocktail white
+oh wait
+white cocktail
+dam
+oh i see
+hm
+what up
+hihii
+ready
+im in
+👍
+glhf :3
+oh yeah
+idm
+gg lol
+hiiii
+ahhhh
+ggss
+gl next
+dc
+thats crazy
+alrighty
+f
+ah i see
+glhf!!
+code
+close one
+oki
+yeah ggs
+why
+gg 
+hahah
+👋
+perfect
+ggs !
+right
+what were your jokers
+yh
+nooo
+tough seed
+yeahh
+good
+dw
+ight
+helloooo
+ofc
+ok glhf
+i know
+man
+um
+its fine
+what jokers did you have
+that sucks
+hi there
+glhf! ❤️
+ayo
+ggs 
+hello :)
+damn ggs
+yuh
+what stake
+hey mate
+but
+ouch
+cya
+mhm
+ok cool
+sorry about that
+my b
+gg mate
+:(
+u can pick deck and stake
+oh okay
+white ghost
+ggs though
+fun seed
+what did u have
+what deck
+real
+reroll
+wpwp
+there we go
+fun game
+hey there
+hahahaha
+wait what
+game crashed
+deck
+great
+heloo
+ik
+!
+uh oh
+yikes
+down for cocktail
+i think so
+you good
+sad
+gl & hf
+gl 🙂
+❤️
+yee
+lmaoo
+good luck have fun
+its ok
+w
+yo 🙂
+oke
+sick
+woah
+wanna run cocktail
+gl 
+hii :3
+yea sure
+it happens
+noooo
+ggg
+you
+sadge
+glglgl
+o7
+it is
+im back
+did you dc
+yeahhh
+sure why not
+back
+i can
+oh nice
+alr glhf
+wanna play cocktail
+hows it going
+yo yo yo
+yay
+brb
+what up homes
+zodiac
+ready up
+hlo
+gg 🙂
+hola
+yello
+what a seed
+yeh
+ggs lol
+halo
+you host
+we meet again
+damnnn
+allo
+restart
+last shop
+u host
+okk
+whatever
+really
+probably
+glhf:)
+cocktail deck
+bans
+🫡
+im sorry
+^
+i didnt
+orange
+lol gg
+shop
+go
+same deck
+lmaooo
+yellow
+here
+hi man
+sure thing
+ill join u
+oh sorry
+but ggs
+so close
+done
+ig
+heyooo
+y
+u there
+btw
+gl hf :)
+same to you
+same lol
+good luck and have fun
+smh
+anyways
+okey
+down
+i guess
+anyways gg
+close
+im ready
+i gtg
+wanna rematch
+fine
+me neither
+whats good
+hi! o/
+yoooooo
+wow gg
+word
+yeye
+:)
+loll
+ooh
+hold on
+i dont mind
+that makes sense
+wanna run it back
+wanna do random
+good luck mate
+idol
+also
+same here
+hello 🙂
+close game
+glh
+up to u
+anyways ggs
+ffs
+hahahah
+wraith
+srry
+gimme a sec
+nooooo
+cool cool
+exactly
+anyway gg
+gl and hf
+hmmmm
+gg!
+g;hf
+hai
+heyyy
+im cooked
+hehe
+uhhhh
+ok sure
+erm
+works for me
+:/
+oh nvm
+oh mb
+glfh
+ggs!
+gl!
+ugh
+ooo
+ggs ggs
+tf
+rough
+greetings
+glgl :)
+glhf ^^
+that was fun
+u good
+why not
+yeah me too
+lo
+gg\
+what happend
+wanna do white stake cocktail
+i got it
+ok gl
+vote
+ope
+glll
+anyway
+heyoooo
+well well well
+oh my god
+ye sure
+yah
+ohhhhh
+fire
+best of luck
+yeah for sure
+hello!
+gl hf 😄
+:3
+;-;
+agreed
+yt
+i dced
+cya around
+it was
+best of luck and hf 🙂
+wth
+send code
+insane
+ur good
+wp wp
+ill join you
+dang gg
+ahh i see
+:d
+glhd
+thats fine
+same thing
+2
+i
+in shop
+umm
+give me a sec
+black
+oh what
+glglhfhf
+sorry man
+hi 👋
+i am
+lolol
+im still in the lobby
+good luck have fun :3
+glhf :d
+jesus
+what a game
+😂
+sec
+mmm
+gs
+okie
+any preferences
+oooh
+reset
+gl on the next one
+weird seed
+yess
+bye
+its okay
+nws
+did you crash
+ggz
+wanna do cocktail deck
+plasma
+ok ok
+ahhhhh
+skip
+gg well played
+hello!!
+gl hf!
+u
+me
+showman
+can we cancel
+i disconnected
+alright glhf
+oh hey
+gl bro
+fs
+gl hf man
+heyoo
+cheers
+yeah true
+whatever you want
+tragic
+no skip
+please
+welp ggs
+yeee
+ghost deck
+you dc
+npnp
+haii
+h
+u2u2
+yeah..
+same lobby
+oh right
+pls
+hi 
+ey
+cancel
+welp gg
+im so sorry
+what jokers did u have
+xdd
+np np
+oh god
+idk why
+hello 
+its all good
+you can pick
+yeah haha
+likewise
+smart
+sounds good to me
+ah damn
+invis
+valid
+take your time
+helllo
+nothing
+ggsss
+join
+bloodstone
+yeah makes sense
+hello friend
+wanna white cocktail
+gtg
+im here
+????
+ooof
+no thanks
+you can choose
+noo
+u wanna pick a deck
+but gg
+v
+allg
+good luck 🙂
+wbu
+glgl hf
+have a good one
+3
+ok then
+you disconnected
+anyway ggs
+yeah i did
+lobby does not exist
+if u want
+hi :)
+ty ty
+glhfff
+gl !
+i agree
+oh dang
+omw
+fml
+waddup
+oh hi
+hbu
+yeah lmao
+in the shop
+dusk
+yo yo 🙂
+^^
+ngl
+thats weird
+if you want
+<3
+ggs mate
+tough
+did u dc
+golf
+wrong deck
+ghost deck white stake
+sure sure
+:p
+yur
+nop
+hiiiii
+i do
+🔥
+gg'
+gg though
+crazy game
+qq
+what do you want to play
+eh
+gl again
+i messed up
+or
+are you there
+ah nice
+i join
+hey yo
+🙏
+ah okay
+lets run it
+that was close
+brutal
+oh hi again
+flush house
+hey:)
+thats rough
+hey 
+oh lmao
+can you host
+💔
+where
+classic
+yea lol
+of course
+and
+thats insane
+wsg lil gurt
+but yeah
+i dont know
+ew
+elo
+ok bet
+i lost
+ahh ok
+oh man
+yeah fr
+i see i see
+yeah fair
+yeah im down
+ah yeah
+bummer
+i'm down
+oh rip
+wild
+i won
+nice game
+what were ur jokers
+glhf ❤️
+you 2
+lets do bans
+glhf'
+glglhf
+/config default-deck-bans
+yippee
+👀
+oh shoot
+uhm
+no idea
+woops
+ghost white stake
+wanna do ghost white
+so sad
+gga
+s
+wha
+oh sure
+ripp
+yeah yeah
+u2!
+ancient
+oh boy
+gulp
+was fun
+ff
+ill host
+ill join urs
+rare skip
+fairs
+glhf again
+mm
+we can
+1
+oh cool
+ic
+gkhf
+you win
+tbh
+yeahhhh
+i dont think so
+what do you wanna play
+im good
+wanna do random deck
+random or bans
+gggs
+i did too
+sounds fun
+a
+ah rip
+lol yeah
+no prob
+last ante
+unfort
+vc
+wut
+yeaa
+im down for whatever
+wait a sec
+i forgot
+hey man
+wym
+gg gg
+helooo
+hh
+ggs 🙂
+very close
+oh alr
+alr gl
+noooooo
+but like
+frfr
+ah fair
+🤣
+can u host
+hi! what's up
+lets run it back
+now
+i did not
+ggs\
+alg
+you as well
+hu
+bet bet
+ong
+not sure
+wanna do white cocktail
+fun
+lmaoooo
+oooo
+bans or random
+insane seed
+glhf! :d
+ggd
+alr bet
+let's do it
+see ya
+ill join yours
+orange white
+ez
+ah gg
+random deck white stake
+zodiac white
+finally
+ummm
+you too 🙂
+you pick
+photo
+wat
+wanna do white ghost
+actually
+thats fair
+there
+any
+i have to go
+lol ggs
+wanna reroll
+i had
+painted
+hello again lol
+ah ggs
+omfg
+can u create the lobby
+hey whats up
+same deck and stake
+sorry bro
+ok gg
+l
+ahaha
+wanna pick a deck
+yes sir
+green
+ok thanks
+hell yea
+i can host
+red
+that's crazy
+hi!
+helllooo
+strange
+lobby doesnt exist
+you can pick deck
+true true
+absolutely
+gg i guess
+all the best
+gl on your next game
+yes please
+ready when you are
+well glhf
+what was your build
+glhf bro
+oh gg
+what u wanna play
+ankh
+coolio
+ggs again
+/randomdeck
+100%
+want to play cocktail
+yeah it was
+crash
+very
+brooo
+no no
+you can pick anything you want to play
+meow
+e
+go for it
+yeah np
+geegee
+wb
+gotchu
+d:
+u win
+oh yea
+gg :)
+oh really
+i didn't
+oka
+i cant
+blueprint
+got a deck you wanna run
+you can pick anything youd like to play
+bro what
+u can choose
+you can pick deck and stake
+you choose
+ello ello
+yeah sorry
+mime
+aight glhf
+nahh
+we can cancel
+you won
+welcome
+glhf <3
+yp
+i misclicked
+how are we
+idk what happened
+okkk
+i have
+xddd
+rematch time
+long time no see
+😔
+did your idol hit
+yo o/
+lolll
+....
+what do u wanna play
+i threw
+thats unfortunate
+what would you like to play
+joining
+great game
+ill make
+okay glhf
+for me
+sure lol
+hi:)
+😛
+ah gotcha
+any deck
+ggs anyway
+crashed
+🥀
+i dc
+ah well
+ho
+hold up
+its fun
+yea gg
+haha yeah
+gold
+nebula
+bett
+good luck!
+sheesh
+rdy
+mbmb
+im so cooked
+yooooooo
+what deck u wanna do
+hi o/
+gg lmao
+wow ggs
+ggs well played
+did you disconnect
+1 min
+not much
+nah its fine
+jeez
+ok lol
+na
+brainstorm
+any pref
+magic
+whats that
+i'll join
+okie dokie
+white stake ghost
+u dc
+fair fair
+will do
+i gotchu
+gg ig
+very nice
+gg ^^
+oo
+glhf*
+so sorry
+hah
+lets cancel
+:l
+yes yes
+noice
+suree
+gold stake
+hellow
+yo glhf
+gl man
+cocktail white stake
+baron
+violet
+im still in lobby
+just cancel
+glhf brotha
+we can run it back
+oh my
+lucky
+ok np
+let's go
+no lol
+yeah fs
+yepp
+wait no
+deal
+sigh
+choose deck and stake
+gl and hf 😄
+aw
+yeah i know
+gg!!
+okay cool
+it was fun
+what deck u want
+yea same
+chad
+i cant see
+gggg
+i gotta go
+you sure
+henlo
+tysm
+aha
+abandoned
+nice nice
+down for white ghost
+hi hf
+ggs dude
+darn
+wrong code
+erratic
+nicee
+ok ty
+lets see
+i guess so
+rematch 
+thanks man
+naw
+okayy
+aww
+bruhhh
+dayum
+you can
+yeah idk
+dont worry
+ggs anyways
+any preference
+oh wtf
+ghost?
+elloo
+we can restart
+misclick
+wp tho
+good luck, have fun! :d
+but sure
+yeah thats fine
+cocktail 
+i will
+idrc
+hi again lol
+take the win
+wpgg
+too
+thats it
+you can choose if you want
+wanna do cocktail white
+gl mate
+i hate bloodstone
+best of luck and hf
+😮
+always
+idk man
+thanks for the game
+dang ggs
+aw man
+what happen
+ill make lobby
+gg anyway
+yo again
+we can do cocktail
+what deck do u want to play
+u can host
+yeaaa
+yow
+nevermind
+that works
+it
+you can host
+alr alr
+thats the code
+im new
+chill
+u2 🙂
+buh
+well done
+u pick
+nono
+yo wsg
+anything
+seltzer
+no clue
+you dced
+jokers
+pick any deck
+good luck! :d
+sure im down
+ohhhhhh
+random again
+my game just crashed
+gl too
+thanks you too
+glhg
+ty u2
+gg]
+gl;hf
+t
+ggs lmao
+bello
+pretty good
+one moment
+you to
+i sold
+sock
+yesss
+bottom decked
+rippp
+gllhf
+heyyo
+yeah lets do it
+sr
+lmao gg
+i'm in
+oh my bad
+lol ok
+wanna go again
+glhf 😄
+merry christmas
+can do
+no rush
+checkered
+try again
+what u wana play
+how's it going
+alright then
+literally
+g;
+thank god
+hellooooo
+surely
+i dc'd
+phew
+good morning
+hi\
+glgl!
+gl boss
+happens to the best of us
+oh alright
+you can pick the deck or we can random
+ggs'
+i have no idea
+oh interesting
+all good lol
+damn it
+let me check
+it's fine
+nahhh
+hoi
+round 2
+hopefully
+ahhhhhh
+rematch lol
+lets gooo
+my idol missed
+i allow 1 veto btw
+start
+idol missed
+yeah why not
+respect
+okii
+your choice
+happy new year
+in
+yeah that makes sense
+what deck you want
+to
+wanna play cocktail deck
+honestly
+sup man
+that
+what deck u wanna play
+oooof
+flush five
+wyw 
+hey!!
+good luck goat
+play
+yeah ik
+its a bug
+what the hell
+which deck
+lobby
+aight bet
+first game
+anaglyph
+what'd you have
+fine by me
+dna
+aye
+facts
+u here
+doesnt matter
+i got lucky
+wanna restart
+ghlf
+lets do ghost
+ggs xd
+ban
+heh
+mmmm
+seance
+thnx
+yea ggs
+i dont remember
+perf
+..
+loool
+yes pls
+ill make the lobby
+gl have fun
+ggs ig
+ggs!!
+kinda
+!!
+gls 
+random 
+howdy 🙂
+u down for cocktail
+well gg wp
+what jokers
+howdy howdy
+i dcd
+yo waddup
+wello
+join up
+which one
+yeah xd
+ahhh i see
+run it
+:c
+glglglgl
+just a sec
+that was a fun seed
+i dont care
+glass
+wanna do random random
+whatd you have
+u can pick
+twice
+lets do cocktail
+zamn
+hf :]
+*
+glhf my friend
+glglg
+broo
+fun one
+ggs indeed
++
+hiiiiii
+im not sure
+ill make it
+same lmao
+we can rematch
+we'll see
+gn
+trust
+im so dumb
+sorry for the wait
+hellloo
+ahahah
+so yeah
+glhf 🩷
+brother
+oh oops
+im in the lobby
+golden ticket
+good luck and have fun 😄
+yo! glhf
+sup gamer
+im down for anything
+i skipped
+what do you mean
+its bugged
+i saw
+hows it goin
+😉
+tyy
+appreciate it
+hello o/
+yeah i think so
+yeah sounds good
+have a nice day
+ggsd
+yeah probably
+huge
+u wanna play ghost white
+hahahahah
+gl and hf 🙂
+you too man
+good luck, have fun
+i didnt see it
+yo!
+joined
+i had so much money
+lets get it
+still
+r
+youre good
+you down for cocktail
+did you
+how do i do that
+ok thx
+thats cool
+i like it
+okay okay
+heidelberg
+good to know
+u won
+niceee
+wanna cocktail
+yeah exactly
+sorry bout that
+bruhh
+so did i
+oh well gg
+no i didnt
+have a good day
+pick a deck
+damn unlucky
+oh weird
+gm
+vote pls
+gl hf <3
+i'll join you
+go ahead
+easy
+hehehe
+glhfd
+oh..
+yer
+this
+im not
+i can wait
+supp
+you make lobby
+i got disconnected
+same same
+lets do white
+kay
+love it
+white 
+sound
+hello bro
+glf
+ye gg
+hey what's up
+i got kicked
+whats the code
+dawg
+odd
+yeo
+u sure
+says lobby doesnt exist
+gk
+cancel match
+it is what it is
+blue
+how are you
+disconnect
+i hate idol
+gl in next
+uhhhhh
+idol didnt hit
+oh hey again
+aight gl
+fr fr
+hmmmmm
+never
+yes lol
+lets do random
+for real
+yeah i saw
+that was so close
+take care
+you create
+i joined
+stake bans
+sorry lol
+glhf\
+mine too
+my fault
+thank u
+red seal
+ok nice
+ok gl hf
+lets ban
+ggs i guess
+:((
+rand deck 
+im down for cocktail
+or nah
+any prefs
+or cocktail
+1s
+are you down for cocktail
+here we go again
+ooooh
+wsp gamer
+salutations
+
+# --- Guard-flagged high-frequency candidates (0.6B false positives on game ---
+# --- vocabulary). Human-review: uncomment any line to approve it. ---
+rip
+white stake
+i crashed
+damnn
+rough seed
+random white
+damnnnn
+damm
+black stake
+dope
+hell ya
+white is fine
+i cant see your jokers
+
+# --- v2 additions (2026-07-09): teacher-Safe, count>=15, deterministic-clean
+# --- (excludes slurs/links/rewrite-words/discord-artifacts). 3605 entries, +126,448 msgs.
+hey!
+ghost white?
+white stake?
+white?
+what happened?
+you too!
+hello?
+random?
+have fun!
+rematch?
+stake?
+run it back?
+random deck?
+sure!
+what did you have?
+gl hf !
+./random deck?
+howdy!
+glhf !!
+what?
+💀
+random random?
+you there?
+ggwp!
+dc?
+glhf!!!
+code?
+huh?
+gg !
+ggs !!
+what were your jokers?
+ready?
+what jokers did you have?
+what stake?
+white ghost?
+what deck?
+reroll?
+deck?
+you good?
+you?
+did you dc?
+hiya!
+wdym?
+thanks!
+hf!
+heyo!
+restart?
+u host?
+really?
+goodluck!
+same deck?
+again?
+u there?
+good luck and have fun!
+zodiac?
+heya!
+why?
+wanna rematch?
+no?
+wanna run it back?
+wp!
+wanna do random?
+gg?
+yo?
+gl!!
+u good?
+what happend?
+how?
+cya around!
+what did u have?
+gl and hf!
+same thing?
+orange?
+oh?
+any preferences?
+<a:wave:1157901903749976074>
+reset?
+gl on the next one!
+did you crash?
+same!
+same?
+well played!
+hello!!!
+skip?
+u?
+gl hf!!
+no skip?
+ghost deck?
+you dc?
+yeah...
+hi there!
+cancel?
+hi !
+hey hey!
+hello !
+u wanna pick a deck?
+random white?
+gl !!
+thank you!
+bans?
+u too!
+all good!
+did u dc?
+can we cancel?
+ghost deck white stake?
+all good?
+are you there?
+plasma?
+hello again!
+yellow?
+<a:wave_hi:1354591308563611768>
+nice!
+hey !
+can you host?
+ty!
+ghost white stake?
+you host?
+wanna do ghost white?
+u2!!
+rare skip?
+good game!
+wanna do random deck?
+random or bans?
+vc?
+hi! what's up?
+can u host?
+what do you wanna play?
+sup!
+black stake?
+bans or random?
+hm?
+random deck white stake?
+orange white?
+zodiac white?
+wanna do white ghost?
+good luck have fun!
+wanna reroll?
+shoot
+same deck and stake?
+wanna pick a deck?
+hi!!
+gl on your next game!
+what u wanna play?
+what was your build?
+cya!
+black?
+crash?
+got a deck you wanna run?
+<:idolcult:1344479613614559273>
+did your idol hit?
+what do u wanna play?
+what would you like to play?
+sounds good!
+good luck!!
+no worries!
+ok!
+ggs tho!
+any pref?
+did you disconnect?
+what do you want to play?
+white stake ghost?
+u dc?
+gold stake?
+bro?
+rematch!
+what jokers did u have?
+what were ur jokers?
+gg!!!
+down for white ghost?
+you sure?
+<a:hiii:1362153595100991589>
+hi again!
+rematch ?
+ghost??
+hii!
+yes!
+any preference?
+best of luck and hf!
+<:drspec2wave:1287806525892460607>
+now?
+gg wp!
+jokers?
+vote?
+yeah!
+ggs wp!
+ello!
+okay!
+hbu?
+wbu?
+same code?
+random again?
+idol?
+right?
+white stake ?
+wanna go again?
+gl gl!
+glgl!!
+you can pick the deck or we can random.
+wyw ?
+hey!!!
+ggs?
+which deck?
+first game?
+same to you!
+lobby?
+what'd you have?
+wanna restart?
+u here?
+yeah?
+gls !
+ggs!!!
+random ?
+what jokers?
+wello!
+have a good one!
+<:absolutecinemacinema:1427998992280850472>
+ok glhf!
+yo!!
+gg.
+<:bonk:1427748162139066449>
+u wanna play ghost white?
+good luck, have fun!
+what do you mean?
+did you?
+u 2!
+hai!
+hello friend!
+good?
+white ?
+you make lobby?
+hey what's up?
+oh...
+hi?
+whats up?
+how are you?
+ready up?
+disconnect?
+u sure?
+rand deck ?
+yes?
+stake bans?
+hows it going?
+yep!
+cancel match?
+you create?
+any prefs?
+you here?
+did you leave?
+yeah thats fair
+i join u
+i will join
+ah unlucky
+im scared
+😢
+tho
+ghost white ?
+well played man
+isee
+watcha up for?
+wp gg
+based
+im so confused
+ggssss
+oh shi
+i took it
+gee gee
+hiya!!
+nooooooo
+hello new friend
+me too lol
+yupp
+gl :)
+good game 🙂
+okay then
+random stake?
+sure 🙂
+gl hf:)
+what is that
+oh nooo
+:))
+go again?
+hahahahaha
+holy moly
+glhf1
+u choose
+ah makes sense
+one more?
+ok?
+noooooooo
+):
+whatsup
+i'm ready
+lovely
+yeah ok
+then
+pref white stake
+glhf man
+want to run it back?
+ops
+gi
+gold?
+see
+so like
+gljf
+gl*
+lowkey
+ggs tho wp
+that was rough
+ohh ok
+so true
+not yet
+i sold it
+your call
+hewwo
+alo
+oops lol
+peak
+damn lol
+who won?
+yeah no worries
+haiii
+ahh okay
+interesting seed
+u can pick stake
+aaah
+uh sure
+glhf!!!!
+we can do random
+u make?
+hello sir
+gradient
+gl hf !!
+game
+same deck/stake?
+what deck do you want?
+glgl 🙂
+aint no way
+we go again
+no money
+i didnt take it
+lobby code
+idol hit?
+take ur time
+high card
+wanna random?
+tough game
+glhfg
+lets goo
+you played well
+i'm still in the lobby
+oh dear
+meh
+dang it
+we skipping?
+same lobby?
+hf<a:cheergi:1014469264796823643>
+coming
+lol same
+either way
+understandable
+i was
+d
+np!
+it crashed
+white stake random deck?
+yooy
+which stake?
+so bad
+wanna do random random?
+whats that?
+or not
+lmao yeah
+gl next game
+yeah maybe
+its chill
+hey hows it going
+lemme check
+oh true
+sadly
+join me
+money
+caps
+jk
+thanks for playing
+yellow white?
+one second
+glhf~
+this one
+gotta go
+alr ggs
+i missclicked
+ok lets go
+hard seed
+ahah
+cool!
+you wanna host?
+well played tho
+i'll join yours
+prob
+steel
+what's up
+ok im back
+you still there?
+good luck man
+best of luck!
+thats tough
+down for whatever
+the rematch
+i hate this game
+i bottom decked
+oh really?
+i feel that
+okay gl
+there you go
+im dumb
+damn that sucks
+oh hello again
+same same?
+sucks
+want to go random?
+wanna do bans or random?
+damn rip
+im down for wtv
+didnt see it
+god
+pack
+ggs :d
+wanna do ghost?
+you ready?
+at the start
+ah sorry
+aah
+hello\
+ah right
+glhjf
+wrong stake
+weird game
+wait sorry
+4
+tyt
+wp though
+what deck you want?
+hlhf
+bruhhhh
+-_-
+idol hit
+where was it
+ill create
+sure ig
+what was it
+thats why
+lool
+you can pick stake and deck
+67
+yeah it is
+its always a high card seed
+wpp
+whats cooking good looking
+i need to go
+☠️
+look at my deck
+lets try again
+good good
+sorry for that
+gg*
+we back
+it did
+fr?
+hallooo
+🥲
+yea yea
+glhf mate
+ecto
+ghost is fine
+hell nah
+i cant see ur jokers
+ji
+gl gl gl
+wtf is this seed
+ggs then
+should be good now
+sixth sense
+certificate
+gllll
+ohh i see
+got too greedy
+flush 5
+,/random deck?
+ok sounds good
+you joining?
+i'm sorry
+glhf 🔥
+it worked
+wild seed
+lets just cancel
+i dont
+what you have?
+perhaps
+yes i did
+he
+rip gg
+nice one
+ahh gg
+hahahha
+ggswp
+nah all good
+look
+you're good
+never saw it
+epic
+damnnnnn
+i forgor
+gl hf 😉
+unlucky man
+glhf! :3
+ye ye
+wym?
+got a lobby?
+yeah ofc
+what hand were you playing?
+ah lol
+haha gg
+no thank you
+i got dc
+holy seed
+chillin
+your good
+or ghost
+hiyaa
+this ante
+and dusk
+we can do whatever deck/stake you want i like them all
+im so stupid
+almost
+yeah i see
+that was a crazy seed
+neat
+thats wild
+same again?
+any deck you want to play?
+i knew it
+yay!
+can you vote?
+gg brother
+g'day
+wanna play again?
+i don't think so
+thats ok
+same for me
+could be
+ooooo
+bet glhf
+hi glhf
+too greedy
+hry
+whats uppp
+cryptid
+yeah.
+tru
+here we go
+that was a fun one
+alr gl hf
+you got a lobby?
+white stake good?
+oh noooo
+but still
+ayoo
+wraith?
+oml
+kk glhf
+and stake
+it does
+you wanna choose?
+ghost ?
+ahahaha
+my goat
+wp !
+apologies
+up
+you dced?
+brutal seed
+ill do it
+nice seed
+herro
+try again?
+whattt
+we can do bans
+damn bro
+gl next!
+suup
+indigo
+bad
+alright ggs
+what deck do you want to play?
+wp ggs
+i swear
+ghost white again?
+😭😭
+lfg
+spectral
+red deck?
+you got it
+or bans
+nty
+you can pick anything you want
+glhf gamer
+lmaooooo
+ok im in
+mmmmm
+oh whoops
+ripppp
+wowww
+probs
+ggwp!!!
+ill wait
+x)
+what happened ?
+ahh nice
+at all
+dont think so
+😼
+hihi :3
+lets goooo
+that was crazy
+you too!!
+u can pick deck
+pls vote
+make sense
+gl h
+sur
+you did
+i had it
+im an idiot
+glhf :]
+both
+ayyy
+ye same
+i seee
+glhf!)
+what the
+i cant see them
+thx!
+u ready?
+hey yooo
+it says lobby doesnt exist
+hello.
+sooo
+cool glhf
+what you wanna play
+yea makes sense
+showman?
+its alright
+looks good
+rebate
+create lobby?
+gg dude
+dangg
+sure np
+gl hf!!!
+crap
+thats unlucky
+mannn
+you can pick the deck
+tough one
+what was the build?
+where?
+i had idol
+broooo
+what hand did you play?
+have to go
+gl :d
+yeha
+you can choose deck
+hi sorry
+whatd u have
+lmfaooo
+im in pvp
+kms
+hey hi hello
+ait
+whats cooking
+no worries lol
+bug
+thats good
+perkeo
+we can do that
+the
+thanks bro
+oh no!
+yeah fair enough
+soz
+danggg
+glhv
+hi'
+glhf c:
+alr then
+white stake fine?
+this is the code
+u make lobby?
+that's fine
+this seed
+you crash?
+what happen?
+nice gg
+ah dang
+i get it
+can you create?
+wp man
+anyway wp
+hey yoo
+no sorry
+okay sure
+hi lol
+mb mb
+redo?
+what were you playing?
+k glhf
+glhf :d !!
+ehh
+sup sup
+early
+you can choose the deck
+yerp
+haha ggs
+hiiiiiii
+hey hey :)
+ever
+mhmm
+gg thank you
+good luck bro
+alr glhf!
+ranked
+guh
+what were you running?
+i dunno
+ghf
+black deck
+si
+yeeee
+gg gl next
+ggwp!!
+glg
+ok no worries
+ggs gl!
+game crash
+okay sounds good
+we will see
+glkhf
+alr gg
+all good now
+idk how
+or random
+no pref
+stakes?
+u2 mate
+oh hello
+0
+it bugged
+opps
+can we restart
+hie
+bettt
+up 2 u
+we good
+can u create?
+gl!!!
+this?
+this is my first game
+idk then
+ghost black?
+my pc crashed
+gg sir
+do u have deck prefrence?
+have a good day!
+cant see your jokers
+u can pick deck and stake if u want
+damn nice
+wanna try again?
+?*
+you left
+looool
+i was like
+gg xd
+you can have the win
+i threw so hard
+congrats
+amazing
+it be like that
+i thought about it
+erratic?
+ello again
+hi hi!
+would you be down for random random?
+u disconnected
+i can't see your jokers
+i'm back
+glhf xd
+hahha
+abandoned?
+you left?
+can u make lobby
+glhf👍
+yo!! whatever deck and stake you want is fine with me
+you crashed?
+not at all
+wah gwan
+did u crash?
+at the end
+this seed is crazy
+alr cool
+latest file
+gg haha
+what was your econ?
+hey, cool with random deck and stake?
+whoa
+yeah ig
+disconnected
+works
+and brainstorm
+>randomstake
+wait nvm
+i had a lot of money
+ggs fun game
+1sec
+can we restart?
+so...
+ayy
+oh gotcha
+you dc'd
+so unlucky
+sorry mate
+hi:d
+definitely
+?????
+pick
+what's up?
+or what
+good luck again
+what does that mean
+yellow deck?
+we can do white
+lets do this
+hey sorry
+are you in pvp?
+oh.
+green stake
+;p
+woww
+yes sure
+you too :)
+come on
+just a moment
+new code
+im dead
+u create?
+been there
+ill cancel
+yep yep
+can you make the lobby
+rq
+yote
+yo wsp
+plasma white?
+ya sure
+glhf! :>
+lets restart
+what is this seed
+gl 🫡
+ggs~
+allright
+let me restart
+alright gl hf
+this is my first time
+yeah sure!
+and chad
+can you make the lobby?
+you pick deck and stake
+i can make it
+pain
+have a gn
+white stake ok?
+ok ggs
+aight gl hf
+sure lets do it
+dced
+:o
+gl gl 🙂
+u2! :d
+maybe not
+oh fair
+😅
+it's okay
+lucky cards
+good stuff
+kk gl
+lol all good
+you can take the win
+unlucky gg
+we run it back
+correct
+ya ggs
+i can make
+uo
+hiu
+gj
+yep lol
+llo
+pvp
+eyo
+i believe
+which one?
+ohhhhhhh
+2.20
+ha
+xdddd
+🤔
+yeah i figured
+missclick
+the classic
+very fun seed
+no econ
+.-.
+see you around
+all good man
+ban stake
+spicy
+any deck preference?
+yoyoy
+what you wanna play?
+u make
+thanks, you too
+hello)
+what the heck
+it says your profile isnt fully unlocked
+i mean yeah
+orange deck?
+yessss
+yeah i guess
+hello :d
+besto luck~
+i had nothing
+sorry!
+whats up!
+ur choice
+not bad
+yeah no problem
+ok good
+i did it
+thats sad
+you got this
+istg
+fair play
+u2 bro
+oyoy
+how do i do that?
+i choose violet
+waiting
+it was close
+or no
+gimme a second
+uff
+gl then
+hl
+found it
+shame
+good hbu
+i just got it
+spectral pack
+fine with me
+last pvp
+yellow white
+that's rough
+i had seltzer
+it's ok
+me 2
+basically
+you wanna make the lobby?
+sureee
+good luck !
+so?
+what did your idol hit?
+green?
+wanna do white stake?
+ggs.
+gl next match
+what deck wanna use?
+did i dc
+ghost white or bans?
+bru
+ggs :)
+do you have a lobby?
+coool
+its cool
+sounds great
+i figured
+send it
+nice deck
+nah sorry
+thats so sad
+damn wp
+5oak
+frrr
+oh ggs
+ok sorry
+pick anything ill play whatever
+u joining?
+first
+rdy?
+we can play whatever you want
+my idol didnt hit
+ah alright
+x
+agree
+vagabond
+dammit
+glhdf
+after
+join mine
+sr i dc
+gold zodiac?
+i got dced
+multiplayer
+lets go again
+bang
+try this one
+wait a minute
+i dont really care
+who won
+solid
+you disconnected?
+alright gg
+seed
+shi
+wierd
+wanna vc?
+dam gg
+ok wait
+what now?
+oh all good
+doesnt exist
+lollll
+shoot the moon
+oh well ggs
+yeahhhhh
+first time
+a lot
+ghost again?
+yeah man
+<:sendcode:786270027300077668>
+glfh!
+yeaaaa
+alright!
+hello~
+gooood luck have fun :3
+nothing much
+gl hf :d
+calm
+lets do that
+sorry dude
+what happened??
+its not
+alright glhf!
+ticket
+i love it
+wanna reset?
+too bad
+lesgo
+yea lmao
+hang on
+i win
+ante 1
+glhgf
+fixed
+i banned oracle
+ow
+ghost it is
+wanna host?
+choose
+ahh fair
+gl with your next game
+yeah that sucks
+рш
+mk
+<a:nb_wave:1447945239447867625>
+did i dc?
+i pick ghost
+that's fair
+pog
+tuff
+wanna do random deck random stake?
+gg#
+huy
+🤷‍♂️
+yi
+yours?
+yeah we can
+whatd you have?
+okay bet
+nm
+im so mad
+aight ggs
+timer
+suppp
+oh haha
+i don't mind
+what a crazy seed
+we can just cancel
+scary
+sure then
+black gold
+ggs]
+hi :3
+unfortunately
+lets go ghost
+oh word
+ggs haha
+ggs my friend
+have a good night
+ah alr
+first shop
+ggs <3
+we can run it back if you want
+awh
+whats the issue?
+early on
+misclicked
+standard pack
+i left
+where was blueprint?
+nuh uh
+dw about it
+happy holidays
+your pick
+great!
+i am sorry
+that's weird
+lololol
+holy crap
+we can cancel if you want
+terrible seed
+enjoy
+yeah unlucky
+baron mime
+hi 😄
+question
+ic ic
+i never saw it
+good job
+same xd
+oh xd
+what deck do you want
+yeap
+u can
+sure.
+how tf
+orange deck
+doesnt work
+forgot
+yeppp
+heyaa
+hihii <:menherawave:1065624057095127080>
+you know what
+glhf lol
+likewise!
+balatro
+something like that
+double skip?
+just curious
+im confused
+frick
+red?
+hio
+veto?
+no idol?
+join back
+u host or me?
+u got it
+😭😭😭
+somehow
+me?
+can you send the logs?
+what is it
+any deck in mind?
+cmon
+this is my first match
+its alr
+same haha
+oracle
+rejoin
+i am in
+its good
+u dced
+what deck u want?
+whats the issue
+you can pick a deck
+heyyyy
+oh sick
+hi again 🙂
+white random?
+that was a fun game
+where was idol?
+good game man
+and photo
+gimme one sec
+oh dam
+do you use the multiplayer launcher?
+there ya go
+aura
+thanks 🙂
+hey :)
+hell no
+can you host please
+oky
+yuppp
+sure yeah
+i got you
+lol sure
+yeah one sec
+can you vote
+still says it
+whatever u want
+гг
+down for ghost white?
+uhh sure
+sg
+im so sad
+wowwww
+ahh gotcha
+any deck prefrences?
+oh thanks
+gimme a min
+white is good
+off
+i'll join u
+shore
+baron?
+good luckk
+want me to host?
+:0
+my guy
+yeah bro
+well then
+i hate it
+campfire
+glhf then
+where was the red seal?
+i give up
+yeah wp
+hihihi
+less go
+hello :]
+lets play
+neither
+oof gg
+is your profile fully unlocked?
+hello ?
+dont know
+ggggg
+nvm lol
+r?
+you as well!
+last chance
+glhf🤝👍
+i like ghost
+wanna do ghost
+yoyo!
+ohhh i see
+hmmmmmm
+that'll do it
+where was the brainstorm?
+sure man
+lock in
+how so?
+shalom
+._.
+you got lobby?
+what decks
+what ?
+yh sure
+type shit
+he won
+send
+i feel you
+yea im down
+u left
+random white stake?
+i forfeit
+i dc'ed
+kings
+i did?
+bruh what
+ah, i see
+let's run it
+rip ggs
+anyways wp
+black gold?
+5
+ahh yeah
+dice
+hru?
+nope lol
+gg anyways
+what a weird seed
+lame
+idk lol
+me either
+def
+howdy again
+bp
+whattup
+see u
+me2
+damn wtf
+glhf! :=)
+yo gm
+but idk
+omggg
+yellow deck
+heck yeah
+ehhh
+you make?
+>
+dunno
+nah nah
+jello
+lets do black
+mb bro
+im in lobby
+my idol never hit
+close match
+u 2 ❤️
+yeah 😄
+for some reason
+btw im on an alt so if u care about mmr we can cancel
+deck and stake up to u
+ggs ^^
+damn ok
+ty you too
+same bro
+never played it
+try this
+op
+my idol hit
+ghost gold?
+damn...
+idek
+what u wanna do
+😭 😭
+when?
+my god
+sorry i have to go
+tks
+how so
+oh sry
+next time
+<:galaxybrain:1430603436755521536>
+can you make lobby
+how does this work
+ah cool
+ah yes
+game crash?
+lol hi
+yeah all good
+hi bro
+all good haha
+truee
+see you
+same jokers
+well, ggs
+wow that was close
+im easy
+what was it?
+whew
+good game tho
+ok glgl
+that was tough
+host
+what did you find
+down for ghost white or nah?
+i am still in the lobby
+you can pick whatever
+ohh okay
+sure idm
+i dont understand
+very well played
+did
+hey?
+that was a close one
+cant see ur jokers
+ooooof
+%appdata%/balatro/mods/lovely/log
+haha nice
+i fumbled
+6th sense
+:>
+aaaa
+black deck gold stake
+oops sorry
+ah well gg
+start?
+i trolled
+i thought so
+yea sorry
+why not?
+it was crazy
+give me a min
+there it is
+gg ul
+so uh
+i had 3
+gl hff
+its you
+y2
+better
+blueprint?
+sorry wrong code
+wait what?
+n
+ggsa
+is
+u2 !
+what is this
+random is fine
+glad
+idk tbh
+cancel pls
+hf hf
+gg c:
+gg close one
+glhffff
+hrllo
+not for me
+thank
+rough game
+just in case
+yoyoyoyo
+u can pick the deck
+ready when u are
+rejoining
+gl king
+tnx
+u2 :d
+hi! what deck/stake would you like?
+letsgo
+crashed?
+ill rejoin
+sameee
+wasup
+intersting
+anyway glhf
+i voted
+i am back
+les go
+you dcd
+yeah that works
+ye lol
+soooo
+econ
+alr gl gl
+hi again 😄
+okay lol
+gege
+one
+everything good?
+goof luck
+anyway gg wp
+crazy work
+me to
+choose a deck
+new lobby
+yw
+im so bad
+you hosting?
+good now?
+not
+thats
+it dced
+guess so
+bloodstone?
+flush
+glhf<3
+!randomdeck
+bean
+gl o7
+probably not
+insane game
+halloo
+possibly
+holy bottom deck
+weh
+no.
+how ?
+the code
+so weird
+gg !!
+no problem!
+i had 2
+u2 ❤️
+nahhhh
+what you wanna do?
+i had no money
+that was insane
+i respect it
+good call
+lobby doesn't exist
+\
+super close
+where was the red seal
+is it?
+hurry
+пд
+have fun !
+ghsot white?
+gl in your next games
+??????
+its crazy
+im down for that
+ofc ofc
+cya round
+whatttt
+sir
+yea ik
+ok all good
+where was brainstorm?
+who knows
+hi gamer
+sure sounds good
+yo whats good
+sometimes
+well gl hf
+hfgl
+give me one sec
+i am so sorry
+ola
+oh noo
+something came up
+wanna play ghost white?
+idk what that means
+servers died, restart or tie
+hru
+ight bet
+standard
+i fixed it
+you can choose deck and stake
+t_t
+again lol
+servers flickered, theyre back now, either rematch or cancel
+lul
+i got greedy
+it kicked me out
+apparently
+morning
+damnit
+ancient?
+ok one sec
+yeppers
+did idol hit?
+yoey
+nt
+well, gg
+̄\_(ツ)_/ ̄
+hmm?
+lets try
+bad seed
+have a nice one
+g l h f
+can you send logs?
+yup yup
+good!
+we can do ghost
+goated
+any bans?
+wow lol
+another one?
+oh for sure
+just take the win
+luck
+gl hd
+hey bro
+afk
+sorry gtg
+it works
+heidelberg?
+go again
+very fun
+hf*
+anyways glhf
+where was the blueprint?
+and bloodstone
+bad luck
+welcome back lol
+wtv
+hy
+😆
+yeah it happens
+what seems to be the issue?
+white stake ghost deck?
+maybe?
+not me
+well played though
+fun match
+yeah that's fair
+okay thanks
+oh!
+hihi!
+gday
+ay
+says lobby does not exist
+all random?
+yup!
+got lucky
+or random?
+wp bro
+gotcha gotcha
+coctail?
+i played so bad
+that was fast
+mate
+my internet
+can u vote
+checks out
+whats up boss
+lol nice
+what did you do
+i didnt skip
+what does that mean?
+i sold so hard
+do it
+are you here?
+glhf!! :3
+im fine with whatever
+well ggs!
+glass?
+fair enough lol
+hello hello!
+plz
+what did you play?
+wait wtf
+good seed
+alrr
+lghf
+aite
+lol hello again
+are you in the pvp?
+that explains it
+im chilling
+ill ban nebula
+i’m down
+well yeah
+heres the code
+yeah mb
+i’ll cancel
+no worry
+gl twin
+lets do it!
+how's it going?
+no kidding
+i tried
+sorry again
+help
+and idol
+red seal?
+ups
+yuck
+where was it?
+heloooo
+nah i didnt
+oh wait nvm
+i had no econ
+i ff
+glhf too
+well gg man
+alr2
+im in the pvp
+it was in the shop
+yup all good
+tt
+failed to parse
+gl hf dont get fried
+oh lord
+thats what im saying
+rr?
+what deck do you wanna play?
+didnt draw my hand
+heard
+will cancel
+!!!
+i did the same
+thanks for waiting
+did u
+that was a good game
+i suppose
+lets do orange
+😎
+ah fair enough
+i skipped it
+idk what that is
+do u have a deck/stake in mind
+sorry sorry
+wrong profile
+frr
+speedrun
+heyaaa
+fun game tho
+i don't know
+lit
+hellor
+yoo wsp
+stake ban?
+ffst
+ye fr
+<a:kirbydance:716226663884652574>
+you're welcome!
+hear me out
+im down for random
+deja vu
+nooooooooo
+(:
+was close
+gg friend
+i got
+ok nvm
+what deck do you wanna play
+er
+gg)
+im good with whatever
+id rather not
+oh ye
+wo
+oh huh
+yerr
+gurt
+ahahahah
+yeesh
+ill make a lobby
+haha ok
+ah nvm
+err
+aaa
+gg, well played
+nwnw
+u2 u2
+hi hi 🙂
+mods
+u left?
+red deck
+not too bad
+create lobby
+green deck
+what deck u wanna play?
+u got this
+i'm here
+same to u
+yoyoo
+i have no clue
+ggs gl next
+heyp
+it still says it
+this will be fun
+i saw it
+same stuff?
+i forget
+so much
+oh my b
+ank
+u dced?
+glhf! 🙂
+not working
+as well
+uhmm
+run it back ?
+yo what deck wanna use?
+why did you leave
+we can go again
+lemme restart
+hey mate!
+xoxo
+i believe so
+thoughts?
+ehm
+guess not
+what’s up
+what now
+i see that
+yes plz
+what deck you wanna play
+so down
+ok boss
+good one
+sorry abt that
+aaaah
+trueee
+looks good to me
+i know right
+i just
+fsfs
+wrong vote
+ggas
+nah its all good
+hhi
+in a pack
+yoooooooo
+hey'
+lets rematch
+cool gl
+my wifi
+yop
+gimme 1 sec
+ahhh ok
+thatll do it
+i think i got it
+can you create the lobby?
+gg tho!
+glhf homie
+u wanna make lobby?
+good to go
+ah okok
+ughh
+i found it
+on it
+i got kicked out
+ih
+rn
+down for random?
+yeah same lol
+awesome!
+heeey
+what just happened?
+ggggs
+okidoki
+last round
+high card?
+wanna rematch ?
+wtf?
+haha no worries
+jo
+hell ye
+lol glhf
+helllo hello
+thank you thank you
+cant see
+card
+you dc'd?
+hiiiiiiii
+you want to go random?
+yeah i am
+i cant join
+alright gl
+ggs 😄
+alright cool
+truly
+im new to this
+frrrr
+yeah 😭
+i was cooking
+can u make the lobby?
+haha all good
+yea np
+2 secs
+im fine with anything
+icic
+this game
+did ur idol hit?
+think so
+yeah glhf
+yeah i saw that
+all good all good
+idol never hit
+didnt see
+damn!
+gh
+good with me
+u played well
+yes it was
+yea i did
+what do we do
+hi<:chubbers:413367937076953108>
+lowk
+not rlly
+too late
+can you vote please
+what deck do you want to play
+nah you good
+same room
+make a lobby
+i got so lucky
+lmao same
+don't worry
+nice deck fixing
+u wanna host?
+whatcha up for?
+thats true
+4oak
+1-1
+i didn't see it
+disconnected?
+and sock
+it was rough
+yo bro
+like wtf
+no ty
+samee
+imo
+3 random decks
+but ok
+im so down
+1016c
+no shot
+so annoying
+6
+heads or tails?
+u2 :3
+aight gg
+good lord
+down for anything
+i hope so
+hello 👋
+my game is bugged
+i can do it
+seems good
+dont forget to vote
+first time?
+goat
+hey hey hey
+cool beans
+yurp
+thats so funny
+yeh sure
+gl to you too
+what about you
+cool seed
+gg indeed
+what do we do?
+sry about that
+<a:catyes:820313497328943144>
+see ya around
+yeah rip
+not even close
+rip lol
+alright good luck
+interesting game
+red seal steel
+oh uh
+faceless
+i am ready
+lets go!
+no bro
+we can play what u want
+can u vote?
+glhf :))
+what you got?
+<a:hi:1194694181499699280>
+nah im good
+sure?
+i’m in
+ok im ready
+fosho
+gg that was fun
+same tbh
+mannnn
+one more
+u pick deck and stake
+anyways, gg
+lmao ggs
+damn, gg
+yeah same here
+didnt hit
+should be fine
+send the code
+wild game
+golf!
+we can reroll
+so dumb
+bro wtf
+oh no worries
+gl in next ones
+trio
+so real
+hwy
+awww
+great seed
+skill issue
+sup again
+hi vro
+unreal
+i might be cooked
+hey again!
+jajaja
+ggs boss
+i pick zodiac
+what deck you feeling like?
+yes.
+vanilla
+i have a question
+magic?
+now what
+i'm down for whatever
+i dont really mind
+ok no problem
+hello :3
+that was a tough seed
+gg 😭
+but yeah gg
+oh yes
+figured
+rematch 😄
+remake?
+what did you do?
+seriously
+did u leave?
+u did
+yk
+violet?
+can we do white stake
+its always high card
+or something
+you disconnect?
+glhf again!
+suo
+ah man
+ahoy
+ahhh gotcha
+glk
+gambling
+ghost white??
+i allow 1 re-roll
+: (
+me too!
+what deck do u want
+should be good
+soo
+i didnt see
+okay thank you
+well well
+thats the lobby code
+you host or me?
+oopsie
+so idk
+is the code
+ggs man!
+holyyy
+>random deck
+magic white?
+best of 3?
+sure, why not
+lol hi again
+damnnnnnn
+very fun game
+awful seed
+just
+what was your jokers?
+mb lol
+greed
+i join you
+i died
+heads
+yeah you too
+glhf]
+black deck gold stake?
+but yeah ggs
+glhf@
+good luck.
+server died please restart match
+test
+yurr
+hit
+that works for me
+idk what to do
+copy
+decks
+yaaa
+okay np
+didnt know that
+ah got it
+not particularly
+good choice
+same 2 u
+hullo
+i like orange
+flush house?
+purple
+i was too greedy
+change the deck
+wanna just run it back?
+wooow
+that seed sucked
+haiiii
+either way ggs
+prolly
+yo whats up
+is what it is
+ur call
+bad draws
+lets just play
+yeah its fine
+boring
+geez
+so much money
+i was broke
+how u doin
+theres no way
+whats up beast
+v_v
+huh weird
+ok got it
+gl have fun!
+never mind
+it was insane
+thats brutal
+ok lets do it
+pretty much
+no worries man
+doing good
+orange deck white stake?
+wazzap
+and seltzer
+yeah okay
+<:stuntmancult:1344479617120993342>
+did your game crash?
+well damn
+ok fine
+youre fine
+glhf x2
+you can pick stake
+nah bro
+oh that makes sense
+it's all good
+that was
+:)))
+ggs close one
+good luck!!!
+not rly
+well gl
+it glitched
+i already did
+ok ready
+rematch haha
+no not really
+any deck stake prefs?
+gg then
+white or black?
+just in shop
+i allow 1 re-roll btw
+glhf friend
+hello helloo
+whats the code?
+what do you have
+its a glitch
+w8
+for fun
+all good bro
+thanks for the help
+gg btw
+that was a good one
+i'll wait
+ill make a new one
+yes it is
+gl hf ❤️
+it says lobby does not exist
+im joining
+back again
+well played ggs
+omg lol
+really close
+ban stakes
+ite bet
+random deck random stake?
+well ggwp
+:v
+yippie
+not once
+same as you
+i saw that
+from sixth sense
+gg :d
+anything else?
+u create
+it sucks
+hav fun!
+gl hf mate
+ooops
+i hate this
+hellow :3
+well ggs man
+im down for any
+i got too greedy
+gg close game
+what do you want
+merry christmas!
+its up to you
+got you
+1 more?
+third times the charm
+yellow deck white stake?
+you got the lobby?
+thats so weird
+yo'
+ban decks
+unluck
+noted
+first ante
+i was so confused
+lets do zodiac
+got greedy
+ig so
+ahhaha
+damnn gg
+in pvp
+wanna cancel?
+lol rip
+familiar
+want to restart?
+it kicked me
+glass diff
+no...
+yeah me neither
+ill do ghost
+howdyy
+its over
+servers blipped, tie or restart, sorry
+hello ^-^
+vanilla?
+you make the lobby?
+huh??
+did it work?
+hello lol
+try that
+haha sure
+im down for any deck
+ty gl
+we can rematch if you want
+let me see
+want to rematch?
+gl hf again
+heyooooo
+just got it
+i think so?
+cant join
+i remember you
+i couldnt find anything
+hi again xd
+ill match
+what deck you want to play?
+ahh damn
+hahahahha
+u pick deck
+or bans?
+i thought i was cooked
+gl in your next game
+my
+ok i got it
+what stake do you want?
+nah not really
+good luck hf
+gl again!
+wtf is this
+gg 🙁
+very wp
+u crashed?
+what are you up for?
+much luck today?
+i couldnt see
+hey<:hugg:1112061017703321630>
+ill pick ghost
+oh yeah sure
+ggs ❤️
+it didnt
+nah its ok
+i can make the lobby
+which stake
+as you want
+is your profile unlocked?
+thats awesome
+cool thanks
+okayyy
+whaaat
+fixed it
+yea me too
+u make lobby
+daaamn
+ban?
+same lobby code
+sure'
+lolllll
+danm
+no idol
+where was baron?
+gl jf
+gg ty
+coolcool
+it be like that sometimes
+well hello again
+the deck
+holy deck fixing
+u crash?
+hiya u can choose
+lmfaoo
+naah
+give me a minute
+yo what's up
+still?
+are u here?
+ahh ggs
+wanna do zodiac?
+you wanna host
+gl <3
+rough one
+cooked
+fun seed tho
+!logs
+thats me
+right right
+legit
+join the lobby
+rerun?
+yea haha
+white pls
+oh, ok
+i just realized
+0.2.20
+sorry i gtg
+beautiful
+ghlf!
+and then
+ah shoot
+woof
+depends
+lets do yellow
+trib
+0.2.18
+can u create
+bug?
+yeah can do
+incredible
+been a while
+ggs that was fun
+riff raff
+alr sure
+oy
+that hurts
+gradient?
+what were you going for?
+it's alright
+yo\
+im bad
+this seed sucks
+gg homie
+yo yo!
+p
+yeah i'm down
+once
+what just happened
+hi*
+ggs brother
+hilo
+im fine with that
+oh ty
+oh okok
+good play
+ggs*
+yeah, ggs
+yaa
+that's insane
+whats up man
+any deck is fine
+i was cooked
+cancel the match
+i think you got me
+poly
+i love you
+k im back
+we can play whatever u want
+it was in a pack
+where was brainstorm
+yea for sure
+you again
+gg i think
+gl\
+yo sorry
+you need to unlock your profile
+gllg
+lol what
+good game though
+ah no worries
+thank youu
+i did yeah
+nicely done
+hahaa
+ok...
+ggs brotha
+bb
+before
+what was your setup?
+didnt work
+oh np
+card pack
+yo wassup
+sure i guess
+i am cooked
+huhh
+okay thx
+your profile isnt fully unlocked
+white or gold
+ok thank you
+what do u want to play
+gggggg
+okkkk
+11
+alright, glhf
+whatt
+alralr
+lets go random
+missclicked
+yeah i agree
+damn ggs!
+hello*
+ante 2
+i just found it
+awwww
+sure !
+smallworld
+its
+yeah lmfao
+do you want to make the lobby?
+i hope
+oops caps
+same again
+king
+nice glhf
+got disconnected
+t-t
+get me out
+damm gg
+and you?
+and yeah
+u can pick everything
+thankyou
+what were u running?
+ggds
+re roll?
+ggs m8
+go easy on me
+bet gl
+what stake do you want
+you too !
+thats smart
+horrible seed
+thats funny
+hi there 🙂
+you make
+any is fine
+all
+kek
+oh jeez
+should be
+nah its good
+that is crazy
+hello again 🙂
+white stake random?
+hard
+you got me
+yeah sure why not
+im down for white
+business card
+wanna play a random deck?
+g2g
+ik lol
+sweet!
+i think im cooked
+what deck wanna use
+no wait
+oh that sucks
+invis joker
+yeah damn
+i was struggling
+what was your lineup
+ill copy
+white zodiac?
+wby
+try
+thx u2
+what was your jokers
+lets not
+preffered decks?
+wanna reroll options?
+what you have
+hav funnn
+that's unfortunate
+casual
+uh...
+😏
+i did that
+hellp
+hello??
+second
+sorry my bad
+oh makes sense
+wow!
+white it is
+servers blipped, cancel your match or run it back
+u can choose deck
+what you want to play
+where was the brainstorm
+black deck?
+aighty
+whats going on
+tie?
+any deck pref?
+can you make?
+you have lobby?
+what did i miss
+unlocked
+my wifi went out
+how r u
+so lucky
+shii
+im in!
+i did lol
+wanna ghost white?
+ahhhhhhh
+and?
+and steel
+yea fs
+ok yeah
+i appreciate it
+domo
+best of luck and have fun 🙂
+difnn
+happy halloween
+and mime
+miss click
+can you provide proof of win via logs or screenshot?
+idc what we play
+im down!
+later
+looks like it
+your profile is not fully unlocked
+i thought i did
+i guess not
+ankh?
+family
+ty bro
+i dont get it
+holy hell
+)
+full house
+if you dont mind
+wait what happened
+im done
+oh, i see
+<randomdeck
+eww
+ughhh
+oh snap
+i lose
+heya!!
+i had that too
+every time
+how you doing
+its so over
+good evening
+wanna go random?
+chilling
+joker
+wait a bit
+hello hi
+ghost white ok ?
+dammm
+gl with your next games
+😂😂
+u2!!!
+gg’s
+gl hf:)!
+hey again lol
+hi! 🙂
+indigo?
+hf !
+heyo!!!
+iirc
+yoooooooooo
+i can't
+what do you want to do
+all right
+rdy up
+🤝
+very interesting
+oof ggs
+either
+photochad
+wait one sec
+can we run it back
+fr lol
+yeah that too
+afk?
+join?
+same as yours
+>random
+ggs btw
+10
+im waiting
+unstuck
+what happened lol
+it says
+ancient joker
+oh hell nah
+which
+yeah thats rough
+that was wild
+haha same
+alright lets go
+m
+where was blueprint
+lol okay
+skip or nah
+i had 1
+2 sec
+yeah it did
+sorry for taking so long
+youll see
+good runs
+nice comeback
+im good with any
+hate to see it
+gl! <3
+oyyo
+gl sir
+okay gg
+you can pick anything u want
+helo bro
+thanks tho
+🤨
+ah that sucks
+hello !!
+thx you too
+uhhh sure
+oh fr
+press ready
+glhf^^
+that's cool
+ty man
+but yea
+hey lol
+holy gg
+hallo!
+i concede
+what about you?
+okyy
+it was in shop
+new one
+dang lol
+so we meet again
+last game
+that work?
+damnn ggs
+gimme a minute
+what do you have?
+i had like
+already
+annoying
+oh i did
+i'm so sorry
+very close game
+canio
+stake ?
+what did ur idol hit?
+ggwo
+sorry for the delay
+red white?
+good match
+i missed it
+you can start
+well gg!
+yours
+wppp
+i think i dced
+hi.
+my game crashed lol
+and invis
+glhf x
+oh bet
+enjoy!
+what decks?
+x2
+could you host pls
+i can join
+🥹
+did you skip?
+bet!
+ditto
+i can make lobby
+how do i join
+what do i do
+same here lol
+ummmm
+here you go
+can we do white stake?
+random deck and stake?
+sure i'm down
+u can have the win
+gross
+king of spades
+omgg
+painted?
+seems like it
+im pretty sure
+how u doing
+damn, ggs
+same ?
+deep
+hello u can choose
+no i did not
+oh fr?
+invis?
+idk whats happening
+not again
+what are your jokers
+deep in shop
+sold it
+what??
+true that
+alrighty then
+or cancel
+are you sure?
+dont remember
+we can try again
+ah ic
+greeting
+hi mate
+damn.
+did u crash
+ggs gl in next
+whoops lol
+helloooooo
+howdy <:peepocowboystanding:1353602305857159169>
+cryptid?
+hold
+wrong one
+and also
+i think my game crashed
+yeah my bad
+jup
+ite
+try now
+best of 3
+u can chose
+what was your lineup?
+😿
+i don't
+wsgg
+whelp
+you make it
+all gud
+ty for the game
+i got to go
+i was lucky
+het
+sorry lmao
+i wont
+your turn
+win
+lets do ghost white
+yeah prob
+crazy seed lol
+it happened again
+skip or nah?
+holy that was close
+just in the shop
+this is so sad
+how we doin
+ill brb
+ok perfect
+acrobat
+ggs, well played
+i had it too
+what u wanna do?
+oh hi!
+i got u
+idk either
+again ?
+white stake right?
+ok done
+like what
+okay glgl
+ahhh makes sense
+c:
+<a:wavey:1184599007629152336>
+<a:hiimods:1364101353445785642>
+i can try
+i do not
+give me a second
+nvm then
+lets
+oohh
+yeah bet
+no its fine
+funny
+doesnt matter to me
+i made a mistake
+yea ofc
+yeah well played
+lets have some fun
+good idea
+nah ur good
+what were yours?
+not really lol
+nice lol
+gg !!️
+egg
+gl hf next
+green stake?
+or wait
+can we cancel the match
+that was weird
+how are you doing
+you ok?
+rematch i guess
+yep ggs
+fun game!
+didnt
+better?
+lol aight
+what a shop
+tyyy
+are you still in the lobby?
+i create
+gglhf
+ggsssss
+ruh roh
+dangggg
+yessir!
+ggs was fun
+what deck would you like to play?
+nice work
+ah.
+i see it
+x3
+that was brutal
+glhf 🫡
+none
+hi gl
+go on
+elo!
+what was ur lineup
+for a while
+ty gg
+you can pick anything
+dcd
+what was ur build?
+voucher
+gg mr
+alright thanks
+lol no worries
+im there
+want to go again?
+alrightt
+random decks?
+/config default-deck-bans.
+yo what happened
+you want to host?
+heads or tails
+sorry im new
+host?
+rats
+can you?
+and stake?
+your profile isn't fully unlocked
+yea fr
+my bad lol
+lhf
+oh aight
+sure idc
+white stake orange?
+yoi
+hey you can pick anything you want to play
+it hit
+from where
+just vote
+is it good now?
+whassup
+ok good luck
+white stake again?
+where was ancient?
+yeah hahaha
+pick whatever
+let's play
+cuz like
+what deck would you like to play
+yeah unfortunate
+where was the baron?
+aight gl gl
+no scoring
+just ban
+nah it's fine
+oh, wait
+rare?
+ahh makes sense
+sweet glhf
+nah lol
+ayooo
+ill create the lobby
+oooooh
+was hard
+drop da code
+how we doing
+gfhl
+no like
+yooooooooo
+cinema
+uh huh
+hey\
+ul gg
+woow
+one minute
+ok bro
+still there?
+trust me
+sure*
+lol yea
+dangit
+yaya
+do you have the multiplayer launcher?
+thats my bad
+tails
+you tooo
+anw ggs
+kk np
+gg doe
+or black
+ag
+bonjour
+so uhh
+judgement
+checkered white?
+glhf :>
+rando?
+yeah well gg
+i just threw
+oh unlucky
+glhf!@
+in game
+fl
+lets go then
+i was so broke
+you have a code?
+u can pick deck and stake im too lazy for bans
+oh yeah lol
+anyway, ggs
+hello hello hello
+im ngl
+we shall see
+sure bro
+which jokers did you have?
+hello again haha
+what where your jokers?
+what do u mean
+stuntman
+hye
+oh ic
+<:menherawave:1065624057095127080>
+king of hearts
+what stake u want
+np lol
+neither did i
+hype
+it should be
+in ranked
+missed my draw
+wrong button
+clearly
+alas
+glgl <3
+its like
+but its fine
+hi agian
+helleo
+thx u too
+fyi
+ghost/white?
+gg 😄
+pause
+run it again?
+ban a stake
+perfect!
+checkered?
+im stuck
+sorry one sec
+no lmao
+ill try
+same 🙂
+com
+haha true
+thats odd
+gl hf then
+swag
+rematch ig
+ill give you the win
+very true
+oh crap
+u dc'd
+gsg
+what did you find?
+yes sorry
+i was so poor
+any deck preferences?
+stop
+lol me too
+death
+supsup
+no i did
+lolz
+where was bp?
+u can chose deck
+4x
+mhm!
+revenge time
+brainstorm?
+😐
+yu
+its unlocked
+because
+ahhh right
+yeah, same
+veto
+yeah lets go
+yeah i mean
+ty ❤️
+and blueprint
+no probs
+can we reset
+alright have fun
+straights
+u right
+tough luck
+joining now
+very sad
+i meant
+np man
+jacks
+the runback
+hey glhf
+bad draws?
+what???
+idm what we play you can decide
+ill play
+lmfaoooo
+its not working
+redo
+lol gl
+lol fr
+you do
+but im down
+want me to make lobby?
+are you making the lobby?
+sure white stake?
+fixed?
+why ?
+ok word
+well played gg
+what are your jokers?
+i'm happy with any deck
+heyos !
+we can random
+u hosting?
+sup bro
+what did your idol hit
+sos
+heya again
+what did u do
+what was the rare skip?
+polychrome
+me too lmao
+thanks for the game 🙂
+have a nice day!
+gg again
+yeah nice
+cool gl hf
+gl, hf
+you can choose stake and deck
+did u skip?
+for econ
+what was your deck?
+ggs homie
+brotha
+ahhh gg
+impressive
+gl hf bro
+it's fun
+gg my friend
+no thx
+ye np
+restart your game
+ghost black
+rerolls
+ahh unlucky
+yeah def
+we can restart if you want
+ohhh ok
+geegees
+welp ggs!
+i wish
+lol true
+i didnt know
+ill pick zodiac
+fein
+wish you better luck with your next games
+time
+kewl
+i mean sure
+good game bro
+my bad bro
+very good game
+thx gl
+ready ?
+oaky
+stake*
+i didnt draw my hand
+its random
+gl on the next!
+can you make it
+oh what?
+can you
+aces
+yea i saw
+when
+yorick
+thanks you too!
+gl h f
+sure haha
+if you want to
+i forgot to skip
+hhs
+but its ok
+just play
+hellllo
+k, glhf!
+i respect that
+y tu
+ill restart
+peace
+that seed
+idk bro
+<:jjkyujikillme:752743484691316797>
+what did you had?
+rip me
+thanks a lot
+shiiii
+yeah happens
+boo
+ok, glhf
+ok go
+with dice
+i'm good
+gl fh
+glhf! :)
+shiii
+betttt
+skip or no skip
+frl
+i dis
+yeah, gg
+it says your profile is not fully unlocked
+big fan
+gl hf :3
+nice wp
+ight gl
+yy
+ok ill join
+no rare?
+glhf-ings
+eh sure
+purple?
+myb
+lmao sure
+make the lobby
+can
+join lobby
+did you win?
+you making lobby?
+decks?
+have a nice one!
+ouhhh
+any deck you want?
+ah mb
+deck and stake
+i miss clicked
+i like
+who creates?
+then idk
+glglgl 🙂
+what stake you want?
+yea true
+aight then
+thankss
+how does that work
+hello!!!!
+u wanna do ghost white?
+we can do orange
+gl hf : d
+how about now
+hi)
+what is happening
+but also
+alr thx
+flhf
+ok nw
+пп
+i like zodiac
+yeah i can
+not ghost
+o.o
+15
+white??
+what was your econ
+im fine
+thats okay
+wanna do orange?
+k gl
+new lobby?
+i can't see
+yup lol
+its ggs
+ermm
+mine
+last one
+yo!!!
+working?
+noooooooooo
+nice build
+as u like
+wxaxo
+aloo
+hi sir
+ggs gl
+my game bugged
+do u have a lobby?
+would you like to play random random?
+you can make the lobby
+the order
+anything is fine
+no no no
+you can make it
+bro...
+and plasma
+yesssss
+you pick deck
+ah that makes sense
+you too bro
+on
+do you want to host?
+yessirr
+i messed up so bad
+plasma white
+i will join you
+white or black
+gljhf
+ggs unlucky
+random stake too?
+yeah definitely
+<a:peepoclap:960746466035527730>
+what is it?
+that seed was rough
+hi]
+k cool
+and dna
+hey]
+yyo
+hellos
+zodiac it is
+wanne do white orange? 😄
+gl;
+genuinely
+that was a rough seed
+it says your profile isn't fully unlocked
+brooooo
+i think so yeah
+i understand
+deaths
+idol didnt hit?
+wait a second
+no bloodstone?
+ggs#
+okay lets go
+no way lol
+from wraith
+ahh right
+always a high card seed
+lets bans?
+o well
+hi gl hf
+you can pick any deck
+run it back lol
+man gg
+but well played
+but anyways
+shit happens
+gl in next!
+ty u too
+lol np
+thats all
+lmk
+don't think so
+hff
+yeah i got it
+idk maybe
+i'll make it
+o ok
+thanks lol
+hahaha yeah
+you crashed
+its my first time
+ah wait
+shall i host?
+return to lobby
+terrible
+nice pfp
+where did you find blueprint?
+okay so
+sorry caps
+no dusk?
+so fun
+how come?
+jfc
+by accident
+sure but no plasma
+is ghost white ok?
+pmo
+you can choose any deck
+your idol hit?
+no stress
+i was thinking
+did you vote?
+ok i guess
+yoy
+ahh that makes sense
+randomdeck?
+that one
+gghf
+🙃
+ggs though!
+what an insane seed
+that's why
+any stake
+gg close
+uhhhhhh
+wait huh
+lets just do bans
+play again?
+u get the win
+for sure!
+hate when that happens
+no i dont
+ok 🙂
+urs
+bom dia
+pick any deck u want
+fair lol
+can we rematch?
+alr sounds good
+wtffff
+uwu
+what did you want to play
+you wanna make it?
+this is my first ranked game
+gg wow
+choose deck
+take it
+wassup!
+only
+everything ok?
+is it bugged?
+!log
+g g
+jokjz
+oh goodness
+you ok to host?
+attrition
+3 times
+we can play
+its my first game
+i gotcha
+yeah i will cancel
+hllo
+whats upp
+sure lmao
+give me 1 min
+works now
+lets go gambling
+anyways, ggs
+w name
+its good now
+hi!!!
+and ancient
+i sold everything
+obelisk
+you can pick deck and stake if youd like 🙂
+oh bruh
+ill play whatever
+haha yea
+what does it do?
+ahahha
+white stake is fine
+let’s do it
+what jokers you have?
+i got it last shop
+barely
+wait wait
+bugged
+yeah i see that
+good question
+rightt
+did i?
+yea...
+ya lol
+its funny
+nice play
+thanks u too
+duh
+u got a lobby?
+smiley
+ta
+code doesnt work
+thanks!!
+purple stake
+room code
+yeah crazy seed
+never seen that before
+sorry 🙁
+judgement?
+i had golden ticket
+but whatever
+you too :3
+but oh well
+i was wondering
+ahhh i see i see
+hf 🙂
+gl1
+oh yeah for sure
+steel?
+was
+bro 💀
+might be cooked
+im blind
+/random deck?
+i c
+can we play ghost?
+logs
+yo mb
+good luck diva
+join my lobby
+take care 🙂
+htzqu
+yeah, sure
+can you make a lobby?
+very cool
+no worries at all
+alr, glhf!
+lets just do white
+3rd times the charm
+i noticed
+hi :d
+want me to make the lobby?
+ggh
+well good luck
+you make the lobby
+teehee
+thats interesting
+hey there!
+last hand
+i host
+damn thats crazy
+retry?
+all good now?
+gg gamer
+hearts
+sorry my game crashed
+what did idol hit?
+nah bans
+to be fair
+abandoned white
+i have it
+couldnt
+i am not
+got u
+no luck
+or zodiac
+looks inside
+😠
+gg fun game
+gl'
+ooop
+rolling
+well see
+lets gooooo
+shiiiii
+etc
+ill make a new lobby
+try that one
+gg that was close
+errr
+elooo
+probably yeah
+oh my days
+yea idk
+i didnt leave
+i misplayed
+i screwed up
+or cancel?
+luckies
+yeaah
+i go
+glhf sir
+white ok?
+yeah ikr
+oh nooooo
+i was so scared
+i had both
+ok.
+kind of
+i mean like
+chi
+gg, well played!
+ggwp tho
+ill play whatever you want
+what did u have ?
+icl
+give me 30 sec
+yovnv
+8
+hmmmmmmm
+oh 😭
+whatever u like
+👌
+idk whats going on
+well glhf!
+seems fun
+yeah thats good
+nuts
+mine didnt
+another?
+yeah it was fun
+</3
+yeah crazy
+bye bye
+really ?
+what were you running
+have we played before?
+yea?
+innit
+ur good lol
+woahhh
+that was it
+im
+vote please
+lets see it
+hi buddy
+🗣️
+won
+i prefer bans
+for a bit
+hello 😄
+wanna do a random deck?
+pffff
+want to do random?
+my internet died
+okee
+good games
+i can create
+wanna play coctail?
+where was that
+fun!
+thought so
+in the pack
+glhhf
+glhf tho
+good luck next
+welcome!
+that sounds fun
+wazzahhhhh
+i think i disconnected
+:<
+im down to run it back
+lost a life
+we can redo
+wtfff
+no wayyyy
+yes bro
+can u make?
+just chilling
+it was so bad
+oh shit sorry
+gl dude
+yellow white work for u?
+give me 1 sec
+can u make the lobby
+my game disconnected
+good luck :)
+hi daddy
+daamn
+hiih
+funny game
+alr thanks
+figures
+glhf ^_^
+happy new year!
+<:ghostwhite:1471242577222045727> !?️
+# Hand-added 2026-07-11: banter compliments the tuned guard misreads as
+# Unsafe/Violent ("you destroyed me" measured guard_block in live testing;
+# known tuned-v2 gray-zone weakness — also pinned as v3 training candidates).
+you destroyed me
+you destroyed me lol
+i got destroyed
+got destroyed
+you wrecked me
+i got wrecked

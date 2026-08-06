@@ -189,6 +189,14 @@ async function start() {
 
 		server = app.listen(env.PORT, () => {
 			console.log(`[server] API server listening on port ${env.PORT}`)
+			// Whether chat is being moderated is the first thing you want to
+			// know from a log, and a typo'd URL otherwise presents as chat
+			// silently failing closed with no clue why.
+			console.log(
+				env.MODERATION_SERVICE_URL
+					? `[server] chat moderation ON (${env.MODERATION_SERVICE_URL})`
+					: '[server] chat moderation OFF — using the local obscenity filter',
+			)
 		})
 
 		process.on('SIGTERM', shutdown)
