@@ -53,20 +53,41 @@ describe('Flow 6: chat through the moderation service', () => {
 		await receiver.disconnect()
 	})
 
+	// Deliberately NOT a preset phrase: the bundled allowlist fast-passes
+	// common chat before the model is consulted, so an allowlisted message
+	// would prove delivery without proving the guard path works at all.
+	const NON_PRESET = 'that last blind went about as well as expected'
+
 	it('delivers an ordinary message to the other player', async () => {
 		const topic = `lobby/${code}/chat/${sender.playerId}`
 		await receiver.subscribe(topic)
 		const delivered = receiver.nextMessage<{ message: string }>(topic)
 
-		const res = await sender.sendChat('good luck have fun')
+		const res = await sender.sendChat(NON_PRESET)
 
 		expect(res.status).toBe(200)
 		expect(res.body.ok).toBe(true)
 		// No rewrite happened, so the sender is told nothing extra.
 		expect(res.body.publishText).toBeUndefined()
-		await expect(delivered).resolves.toMatchObject({
-			message: 'good luck have fun',
-		})
+		await expect(delivered).resolves.toMatchObject({ message: NON_PRESET })
+	})
+
+	it('fast-passes a preset phrase without waiting on the model', async () => {
+		const topic = `lobby/${code}/chat/${sender.playerId}`
+		await receiver.subscribe(topic)
+		const delivered = receiver.nextMessage<{ message: string }>(topic)
+
+		const started = Date.now()
+		const res = await sender.sendChat('gg')
+		const elapsed = Date.now() - started
+
+		expect(res.status).toBe(200)
+		await expect(delivered).resolves.toMatchObject({ message: 'gg' })
+		// A guard judgement is ~1s; the allowlist short-circuit is single-digit
+		// milliseconds server-side. This is the 60%-of-traffic optimisation, so
+		// if it silently stops working the whole service gets an order of
+		// magnitude slower without anything failing.
+		expect(elapsed).toBeLessThan(600)
 	})
 
 	it('blocks a violent threat and publishes nothing', async () => {

@@ -1,4 +1,7 @@
+import { existsSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createLlamaGuardEngine } from './guard/engine.js'
 import { GUARD_JUDGED_PROFANITY } from './pipeline/analyze.js'
 import { postureBannerLines } from './service/posture.js'
@@ -13,6 +16,28 @@ import { createModerationService } from './service/service.js'
 // /moderate is stateless: no database, no admin API, no review queue. See
 // docs/13 for the fuller design (Standing/the sanctions ladder is a separate
 // deployable, not part of this branch).
+
+// The word lists ship with the service. An explicit *_PATH still wins, so a
+// deployment can point at its own copies, but the common case needs no
+// configuration at all — and nobody has to remember to copy files onto a box.
+const BUNDLED_CONFIG_DIR = path.resolve(
+	path.dirname(fileURLToPath(import.meta.url)),
+	'../config',
+)
+
+function listPath(envVar: string, filename: string): string | undefined {
+	const override = process.env[envVar]
+	if (override) return override
+	const bundled = path.join(BUNDLED_CONFIG_DIR, filename)
+	return existsSync(bundled) ? bundled : undefined
+}
+
+const ALLOWLIST_PATH = listPath('ALLOWLIST_PATH', 'allowlist.txt')
+const REWRITES_PATH = listPath('REWRITES_PATH', 'rewrites.txt')
+const APPROVED_DOMAINS_PATH = listPath(
+	'APPROVED_DOMAINS_PATH',
+	'approved-domains.txt',
+)
 
 const PORT = Number(process.env.PORT ?? 8001)
 const GUARD_MODEL = process.env.GUARD_MODEL
@@ -99,11 +124,11 @@ if (process.env.GUARD_CONTEXT_PATH) {
 // game abbreviations even with domain context).
 let rewrites: import('./pipeline/rewrite.js').RewriteRule[] = []
 let rewritesStatus: ListStatus = 'unset'
-if (process.env.REWRITES_PATH) {
+if (REWRITES_PATH) {
 	const { readFileSync } = await import('node:fs')
 	const { parseRewrites } = await import('./pipeline/rewrite.js')
 	try {
-		rewrites = parseRewrites(readFileSync(process.env.REWRITES_PATH, 'utf8'))
+		rewrites = parseRewrites(readFileSync(REWRITES_PATH, 'utf8'))
 		rewritesStatus = rewrites.length
 		console.error(`[moderation] rewrites loaded: ${rewrites.length} rules`)
 		if (rewrites.length === 0) {
@@ -125,12 +150,12 @@ if (process.env.REWRITES_PATH) {
 // unset = strip ALL links (Balatro chat renders no images; see pipeline/links).
 let approvedDomains: string[] = []
 let approvedDomainsStatus: ListStatus = 'unset'
-if (process.env.APPROVED_DOMAINS_PATH) {
+if (APPROVED_DOMAINS_PATH) {
 	const { readFileSync } = await import('node:fs')
 	const { parseApprovedDomains } = await import('./pipeline/links.js')
 	try {
 		approvedDomains = parseApprovedDomains(
-			readFileSync(process.env.APPROVED_DOMAINS_PATH, 'utf8'),
+			readFileSync(APPROVED_DOMAINS_PATH, 'utf8'),
 		)
 		approvedDomainsStatus = approvedDomains.length
 		console.error(
@@ -211,11 +236,11 @@ for (const line of postureBannerLines(posture, GUARD_JUDGED_PROFANITY.size)) {
 // without it every non-deterministic message pays a guard judgement.
 let allowlist: Set<string> | undefined
 let allowlistStatus: ListStatus = 'unset'
-if (process.env.ALLOWLIST_PATH) {
+if (ALLOWLIST_PATH) {
 	const { readFileSync } = await import('node:fs')
 	const { parseAllowlist } = await import('./service/allowlist.js')
 	try {
-		allowlist = parseAllowlist(readFileSync(process.env.ALLOWLIST_PATH, 'utf8'))
+		allowlist = parseAllowlist(readFileSync(ALLOWLIST_PATH, 'utf8'))
 		allowlistStatus = allowlist.size
 		console.error(`[moderation] allowlist loaded: ${allowlist.size} entries`)
 		if (allowlist.size === 0) {
