@@ -16,6 +16,15 @@ function optionalBool(key: string, defaultValue: boolean): boolean {
 	return value === 'true' || value === '1'
 }
 
+// Guards '' -> 0 and non-numeric input -> NaN, either of which would make
+// every request abort immediately if used as a timeout unchecked.
+function optionalPositiveInt(key: string, defaultValue: number): number {
+	const value = process.env[key]
+	if (!value) return defaultValue
+	const parsed = Number(value)
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue
+}
+
 const NODE_ENV = optional('NODE_ENV', 'development')
 const IS_PRODUCTION = NODE_ENV === 'production'
 
@@ -72,4 +81,17 @@ export const env = {
 	// failing when unset, matching the "missing optional integration disables
 	// the feature, not the server" pattern used elsewhere in this file.
 	BET_MOD_INDEX_URL: optional('BET_MOD_INDEX_URL', ''),
+	// Chat moderation bridge. Unset (default) means dormant — chat keeps using the
+	// local obscenity filter, unchanged. Set MODERATION_SERVICE_URL to route chat
+	// through an external moderation service instead.
+	MODERATION_SERVICE_URL: optional('MODERATION_SERVICE_URL', '').replace(
+		/\/+$/,
+		'',
+	),
+	MODERATION_BEARER_TOKEN: optional('MODERATION_BEARER_TOKEN', ''),
+	// Must exceed the moderation service's own judgement deadline plus margin.
+	// Set below it and a slow-but-successful verdict is abandoned here while it
+	// still occupies the service's single model lane, so the player sees an
+	// outage and their retry deepens the backlog that caused it.
+	MODERATION_TIMEOUT_MS: optionalPositiveInt('MODERATION_TIMEOUT_MS', 6000),
 } as const

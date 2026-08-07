@@ -7,10 +7,15 @@ type MatchRecord = {
 	endIndex: number
 }
 
+// `matches` is an untyped jsonb column. The local obscenity filter records
+// which words matched; the remote moderation bridge has no word list to
+// report, only the band the service rejected on.
+export type FlaggedMatches = MatchRecord[] | { source: 'remote'; band: string }
+
 export async function insertFlaggedMessage(
 	playerId: string,
 	message: string,
-	matches: MatchRecord[],
+	matches: FlaggedMatches,
 ): Promise<void> {
 	const threeMonths = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
 	await db.insert(flaggedMessages).values({

@@ -248,10 +248,15 @@ export function createLobbyRouter(service: LobbyService): Router {
 					throw new AppError('Message cannot be empty', 400)
 				if (result.reason === 'moderated')
 					throw new AppError('Message was rejected by moderation', 403)
+				if (result.reason === 'unavailable')
+					throw new AppError(
+						'Chat moderation is unavailable. Try again in a moment.',
+						503,
+					)
 				throw new AppError('Failed to send message', 500)
 			}
 
-			res.json({ ok: true })
+			res.json(result.publishText ? { ok: true, publishText: result.publishText } : { ok: true })
 		} catch (err) {
 			next(err)
 		}
