@@ -3,7 +3,7 @@ import { authenticate } from '../../middleware/authenticate.js'
 import { getSession } from '../../state/index.js'
 import type { PlacementEntry } from '../../shared/types/index.js'
 import { AppError } from '../../shared/utils/errors.js'
-import { assertCanPlay } from '../../shared/utils/access.js'
+import { assertCanPlay, assertRankedEnabled } from '../../shared/utils/access.js'
 import {
 	getLeaderboard,
 	getOwnRating,
@@ -13,6 +13,7 @@ import {
 	resolveSeasonId,
 } from './matchmaking.service.js'
 import type { MatchmakingService } from './matchmaking.service.js'
+import { isRanked } from './queue.js'
 
 async function resolveSeason(season: unknown): Promise<number> {
 	let explicit: number | undefined
@@ -43,6 +44,7 @@ export function createMatchmakingRouter(service: MatchmakingService): Router {
 				throw new AppError('minPlayers must be an integer >= 2', 400)
 			if (!Number.isInteger(maxPlayers) || maxPlayers < minPlayers)
 				throw new AppError('maxPlayers must be an integer >= minPlayers', 400)
+			assertRankedEnabled(isRanked(gameMode))
 
 			const result = await service.joinQueue(session, { modId, gameMode, minPlayers, maxPlayers })
 			res.status(200).json(result)

@@ -3,10 +3,16 @@ import request from 'supertest'
 import { createTestApp } from './app.js'
 import { signJwt } from '../../features/auth/jwt.js'
 import { createSession } from '../../state/index.js'
-import { matches, matchByLobby, queues, playerQueues } from '../../state/matchmaking.js'
+import {
+	matches,
+	matchByLobby,
+	queues,
+	playerQueues,
+} from '../../state/matchmaking.js'
 import { Lobby } from '../../state/lobby.js'
 import { lobbies } from '../../state/index.js'
 import { db } from '../../infrastructure/db/index.js'
+import { getConfig, setConfig } from '../../state/config.js'
 import type { Match } from '../../shared/types/index.js'
 
 const app = createTestApp()
@@ -59,7 +65,12 @@ describe('matchmaking routes', () => {
 		it('returns 401 without auth', async () => {
 			const res = await request(app)
 				.post('/api/matchmaking/queue')
-				.send({ modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode1',
+					minPlayers: 2,
+					maxPlayers: 4,
+				})
 			expect(res.status).toBe(401)
 		})
 
@@ -83,7 +94,12 @@ describe('matchmaking routes', () => {
 			const res = await request(app)
 				.post('/api/matchmaking/queue')
 				.set('Authorization', authHeader('p1', 'Alice'))
-				.send({ modId: 'mod1', gameMode: 'mode1', minPlayers: 1, maxPlayers: 4 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode1',
+					minPlayers: 1,
+					maxPlayers: 4,
+				})
 			expect(res.status).toBe(400)
 		})
 
@@ -91,7 +107,12 @@ describe('matchmaking routes', () => {
 			const res = await request(app)
 				.post('/api/matchmaking/queue')
 				.set('Authorization', authHeader('p1', 'Alice'))
-				.send({ modId: 'mod1', gameMode: 'mode1', minPlayers: 4, maxPlayers: 2 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode1',
+					minPlayers: 4,
+					maxPlayers: 2,
+				})
 			expect(res.status).toBe(400)
 		})
 
@@ -99,7 +120,12 @@ describe('matchmaking routes', () => {
 			const res = await request(app)
 				.post('/api/matchmaking/queue')
 				.set('Authorization', authHeader('p1', 'Alice'))
-				.send({ modId: 'mod1', gameMode: 'mode1', minPlayers: 2.5, maxPlayers: 4 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode1',
+					minPlayers: 2.5,
+					maxPlayers: 4,
+				})
 			expect(res.status).toBe(400)
 		})
 
@@ -107,7 +133,12 @@ describe('matchmaking routes', () => {
 			const res = await request(app)
 				.post('/api/matchmaking/queue')
 				.set('Authorization', authHeader('p1', 'Alice'))
-				.send({ modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode1',
+					minPlayers: 2,
+					maxPlayers: 4,
+				})
 			expect(res.status).toBe(200)
 			expect(res.body.position).toBe(1)
 		})
@@ -117,12 +148,22 @@ describe('matchmaking routes', () => {
 			await request(app)
 				.post('/api/matchmaking/queue')
 				.set('Authorization', auth)
-				.send({ modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode1',
+					minPlayers: 2,
+					maxPlayers: 4,
+				})
 
 			const res = await request(app)
 				.post('/api/matchmaking/queue')
 				.set('Authorization', auth)
-				.send({ modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode1',
+					minPlayers: 2,
+					maxPlayers: 4,
+				})
 			expect(res.status).toBe(409)
 		})
 
@@ -130,15 +171,63 @@ describe('matchmaking routes', () => {
 			await request(app)
 				.post('/api/matchmaking/queue')
 				.set('Authorization', authHeader('p1', 'Alice'))
-				.send({ modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode1',
+					minPlayers: 2,
+					maxPlayers: 4,
+				})
 
 			const res = await request(app)
 				.post('/api/matchmaking/queue')
 				.set('Authorization', authHeader('p2', 'Bob'))
-				.send({ modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode1',
+					minPlayers: 2,
+					maxPlayers: 4,
+				})
 
 			expect(res.status).toBe(200)
 			expect(res.body.position).toBe(2)
+		})
+
+		it('returns 403 for a ranked gameMode when ranked is disabled server-side', async () => {
+			const original = getConfig()
+			setConfig({ ...original, rankedEnabled: false })
+			try {
+				const res = await request(app)
+					.post('/api/matchmaking/queue')
+					.set('Authorization', authHeader('p1', 'Alice'))
+					.send({
+						modId: 'mod1',
+						gameMode: 'ranked:mode1',
+						minPlayers: 2,
+						maxPlayers: 4,
+					})
+				expect(res.status).toBe(403)
+			} finally {
+				setConfig(original)
+			}
+		})
+
+		it('still allows a casual gameMode when ranked is disabled server-side', async () => {
+			const original = getConfig()
+			setConfig({ ...original, rankedEnabled: false })
+			try {
+				const res = await request(app)
+					.post('/api/matchmaking/queue')
+					.set('Authorization', authHeader('p1', 'Alice'))
+					.send({
+						modId: 'mod1',
+						gameMode: 'mode1',
+						minPlayers: 2,
+						maxPlayers: 4,
+					})
+				expect(res.status).toBe(200)
+			} finally {
+				setConfig(original)
+			}
 		})
 	})
 
@@ -171,7 +260,12 @@ describe('matchmaking routes', () => {
 			await request(app)
 				.post('/api/matchmaking/queue')
 				.set('Authorization', auth)
-				.send({ modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode1',
+					minPlayers: 2,
+					maxPlayers: 4,
+				})
 
 			const res = await request(app)
 				.delete('/api/matchmaking/queue')
@@ -202,11 +296,21 @@ describe('matchmaking routes', () => {
 			await request(app)
 				.post('/api/matchmaking/queue')
 				.set('Authorization', auth)
-				.send({ modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode1',
+					minPlayers: 2,
+					maxPlayers: 4,
+				})
 			await request(app)
 				.post('/api/matchmaking/queue')
 				.set('Authorization', auth)
-				.send({ modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 4 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode2',
+					minPlayers: 2,
+					maxPlayers: 4,
+				})
 
 			const res = await request(app)
 				.delete('/api/matchmaking/queue/all')
@@ -244,7 +348,12 @@ describe('matchmaking routes', () => {
 			await request(app)
 				.post('/api/matchmaking/queue')
 				.set('Authorization', auth)
-				.send({ modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode1',
+					minPlayers: 2,
+					maxPlayers: 4,
+				})
 
 			const res = await request(app)
 				.get('/api/matchmaking/queue')
@@ -265,11 +374,21 @@ describe('matchmaking routes', () => {
 			await request(app)
 				.post('/api/matchmaking/queue')
 				.set('Authorization', auth)
-				.send({ modId: 'mod1', gameMode: 'mode1', minPlayers: 2, maxPlayers: 4 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode1',
+					minPlayers: 2,
+					maxPlayers: 4,
+				})
 			await request(app)
 				.post('/api/matchmaking/queue')
 				.set('Authorization', auth)
-				.send({ modId: 'mod1', gameMode: 'mode2', minPlayers: 2, maxPlayers: 4 })
+				.send({
+					modId: 'mod1',
+					gameMode: 'mode2',
+					minPlayers: 2,
+					maxPlayers: 4,
+				})
 
 			const res = await request(app)
 				.get('/api/matchmaking/queue')
@@ -284,7 +403,12 @@ describe('matchmaking routes', () => {
 		it('returns 401 without auth', async () => {
 			const res = await request(app)
 				.post('/api/matchmaking/matches/some-match/result')
-				.send({ placements: [{ playerId: 'p1', place: 1 }, { playerId: 'p2', place: 2 }] })
+				.send({
+					placements: [
+						{ playerId: 'p1', place: 1 },
+						{ playerId: 'p2', place: 2 },
+					],
+				})
 			expect(res.status).toBe(401)
 		})
 
@@ -311,7 +435,12 @@ describe('matchmaking routes', () => {
 			const res = await request(app)
 				.post('/api/matchmaking/matches/m3/result')
 				.set('Authorization', authHeader('p1', 'Alice'))
-				.send({ placements: [{ playerId: 'p1', place: 0 }, { playerId: 'p2', place: 2 }] })
+				.send({
+					placements: [
+						{ playerId: 'p1', place: 0 },
+						{ playerId: 'p2', place: 2 },
+					],
+				})
 			expect(res.status).toBe(400)
 		})
 
@@ -333,7 +462,12 @@ describe('matchmaking routes', () => {
 			const res = await request(app)
 				.post('/api/matchmaking/matches/nonexistent/result')
 				.set('Authorization', authHeader('p1', 'Alice'))
-				.send({ placements: [{ playerId: 'p1', place: 1 }, { playerId: 'p2', place: 2 }] })
+				.send({
+					placements: [
+						{ playerId: 'p1', place: 1 },
+						{ playerId: 'p2', place: 2 },
+					],
+				})
 			expect(res.status).toBe(404)
 		})
 
@@ -342,7 +476,12 @@ describe('matchmaking routes', () => {
 			const res = await request(app)
 				.post('/api/matchmaking/matches/m5/result')
 				.set('Authorization', authHeader('p2', 'Bob'))
-				.send({ placements: [{ playerId: 'p1', place: 1 }, { playerId: 'p2', place: 2 }] })
+				.send({
+					placements: [
+						{ playerId: 'p1', place: 1 },
+						{ playerId: 'p2', place: 2 },
+					],
+				})
 			expect(res.status).toBe(204)
 		})
 
@@ -351,7 +490,12 @@ describe('matchmaking routes', () => {
 			const res = await request(app)
 				.post('/api/matchmaking/matches/m5b/result')
 				.set('Authorization', authHeader('p3', 'Carol'))
-				.send({ placements: [{ playerId: 'p1', place: 1 }, { playerId: 'p2', place: 2 }] })
+				.send({
+					placements: [
+						{ playerId: 'p1', place: 1 },
+						{ playerId: 'p2', place: 2 },
+					],
+				})
 			expect(res.status).toBe(403)
 		})
 
@@ -360,7 +504,12 @@ describe('matchmaking routes', () => {
 			const res = await request(app)
 				.post('/api/matchmaking/matches/m6/result')
 				.set('Authorization', authHeader('p1', 'Alice'))
-				.send({ placements: [{ playerId: 'p1', place: 1 }, { playerId: 'p2', place: 2 }] })
+				.send({
+					placements: [
+						{ playerId: 'p1', place: 1 },
+						{ playerId: 'p2', place: 2 },
+					],
+				})
 
 			expect(res.status).toBe(204)
 			expect(matches.has('m6')).toBe(false)
@@ -398,7 +547,9 @@ describe('matchmaking routes', () => {
 
 	describe('POST /api/matchmaking/matches/:matchId/start', () => {
 		it('returns 401 without auth', async () => {
-			const res = await request(app).post('/api/matchmaking/matches/some-match/start')
+			const res = await request(app).post(
+				'/api/matchmaking/matches/some-match/start',
+			)
 			expect(res.status).toBe(401)
 		})
 
@@ -429,9 +580,13 @@ describe('matchmaking routes', () => {
 		it('keeps the first start time on repeated calls (idempotent)', async () => {
 			const match = makeMatch('s3', 'START3', 'p1', ['p1', 'p2'])
 			const auth = authHeader('p1', 'Alice')
-			await request(app).post('/api/matchmaking/matches/s3/start').set('Authorization', auth)
+			await request(app)
+				.post('/api/matchmaking/matches/s3/start')
+				.set('Authorization', auth)
 			const first = match.gameStartedAt
-			await request(app).post('/api/matchmaking/matches/s3/start').set('Authorization', auth)
+			await request(app)
+				.post('/api/matchmaking/matches/s3/start')
+				.set('Authorization', auth)
 			expect(match.gameStartedAt).toBe(first)
 		})
 	})

@@ -31,6 +31,7 @@ Flags:
 |----------|---------|
 | `CHAT_ENABLED` | Disable or enable text chat from a server level |
 | `TESTING_MODE` | Require accounts to have a `tester` privilige to queue or create a lobby |
+| `RANKED_ENABLED` | Disable or enable ranked matchmaking from a server level |
 
 ### Running
 

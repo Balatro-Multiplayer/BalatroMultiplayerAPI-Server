@@ -13,6 +13,8 @@ export interface AppConfig {
 	chatEnabled?: boolean
 	// When truthy, only 'tester'-privileged players may create lobbies / queue.
 	testingMode?: boolean
+	// When falsy, ranked queue requests are rejected; casual is unaffected.
+	rankedEnabled?: boolean
 }
 
 let _config: AppConfig = {
@@ -21,6 +23,7 @@ let _config: AppConfig = {
 	chatAllowlist: new Set(),
 	chatEnabled: false,
 	testingMode: false,
+	rankedEnabled: true,
 }
 
 export function getConfig(): AppConfig {

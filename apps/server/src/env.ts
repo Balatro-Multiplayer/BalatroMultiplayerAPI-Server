@@ -65,6 +65,11 @@ export const env = {
 	// queue for matches. Everyone else is rejected. Off by default.
 	TESTING_MODE: optionalBool('TESTING_MODE', false),
 
+	// When false, the server rejects queue requests for ranked game modes (gameMode
+	// strings prefixed 'ranked:', see matchmaking/queue.ts's isRanked) with an error;
+	// casual queueing is unaffected. On by default.
+	RANKED_ENABLED: optionalBool('RANKED_ENABLED', true),
+
 	// Raw-HTTPS URL to BETModIndex's built dist/mods-index.json (the fork's
 	// build-index.yml output, combining upstream skyline69/balatro-mod-index
 	// with our bet-overrides/ overlay -- see that repo's README). Left blank
