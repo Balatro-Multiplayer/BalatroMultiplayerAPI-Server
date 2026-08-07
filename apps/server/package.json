@@ -8,6 +8,7 @@
 		"start": "node dist/main.js",
 		"migrate": "tsx src/infrastructure/db/migrate.ts",
 		"generate": "drizzle-kit generate",
+		"backfill-mod-hashes": "tsx src/features/mods/backfill-mod-hashes.ts",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:e2e": "vitest run --config vitest.e2e.config.ts",
