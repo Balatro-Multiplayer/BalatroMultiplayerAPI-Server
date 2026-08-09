@@ -12,6 +12,7 @@ import {
 } from '../../infrastructure/gateways/mods.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
+import { syncModRegistry } from '../mods/mods-sync.service.js'
 
 // Ranked mod catalog admin surface: manual per-mod ranked-allowlist overrides
 // and named "ranked mod profiles" (admin-curated allowed/blocked mod lists,
@@ -31,6 +32,24 @@ async function requireAdmin(req: import('express').Request) {
 		throw new AppError('Only admins can edit the ranked mod catalog', 403)
 	}
 }
+
+// Manually kicks off the same BETModIndex sync + prepared-archive hashing pass
+// that otherwise only runs at server startup and on the hourly interval (see
+// mods-sync.service.ts) -- e.g. to confirm a mod's hash updated right after a
+// new release, without waiting for the next tick or restarting the server.
+// syncModRegistry() itself dedupes concurrent calls (an in-flight run is
+// shared, not duplicated), so this is safe to hit even if the hourly job is
+// mid-run. Admin-only: this downloads and hashes every mod's archive, a
+// heavier blast radius than the per-mod toggle above.
+router.post('/mods/sync', async (req, res, next) => {
+	try {
+		await requireAdmin(req)
+		const summary = await syncModRegistry()
+		res.json({ ok: true, ...summary })
+	} catch (err) {
+		next(err)
+	}
+})
 
 router.put('/mods/:modId', async (req, res, next) => {
 	try {

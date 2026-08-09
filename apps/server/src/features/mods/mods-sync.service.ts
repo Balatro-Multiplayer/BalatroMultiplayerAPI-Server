@@ -22,6 +22,12 @@ interface ModIndexFile {
 	mods: ModIndexEntryInput[]
 }
 
+export interface ModRegistrySyncSummary {
+	modsSynced: number
+	hashed: number
+	pruned: number
+}
+
 const HASH_FETCH_TIMEOUT_MS = 30_000
 // Hashing runs on every mod now (not just ranked-allowed ones), so this is
 // run with bounded concurrency rather than one-at-a-time -- otherwise a
@@ -146,9 +152,6 @@ async function hashAll(candidates: HashCandidate[]): Promise<number> {
 // dist artifact, not the GitHub API: avoids needing a token or worrying about
 // API rate limits.
 //
-// Runs once, blocking, at server startup (see main.ts) so the mod catalog
-// and every mod's hash are already correct before the server accepts its
-// first request -- then again on an hourly interval in the background.
 // `allowedInRanked` for any mod without a bet-overrides entry always
 // resolves to false (see build_index.py / upsertModFromIndex's doc
 // comments) -- this sync never has to special-case "no override" itself,
@@ -166,12 +169,12 @@ async function hashAll(candidates: HashCandidate[]): Promise<number> {
 // which is never what actually gets loaded or what Ranked verification
 // checks against. A mod's hash is only ever recomputed when its version
 // changes.
-export async function syncModRegistry(): Promise<void> {
+async function runSync(): Promise<ModRegistrySyncSummary> {
 	if (!env.BET_MOD_INDEX_URL) {
 		console.log(
 			'[mods-sync] BET_MOD_INDEX_URL not set -- skipping mod registry sync',
 		)
-		return
+		return { modsSynced: 0, hashed: 0, pruned: 0 }
 	}
 
 	const res = await fetch(env.BET_MOD_INDEX_URL)
@@ -207,4 +210,26 @@ export async function syncModRegistry(): Promise<void> {
 	console.log(
 		`[mods-sync] Synced ${data.mods.length} mods from BETModIndex${hashed ? ` (${hashed} newly hashed)` : ''}${pruned ? ` (${pruned} stale mods pruned)` : ''}`,
 	)
+
+	return { modsSynced: data.mods.length, hashed, pruned }
+}
+
+// Runs once, blocking, at server startup (see main.ts) so the mod catalog
+// and every mod's hash are already correct before the server accepts its
+// first request -- then again on an hourly interval in the background, and
+// on demand from the admin "Sync now" button (POST /api/webadmin/mods/sync).
+// Those three callers can easily overlap in time (an admin clicking the
+// button right as the hourly interval fires, or clicking it twice), so a
+// second call while one is already running just awaits the in-flight run's
+// result instead of kicking off a redundant concurrent pass over the same
+// ~hundreds of mods.
+let inFlight: Promise<ModRegistrySyncSummary> | null = null
+
+export function syncModRegistry(): Promise<ModRegistrySyncSummary> {
+	if (!inFlight) {
+		inFlight = runSync().finally(() => {
+			inFlight = null
+		})
+	}
+	return inFlight
 }

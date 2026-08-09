@@ -100,6 +100,27 @@ export default function RankedModsPage() {
     onSettled: () => setPendingModId(null),
   })
 
+  // Manually kicks off the same BETModIndex sync + hash-check pass that
+  // otherwise only runs at server startup and hourly (see mods-sync.service.ts
+  // server-side) — e.g. to confirm a mod's hash updated right after a new
+  // release, without waiting for the next tick.
+  const syncMut = useMutation({
+    mutationFn: () =>
+      apiFetch<{ ok: true; modsSynced: number; hashed: number; pruned: number }>(
+        '/webadmin/mods/sync',
+        { method: 'POST' }
+      ),
+    onSuccess: (result) => {
+      toast.success(
+        `Synced ${result.modsSynced} mods` +
+          (result.hashed ? ` (${result.hashed} newly hashed)` : '') +
+          (result.pruned ? ` (${result.pruned} pruned)` : '')
+      )
+      qc.invalidateQueries({ queryKey: ['ranked-mods'] })
+    },
+    onError: onErr,
+  })
+
   // --- Profiles ---
 
   const { data: profiles } = useQuery<ModProfile[]>({
@@ -219,11 +240,22 @@ export default function RankedModsPage() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Mod catalog</CardTitle>
-          <CardDescription>
-            "Allowed in ranked" toggled here overrides BETModIndex until reset.
-          </CardDescription>
+        <CardHeader className='flex flex-row items-center justify-between'>
+          <div>
+            <CardTitle>Mod catalog</CardTitle>
+            <CardDescription>
+              "Allowed in ranked" toggled here overrides BETModIndex until reset.
+            </CardDescription>
+          </div>
+          {isAdmin && (
+            <Button
+              size='sm'
+              onClick={() => syncMut.mutate()}
+              disabled={syncMut.isPending}
+            >
+              {syncMut.isPending ? 'Syncing…' : 'Sync now'}
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           {modsLoading || !mods ? (
