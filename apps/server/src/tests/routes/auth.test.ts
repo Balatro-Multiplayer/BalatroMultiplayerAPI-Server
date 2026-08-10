@@ -117,6 +117,7 @@ describe('POST /api/auth/steam', () => {
 		expect(res.body.lobby.modId).toBe('test-mod')
 		expect(res.body.lobby.hostId).toBe(playerId)
 		expect(res.body.lobby.isHost).toBe(true)
+		expect(res.body.lobby.type).toBe('private')
 
 		// Cleanup
 		lobby.removePlayer(playerId)

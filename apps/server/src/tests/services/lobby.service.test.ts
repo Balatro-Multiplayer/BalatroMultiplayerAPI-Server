@@ -383,6 +383,161 @@ describe('lobby.service', () => {
 		})
 	})
 
+	describe('kickPlayer', () => {
+		it('host kicks a guest: removed from roster, added to kickedPlayerIds, event published', async () => {
+			const messageBus = makeMockMessageBus()
+			const gracePeriodService = makeMockGracePeriodService()
+			const service = createLobbyService({
+				messageBus,
+				gracePeriodService,
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+			const guest = makePlayer('guest1', 'Bob')
+			await service.joinLobby(guest, lobby.code)
+
+			await service.kickPlayer(host, lobby.code, 'guest1')
+
+			expect(lobby.hasPlayer('guest1')).toBe(false)
+			expect(lobby.kickedPlayerIds.has('guest1')).toBe(true)
+			expect(gracePeriodService.cancelGracePeriodSilently).toHaveBeenCalledWith('guest1')
+			expect(messageBus.publishEvent).toHaveBeenCalledWith(
+				lobby.code,
+				expect.objectContaining({
+					type: 'player_kicked',
+					playerId: 'guest1',
+					data: { kickedBy: 'host1' },
+				}),
+			)
+			expect(messageBus.clearPlayerInfo).toHaveBeenCalledWith(lobby.code, 'guest1')
+			expect(messageBus.cleanupPlayerState).toHaveBeenCalledWith(lobby.code, 'guest1')
+		})
+
+		it('denies a non-host from kicking, with no state mutation', async () => {
+			const messageBus = makeMockMessageBus()
+			const service = createLobbyService({
+				messageBus,
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+			const guest = makePlayer('guest1', 'Bob')
+			await service.joinLobby(guest, lobby.code)
+
+			await expect(
+				service.kickPlayer(guest, lobby.code, 'host1'),
+			).rejects.toThrow('Only the host can kick players')
+
+			expect(lobby.hasPlayer('host1')).toBe(true)
+			expect(lobby.hasPlayer('guest1')).toBe(true)
+			expect(lobby.kickedPlayerIds.size).toBe(0)
+			expect(messageBus.publishEvent).not.toHaveBeenCalledWith(
+				lobby.code,
+				expect.objectContaining({ type: 'player_kicked' }),
+			)
+		})
+
+		it('denies the host from kicking themselves', async () => {
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+
+			await expect(
+				service.kickPlayer(host, lobby.code, 'host1'),
+			).rejects.toThrow('Cannot kick yourself')
+		})
+
+		it('throws if the target is not in the lobby', async () => {
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+
+			await expect(
+				service.kickPlayer(host, lobby.code, 'nobody'),
+			).rejects.toThrow('Player not in this lobby')
+		})
+
+		it('throws if the lobby does not exist', async () => {
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const host = makePlayer('host1', 'Alice')
+			await expect(
+				service.kickPlayer(host, 'ZZZZZ', 'guest1'),
+			).rejects.toThrow('Lobby not found')
+		})
+
+		it('calls forfeitMatchForLeave with the target id and remaining connected players', async () => {
+			const matchmakingCoordinator = makeMockMatchmakingCoordinator()
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator,
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+			const guest = makePlayer('guest1', 'Bob')
+			await service.joinLobby(guest, lobby.code)
+
+			await service.kickPlayer(host, lobby.code, 'guest1')
+
+			expect(matchmakingCoordinator.forfeitMatchForLeave).toHaveBeenCalledWith(
+				lobby.code,
+				'guest1',
+				['host1'],
+			)
+		})
+
+		it('a kicked player cannot rejoin the lobby', async () => {
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+			const guest = makePlayer('guest1', 'Bob')
+			await service.joinLobby(guest, lobby.code)
+
+			await service.kickPlayer(host, lobby.code, 'guest1')
+
+			await expect(service.joinLobby(guest, lobby.code)).rejects.toThrow(
+				'You have been kicked from this lobby',
+			)
+		})
+
+		it('a stale (former) host cannot kick after host has transferred away', async () => {
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+			const guest = makePlayer('guest1', 'Bob')
+			await service.joinLobby(guest, lobby.code)
+
+			await service.leaveLobby(host, lobby.code)
+			expect(lobby.hostId).toBe('guest1')
+
+			await expect(
+				service.kickPlayer(host, lobby.code, 'guest1'),
+			).rejects.toThrow('Only the host can kick players')
+		})
+	})
+
 	describe('getLobbyInfo', () => {
 		it('returns the lobby', async () => {
 			const service = createLobbyService({

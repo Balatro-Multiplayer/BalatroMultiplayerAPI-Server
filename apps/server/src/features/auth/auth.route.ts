@@ -29,6 +29,7 @@ function lobbyPayload(session: PlayerSession) {
 		hostId: lobby.hostId,
 		maxPlayers: lobby.maxPlayers,
 		metadata: lobby.metadata,
+		type: lobby.type,
 		isHost: lobby.hostId === session.playerId,
 		players: Array.from(lobby.players.values()).map((p) => ({
 			id: p.playerId,

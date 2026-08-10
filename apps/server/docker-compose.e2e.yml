@@ -36,8 +36,8 @@ services:
 
   api:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: apps/server/Dockerfile
     container_name: bmp-e2e-api
     hostname: api
     ports:
