@@ -9,6 +9,7 @@ import { env } from '../../env.js'
 import type { ModIndexEntryInput } from '../../infrastructure/gateways/mods.gateway.js'
 import {
 	getStoredHash,
+	listCustomMods,
 	pruneModsMissingFrom,
 	storeComputedHash,
 	upsertModFromIndex,
@@ -76,7 +77,9 @@ async function computePreparedZipHash(
 			signal: AbortSignal.timeout(HASH_FETCH_TIMEOUT_MS),
 		})
 		if (!res.ok) {
-			console.error(`[mods-sync] Hash fetch failed (${res.status}) for ${downloadUrl}`)
+			console.error(
+				`[mods-sync] Hash fetch failed (${res.status}) for ${downloadUrl}`,
+			)
 			return null
 		}
 		const rawBytes = Buffer.from(await res.arrayBuffer())
@@ -145,30 +148,30 @@ async function hashAll(candidates: HashCandidate[]): Promise<number> {
 	return hashed
 }
 
-// Pulls BETModIndex's build-index.yml output -- a single combined JSON file
-// merging upstream skyline69/balatro-mod-index with our bet-overrides/ overlay
-// (see that repo's README) -- and upserts it into
-// mod_registry/mod_registry_versions. A plain HTTPS GET against the published
-// dist artifact, not the GitHub API: avoids needing a token or worrying about
-// API rate limits.
+// Pulls BETModIndex's build-index.yml output -- a pure JSON-ification of
+// upstream skyline69/balatro-mod-index, no override layer of its own -- and
+// upserts it into mod_registry/mod_registry_versions. A plain HTTPS GET
+// against the published dist artifact, not the GitHub API: avoids needing a
+// token or worrying about API rate limits.
 //
-// `allowedInRanked` for any mod without a bet-overrides entry always
-// resolves to false (see build_index.py / upsertModFromIndex's doc
-// comments) -- this sync never has to special-case "no override" itself,
-// the index it's fetching already encodes that default-deny.
+// Ranked eligibility and a pinned ranked version are entirely admin-owned in
+// this server's own DB now (see mods.gateway.ts's setRankedConfig/
+// upsertModFromIndex doc comments) -- the index never carries either, so
+// this sync doesn't touch them at all.
 //
 // After every mod is upserted, prunes any mod_registry row whose id wasn't
-// in this sync (see pruneModsMissingFrom's doc comment) and hashes each
-// remaining mod's prepared archive (all of them now, not just
-// ranked-allowed ones -- the launcher needs a verifiable hash to
-// auto-install any mod, not only ranked-eligible ones) that doesn't already
-// have a stored hash for that exact version. "Prepared" means run through
-// the same extract/flatten/rezip pipeline the launcher itself applies
-// before deploying a mod into the Mods folder (see
-// computePreparedZipHash's doc comment) -- not a hash of the raw download,
-// which is never what actually gets loaded or what Ranked verification
-// checks against. A mod's hash is only ever recomputed when its version
-// changes.
+// in this sync (see pruneModsMissingFrom's doc comment -- isCustom rows are
+// exempt) and hashes each remaining mod's prepared archive -- every mod, not
+// just ranked-allowed ones (the launcher needs a verifiable hash to
+// auto-install any mod, not only ranked-eligible ones), including
+// admin-created custom mods (listCustomMods() below), which aren't in
+// data.mods at all -- that doesn't already have a stored hash for that exact
+// version. "Prepared" means run through the same extract/flatten/rezip
+// pipeline the launcher itself applies before deploying a mod into the Mods
+// folder (see computePreparedZipHash's doc comment) -- not a hash of the raw
+// download, which is never what actually gets loaded or what Ranked
+// verification checks against. A mod's hash is only ever recomputed when its
+// version changes.
 async function runSync(): Promise<ModRegistrySyncSummary> {
 	if (!env.BET_MOD_INDEX_URL) {
 		console.log(
@@ -199,6 +202,16 @@ async function runSync(): Promise<ModRegistrySyncSummary> {
 				modId: entry.id,
 				version: entry.latestVersion,
 				downloadUrl: entry.latestDownloadUrl,
+			})
+		}
+	}
+
+	for (const mod of await listCustomMods()) {
+		if (mod.latestVersion && mod.latestDownloadUrl) {
+			hashCandidates.push({
+				modId: mod.id,
+				version: mod.latestVersion,
+				downloadUrl: mod.latestDownloadUrl,
 			})
 		}
 	}

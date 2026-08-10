@@ -456,10 +456,19 @@ export const modRegistry = pgTable('mod_registry', {
 	latestVersion: varchar('latest_version', { length: 64 }),
 	latestDownloadUrl: text('latest_download_url'),
 	latestSha256: varchar('latest_sha256', { length: 64 }),
+	// Both admin-owned now, not synced from the index -- BETModIndex publishes
+	// a pure base index with no override layer of its own anymore (see
+	// mods-sync.service.ts's doc comment). rankedVersion null means any
+	// version of this ranked-allowed mod is fine; a set value pins ranked
+	// eligibility to that exact version. App-level interpretation only, no DB
+	// CHECK -- same precedent as modProfileEntries.versionConstraint below.
 	allowedInRanked: boolean('allowed_in_ranked').notNull().default(false),
-	allowedInRankedSource: varchar('allowed_in_ranked_source', { length: 16 })
-		.notNull()
-		.default('index'), // 'index' | 'manual'
+	rankedVersion: varchar('ranked_version', { length: 64 }),
+	// True for a mod created directly by an admin (e.g. via the "New mod"
+	// button on /admin/ranked-mods) with no base-index counterpart at all --
+	// pruneModsMissingFrom must never delete these just because they aren't
+	// in the freshly-fetched index.
+	isCustom: boolean('is_custom').notNull().default(false),
 	sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()

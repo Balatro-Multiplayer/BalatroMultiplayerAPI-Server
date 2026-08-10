@@ -169,6 +169,13 @@
       "when": 1789900000000,
       "tag": "0023_mod_registry_and_launcher_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790000000000,
+      "tag": "0024_mod_registry_ranked_overrides",
+      "breakpoints": true
     }
   ]
 }

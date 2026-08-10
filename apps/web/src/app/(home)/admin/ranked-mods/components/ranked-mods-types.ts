@@ -2,8 +2,38 @@ export interface ModSummary {
   id: string
   name: string
   allowedInRanked: boolean
+  rankedVersion: string | null
   latestVersion: string | null
   thumbnailUrl: string | null
+  isCustom: boolean
+}
+
+export interface ModForm {
+  id: string
+  title: string
+  author: string
+  categories: string
+  requiresSteamodded: boolean
+  requiresTalisman: boolean
+  repoUrl: string
+  thumbnailUrl: string
+  description: string
+  latestVersion: string
+  latestDownloadUrl: string
+}
+
+export const EMPTY_MOD_FORM: ModForm = {
+  id: '',
+  title: '',
+  author: '',
+  categories: '',
+  requiresSteamodded: true,
+  requiresTalisman: false,
+  repoUrl: '',
+  thumbnailUrl: '',
+  description: '',
+  latestVersion: '',
+  latestDownloadUrl: '',
 }
 
 export interface ModProfile {
