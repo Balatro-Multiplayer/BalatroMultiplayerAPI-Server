@@ -21,6 +21,7 @@ build/
 # Editor
 .vs/
 *.local*
+!docker-compose.local.yml
 .claude
 
 # OS
