@@ -1,4 +1,4 @@
-import { and, asc, eq, notInArray } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, notInArray } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
 	modProfileEntries,
@@ -141,6 +141,31 @@ export async function pruneModsMissingFrom(ids: string[]): Promise<number> {
 		)
 		.returning({ id: modRegistry.id })
 	return rows.length
+}
+
+// --- Backfill (mods-sync.service.ts's recomputeAllModHashes) ---
+
+// Every mod_registry_versions row that has a downloadUrl to hash from --
+// not just the current latest version per mod (that's all the regular
+// sync ever hashes). A ranked mod profile can pin an exact historical
+// version too (see modProfileEntries.versionConstraint's doc comment), so
+// a historical version's hash matters just as much as the latest one's
+// once it's the one actually being verified against.
+export async function listAllVersionsWithDownloadUrl(): Promise<
+	Array<{ modId: string; version: string; downloadUrl: string }>
+> {
+	const rows = await db
+		.select({
+			modId: modRegistryVersions.modId,
+			version: modRegistryVersions.version,
+			downloadUrl: modRegistryVersions.downloadUrl,
+		})
+		.from(modRegistryVersions)
+		.where(isNotNull(modRegistryVersions.downloadUrl))
+
+	return rows.filter(
+		(r): r is { modId: string; version: string; downloadUrl: string } => r.downloadUrl !== null,
+	)
 }
 
 // Every admin-created mod with no base-index counterpart -- used by

@@ -558,3 +558,44 @@ export const launcherIntegrityEvents = pgTable(
 	},
 	(t) => [index('launcher_integrity_events_player_idx').on(t.playerId)],
 )
+
+// One row per (player, hardware component) the launcher has ever attested to,
+// submitted only alongside a launcher-integrity LOGIN challenge (never
+// periodic -- see launcher-integrity.service.ts's handleChallengeResponse)
+// and only once that challenge's signature has already verified. Each
+// componentHash is itself an HMAC-SHA256 the launcher computed locally
+// (hardwarefingerprint.cpp) -- the raw hardware identifier never leaves the
+// player's machine, this table only ever sees the hash. Storage only for
+// now: no cross-player fuzzy-match/ban-evasion query is built on top of this
+// yet, but componentName+componentHash is indexed so that join is cheap to
+// add later ("N of M components match a previously-banned player").
+export const playerHardwareFingerprints = pgTable(
+	'player_hardware_fingerprints',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		playerId: uuid('player_id')
+			.notNull()
+			.references(() => players.id),
+		platform: varchar('platform', { length: 16 }).notNull(), // 'windows' | 'macos' | 'linux'
+		componentName: varchar('component_name', { length: 32 }).notNull(), // e.g. 'steam_id', 'disk_serial'
+		componentHash: varchar('component_hash', { length: 64 }).notNull(), // hex HMAC-SHA256
+		firstSeenAt: timestamp('first_seen_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+		lastSeenAt: timestamp('last_seen_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [
+		// Re-submission (every Ranked Run re-collects and re-sends) updates the
+		// same row rather than growing unboundedly -- see upsertHardwareComponents.
+		uniqueIndex('player_hardware_fingerprints_player_component_idx').on(
+			t.playerId,
+			t.componentName,
+		),
+		index('player_hardware_fingerprints_component_idx').on(
+			t.componentName,
+			t.componentHash,
+		),
+	],
+)
