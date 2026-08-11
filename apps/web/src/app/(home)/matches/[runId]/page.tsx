@@ -16,12 +16,16 @@ import {
 } from '@/components/ui/table'
 import { ApiError, apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { ArgsView } from '../components/args-view'
+import { EventDetail } from '../components/event-detail'
+import { InfoTooltipLabel } from '../components/info-tooltip-label'
 import { KeyValueGrid } from '../components/key-value-grid'
 import { OpcodeBadge } from '../components/opcode-badge'
 import { PlayerLabel } from '../components/player-label'
 import { RunStatusBadge } from '../components/status-badge'
+import { buildCardRegistries } from '../lib/build-card-registries'
 import { decodePlayerLogs } from '../lib/decode-player-logs'
+import { getDeckInfo, getRulesetInfo } from '../lib/ruleset-info'
+import { computePlayerSpending } from '../lib/spending'
 import { formatElapsedMs } from '../lib/format'
 import { findManifestArgs, findPlayerOutcomeArgs } from '../lib/manifest'
 import { buildTimeline, FRAMING_OPCODES } from '../lib/timeline'
@@ -57,6 +61,8 @@ export default function MatchReplayPage() {
     [data]
   )
   const timeline = useMemo(() => buildTimeline(decoded), [decoded])
+  const cardRegistries = useMemo(() => buildCardRegistries(decoded), [decoded])
+  const spending = useMemo(() => computePlayerSpending(decoded), [decoded])
   const gameplayTimeline = useMemo(
     () => timeline.filter((entry) => !FRAMING_OPCODES.has(entry.opcode)),
     [timeline]
@@ -163,7 +169,21 @@ export default function MatchReplayPage() {
             <CardTitle>Match Info</CardTitle>
           </CardHeader>
           <CardContent>
-            <KeyValueGrid data={manifest} />
+            <KeyValueGrid
+              data={manifest}
+              renderValue={(key, value) => {
+                const info =
+                  key === 'ruleset'
+                    ? getRulesetInfo(value)
+                    : key === 'deck'
+                      ? getDeckInfo(value)
+                      : null
+                if (!info || typeof value !== 'string') return null
+                return (
+                  <InfoTooltipLabel label={value} description={info.description} />
+                )
+              }}
+            />
           </CardContent>
         </Card>
       )}
@@ -221,6 +241,63 @@ export default function MatchReplayPage() {
         </Card>
       )}
 
+      {spending.some((s) => s.hasData) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Spending</CardTitle>
+          </CardHeader>
+          <CardContent className='p-0'>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Player</TableHead>
+                  <TableHead className='text-right'>
+                    Itemized Purchases
+                  </TableHead>
+                  <TableHead className='text-right'>
+                    Observed Balance Decrease
+                  </TableHead>
+                  <TableHead className='text-right'>
+                    Observed Balance Increase
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {spending
+                  .filter((s) => s.hasData)
+                  .map((s) => (
+                    <TableRow key={s.playerId}>
+                      <TableCell>
+                        <PlayerLabel
+                          playerId={s.playerId}
+                          viewerId={viewerId}
+                        />
+                      </TableCell>
+                      <TableCell className='text-right font-mono text-sm'>
+                        ${s.itemizedPurchases}
+                      </TableCell>
+                      <TableCell className='text-right font-mono text-sm'>
+                        ${s.observedSpend}
+                      </TableCell>
+                      <TableCell className='text-right font-mono text-sm'>
+                        ${s.observedGain}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+              </TableBody>
+            </Table>
+            <p className='px-4 py-3 text-muted-foreground text-xs'>
+              Itemized Purchases sums each shop purchase's own recorded cost.
+              Observed Balance Decrease/Increase sums every recorded balance
+              change for any reason (purchases, rerolls, blind rewards,
+              interest, joker triggers, ...), not shop purchases alone --
+              expect it to run higher than Itemized Purchases, that's not by
+              itself a sign of anything wrong.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {gameplayTimeline.length > 0 && (
         <Card>
           <CardHeader>
@@ -253,7 +330,11 @@ export default function MatchReplayPage() {
                         <OpcodeBadge opcode={entry.opcode} />
                       </TableCell>
                       <TableCell>
-                        <ArgsView args={entry.args} />
+                        <EventDetail
+                          opcode={entry.opcode}
+                          args={entry.args}
+                          registry={cardRegistries.get(entry.playerId)}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}
