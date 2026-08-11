@@ -1,0 +1,44 @@
+name: Update and restart STAFF server
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to deploy"
+        required: true
+        default: "main"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      # Step 2: Connect to server via SSH and deploy
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          command_timeout: 10m
+          script_stop: true
+          script: |
+            set -e
+
+            cd /root/staff-server
+
+            # Check out the selected branch based on chosen branch
+            git fetch origin
+            git checkout "${{ github.event.inputs.branch }}"
+            git pull origin "${{ github.event.inputs.branch }}"
+
+            docker compose up --build --force-recreate --remove-orphans -d

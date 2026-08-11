@@ -1,92 +1,39 @@
+# PRODUCTION compose. Service name (socket) + host ports (8788 game, 49484 alt)
+# match the live prod container (server-socket-1) so `docker compose up` recreates
+# it in place. The STAFF variant (staff-socket on 8799) lives on the
+# casjb/abuse-ratelimit-combined-staff branch — never bind 8799 here.
+# Code: live replay-log streaming + abuse rate/size limits + central hard-ban
+# enforcement (better-sqlite3 store on the ./data volume).
 services:
-  emqx:
-    image: emqx/emqx:5.8
-    container_name: bmp-emqx
-    ports:
-      - "8883:8883"
-      # Plain MQTT for local dev clients (custom_server_secure=false -> port 1883).
-      - "1883:1883"
-    environment:
-      EMQX_NAME: bmp-emqx
-    volumes:
-      - ./apps/server/emqx/cluster.hocon:/opt/emqx/etc/cluster.hocon:ro
-      # Let's Encrypt cert for mqtt.balatromp.com, copied out of /etc/letsencrypt
-      # (root-only permissions there aren't readable by the non-root emqx
-      # container user) by /etc/letsencrypt/renewal-hooks/deploy/reload-emqx.sh,
-      # which also restarts this container on renewal.
-      - /root/emqx-certs/mqtt.balatromp.com:/opt/emqx/etc/certs:ro
-      - emqx-data:/opt/emqx/data
-      - emqx-log:/opt/emqx/log
-    healthcheck:
-      test: ["CMD", "emqx", "ctl", "status"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - bmp
-
-  postgres:
-    image: postgres:16-alpine
-    container_name: bmp-postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: bmp
-    volumes:
-      - pg-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - bmp
-
-  api:
+  socket:
     build:
       context: .
-      dockerfile: apps/server/Dockerfile
-    container_name: bmp-api
+      dockerfile: Dockerfile
     ports:
-      - "127.0.0.1:8788:8788"
-    env_file: ./apps/server/.env
+      - "8788:8788"
+      - "49484:8788"
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/bmp
-      EMQX_BROKER_URL: mqtt://emqx:1883
-      EMQX_API_URL: http://emqx:18083/api/v5
-      WEB_BASE_URL: ${WEB_BASE_URL:-https://new.balatromp.com}
-    depends_on:
-      emqx:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
+      NODE_ENV: development
+      # Replay-log hash store (better-sqlite3). Lives on the ./data volume so it
+      # survives container redeploys. The ban-watcher writes central_hard_bans
+      # into this same file for the relay to enforce.
+      LOG_HASH_DB_PATH: /data/log_hashes.db
+      # Abuse rate-heuristic disconnects + auto-bans active (full enforce). The
+      # buffer-overflow OOM fix and oversized-message drops are always-on
+      # regardless; this flag only gates the heuristic disconnects/bans.
+      ABUSE_ENFORCE: "true"
     restart: unless-stopped
-    networks:
-      - bmp
-
-  web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-    container_name: bmp-web
-    ports:
-      - "127.0.0.1:3000:3000"
-    environment:
-      NODE_ENV: production
-      API_SERVER_URL: http://bmp-api:8788
-    depends_on:
-      - api
-    restart: unless-stopped
-    networks:
-      - bmp
-
-networks:
-  bmp:
-    name: bmp
-
-volumes:
-  emqx-data:
-  emqx-log:
-  pg-data:
+    # Resource caps so an abuse spike that slips past the app-level limits OOM-kills
+    # only this container (which then auto-restarts) instead of taking down the whole
+    # shared host. Idle usage is ~120 MB; 512 MB leaves ample headroom for ~50 live
+    # games. The box is 2 vCPU / ~2 GB shared across ~9 containers.
+    mem_limit: 512m
+    cpus: "1.5"
+    pids_limit: 512
+    # Container stdout/stderr rotation is handled host-side by logrotate
+    # (deploy/logrotate/balatro-docker: daily, compress after 1 day, keep 30
+    # days). We deliberately leave the json-file driver at its default here so
+    # Docker doesn't also rotate the same files and collide with logrotate.
+    volumes:
+      - ./logs:/logs
+      - ./data:/data

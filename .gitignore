@@ -1,31 +1,8 @@
-# Dependencies
-node_modules/
-
-# TypeScript / build outputs
-dist/
-build/
-
-# SvelteKit
-.svelte-kit/
-
-# Environment files
+node_modules
 .env
-!.env.example
-
-# Logs
-*.log
-
-# Turbo cache
-.turbo/
-
-# Editor
-.vs/
-*.local*
-.claude
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Clients
-clients/*
+dist
+.vscode
+releases
+.vs
+logs
+data

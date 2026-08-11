@@ -1,10 +1,10 @@
 {
-	"$schema": "https://biomejs.dev/schemas/1.9.0/schema.json",
+	"$schema": "https://biomejs.dev/schemas/1.6.1/schema.json",
 	"organizeImports": {
 		"enabled": true
 	},
 	"files": {
-		"ignore": ["**/dist", "**/node_modules", "**/drizzle", "**/.svelte-kit"]
+		"ignore": ["dist"]
 	},
 	"formatter": {
 		"enabled": true,
