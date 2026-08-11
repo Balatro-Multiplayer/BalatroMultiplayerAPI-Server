@@ -12,7 +12,7 @@ import { Lobby } from '../../state/lobby.js'
 // isn't exported (it's an implementation detail of verifyPlayerHash).
 function expectedCarbonHash(events: { t: number; opcode: string; args?: unknown }[]) {
 	const tuples = events
-		.filter((e) => !['manifest', 'end', 'chk'].includes(e.opcode))
+		.filter((e) => !['end', 'chk'].includes(e.opcode))
 		.map((e) => [e.t, e.opcode, e.args ?? null])
 	return createHash('sha256').update(JSON.stringify(tuples)).digest('hex')
 }
@@ -436,48 +436,60 @@ describe('replay-log.service', () => {
 			lobbies.delete('ABCDE')
 		})
 
-		it('extracts the manifest fields a seeded local run bootstrap needs', async () => {
+		it('merges lobby_info + the LATEST run_info into the manifest a seeded local run bootstrap needs', async () => {
 			const repository = makeMockRepository()
 			const service = createReplayLogService({ repository })
 			putLobby('FIDEL')
 
 			await service.handleActionLogEvent('FIDEL', 'p1', {
 				t: 0,
-				opcode: 'manifest',
+				opcode: 'match_manifest',
+				args: { schema_version: 1, mod_id: 'mod1', lobby_code: 'FIDEL', lobby_type: 'private' },
+			})
+			await service.handleActionLogEvent('FIDEL', 'p1', {
+				t: 1,
+				opcode: 'lobby_info',
 				args: {
-					seed: 'ABCD1234',
-					deck: 'Red Deck',
-					sleeve: 'sleeve_none',
-					challenge: '',
-					ruleset: 'ruleset_mp_smallworld',
 					gamemode: 'pvp_smallworld',
-					stake: 1,
-					mod_version: '0.5.1',
+					ruleset: 'ruleset_mp_smallworld',
+					options: { sleeve: 'sleeve_none', challenge: '', mod_version: '0.5.1' },
 				},
+			})
+			await service.handleActionLogEvent('FIDEL', 'p1', {
+				t: 2,
+				opcode: 'run_info',
+				args: { seed: 'ABCD1234', deck: 'Red Deck', stake: 1 },
+			})
+			// A later run_info (e.g. a multi-run match's second run) should win --
+			// a spectator joining mid-match needs the CURRENT run, not the first.
+			await service.handleActionLogEvent('FIDEL', 'p1', {
+				t: 100,
+				opcode: 'run_info',
+				args: { seed: 'WXYZ5678', deck: 'Blue Deck', stake: 2 },
 			})
 
 			const [entry] = service.getSpectatorSnapshot('FIDEL')
 			expect(entry.manifest).toEqual({
-				seed: 'ABCD1234',
-				deck: 'Red Deck',
+				seed: 'WXYZ5678',
+				deck: 'Blue Deck',
 				sleeve: 'sleeve_none',
 				challenge: '',
 				ruleset: 'ruleset_mp_smallworld',
 				gamemode: 'pvp_smallworld',
-				stake: 1,
+				stake: 2,
 			})
 			lobbies.delete('FIDEL')
 		})
 
-		it('leaves manifest null when the buffered manifest event is missing required fields', async () => {
+		it('leaves manifest null when lobby_info or run_info is missing', async () => {
 			const repository = makeMockRepository()
 			const service = createReplayLogService({ repository })
 			putLobby('BADMF')
 
 			await service.handleActionLogEvent('BADMF', 'p1', {
 				t: 0,
-				opcode: 'manifest',
-				args: { seed: 'ABCD1234' },
+				opcode: 'lobby_info',
+				args: { gamemode: 'pvp_smallworld', ruleset: 'ruleset_mp_smallworld' },
 			})
 
 			const [entry] = service.getSpectatorSnapshot('BADMF')

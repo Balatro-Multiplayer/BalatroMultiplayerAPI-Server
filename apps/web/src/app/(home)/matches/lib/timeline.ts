@@ -1,8 +1,18 @@
 import type { DecodedPlayerLog } from './decode-player-logs'
 
-// Framing opcodes carry match metadata/trailers rather than gameplay actions
-// -- mirrors FRAMING_OPCODES in apps/server's replay-log.service.ts.
-export const FRAMING_OPCODES = new Set(['manifest', 'end', 'chk'])
+// Framing opcodes carry match metadata/trailers rather than gameplay actions.
+// match_manifest/lobby_info/run_info replace the old single 'manifest' event
+// (see BalatroMultiplayerAPI/api/replay/framing_codes.lua) -- required, not
+// cosmetic: without these three, the new framing events show up as rows in
+// the gameplay Timeline table. 'end'/'chk' are excluded from apps/server's
+// own FRAMING_OPCODES too (they still carry the anti-cheat trailer/outcome).
+export const FRAMING_OPCODES = new Set([
+  'match_manifest',
+  'lobby_info',
+  'run_info',
+  'end',
+  'chk',
+])
 
 export interface TimelineEntry {
   id: string

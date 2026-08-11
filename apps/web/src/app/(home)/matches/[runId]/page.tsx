@@ -27,7 +27,7 @@ import { decodePlayerLogs } from '../lib/decode-player-logs'
 import { getDeckInfo, getRulesetInfo } from '../lib/ruleset-info'
 import { computePlayerSpending } from '../lib/spending'
 import { formatElapsedMs } from '../lib/format'
-import { findManifestArgs, findPlayerOutcomeArgs } from '../lib/manifest'
+import { findMatchInfo, findPlayerOutcomeArgs } from '../lib/manifest'
 import { buildTimeline, FRAMING_OPCODES } from '../lib/timeline'
 import type { RunReplayResponse } from '../lib/types'
 
@@ -67,7 +67,7 @@ export default function MatchReplayPage() {
     () => timeline.filter((entry) => !FRAMING_OPCODES.has(entry.opcode)),
     [timeline]
   )
-  const manifest = useMemo(() => findManifestArgs(timeline), [timeline])
+  const manifest = useMemo(() => findMatchInfo(timeline), [timeline])
   const playerOutcomes = useMemo(
     () =>
       (data?.logs ?? []).map((log) => ({

@@ -1,16 +1,30 @@
 import { isPlainRecord } from './plain-record'
 import type { TimelineEntry } from './timeline'
 
-// The manifest event's args come from the client's begin_run bootstrap
-// payload (seed/ruleset/gamemode/deck/stake plus mod-specific extras) --
-// shape varies by which mod recorded it, so every field is optional here.
-export function findManifestArgs(
+// Merges the first match_manifest + first lobby_info event (from any
+// player -- both are per-match, identical across players) into one display
+// object for the Match Info card. Replaces the old single 'manifest' event
+// now that match framing is split across three events fired at three
+// different scopes (see BalatroMultiplayerAPI/api/replay/framing_codes.lua).
+// run_info (seed/deck/stake, fired per individual Balatro run rather than
+// per match) deliberately isn't merged in here -- it belongs on the
+// gameplay Timeline, not the match-level summary card. Shape varies by
+// which mod recorded lobby_info (its `options` field is mod-specific), so
+// every field stays optional here, same as before.
+export function findMatchInfo(
   timeline: readonly TimelineEntry[]
 ): Record<string, unknown> | null {
-  const entry = timeline.find(
-    (e) => e.opcode === 'manifest' && isPlainRecord(e.args)
+  const matchManifest = timeline.find(
+    (e) => e.opcode === 'match_manifest' && isPlainRecord(e.args)
   )
-  return entry ? (entry.args as Record<string, unknown>) : null
+  const lobbyInfo = timeline.find(
+    (e) => e.opcode === 'lobby_info' && isPlainRecord(e.args)
+  )
+  if (!matchManifest && !lobbyInfo) return null
+  return {
+    ...(isPlainRecord(matchManifest?.args) ? matchManifest.args : {}),
+    ...(isPlainRecord(lobbyInfo?.args) ? lobbyInfo.args : {}),
+  }
 }
 
 const OUTCOME_OPCODES = new Set(['end', 'chk'])
