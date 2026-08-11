@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -34,6 +35,7 @@ interface Match {
   gameStartedAt: string | null
   createdAt: string
   playerNames: string[]
+  runId: string | null
 }
 
 interface MatchesResponse {
@@ -146,18 +148,19 @@ export default function AdminGamesPage() {
               <TableHead>Players</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Created</TableHead>
+              <TableHead>Log</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={6} className='text-muted-foreground'>
+                <TableCell colSpan={7} className='text-muted-foreground'>
                   Loading…
                 </TableCell>
               </TableRow>
             ) : matches.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className='text-muted-foreground'>
+                <TableCell colSpan={7} className='text-muted-foreground'>
                   No matches
                 </TableCell>
               </TableRow>
@@ -177,6 +180,15 @@ export default function AdminGamesPage() {
                   </TableCell>
                   <TableCell className='text-muted-foreground'>
                     {new Date(m.createdAt).toLocaleString()}
+                  </TableCell>
+                  <TableCell>
+                    {m.runId ? (
+                      <Button variant='outline' size='sm' asChild>
+                        <Link href={`/matches/${m.runId}`}>View Log</Link>
+                      </Button>
+                    ) : (
+                      <span className='text-xs text-muted-foreground'>—</span>
+                    )}
                   </TableCell>
                 </TableRow>
               ))

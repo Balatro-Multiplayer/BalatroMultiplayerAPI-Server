@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { and, count, desc, eq } from 'drizzle-orm'
 import { db } from '../../infrastructure/db/index.js'
 import { matchmakingMatches } from '../../infrastructure/db/schema.js'
+import { replayLogService } from '../replay-log/replay-log.service.js'
 
 // Sparse compared to the old log-extracted "games" table — the new backend only
 // records matchmaking matches (no per-card extraction). Player display names are
@@ -46,6 +47,14 @@ router.get('/matches', async (req, res, next) => {
 			.limit(pageSize)
 			.offset(offset)
 
+		// Exact join to this page's RLOG runs (lobbyRuns.matchmakingMatchId,
+		// populated at run-creation time -- see replay-log.service.ts) so the
+		// admin page can offer a "View Log" link per match, not a lobby-code
+		// guess (codes get reused across unrelated lobby instances over time).
+		const runIdByMatchId = await replayLogService.getRunIdsForMatchIds(
+			rows.map((m) => m.matchId),
+		)
+
 		const data = rows.map((m) => {
 			const ids = Array.isArray(m.players) ? (m.players as string[]) : []
 			const infos =
@@ -60,6 +69,7 @@ router.get('/matches', async (req, res, next) => {
 				gameStartedAt: m.gameStartedAt,
 				createdAt: m.createdAt,
 				playerNames: ids.map((id) => infos[id]?.displayName ?? id),
+				runId: runIdByMatchId.get(m.matchId) ?? null,
 			}
 		})
 

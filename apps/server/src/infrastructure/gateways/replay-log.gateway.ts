@@ -145,6 +145,27 @@ export async function getRunsForPlayer(
 	}
 }
 
+// Exact join for the admin Match History page's "View Log" button:
+// lobbyRuns.matchmakingMatchId is populated at run-creation time
+// (replay-log.service.ts, from the live matchByLobby lookup) for any run
+// backing a real ranked/casual match -- unlike getMostRecentRunForLobbyCode,
+// this doesn't need to guess by lobby code + recency (codes get reused
+// across unrelated lobby instances over time).
+export async function getRunIdsForMatchIds(
+	matchIds: string[],
+): Promise<Map<string, string>> {
+	if (matchIds.length === 0) return new Map()
+	const rows = await db
+		.select({ id: lobbyRuns.id, matchmakingMatchId: lobbyRuns.matchmakingMatchId })
+		.from(lobbyRuns)
+		.where(inArray(lobbyRuns.matchmakingMatchId, matchIds))
+	const map = new Map<string, string>()
+	for (const row of rows) {
+		if (row.matchmakingMatchId) map.set(row.matchmakingMatchId, row.id)
+	}
+	return map
+}
+
 export async function getRunWithLogs(
 	runId: string,
 ): Promise<RunWithLogs | undefined> {

@@ -10,6 +10,7 @@ import * as replayLogGateway from '../../infrastructure/gateways/replay-log.gate
 import { compressToBase64 } from '../../shared/utils/compression.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { getLobby } from '../../state/index.js'
+import { matchByLobby } from '../../state/matchmaking.js'
 
 // Indefinite (NULL expiresAt) is reserved for flagged/disputed runs -- see
 // finalizeRun's flags param, set by matchmaking.service.ts's evaluateAntiCheat.
@@ -160,11 +161,19 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 					const lobby = getLobby(lobbyCode)
 					if (!lobby) return null // lobby already gone -- nothing to anchor this run to
 
+					// matchByLobby only holds ranked+casual matchmaking matches (see
+					// grace-period.service.ts's own comment on the same lookup) --
+					// undefined here for a practice/private lobby, which correctly
+					// leaves matchmakingMatchId null for those. Previously always
+					// null regardless: nothing ever populated this column despite it
+					// existing in the schema specifically for this join, which is
+					// exactly what left the admin Match History page with no way to
+					// link a match row to its RLOG run.
 					const runId = await repository.insertRun({
 						lobbyCode,
 						modId: lobby.modId,
 						lobbyType: lobby.type,
-						matchmakingMatchId: null,
+						matchmakingMatchId: matchByLobby.get(lobbyCode)?.matchId ?? null,
 					})
 					const created: RunBuffer = { runId, players: new Map() }
 					runs.set(lobbyCode, created)
@@ -325,6 +334,13 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 		return { runs, total, page, pageSize }
 	}
 
+	// Admin Match History's "View Log" button: resolves a page of matchIds to
+	// their RLOG run ids in one query, exact (not a lobby-code-recency guess --
+	// see getRunIdsForMatchIds's own doc comment).
+	async function getRunIdsForMatchIds(matchIds: string[]): Promise<Map<string, string>> {
+		return repository.getRunIdsForMatchIds(matchIds)
+	}
+
 	// Phase 7: best-effort one-time state snapshot for a spectator joining a
 	// live match, derived from whatever the in-memory buffer has observed so
 	// far for each player (their most recent ante marker and hand result).
@@ -434,6 +450,7 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 		hasBufferedRun,
 		getReplay,
 		listMyRuns,
+		getRunIdsForMatchIds,
 		getSpectatorSnapshot,
 		verifyPlayerHash,
 		countHandResultEvents,
