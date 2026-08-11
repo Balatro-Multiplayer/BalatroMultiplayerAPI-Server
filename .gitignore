@@ -1,15 +1,11 @@
-# Dependencies
-node_modules/
-
-# TypeScript / build outputs
-dist/
-build/
-
-# SvelteKit
-.svelte-kit/
-
-# Environment files
+node_modules
 .env
+dist
+.vscode
+releases
+.vs
+logs
+data
 !.env.example
 
 # Logs

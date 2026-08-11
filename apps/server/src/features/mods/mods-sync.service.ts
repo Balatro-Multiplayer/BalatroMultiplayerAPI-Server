@@ -9,6 +9,7 @@ import { env } from '../../env.js'
 import {
 	applyDetectedVersion,
 	getStoredHash,
+	listAllVersionsWithDownloadUrl,
 	listCustomMods,
 	pruneModsMissingFrom,
 	storeComputedHash,
@@ -119,13 +120,23 @@ interface HashCandidate {
 	downloadUrl: string
 }
 
+interface HashRunResult {
+	hashed: number
+	failed: Array<{ modId: string; version: string }>
+}
+
 // Bounded-concurrency worker pool: HASH_CONCURRENCY fetches in flight at
 // once, not one giant Promise.all (hundreds of simultaneous connections to
 // arbitrary third-party hosts would be its own kind of abuse) and not a
 // plain sequential loop (would take far too long over hundreds of mods).
-async function hashAll(candidates: HashCandidate[]): Promise<number> {
-	let hashed = 0
+// Shared by both callers below -- they differ only in whether an existing
+// stored hash is left alone (skipExisting=true, hashAll()'s regular sync
+// behavior) or unconditionally recomputed and overwritten
+// (skipExisting=false, recomputeAllModHashes()'s one-off backfill).
+async function runHashPool(candidates: HashCandidate[], skipExisting: boolean): Promise<HashRunResult> {
 	let next = 0
+	let hashed = 0
+	const failed: Array<{ modId: string; version: string }> = []
 
 	async function worker(): Promise<void> {
 		while (true) {
@@ -133,19 +144,64 @@ async function hashAll(candidates: HashCandidate[]): Promise<number> {
 			if (i >= candidates.length) return
 			const { modId, version, downloadUrl } = candidates[i]
 
-			const existingHash = await getStoredHash(modId, version)
-			if (existingHash) continue
+			if (skipExisting) {
+				const existingHash = await getStoredHash(modId, version)
+				if (existingHash) continue
+			}
 
 			const hash = await computePreparedZipHash(modId, version, downloadUrl)
 			if (hash) {
 				await storeComputedHash(modId, version, hash)
 				hashed++
+			} else {
+				failed.push({ modId, version })
 			}
 		}
 	}
 
 	await Promise.all(Array.from({ length: HASH_CONCURRENCY }, () => worker()))
+	return { hashed, failed }
+}
+
+async function hashAll(candidates: HashCandidate[]): Promise<number> {
+	const { hashed } = await runHashPool(candidates, true)
 	return hashed
+}
+
+// One-off maintenance operation, not part of the regular hourly/startup
+// sync cycle: every hash stored before the prepared-zip-hash rewrite was
+// computed over the raw GitHub download, which is never what
+// RunController::currentZipMatchesServerHash() (new-launcher) actually
+// verifies against (see computePreparedZipHash's doc comment) -- those
+// stored values are simply wrong under the corrected algorithm, not just
+// stale. This recomputes every mod_registry_versions row that has a
+// downloadUrl, unconditionally (ignores getStoredHash's short-circuit
+// entirely, unlike hashAll() above) -- not just the current latest version
+// per mod, since a ranked mod profile can pin an exact historical version
+// too (see listAllVersionsWithDownloadUrl's doc comment).
+//
+// Deliberately not called from syncModRegistry() itself -- run it
+// explicitly, once, via `pnpm backfill-mod-hashes` (see
+// backfill-mod-hashes.ts). Re-running it is safe (idempotent: recomputing
+// an already-correct hash just produces the same value again), just
+// unnecessary after the first run -- new versions from then on get hashed
+// correctly the first time by the regular sync.
+export async function recomputeAllModHashes(): Promise<void> {
+	const candidates = await listAllVersionsWithDownloadUrl()
+	console.log(`[mods-sync] Recomputing hashes for ${candidates.length} mod version(s)...`)
+
+	const { hashed, failed } = await runHashPool(candidates, false)
+
+	console.log(
+		`[mods-sync] Recompute complete: ${hashed}/${candidates.length} succeeded${failed.length ? `, ${failed.length} failed.` : '.'}`,
+	)
+	if (failed.length > 0) {
+		console.log(
+			`[mods-sync] Failed (see earlier [mods-sync] Failed to hash lines above for why): ${failed
+				.map((f) => `${f.modId}@${f.version}`)
+				.join(', ')}`,
+		)
+	}
 }
 
 // Pulls skyline69/balatro-mod-index directly (see upstream-mod-index.service.ts

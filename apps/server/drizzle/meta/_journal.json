@@ -181,7 +181,14 @@
       "idx": 25,
       "version": "7",
       "when": 1790100000000,
-      "tag": "0025_mod_registry_auto_version_check",
+      "tag": "0025_player_hardware_fingerprints",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790200000000,
+      "tag": "0026_mod_registry_auto_version_check",
       "breakpoints": true
     }
   ]

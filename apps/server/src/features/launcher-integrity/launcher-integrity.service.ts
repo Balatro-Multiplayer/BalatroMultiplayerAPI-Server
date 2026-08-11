@@ -13,6 +13,7 @@ import { integritySessions } from '../../state/launcher-integrity.js'
 import type { IntegritySession } from '../../state/launcher-integrity.js'
 import {
 	CHALLENGE_TIMEOUT_MS,
+	LOGIN_CHALLENGE_TIMEOUT_MS,
 	PERIODIC_MAX_MS,
 	PERIODIC_MIN_MS,
 } from './launcher-integrity.config.js'
@@ -20,6 +21,42 @@ import {
 interface LauncherIntegrityServiceDeps {
 	messageBus: IMessageBus
 	repository: ILauncherIntegrityRepository
+}
+
+interface HardwareFingerprintPayload {
+	platform: string
+	components: Record<string, string>
+}
+
+// Defensive runtime extraction, not a cast -- `response` is untrusted network
+// input regardless of whether the base signature already verified (see the
+// call site's comment on the current binding caveat). Non-string component
+// values are dropped rather than accepted as-is.
+function extractHardwareFingerprint(
+	response: unknown,
+): HardwareFingerprintPayload | null {
+	if (!response || typeof response !== 'object') return null
+	const hwid = (response as { hardwareFingerprint?: unknown })
+		.hardwareFingerprint
+	if (!hwid || typeof hwid !== 'object') return null
+
+	const { platform, components } = hwid as {
+		platform?: unknown
+		components?: unknown
+	}
+	if (
+		typeof platform !== 'string' ||
+		!components ||
+		typeof components !== 'object'
+	)
+		return null
+
+	const entries = Object.entries(
+		components as Record<string, unknown>,
+	).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+	if (entries.length === 0) return null
+
+	return { platform, components: Object.fromEntries(entries) }
 }
 
 export type LauncherIntegrityService = ReturnType<
@@ -106,9 +143,13 @@ export function createLauncherIntegrityService(
 		const issuance = await strategy.issue(playerId, kind)
 		const challengeId = randomUUID()
 
+		// login gets a longer allowance than periodic -- see
+		// LOGIN_CHALLENGE_TIMEOUT_MS's comment for why.
+		const timeoutMs =
+			kind === 'login' ? LOGIN_CHALLENGE_TIMEOUT_MS : CHALLENGE_TIMEOUT_MS
 		const timeoutTimer = setTimeout(() => {
 			void handleChallengeTimeout(playerId, challengeId)
-		}, CHALLENGE_TIMEOUT_MS)
+		}, timeoutMs)
 		timeoutTimer.unref()
 
 		session.activeChallenge = { challengeId, kind, issuance, timeoutTimer }
@@ -261,6 +302,45 @@ export function createLauncherIntegrityService(
 
 		session.launcherVerified = true
 		session.launcherRefused = false
+
+		// Hardware IDs only ever ride along on the login challenge (see
+		// hardwarefingerprint.cpp / RankedSupervisor on the launcher side) --
+		// storing one attached to a periodic response would be unexpected, not
+		// a normal "resubmission", so it's logged and dropped rather than
+		// silently accepted.
+		//
+		// NOTE on trust: `response` here is `unknown` to this repo by design --
+		// the real verify() lives in the private bet-launcher-integrity-private
+		// package (see this file's top comment). Today that package's verify()
+		// only covers nonce+playerId, so a verified `ok` above does not yet
+		// prove `hardwareFingerprint` wasn't altered in transit between the
+		// launcher and here. Binding it into the same signature closes that
+		// gap; see HWID_BINDING_SPEC.md in this feature folder for the exact
+		// contract that private repo needs to implement. Until it does, this
+		// fingerprint is trusted only because the base response already
+		// verified -- a deliberate, documented interim state, not an oversight.
+		if (active.kind === 'login') {
+			const fingerprint = extractHardwareFingerprint(payload.response)
+			if (fingerprint) {
+				await repository
+					.upsertHardwareComponents(
+						playerId,
+						fingerprint.platform,
+						fingerprint.components,
+					)
+					.catch((err) => {
+						console.error(
+							'[launcher-integrity] Failed to store hardware fingerprint:',
+							err,
+						)
+					})
+			}
+		} else if (extractHardwareFingerprint(payload.response)) {
+			console.warn(
+				`[launcher-integrity] Ignoring a hardwareFingerprint attached to a non-login (${active.kind}) challenge response for player ${playerId}.`,
+			)
+		}
+
 		scheduleNextPeriodicChallenge(playerId)
 	}
 
