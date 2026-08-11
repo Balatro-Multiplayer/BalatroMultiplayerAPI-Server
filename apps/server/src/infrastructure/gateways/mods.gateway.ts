@@ -145,16 +145,62 @@ export async function pruneModsMissingFrom(ids: string[]): Promise<number> {
 
 // Every admin-created mod with no base-index counterpart -- used by
 // mods-sync.service.ts to fold these into the same hashing pass index-synced
-// mods get, since they aren't in the fetched index's data.mods[] at all.
+// mods get, since they aren't in the fetched index's data.mods[] at all, and
+// to run custom-mod-version-check.service.ts against any that opted into
+// automaticVersionCheck.
 export async function listCustomMods() {
 	return db
 		.select({
 			id: modRegistry.id,
+			repoUrl: modRegistry.repoUrl,
 			latestVersion: modRegistry.latestVersion,
 			latestDownloadUrl: modRegistry.latestDownloadUrl,
+			automaticVersionCheck: modRegistry.automaticVersionCheck,
+			fixedReleaseTagUpdates: modRegistry.fixedReleaseTagUpdates,
 		})
 		.from(modRegistry)
 		.where(eq(modRegistry.isCustom, true))
+}
+
+// Writes back a version custom-mod-version-check.service.ts just detected
+// for a custom mod, and inserts the corresponding mod_registry_versions row
+// so the existing hashing pass (hashAll in mods-sync.service.ts) picks it up
+// exactly like any newly-synced version -- this never computes or touches
+// sha256 itself. downloadUrl null means "leave latestDownloadUrl as it is"
+// (the checker's HEAD/most-LATEST_TAG case, where the URL already points at
+// a stable "latest" pointer that doesn't need rewriting).
+export async function applyDetectedVersion(
+	modId: string,
+	input: { version: string; downloadUrl: string | null },
+): Promise<void> {
+	const set: Partial<typeof modRegistry.$inferInsert> = {
+		latestVersion: input.version,
+		sourceUpdatedAt: new Date(),
+		updatedAt: new Date(),
+	}
+	if (input.downloadUrl) set.latestDownloadUrl = input.downloadUrl
+
+	await db
+		.update(modRegistry)
+		.set(set)
+		.where(and(eq(modRegistry.id, modId), eq(modRegistry.isCustom, true)))
+
+	const mod = await db.query.modRegistry.findFirst({
+		where: eq(modRegistry.id, modId),
+	})
+	if (!mod) return
+
+	await db
+		.insert(modRegistryVersions)
+		.values({
+			modId,
+			version: input.version,
+			downloadUrl: mod.latestDownloadUrl,
+		})
+		.onConflictDoUpdate({
+			target: [modRegistryVersions.modId, modRegistryVersions.version],
+			set: { downloadUrl: mod.latestDownloadUrl },
+		})
 }
 
 // --- Server-computed hashes (mods-sync.service.ts) ---
@@ -253,6 +299,8 @@ export interface CustomModInput {
 	description?: string | null
 	latestVersion?: string | null
 	latestDownloadUrl?: string | null
+	automaticVersionCheck?: boolean
+	fixedReleaseTagUpdates?: boolean
 }
 
 // Returns null on an id collision with an existing row (synced or custom) --
@@ -280,6 +328,8 @@ export async function createCustomMod(
 			description: input.description ?? null,
 			latestVersion: input.latestVersion ?? null,
 			latestDownloadUrl: input.latestDownloadUrl ?? null,
+			automaticVersionCheck: input.automaticVersionCheck ?? false,
+			fixedReleaseTagUpdates: input.fixedReleaseTagUpdates ?? false,
 			isCustom: true,
 		})
 		.returning()
@@ -293,6 +343,38 @@ export async function createCustomMod(
 	}
 
 	return row
+}
+
+// Partial update of a custom mod's own fields -- distinct from
+// setRankedConfig/clearRankedConfig above, which only ever touch ranked
+// config. Scoped to isCustom rows only: a synced mod's fields come from the
+// index and would just be overwritten on the next sync anyway. Undefined
+// fields are left untouched; explicit null clears a nullable field.
+export interface UpdateCustomModInput {
+	title?: string
+	author?: string
+	categories?: string[]
+	requiresSteamodded?: boolean
+	requiresTalisman?: boolean
+	repoUrl?: string | null
+	thumbnailUrl?: string | null
+	description?: string | null
+	latestVersion?: string | null
+	latestDownloadUrl?: string | null
+	automaticVersionCheck?: boolean
+	fixedReleaseTagUpdates?: boolean
+}
+
+export async function updateCustomMod(
+	modId: string,
+	input: UpdateCustomModInput,
+): Promise<typeof modRegistry.$inferSelect | null> {
+	const [row] = await db
+		.update(modRegistry)
+		.set({ ...input, updatedAt: new Date() })
+		.where(and(eq(modRegistry.id, modId), eq(modRegistry.isCustom, true)))
+		.returning()
+	return row ?? null
 }
 
 // Only deletes a row that's actually isCustom -- deleting a synced mod would

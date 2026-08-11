@@ -434,16 +434,14 @@ export const matchRunLogs = pgTable(
 	(t) => [primaryKey({ columns: [t.runId, t.playerId] })],
 )
 
-// One row per mod known to the platform -- populated by the hourly BETModIndex
-// sync (features/mods/mods-sync.service.ts) and/or a direct admin edit via
-// PUT /api/webadmin/mods/:modId. `allowedInRankedSource` decides who wins on
-// the next sync: 'index' rows are freely overwritten from the fork, 'manual'
-// rows (an admin toggled this directly) are left alone until explicitly reset
-// back to 'index'. This is the launcher-facing catalog (GET /api/mods,
-// /api/mods/:id) -- distinct from modReleases/modBranches above, which is the
-// unrelated, pre-existing BMP launcher self-update channel.
+// One row per mod known to the platform -- populated by the hourly sync
+// against skyline69/balatro-mod-index directly (features/mods/mods-sync.service.ts,
+// upstream-mod-index.service.ts) and/or a direct admin edit via
+// PUT /api/webadmin/mods/:modId. This is the launcher-facing catalog
+// (GET /api/mods, /api/mods/:id) -- distinct from modReleases/modBranches
+// above, which is the unrelated, pre-existing BMP launcher self-update channel.
 export const modRegistry = pgTable('mod_registry', {
-	// Slug form "Author@ModName", matching BETModIndex's folder-name convention.
+	// Slug form "Author@ModName", matching upstream's folder-name convention.
 	id: varchar('id', { length: 128 }).primaryKey(),
 	title: varchar('title', { length: 128 }).notNull(),
 	author: varchar('author', { length: 128 }).notNull(),
@@ -456,9 +454,8 @@ export const modRegistry = pgTable('mod_registry', {
 	latestVersion: varchar('latest_version', { length: 64 }),
 	latestDownloadUrl: text('latest_download_url'),
 	latestSha256: varchar('latest_sha256', { length: 64 }),
-	// Both admin-owned now, not synced from the index -- BETModIndex publishes
-	// a pure base index with no override layer of its own anymore (see
-	// mods-sync.service.ts's doc comment). rankedVersion null means any
+	// Both admin-owned, not synced from the index -- the upstream index carries
+	// no ranked-eligibility concept of its own. rankedVersion null means any
 	// version of this ranked-allowed mod is fine; a set value pins ranked
 	// eligibility to that exact version. App-level interpretation only, no DB
 	// CHECK -- same precedent as modProfileEntries.versionConstraint below.
@@ -469,6 +466,24 @@ export const modRegistry = pgTable('mod_registry', {
 	// pruneModsMissingFrom must never delete these just because they aren't
 	// in the freshly-fetched index.
 	isCustom: boolean('is_custom').notNull().default(false),
+	// Opt-in per custom mod (isCustom rows only -- ignored otherwise, since a
+	// synced mod's version tracking is entirely upstream's own concern).
+	// custom-mod-version-check.service.ts's source-resolution logic against
+	// latestDownloadUrl/fixedReleaseTagUpdates, a TS port of upstream's own
+	// update_mod_versions.py. Both default false so every custom mod that
+	// existed before this feature shipped keeps its current fully-manual
+	// behavior until an admin explicitly opts in.
+	automaticVersionCheck: boolean('automatic_version_check')
+		.notNull()
+		.default(false),
+	// Mirrors upstream meta.json's fixed-release-tag-updates: track the tag of
+	// the specific release asset referenced by latestDownloadUrl, rather than
+	// the repo's overall latest release. Only meaningful alongside
+	// automaticVersionCheck=true and a /releases/download/ latestDownloadUrl;
+	// otherwise ignored (falls back to "no update found", not an error).
+	fixedReleaseTagUpdates: boolean('fixed_release_tag_updates')
+		.notNull()
+		.default(false),
 	sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()

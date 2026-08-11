@@ -14,6 +14,7 @@ import type { ModForm } from './ranked-mods-types'
 
 export function ModFormDialog({
   open,
+  mode,
   form,
   isPending,
   onFormChange,
@@ -21,6 +22,7 @@ export function ModFormDialog({
   onClose,
 }: {
   open: boolean
+  mode: 'create' | 'edit'
   form: ModForm
   isPending: boolean
   onFormChange: (f: ModForm) => void
@@ -31,11 +33,13 @@ export function ModFormDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className='sm:max-w-[500px]'>
         <DialogHeader>
-          <DialogTitle>New custom mod</DialogTitle>
+          <DialogTitle>
+            {mode === 'create' ? 'New custom mod' : 'Edit custom mod'}
+          </DialogTitle>
           <DialogDescription>
-            A mod entry with no BETModIndex counterpart — e.g. a partner mod not
-            listed upstream. Folded into the same hourly sync/hash pass as every
-            other mod.
+            A mod entry with no upstream counterpart — e.g. a partner mod not
+            listed on skyline69/balatro-mod-index. Folded into the same hourly
+            sync/hash pass as every other mod.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -51,6 +55,7 @@ export function ModFormDialog({
               id='mod-id'
               value={form.id}
               onChange={(e) => onFormChange({ ...form, id: e.target.value })}
+              disabled={mode === 'edit'}
               required
             />
           </div>
@@ -154,6 +159,38 @@ export function ModFormDialog({
               }
             />
           </div>
+          <div className='flex items-center justify-between'>
+            <div>
+              <Label htmlFor='mod-auto-version-check'>
+                Automatic version check
+              </Label>
+              <p className='text-muted-foreground text-xs'>
+                Requires Repo URL — checks GitHub hourly for a new release (or
+                commit, if Latest download URL points at a branch archive).
+              </p>
+            </div>
+            <Switch
+              id='mod-auto-version-check'
+              checked={form.automaticVersionCheck}
+              onCheckedChange={(v) =>
+                onFormChange({ ...form, automaticVersionCheck: v })
+              }
+            />
+          </div>
+          {form.automaticVersionCheck && (
+            <div className='flex items-center justify-between'>
+              <Label htmlFor='mod-fixed-release-tag'>
+                Track specific release asset's tag
+              </Label>
+              <Switch
+                id='mod-fixed-release-tag'
+                checked={form.fixedReleaseTagUpdates}
+                onCheckedChange={(v) =>
+                  onFormChange({ ...form, fixedReleaseTagUpdates: v })
+                }
+              />
+            </div>
+          )}
           <DialogFooter>
             <Button type='button' variant='outline' onClick={onClose}>
               Cancel

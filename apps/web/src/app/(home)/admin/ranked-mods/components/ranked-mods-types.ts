@@ -20,6 +20,8 @@ export interface ModForm {
   description: string
   latestVersion: string
   latestDownloadUrl: string
+  automaticVersionCheck: boolean
+  fixedReleaseTagUpdates: boolean
 }
 
 export const EMPTY_MOD_FORM: ModForm = {
@@ -34,6 +36,8 @@ export const EMPTY_MOD_FORM: ModForm = {
   description: '',
   latestVersion: '',
   latestDownloadUrl: '',
+  automaticVersionCheck: false,
+  fixedReleaseTagUpdates: false,
 }
 
 export interface ModProfile {

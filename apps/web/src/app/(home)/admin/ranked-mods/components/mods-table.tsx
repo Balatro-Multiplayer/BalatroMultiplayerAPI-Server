@@ -18,6 +18,7 @@ export function ModsTable({
   onToggle,
   onSetRankedVersion,
   onClearRanked,
+  onEdit,
   onDelete,
 }: {
   mods: ModSummary[]
@@ -26,6 +27,7 @@ export function ModsTable({
   onToggle: (mod: ModSummary, allowed: boolean) => void
   onSetRankedVersion: (mod: ModSummary, version: string | null) => void
   onClearRanked: (modId: string) => void
+  onEdit: (mod: ModSummary) => void
   onDelete: (modId: string) => void
 }) {
   return (
@@ -97,6 +99,16 @@ export function ModsTable({
                 <Button
                   variant='ghost'
                   size='sm'
+                  disabled={pendingModId === mod.id}
+                  onClick={() => onEdit(mod)}
+                >
+                  Edit
+                </Button>
+              )}
+              {isAdmin && mod.isCustom && (
+                <Button
+                  variant='ghost'
+                  size='sm'
                   className='text-destructive hover:text-destructive'
                   disabled={pendingModId === mod.id}
                   onClick={() => onDelete(mod.id)}
@@ -113,8 +125,8 @@ export function ModsTable({
               colSpan={5}
               className='text-center text-muted-foreground'
             >
-              No mods synced yet — BET_MOD_INDEX_URL may not be configured, or
-              the hourly sync hasn't run.
+              No mods synced yet — MOD_INDEX_SYNC_ENABLED may not be set, or the
+              hourly sync hasn't run.
             </TableCell>
           </TableRow>
         )}

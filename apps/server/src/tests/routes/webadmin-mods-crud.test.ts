@@ -15,6 +15,7 @@ vi.mock('../../infrastructure/gateways/mods.gateway.js', async () => {
 		setRankedConfig: vi.fn(),
 		clearRankedConfig: vi.fn(),
 		createCustomMod: vi.fn(),
+		updateCustomMod: vi.fn(),
 		deleteCustomMod: vi.fn(),
 		getPublicModById: vi.fn(),
 	}
@@ -182,6 +183,105 @@ describe('POST /api/webadmin/mods', () => {
 			.send(validBody)
 
 		expect(res.status).toBe(409)
+	})
+
+	it('defaults automaticVersionCheck/fixedReleaseTagUpdates to undefined when omitted', async () => {
+		vi.mocked(modsGateway.createCustomMod).mockResolvedValue({
+			...validBody,
+			isCustom: true,
+		} as any)
+		const token = authAsAdmin('admin-create-4', 'Admin')
+		await request(app)
+			.post('/api/webadmin/mods')
+			.set('Authorization', token)
+			.send(validBody)
+
+		expect(modsGateway.createCustomMod).toHaveBeenCalledWith(
+			expect.objectContaining({
+				automaticVersionCheck: undefined,
+				fixedReleaseTagUpdates: undefined,
+			}),
+		)
+	})
+
+	it('passes automaticVersionCheck/fixedReleaseTagUpdates through when provided', async () => {
+		vi.mocked(modsGateway.createCustomMod).mockResolvedValue({
+			...validBody,
+			isCustom: true,
+		} as any)
+		const token = authAsAdmin('admin-create-5', 'Admin')
+		await request(app)
+			.post('/api/webadmin/mods')
+			.set('Authorization', token)
+			.send({
+				...validBody,
+				automaticVersionCheck: true,
+				fixedReleaseTagUpdates: true,
+			})
+
+		expect(modsGateway.createCustomMod).toHaveBeenCalledWith(
+			expect.objectContaining({
+				automaticVersionCheck: true,
+				fixedReleaseTagUpdates: true,
+			}),
+		)
+	})
+})
+
+describe('PUT /api/webadmin/mods/:modId/custom', () => {
+	it('returns 403 for a moderator', async () => {
+		const token = authAsModerator('mod-edit-1', 'Mod')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Custom@Mod/custom')
+			.set('Authorization', token)
+			.send({ title: 'New Title' })
+
+		expect(res.status).toBe(403)
+		expect(modsGateway.updateCustomMod).not.toHaveBeenCalled()
+	})
+
+	it('returns 404 when the mod does not exist or is not custom', async () => {
+		vi.mocked(modsGateway.updateCustomMod).mockResolvedValue(null)
+		const token = authAsAdmin('admin-edit-1', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Nobody@Nothing/custom')
+			.set('Authorization', token)
+			.send({ title: 'New Title' })
+
+		expect(res.status).toBe(404)
+	})
+
+	it('round-trips field edits, including the two new toggles, for an admin', async () => {
+		vi.mocked(modsGateway.updateCustomMod).mockResolvedValue({
+			id: 'Custom@Mod',
+			title: 'New Title',
+			isCustom: true,
+			automaticVersionCheck: true,
+			fixedReleaseTagUpdates: true,
+		} as any)
+		const token = authAsAdmin('admin-edit-2', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Custom@Mod/custom')
+			.set('Authorization', token)
+			.send({
+				title: 'New Title',
+				repoUrl: null,
+				automaticVersionCheck: true,
+				fixedReleaseTagUpdates: true,
+			})
+
+		expect(res.status).toBe(200)
+		expect(res.body.title).toBe('New Title')
+		expect(res.body.automaticVersionCheck).toBe(true)
+		expect(modsGateway.updateCustomMod).toHaveBeenCalledWith(
+			'Custom@Mod',
+			expect.objectContaining({
+				title: 'New Title',
+				repoUrl: null,
+				automaticVersionCheck: true,
+				fixedReleaseTagUpdates: true,
+			}),
+		)
 	})
 })
 

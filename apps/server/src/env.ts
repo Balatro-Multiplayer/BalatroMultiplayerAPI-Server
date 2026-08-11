@@ -70,11 +70,21 @@ export const env = {
 	// casual queueing is unaffected. On by default.
 	RANKED_ENABLED: optionalBool('RANKED_ENABLED', true),
 
-	// Raw-HTTPS URL to BETModIndex's built dist/mods-index.json (the fork's
-	// build-index.yml output, combining upstream skyline69/balatro-mod-index
-	// with our bet-overrides/ overlay -- see that repo's README). Left blank
-	// until the fork exists; mods-sync.service.ts logs and no-ops rather than
-	// failing when unset, matching the "missing optional integration disables
-	// the feature, not the server" pattern used elsewhere in this file.
-	BET_MOD_INDEX_URL: optional('BET_MOD_INDEX_URL', ''),
+	// On/off switch for the hourly mod-registry sync (features/mods/mods-sync.service.ts,
+	// which fetches skyline69/balatro-mod-index directly -- see
+	// upstream-mod-index.service.ts). Off by default so local dev/tests don't
+	// need network access to GitHub just to boot; mods-sync.service.ts logs
+	// and no-ops rather than failing when this is false, matching the
+	// "missing optional integration disables the feature, not the server"
+	// pattern used elsewhere in this file.
+	MOD_INDEX_SYNC_ENABLED: optionalBool('MOD_INDEX_SYNC_ENABLED', false),
+
+	// Optional -- sent as an Authorization header on the handful of
+	// api.github.com calls custom-mod-version-check.service.ts makes (one or
+	// two per opted-in custom mod, not per upstream mod -- the bulk upstream
+	// index itself comes from a zip download, not the API). Unauthenticated
+	// GitHub REST already allows 60 req/hr, comfortably enough for a small
+	// number of custom mods; this exists purely for rate-limit headroom, not
+	// because it's required.
+	GITHUB_TOKEN: optional('GITHUB_TOKEN', ''),
 } as const

@@ -6,27 +6,27 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import AdmZip from 'adm-zip'
 import { env } from '../../env.js'
-import type { ModIndexEntryInput } from '../../infrastructure/gateways/mods.gateway.js'
 import {
+	applyDetectedVersion,
 	getStoredHash,
 	listCustomMods,
 	pruneModsMissingFrom,
 	storeComputedHash,
 	upsertModFromIndex,
 } from '../../infrastructure/gateways/mods.gateway.js'
+import { checkCustomModVersion } from './custom-mod-version-check.service.js'
 import { relocateModRoot } from './mod-archive-flatten.js'
+import { fetchUpstreamModIndex } from './upstream-mod-index.service.js'
 
 const execFileAsync = promisify(execFile)
-
-interface ModIndexFile {
-	generatedAt?: string
-	mods: ModIndexEntryInput[]
-}
 
 export interface ModRegistrySyncSummary {
 	modsSynced: number
 	hashed: number
 	pruned: number
+	skipped: number
+	idCollisions: number
+	versionsChecked: number
 }
 
 const HASH_FETCH_TIMEOUT_MS = 30_000
@@ -148,11 +148,9 @@ async function hashAll(candidates: HashCandidate[]): Promise<number> {
 	return hashed
 }
 
-// Pulls BETModIndex's build-index.yml output -- a pure JSON-ification of
-// upstream skyline69/balatro-mod-index, no override layer of its own -- and
-// upserts it into mod_registry/mod_registry_versions. A plain HTTPS GET
-// against the published dist artifact, not the GitHub API: avoids needing a
-// token or worrying about API rate limits.
+// Pulls skyline69/balatro-mod-index directly (see upstream-mod-index.service.ts
+// -- a whole-repo zip download, no GitHub API/token needed) and upserts it
+// into mod_registry/mod_registry_versions.
 //
 // Ranked eligibility and a pinned ranked version are entirely admin-owned in
 // this server's own DB now (see mods.gateway.ts's setRankedConfig/
@@ -164,37 +162,40 @@ async function hashAll(candidates: HashCandidate[]): Promise<number> {
 // exempt) and hashes each remaining mod's prepared archive -- every mod, not
 // just ranked-allowed ones (the launcher needs a verifiable hash to
 // auto-install any mod, not only ranked-eligible ones), including
-// admin-created custom mods (listCustomMods() below), which aren't in
-// data.mods at all -- that doesn't already have a stored hash for that exact
-// version. "Prepared" means run through the same extract/flatten/rezip
+// admin-created custom mods (listCustomMods() below), which aren't in the
+// fetched index at all -- that doesn't already have a stored hash for that
+// exact version. "Prepared" means run through the same extract/flatten/rezip
 // pipeline the launcher itself applies before deploying a mod into the Mods
 // folder (see computePreparedZipHash's doc comment) -- not a hash of the raw
 // download, which is never what actually gets loaded or what Ranked
 // verification checks against. A mod's hash is only ever recomputed when its
 // version changes.
 async function runSync(): Promise<ModRegistrySyncSummary> {
-	if (!env.BET_MOD_INDEX_URL) {
+	if (!env.MOD_INDEX_SYNC_ENABLED) {
 		console.log(
-			'[mods-sync] BET_MOD_INDEX_URL not set -- skipping mod registry sync',
+			'[mods-sync] MOD_INDEX_SYNC_ENABLED is false -- skipping mod registry sync',
 		)
-		return { modsSynced: 0, hashed: 0, pruned: 0 }
+		return {
+			modsSynced: 0,
+			hashed: 0,
+			pruned: 0,
+			skipped: 0,
+			idCollisions: 0,
+			versionsChecked: 0,
+		}
 	}
 
-	const res = await fetch(env.BET_MOD_INDEX_URL)
-	if (!res.ok) {
-		throw new Error(`BETModIndex fetch failed: ${res.status}`)
-	}
-	const data = (await res.json()) as ModIndexFile
-	if (!Array.isArray(data.mods) || data.mods.length === 0) {
-		// An empty mods[] is never legitimate for this index (it always carries
-		// hundreds of entries) -- treating it the same as a missing array, not
-		// just skipping the sync, matters because it's also what guards the
-		// prune below from wiping every row in mod_registry.
-		throw new Error('BETModIndex response missing a non-empty mods[] array')
+	const { entries, skipped, idCollisions } = await fetchUpstreamModIndex()
+	if (entries.length === 0) {
+		// Never legitimate for this index (it always carries hundreds of
+		// entries) -- treating it the same as a fetch failure, not just
+		// skipping the sync, matters because it's also what guards the prune
+		// below from wiping every row in mod_registry.
+		throw new Error('upstream mod index parse produced zero entries')
 	}
 
 	const hashCandidates: HashCandidate[] = []
-	for (const entry of data.mods) {
+	for (const entry of entries) {
 		await upsertModFromIndex(entry)
 
 		if (entry.latestVersion && entry.latestDownloadUrl) {
@@ -206,25 +207,57 @@ async function runSync(): Promise<ModRegistrySyncSummary> {
 		}
 	}
 
+	let versionsChecked = 0
 	for (const mod of await listCustomMods()) {
-		if (mod.latestVersion && mod.latestDownloadUrl) {
+		let latestVersion = mod.latestVersion
+		let latestDownloadUrl = mod.latestDownloadUrl
+
+		// Opt-in only (see custom-mod-version-check.service.ts's doc comment) --
+		// a custom mod that hasn't enabled this stays exactly as an admin last
+		// set it, same as before this feature existed.
+		if (mod.automaticVersionCheck) {
+			const detected = await checkCustomModVersion({
+				repoUrl: mod.repoUrl,
+				latestVersion: mod.latestVersion,
+				latestDownloadUrl: mod.latestDownloadUrl,
+				fixedReleaseTagUpdates: mod.fixedReleaseTagUpdates,
+			})
+			if (detected) {
+				await applyDetectedVersion(mod.id, {
+					version: detected.newVersion,
+					downloadUrl: detected.newDownloadUrl,
+				})
+				latestVersion = detected.newVersion
+				latestDownloadUrl = detected.newDownloadUrl ?? mod.latestDownloadUrl
+				versionsChecked++
+			}
+		}
+
+		if (latestVersion && latestDownloadUrl) {
 			hashCandidates.push({
 				modId: mod.id,
-				version: mod.latestVersion,
-				downloadUrl: mod.latestDownloadUrl,
+				version: latestVersion,
+				downloadUrl: latestDownloadUrl,
 			})
 		}
 	}
 
-	const pruned = await pruneModsMissingFrom(data.mods.map((entry) => entry.id))
+	const pruned = await pruneModsMissingFrom(entries.map((entry) => entry.id))
 
 	const hashed = await hashAll(hashCandidates)
 
 	console.log(
-		`[mods-sync] Synced ${data.mods.length} mods from BETModIndex${hashed ? ` (${hashed} newly hashed)` : ''}${pruned ? ` (${pruned} stale mods pruned)` : ''}`,
+		`[mods-sync] Synced ${entries.length} mods from upstream${hashed ? ` (${hashed} newly hashed)` : ''}${pruned ? ` (${pruned} stale mods pruned)` : ''}${skipped ? ` (${skipped} skipped)` : ''}${idCollisions ? ` (${idCollisions} id collisions)` : ''}${versionsChecked ? ` (${versionsChecked} custom mod versions updated)` : ''}`,
 	)
 
-	return { modsSynced: data.mods.length, hashed, pruned }
+	return {
+		modsSynced: entries.length,
+		hashed,
+		pruned,
+		skipped,
+		idCollisions,
+		versionsChecked,
+	}
 }
 
 // Runs once, blocking, at server startup (see main.ts) so the mod catalog

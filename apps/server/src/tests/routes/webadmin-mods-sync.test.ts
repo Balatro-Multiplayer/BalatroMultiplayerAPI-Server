@@ -44,6 +44,9 @@ describe('POST /api/webadmin/mods/sync', () => {
 			modsSynced: 812,
 			hashed: 3,
 			pruned: 1,
+			skipped: 2,
+			idCollisions: 1,
+			versionsChecked: 4,
 		})
 
 		const token = authAsAdmin('admin-sync-1', 'Admin')
@@ -57,13 +60,16 @@ describe('POST /api/webadmin/mods/sync', () => {
 			modsSynced: 812,
 			hashed: 3,
 			pruned: 1,
+			skipped: 2,
+			idCollisions: 1,
+			versionsChecked: 4,
 		})
 		expect(modsSyncService.syncModRegistry).toHaveBeenCalledTimes(1)
 	})
 
 	it('propagates a sync failure as a 500 rather than swallowing it', async () => {
 		vi.mocked(modsSyncService.syncModRegistry).mockRejectedValue(
-			new Error('BETModIndex fetch failed: 503'),
+			new Error('upstream mod index zip fetch failed: 503'),
 		)
 
 		const token = authAsAdmin('admin-sync-2', 'Admin2')

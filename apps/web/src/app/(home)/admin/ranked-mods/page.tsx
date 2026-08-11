@@ -33,11 +33,12 @@ import {
   EMPTY_PROFILE_FORM,
 } from './components/ranked-mods-types'
 
-// The ranked mod catalog -- base mod data synced hourly from BETModIndex
-// (see BalatroMultiplayerServer's features/mods/mods-sync.service.ts), with
-// ranked eligibility, a pinned ranked version, and fully custom (non-index)
-// mod entries all editable here instead of requiring a commit/PR/CI round
-// trip through BETModIndex -- plus admin-authored ranked mod profiles.
+// The ranked mod catalog -- base mod data synced hourly straight from
+// skyline69/balatro-mod-index (see BalatroMultiplayerServer's
+// features/mods/mods-sync.service.ts), with ranked eligibility, a pinned
+// ranked version, and fully custom (non-index) mod entries all editable
+// here instead of requiring a commit/PR/CI round trip through that repo --
+// plus admin-authored ranked mod profiles.
 // Deliberately distinct from /admin/config's "Official Mods" section above
 // (the pre-existing launcher self-update channel, mod_versions/mod_releases)
 // -- this is a separate system (mod_registry/mod_profiles). Info-only for
@@ -111,31 +112,37 @@ export default function RankedModsPage() {
     onSettled: () => setPendingModId(null),
   })
 
-  // --- Custom mods (no BETModIndex counterpart) ---
+  // --- Custom mods (no upstream counterpart) ---
 
   const [modFormOpen, setModFormOpen] = useState(false)
+  const [modFormMode, setModFormMode] = useState<'create' | 'edit'>('create')
   const [modForm, setModForm] = useState<ModForm>(EMPTY_MOD_FORM)
+
+  function modFormBody(form: ModForm) {
+    return {
+      title: form.title,
+      author: form.author,
+      categories: form.categories
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean),
+      requiresSteamodded: form.requiresSteamodded,
+      requiresTalisman: form.requiresTalisman,
+      repoUrl: form.repoUrl || null,
+      thumbnailUrl: form.thumbnailUrl || null,
+      description: form.description || null,
+      latestVersion: form.latestVersion || null,
+      latestDownloadUrl: form.latestDownloadUrl || null,
+      automaticVersionCheck: form.automaticVersionCheck,
+      fixedReleaseTagUpdates: form.fixedReleaseTagUpdates,
+    }
+  }
 
   const createModMut = useMutation({
     mutationFn: (form: ModForm) =>
       apiFetch('/webadmin/mods', {
         method: 'POST',
-        body: JSON.stringify({
-          id: form.id,
-          title: form.title,
-          author: form.author,
-          categories: form.categories
-            .split(',')
-            .map((c) => c.trim())
-            .filter(Boolean),
-          requiresSteamodded: form.requiresSteamodded,
-          requiresTalisman: form.requiresTalisman,
-          repoUrl: form.repoUrl || null,
-          thumbnailUrl: form.thumbnailUrl || null,
-          description: form.description || null,
-          latestVersion: form.latestVersion || null,
-          latestDownloadUrl: form.latestDownloadUrl || null,
-        }),
+        body: JSON.stringify({ id: form.id, ...modFormBody(form) }),
       }),
     onSuccess: () => {
       toast.success('Custom mod created')
@@ -144,6 +151,62 @@ export default function RankedModsPage() {
     },
     onError: onErr,
   })
+
+  const updateModMut = useMutation({
+    mutationFn: (form: ModForm) =>
+      apiFetch(`/webadmin/mods/${encodeURIComponent(form.id)}/custom`, {
+        method: 'PUT',
+        body: JSON.stringify(modFormBody(form)),
+      }),
+    onSuccess: () => {
+      toast.success('Custom mod updated')
+      setModFormOpen(false)
+      qc.invalidateQueries({ queryKey: ['ranked-mods'] })
+    },
+    onError: onErr,
+  })
+
+  const [editingModId, setEditingModId] = useState<string | null>(null)
+  async function openEditMod(mod: ModSummary) {
+    setEditingModId(mod.id)
+    try {
+      const detail = await apiFetch<{
+        title: string
+        author: string
+        categories: string[]
+        requiresSteamodded: boolean
+        requiresTalisman: boolean
+        repoUrl: string | null
+        thumbnailUrl: string | null
+        description: string | null
+        latestVersion: string | null
+        latestDownloadUrl: string | null
+        automaticVersionCheck: boolean
+        fixedReleaseTagUpdates: boolean
+      }>(`/mods/${encodeURIComponent(mod.id)}`)
+      setModForm({
+        id: mod.id,
+        title: detail.title,
+        author: detail.author,
+        categories: detail.categories.join(', '),
+        requiresSteamodded: detail.requiresSteamodded,
+        requiresTalisman: detail.requiresTalisman,
+        repoUrl: detail.repoUrl ?? '',
+        thumbnailUrl: detail.thumbnailUrl ?? '',
+        description: detail.description ?? '',
+        latestVersion: detail.latestVersion ?? '',
+        latestDownloadUrl: detail.latestDownloadUrl ?? '',
+        automaticVersionCheck: detail.automaticVersionCheck,
+        fixedReleaseTagUpdates: detail.fixedReleaseTagUpdates,
+      })
+      setModFormMode('edit')
+      setModFormOpen(true)
+    } catch (e) {
+      onErr(e)
+    } finally {
+      setEditingModId(null)
+    }
+  }
 
   const [deleteModTarget, setDeleteModTarget] = useState<ModSummary | null>(
     null
@@ -161,7 +224,7 @@ export default function RankedModsPage() {
     onError: onErr,
   })
 
-  // Manually kicks off the same BETModIndex sync + hash-check pass that
+  // Manually kicks off the same upstream sync + hash-check pass that
   // otherwise only runs at server startup and hourly (see mods-sync.service.ts
   // server-side) — e.g. to confirm a mod's hash updated right after a new
   // release, without waiting for the next tick.
@@ -172,12 +235,18 @@ export default function RankedModsPage() {
         modsSynced: number
         hashed: number
         pruned: number
+        skipped: number
+        idCollisions: number
+        versionsChecked: number
       }>('/webadmin/mods/sync', { method: 'POST' }),
     onSuccess: (result) => {
       toast.success(
         `Synced ${result.modsSynced} mods` +
           (result.hashed ? ` (${result.hashed} newly hashed)` : '') +
-          (result.pruned ? ` (${result.pruned} pruned)` : '')
+          (result.pruned ? ` (${result.pruned} pruned)` : '') +
+          (result.versionsChecked
+            ? ` (${result.versionsChecked} custom mod versions updated)`
+            : '')
       )
       qc.invalidateQueries({ queryKey: ['ranked-mods'] })
     },
@@ -297,8 +366,9 @@ export default function RankedModsPage() {
       <div className='space-y-1'>
         <h1 className='font-bold text-2xl tracking-tight'>Ranked Mods</h1>
         <p className='text-muted-foreground'>
-          Mod catalog synced from BETModIndex, plus admin-authored ranked mod
-          profiles. Info-only for now — no queue-time enforcement yet.
+          Mod catalog synced hourly from skyline69/balatro-mod-index, plus
+          admin-authored ranked mod profiles. Info-only for now — no queue-time
+          enforcement yet.
         </p>
       </div>
 
@@ -308,7 +378,7 @@ export default function RankedModsPage() {
             <CardTitle>Mod catalog</CardTitle>
             <CardDescription>
               Ranked eligibility and an optional pinned ranked version are set
-              here directly — BETModIndex no longer carries either.
+              here directly — the upstream index doesn't carry either.
             </CardDescription>
           </div>
           {isAdmin && (
@@ -318,6 +388,7 @@ export default function RankedModsPage() {
                 variant='outline'
                 onClick={() => {
                   setModForm(EMPTY_MOD_FORM)
+                  setModFormMode('create')
                   setModFormOpen(true)
                 }}
               >
@@ -340,7 +411,7 @@ export default function RankedModsPage() {
             <ModsTable
               mods={mods}
               isAdmin={isAdmin}
-              pendingModId={pendingModId}
+              pendingModId={pendingModId ?? editingModId}
               onToggle={(mod, allowed) =>
                 updateRankedMut.mutate({
                   modId: mod.id,
@@ -354,6 +425,7 @@ export default function RankedModsPage() {
                 })
               }
               onClearRanked={(modId) => clearRankedMut.mutate(modId)}
+              onEdit={(mod) => openEditMod(mod)}
               onDelete={(modId) => {
                 const mod = mods.find((m) => m.id === modId)
                 if (mod) setDeleteModTarget(mod)
@@ -403,10 +475,17 @@ export default function RankedModsPage() {
 
       <ModFormDialog
         open={modFormOpen}
+        mode={modFormMode}
         form={modForm}
-        isPending={createModMut.isPending}
+        isPending={createModMut.isPending || updateModMut.isPending}
         onFormChange={setModForm}
-        onSave={() => createModMut.mutate(modForm)}
+        onSave={() => {
+          if (modFormMode === 'edit') {
+            updateModMut.mutate(modForm)
+          } else {
+            createModMut.mutate(modForm)
+          }
+        }}
         onClose={() => setModFormOpen(false)}
       />
 

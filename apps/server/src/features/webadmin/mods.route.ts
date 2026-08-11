@@ -10,6 +10,7 @@ import {
 	listProfiles,
 	removeProfileEntry,
 	setRankedConfig,
+	updateCustomMod,
 	updateProfile,
 	upsertProfileEntry,
 } from '../../infrastructure/gateways/mods.gateway.js'
@@ -36,7 +37,7 @@ async function requireAdmin(req: import('express').Request) {
 	}
 }
 
-// Manually kicks off the same BETModIndex sync + prepared-archive hashing pass
+// Manually kicks off the same upstream sync + prepared-archive hashing pass
 // that otherwise only runs at server startup and on the hourly interval (see
 // mods-sync.service.ts) -- e.g. to confirm a mod's hash updated right after a
 // new release, without waiting for the next tick or restarting the server.
@@ -142,9 +143,57 @@ router.post('/mods', async (req, res, next) => {
 				typeof body.latestDownloadUrl === 'string'
 					? body.latestDownloadUrl
 					: null,
+			automaticVersionCheck:
+				typeof body.automaticVersionCheck === 'boolean'
+					? body.automaticVersionCheck
+					: undefined,
+			fixedReleaseTagUpdates:
+				typeof body.fixedReleaseTagUpdates === 'boolean'
+					? body.fixedReleaseTagUpdates
+					: undefined,
 		})
 		if (!mod) throw new AppError(`A mod with id '${id}' already exists`, 409)
 		res.status(201).json(mod)
+	} catch (err) {
+		next(err)
+	}
+})
+
+// Edits an existing custom mod's own fields -- distinct from
+// PUT /mods/:modId above, which only ever touches ranked config. Only
+// isCustom rows are editable this way; a synced mod's fields come from the
+// index and would just be overwritten on the next sync anyway. Every field
+// is optional (a partial update), unlike POST /mods's required id/title/author.
+router.put('/mods/:modId/custom', async (req, res, next) => {
+	try {
+		await requireAdmin(req)
+		const body = req.body as Record<string, unknown>
+
+		const str = (key: string): string | undefined =>
+			typeof body[key] === 'string' ? (body[key] as string) : undefined
+		const strOrNull = (key: string): string | null | undefined =>
+			body[key] === null ? null : str(key)
+		const bool = (key: string): boolean | undefined =>
+			typeof body[key] === 'boolean' ? (body[key] as boolean) : undefined
+
+		const mod = await updateCustomMod(req.params.modId, {
+			title: str('title'),
+			author: str('author'),
+			categories: Array.isArray(body.categories)
+				? (body.categories as string[])
+				: undefined,
+			requiresSteamodded: bool('requiresSteamodded'),
+			requiresTalisman: bool('requiresTalisman'),
+			repoUrl: strOrNull('repoUrl'),
+			thumbnailUrl: strOrNull('thumbnailUrl'),
+			description: strOrNull('description'),
+			latestVersion: strOrNull('latestVersion'),
+			latestDownloadUrl: strOrNull('latestDownloadUrl'),
+			automaticVersionCheck: bool('automaticVersionCheck'),
+			fixedReleaseTagUpdates: bool('fixedReleaseTagUpdates'),
+		})
+		if (!mod) throw new AppError('Custom mod not found', 404)
+		res.json(mod)
 	} catch (err) {
 		next(err)
 	}
