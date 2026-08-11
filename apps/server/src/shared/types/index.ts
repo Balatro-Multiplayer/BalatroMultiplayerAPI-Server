@@ -26,7 +26,7 @@ export interface StoredLobbyState {
 	hostId: string
 	metadata: Record<string, unknown>
 	maxPlayers: number
-	playerInfos: Record<string, { displayName: string; preferredJoker: string }>
+	playerInfos: Record<string, { displayName: string; preferredJoker: string; mods?: string[] }>
 }
 
 export interface SteamAuthResponse {

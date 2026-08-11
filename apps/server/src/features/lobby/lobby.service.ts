@@ -63,6 +63,7 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		await messageBus.publishPlayerInfo(lobby.code, player.playerId, {
 			displayName: session.getDisplayName(),
 			preferredJoker: session.preferredJoker,
+			mods: session.installedMods,
 		})
 
 		const token = signJwt({
@@ -104,6 +105,7 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		await messageBus.publishPlayerInfo(lobby.code, player.playerId, {
 			displayName: session.getDisplayName(),
 			preferredJoker: session.preferredJoker,
+			mods: session.installedMods,
 		})
 
 		if (lobby.type === 'private') {

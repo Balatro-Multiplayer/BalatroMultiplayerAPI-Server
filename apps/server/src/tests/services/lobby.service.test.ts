@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createLobbyService } from '../../features/lobby/lobby.service.js'
-import { createSession, lobbies } from '../../state/index.js'
+import { createSession, getSession, lobbies } from '../../state/index.js'
 import type { JwtPayload } from '../../shared/types/index.js'
 import { verifyJwt } from '../../features/auth/jwt.js'
 import type { IMessageBus } from '../../contracts/IMessageBus.js'
@@ -65,6 +65,27 @@ describe('lobby.service', () => {
 
 			const decoded = verifyJwt(token)
 			expect(decoded?.lobbyCode).toBe(lobby.code)
+		})
+
+		it('includes the session installed mods list in the published player info', async () => {
+			const messageBus = makeMockMessageBus()
+			const service = createLobbyService({
+				messageBus,
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+
+			const player = makePlayer('host-mods', 'Alice')
+			const session = getSession('host-mods')!
+			session.installedMods = ['Steamodded-1.0.0', 'MultiplayerAPI-2.3.0']
+
+			const { lobby } = await service.createLobby(player, 'cool_mod')
+
+			expect(messageBus.publishPlayerInfo).toHaveBeenCalledWith(
+				lobby.code,
+				'host-mods',
+				expect.objectContaining({ mods: ['Steamodded-1.0.0', 'MultiplayerAPI-2.3.0'] }),
+			)
 		})
 
 		it('throws if player session does not exist', async () => {
@@ -157,6 +178,30 @@ describe('lobby.service', () => {
 			expect(messageBus.publishEvent).toHaveBeenCalledWith(
 				lobby.code,
 				expect.objectContaining({ type: 'player_joined', playerId: 'guest1' }),
+			)
+		})
+
+		it('includes the joining session installed mods list in the published player info', async () => {
+			const messageBus = makeMockMessageBus()
+			const service = createLobbyService({
+				messageBus,
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+
+			const guest = makePlayer('guest-mods', 'Bob')
+			const guestSession = getSession('guest-mods')!
+			guestSession.installedMods = ['Lovely-0.1.0']
+
+			await service.joinLobby(guest, lobby.code)
+
+			expect(messageBus.publishPlayerInfo).toHaveBeenCalledWith(
+				lobby.code,
+				'guest-mods',
+				expect.objectContaining({ mods: ['Lovely-0.1.0'] }),
 			)
 		})
 

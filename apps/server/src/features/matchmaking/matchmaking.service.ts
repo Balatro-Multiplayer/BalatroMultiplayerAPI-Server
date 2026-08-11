@@ -74,12 +74,13 @@ export async function syncMatchLobbyState(lobbyCode: string): Promise<void> {
 
 	const playerInfos: Record<
 		string,
-		{ displayName: string; preferredJoker: string }
+		{ displayName: string; preferredJoker: string; mods: string[] }
 	> = {}
 	for (const [pid, session] of lobby.players) {
 		playerInfos[pid] = {
 			displayName: session.getDisplayName(),
 			preferredJoker: session.preferredJoker,
+			mods: session.installedMods,
 		}
 	}
 
@@ -462,7 +463,7 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 
 		const playerInfos: Record<
 			string,
-			{ displayName: string; preferredJoker: string }
+			{ displayName: string; preferredJoker: string; mods: string[] }
 		> = {}
 		for (const pid of playerIds) {
 			const session = getSession(pid)
@@ -470,6 +471,7 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 				playerInfos[pid] = {
 					displayName: session.getDisplayName(),
 					preferredJoker: session.preferredJoker,
+					mods: session.installedMods,
 				}
 			}
 		}

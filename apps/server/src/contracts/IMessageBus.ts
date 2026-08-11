@@ -7,7 +7,7 @@ export interface IMessageBus {
 	publishPlayerInfo(
 		lobbyCode: string,
 		playerId: string,
-		info: { displayName: string; preferredJoker: string },
+		info: { displayName: string; preferredJoker: string; mods?: string[] },
 	): Promise<void>
 	publishToPlayer(
 		playerId: string,

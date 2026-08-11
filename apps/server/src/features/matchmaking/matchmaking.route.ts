@@ -146,15 +146,24 @@ export function createMatchmakingRouter(service: MatchmakingService): Router {
 		}
 	})
 
+	// playerId is optional and defaults to the caller -- ratings are already
+	// fully public via GET /leaderboard's entries array, so allowing a lookup
+	// of an arbitrary other player here (e.g. an opponent currently in your
+	// lobby) doesn't expose anything that wasn't already reachable, just
+	// without needing to scan a paginated leaderboard for them.
 	router.get('/ratings', async (req, res, next) => {
 		try {
-			const { modId, gameMode, season } = req.query
+			const { modId, gameMode, season, playerId } = req.query
 			if (!modId || typeof modId !== 'string') throw new AppError('Missing modId', 400)
 			if (!gameMode || typeof gameMode !== 'string') throw new AppError('Missing gameMode', 400)
+			if (playerId !== undefined && typeof playerId !== 'string') {
+				throw new AppError('Invalid playerId', 400)
+			}
 
 			const seasonId = await resolveSeason(season)
+			const targetId = playerId ?? req.player!.playerId
 
-			const data = await getOwnRating(req.player!.playerId, modId, gameMode, seasonId)
+			const data = await getOwnRating(targetId, modId, gameMode, seasonId)
 			if (!data) {
 				res.json(null)
 				return
