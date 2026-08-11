@@ -5,6 +5,7 @@ import {
   BookOpen,
   CircleDollarSign,
   Gamepad2,
+  History,
   Layers,
   LogIn,
   LogOut,
@@ -143,6 +144,13 @@ function MobileAccountSection({ onClose }: { onClose: () => void }) {
           onClick={onClose}
         >
           My Account
+        </MobileMenuLink>
+        <MobileMenuLink
+          href='/matches'
+          icon={<History className='size-4' />}
+          onClick={onClose}
+        >
+          My Matches
         </MobileMenuLink>
       </div>
     </>

@@ -29,6 +29,9 @@ export function NavAuth() {
           <DropdownMenuItem asChild>
             <Link href='/profile'>My Account</Link>
           </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href='/matches'>My Matches</Link>
+          </DropdownMenuItem>
           {(isAdmin || isModerator) && (
             <>
               <DropdownMenuSeparator />

@@ -372,6 +372,62 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 		return snapshot
 	}
 
+	// Crash-relaunch rejoin detection: "does this player have a match still in
+	// progress right now" -- scans the live in-memory buffer (the same one
+	// handleActionLogEvent/getTail already use), not Postgres. A run only
+	// gets a durable matchRunLogs row at finalize time (see finalizeRun
+	// above), so an in-progress run's player list only exists here while the
+	// server process that received its events is still running -- exactly
+	// the scenario this is for (the CLIENT crashed and relaunched, not the
+	// server). Surviving a server restart too would need a second signal
+	// (e.g. matchmaking.service.ts's restorePlayerMatchSession, which reads
+	// Postgres) -- not needed for the common case and not wired up here.
+	// `events` is this player's OWN buffered stream (getTail(lobbyCode,
+	// playerId, 0)), included inline rather than requiring a second request:
+	// GET /:runId/replay (getReplay) can't serve this -- it reads DB-persisted
+	// matchRunLogs rows, which don't exist yet for a run that's still active
+	// (those are only written at finalize time, see finalizeRun) -- confirmed
+	// live, it 403s ("Not a participant in this run") for a genuinely active
+	// run's own participant. Rejoin only ever needs the rejoining player's OWN
+	// events to fast-forward their own local state (opponent catch-up is a
+	// separate, already-existing mechanism -- grace-period.service.ts's
+	// pushReplayCatchUp, unrelated to this), so there's no need to also
+	// resolve/merge every other player's stream here.
+	function findActiveRunForPlayer(
+		playerId: string,
+	): { runId: string; lobbyCode: string; modId: string; events: LogEvent[] } | null {
+		for (const [lobbyCode, run] of runs) {
+			if (run.players.has(playerId)) {
+				const lobby = getLobby(lobbyCode)
+				// The run buffer's own player list (populated by
+				// handleActionLogEvent) is NOT tied to live lobby membership --
+				// an explicit Abandon (POST /api/lobbies/:code/leave) removes the
+				// player from the LOBBY but doesn't touch this run's buffer at all
+				// (only a full lobby close or grace-period expiry finalizes/clears
+				// it, and the lobby here is still alive for its other player(s)).
+				// Without this check, a player who explicitly abandoned would keep
+				// getting the rejoin prompt on every subsequent relaunch until the
+				// whole match ends for everyone else too -- confirmed live.
+				if (!lobby || !lobby.hasPlayer(playerId)) continue
+				return {
+					runId: run.runId,
+					lobbyCode,
+					modId: lobby?.modId ?? '',
+					// getTail's filter is `e.t > sinceT`, strictly exclusive --
+					// correct for its original caller (opponent catch-up: "events
+					// since I last saw them", where the boundary event was already
+					// delivered) but sinceT=0 would silently drop the manifest
+					// event itself, which is always recorded at t=0 (see
+					// recorder.lua's begin_run) -- confirmed live, rejoin failed
+					// with "no manifest event" until this was -1'd. -1 is safe
+					// since every real event's t is >= 0.
+					events: getTail(lobbyCode, playerId, -1),
+				}
+			}
+		}
+		return null
+	}
+
 	return {
 		handleActionLogEvent,
 		finalizeRun,
@@ -382,6 +438,7 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 		verifyPlayerHash,
 		countHandResultEvents,
 		getTail,
+		findActiveRunForPlayer,
 	}
 }
 

@@ -134,16 +134,24 @@ async function start() {
 
 		await mqttService.connect()
 		await provisionEmqxWebhook()
-		await mqttService.subscribeToLobbyActions(
-			'pvp_log_event',
-			(lobbyCode, playerId, params) => {
-				void replayLogService
-					.handleActionLogEvent(lobbyCode, playerId, params)
-					.catch((err) =>
-						console.error('[replay-log] Failed to buffer event:', err),
-					)
-			},
-		)
+		// One subscription per consuming mod's own RLOG action key -- each mod
+		// (BalatroMultiplayerPvP, BalatroMultiplayerSpeed) wires its own
+		// ActionType to MPAPI.replay's live transport client-side (see
+		// MPAPI.replay.register_broadcaster in BalatroMultiplayerAPI's
+		// recorder.lua), but they all feed the same replayLogService buffer
+		// server-side -- handleActionLogEvent itself is mod-agnostic.
+		for (const actionKey of ['pvp_log_event', 'spdrn_log_event']) {
+			await mqttService.subscribeToLobbyActions(
+				actionKey,
+				(lobbyCode, playerId, params) => {
+					void replayLogService
+						.handleActionLogEvent(lobbyCode, playerId, params)
+						.catch((err) =>
+							console.error('[replay-log] Failed to buffer event:', err),
+						)
+				},
+			)
+		}
 		await mqttService.subscribeToPlayerChallengeResponses(
 			(playerId, payload) => {
 				void launcherIntegrityService

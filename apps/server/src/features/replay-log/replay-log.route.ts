@@ -22,6 +22,20 @@ export function createReplayLogRouter(service: ReplayLogService): Router {
 		}
 	})
 
+	// Crash-relaunch rejoin detection: does the requesting player have a match
+	// still in progress right now (see service.findActiveRunForPlayer's own
+	// doc comment for scope -- server-process-alive, in-memory only). The
+	// client polls this once after boot/connect to decide whether to show a
+	// Rejoin/Abandon prompt.
+	router.get('/mine/active', async (req, res, next) => {
+		try {
+			const active = service.findActiveRunForPlayer(req.player!.playerId)
+			res.json({ active })
+		} catch (err) {
+			next(err)
+		}
+	})
+
 	router.get('/:runId/replay', async (req, res, next) => {
 		try {
 			// Same DB-authoritative privilege check webAdmin's middleware uses
