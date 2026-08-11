@@ -42,6 +42,7 @@ describe('lobby routes', () => {
 			expect(res.body.lobby.modId).toBe('cool_mod')
 			expect(res.body.lobby.isHost).toBe(true)
 			expect(res.body.lobby.maxPlayers).toBe(16)
+			expect(res.body.lobby.type).toBe('private')
 			expect(res.body.token).toBeDefined()
 		})
 
@@ -104,6 +105,7 @@ describe('lobby routes', () => {
 			expect(joinRes.body.lobby.code).toBe(code)
 			expect(joinRes.body.lobby.isHost).toBe(false)
 			expect(joinRes.body.lobby.maxPlayers).toBeDefined()
+			expect(joinRes.body.lobby.type).toBe('private')
 			expect(joinRes.body.token).toBeDefined()
 		})
 
@@ -143,6 +145,80 @@ describe('lobby routes', () => {
 		})
 	})
 
+	describe('POST /api/lobbies/:code/kick/:targetId', () => {
+		it('host kicks a guest, who is then removed from the roster', async () => {
+			const createRes = await request(app)
+				.post('/api/lobbies')
+				.set('Authorization', authHeader('host1', 'Alice'))
+				.send({ modId: 'mod1' })
+			const code = createRes.body.lobby.code
+
+			await request(app)
+				.post(`/api/lobbies/${code}/join`)
+				.set('Authorization', authHeader('guest1', 'Bob'))
+				.send()
+
+			const kickRes = await request(app)
+				.post(`/api/lobbies/${code}/kick/guest1`)
+				.set('Authorization', authHeader('host1', 'Alice', code))
+				.send()
+
+			expect(kickRes.status).toBe(200)
+			expect(kickRes.body.ok).toBe(true)
+
+			const playersRes = await request(app)
+				.get(`/api/lobbies/${code}/players`)
+				.set('Authorization', authHeader('host1', 'Alice', code))
+				.send()
+			expect(playersRes.body.players.map((p: { id: string }) => p.id)).toEqual(['host1'])
+		})
+
+		it('returns 403 for a non-host caller', async () => {
+			const createRes = await request(app)
+				.post('/api/lobbies')
+				.set('Authorization', authHeader('host1', 'Alice'))
+				.send({ modId: 'mod1' })
+			const code = createRes.body.lobby.code
+
+			await request(app)
+				.post(`/api/lobbies/${code}/join`)
+				.set('Authorization', authHeader('guest1', 'Bob'))
+				.send()
+
+			const kickRes = await request(app)
+				.post(`/api/lobbies/${code}/kick/host1`)
+				.set('Authorization', authHeader('guest1', 'Bob', code))
+				.send()
+
+			expect(kickRes.status).toBe(403)
+		})
+
+		it('blocks the kicked player from rejoining', async () => {
+			const createRes = await request(app)
+				.post('/api/lobbies')
+				.set('Authorization', authHeader('host1', 'Alice'))
+				.send({ modId: 'mod1' })
+			const code = createRes.body.lobby.code
+
+			await request(app)
+				.post(`/api/lobbies/${code}/join`)
+				.set('Authorization', authHeader('guest1', 'Bob'))
+				.send()
+
+			await request(app)
+				.post(`/api/lobbies/${code}/kick/guest1`)
+				.set('Authorization', authHeader('host1', 'Alice', code))
+				.send()
+
+			const rejoinRes = await request(app)
+				.post(`/api/lobbies/${code}/join`)
+				.set('Authorization', authHeader('guest1', 'Bob'))
+				.send()
+
+			expect(rejoinRes.status).toBe(403)
+		})
+	})
+
 	describe('GET /api/lobbies/:code', () => {
 		it('returns lobby info with maxPlayers', async () => {
 			const createRes = await request(app)
@@ -160,6 +236,7 @@ describe('lobby routes', () => {
 			expect(getRes.body.lobby.code).toBe(code)
 			expect(getRes.body.lobby.isHost).toBe(true)
 			expect(getRes.body.lobby.maxPlayers).toBe(16)
+			expect(getRes.body.lobby.type).toBe('private')
 		})
 
 		it('returns 404 for unknown code', async () => {

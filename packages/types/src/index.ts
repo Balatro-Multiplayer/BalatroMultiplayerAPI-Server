@@ -15,6 +15,7 @@ export interface LobbyEvent {
 	type:
 		| 'player_joined'
 		| 'player_left'
+		| 'player_kicked'
 		| 'lobby_closed'
 		| 'host_changed'
 		| 'metadata_changed'

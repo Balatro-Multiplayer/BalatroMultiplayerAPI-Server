@@ -19,6 +19,7 @@ export class Lobby {
 	public readonly createdAt: Date
 	public readonly messageBuffer: BufferedMessage[] = []
 	public isReported: boolean = false
+	public readonly kickedPlayerIds: Set<string> = new Set()
 
 	constructor(
 		public readonly code: string,

@@ -17,6 +17,7 @@ export class PlayerSession {
 	public chatEnabled: boolean
 	public chatBlocked: boolean
 	public mutedPlayerIds: string[]
+	public installedMods: string[]
 
 	constructor(
 		steamName: string,
@@ -32,6 +33,7 @@ export class PlayerSession {
 			chatEnabled?: boolean
 			chatBlocked?: boolean
 			mutedPlayerIds?: string[]
+			installedMods?: string[]
 		},
 	) {
 		this.playerId = opts?.id ?? randomUUID()
@@ -46,6 +48,7 @@ export class PlayerSession {
 		this.chatEnabled = opts?.chatEnabled ?? false
 		this.chatBlocked = opts?.chatBlocked ?? false
 		this.mutedPlayerIds = opts?.mutedPlayerIds ?? []
+		this.installedMods = opts?.installedMods ?? []
 		this.connectedAt = new Date()
 	}
 

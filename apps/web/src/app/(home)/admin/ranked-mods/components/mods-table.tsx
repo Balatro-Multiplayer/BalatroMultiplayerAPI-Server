@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import {
   Table,
@@ -15,13 +16,17 @@ export function ModsTable({
   isAdmin,
   pendingModId,
   onToggle,
-  onResetOverride,
+  onSetRankedVersion,
+  onClearRanked,
+  onDelete,
 }: {
   mods: ModSummary[]
   isAdmin: boolean
   pendingModId: string | null
   onToggle: (mod: ModSummary, allowed: boolean) => void
-  onResetOverride: (modId: string) => void
+  onSetRankedVersion: (mod: ModSummary, version: string | null) => void
+  onClearRanked: (modId: string) => void
+  onDelete: (modId: string) => void
 }) {
   return (
     <Table>
@@ -30,6 +35,7 @@ export function ModsTable({
           <TableHead>Mod</TableHead>
           <TableHead>Latest version</TableHead>
           <TableHead>Allowed in ranked</TableHead>
+          <TableHead>Ranked version</TableHead>
           <TableHead />
         </TableRow>
       </TableHeader>
@@ -37,7 +43,14 @@ export function ModsTable({
         {mods.map((mod) => (
           <TableRow key={mod.id}>
             <TableCell>
-              <p className='font-medium'>{mod.name}</p>
+              <p className='font-medium'>
+                {mod.name}
+                {mod.isCustom && (
+                  <span className='ml-2 text-muted-foreground text-xs'>
+                    (custom)
+                  </span>
+                )}
+              </p>
               <p className='font-mono text-muted-foreground text-xs'>
                 {mod.id}
               </p>
@@ -51,14 +64,44 @@ export function ModsTable({
               />
             </TableCell>
             <TableCell>
-              {isAdmin && (
+              <Input
+                key={`${mod.id}:${mod.rankedVersion ?? ''}`}
+                className='h-8 w-32 font-mono text-xs'
+                placeholder='Any version'
+                defaultValue={mod.rankedVersion ?? ''}
+                disabled={
+                  !isAdmin || !mod.allowedInRanked || pendingModId === mod.id
+                }
+                onBlur={(e) => {
+                  const value = e.target.value.trim()
+                  if (value === (mod.rankedVersion ?? '')) return
+                  onSetRankedVersion(mod, value || null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur()
+                }}
+              />
+            </TableCell>
+            <TableCell className='space-x-1'>
+              {isAdmin && (mod.allowedInRanked || mod.rankedVersion) && (
                 <Button
                   variant='ghost'
                   size='sm'
                   disabled={pendingModId === mod.id}
-                  onClick={() => onResetOverride(mod.id)}
+                  onClick={() => onClearRanked(mod.id)}
                 >
-                  Reset to index
+                  Clear
+                </Button>
+              )}
+              {isAdmin && mod.isCustom && (
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  className='text-destructive hover:text-destructive'
+                  disabled={pendingModId === mod.id}
+                  onClick={() => onDelete(mod.id)}
+                >
+                  Delete
                 </Button>
               )}
             </TableCell>
@@ -67,7 +110,7 @@ export function ModsTable({
         {mods.length === 0 && (
           <TableRow>
             <TableCell
-              colSpan={4}
+              colSpan={5}
               className='text-center text-muted-foreground'
             >
               No mods synced yet — BET_MOD_INDEX_URL may not be configured, or

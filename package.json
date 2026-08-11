@@ -1,24 +1,20 @@
 {
-	"version": "0.3.2-MULTIPLAYER",
+	"private": true,
+	"packageManager": "pnpm@10.33.0",
 	"scripts": {
-		"build-servers": "node build.js",
-		"build": "tsc",
-		"dev": "tsx watch src/main.ts",
-		"start": "node ./dist/main.js"
-	},
-	"dependencies": {
-		"better-sqlite3": "^12.10.0",
-		"net": "^1.0.2",
-		"uuid": "^9.0.1"
+		"dev": "turbo dev",
+		"build": "turbo build",
+		"test": "turbo test",
+		"lint": "turbo lint",
+		"format": "turbo format",
+		"migrate": "pnpm --filter balatro-multiplayer-api-server migrate",
+		"generate": "pnpm --filter balatro-multiplayer-api-server generate"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^1.6.1",
-		"@types/better-sqlite3": "^7.6.13",
-		"@types/node": "^20.11.27",
-		"@types/uuid": "^9.0.8",
-		"esbuild": "^0.24.0",
-		"tsx": "^4.7.1",
-		"typescript": "^5.4.2"
+		"@biomejs/biome": "^1.9.0",
+		"turbo": "^2.0.0"
 	},
-	"type": "module"
+	"pnpm": {
+		"onlyBuiltDependencies": ["@biomejs/biome", "esbuild"]
+	}
 }

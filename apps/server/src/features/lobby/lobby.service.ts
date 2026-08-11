@@ -63,6 +63,7 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		await messageBus.publishPlayerInfo(lobby.code, player.playerId, {
 			displayName: session.getDisplayName(),
 			preferredJoker: session.preferredJoker,
+			mods: session.installedMods,
 		})
 
 		const token = signJwt({
@@ -80,6 +81,9 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 
 		const lobby = getLobby(code)
 		if (!lobby) throw new AppError('Lobby not found', 404)
+		if (lobby.kickedPlayerIds.has(player.playerId)) {
+			throw new AppError('You have been kicked from this lobby', 403)
+		}
 
 		if (lobby.type === 'public' && lobby.hasPlayer(player.playerId)) {
 			const token = signJwt({
@@ -101,6 +105,7 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		await messageBus.publishPlayerInfo(lobby.code, player.playerId, {
 			displayName: session.getDisplayName(),
 			preferredJoker: session.preferredJoker,
+			mods: session.installedMods,
 		})
 
 		if (lobby.type === 'private') {
@@ -219,6 +224,59 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		return { token }
 	}
 
+	// Host-initiated removal of another player. Mirrors leaveLobby's cleanup for
+	// the target, but the actor (host) is not leaving -- no host-transfer or
+	// lobby-close branch applies here.
+	async function kickPlayer(
+		player: JwtPayload,
+		code: string,
+		targetPlayerId: string,
+	) {
+		const lobby = getLobby(code)
+		if (!lobby) throw new AppError('Lobby not found', 404)
+		if (lobby.hostId !== player.playerId) {
+			throw new AppError('Only the host can kick players', 403)
+		}
+		if (targetPlayerId === player.playerId) {
+			throw new AppError('Cannot kick yourself', 400)
+		}
+		if (!lobby.hasPlayer(targetPlayerId)) {
+			throw new AppError('Player not in this lobby', 400)
+		}
+
+		gracePeriodService.cancelGracePeriodSilently(targetPlayerId)
+
+		const targetSession = getSession(targetPlayerId)
+
+		// Recorded before removal so there's no window where a fast rejoin could
+		// race past the guard in joinLobby.
+		lobby.kickedPlayerIds.add(targetPlayerId)
+		lobby.removePlayer(targetPlayerId)
+
+		const remainingConnected = [...lobby.players.keys()].filter(
+			(id) => !gracePeriodService.isInGracePeriod(id),
+		)
+		await matchmakingCoordinator.forfeitMatchForLeave(
+			lobby.code,
+			targetPlayerId,
+			remainingConnected,
+		)
+
+		// Published before the cleanup calls below so the kicked client still has
+		// a live topic subscription when the event lands.
+		await messageBus.publishEvent(lobby.code, {
+			type: 'player_kicked',
+			lobbyCode: lobby.code,
+			playerId: targetPlayerId,
+			displayName: targetSession?.getDisplayName(),
+			data: { kickedBy: player.playerId },
+			timestamp: new Date().toISOString(),
+		})
+
+		await messageBus.clearPlayerInfo(lobby.code, targetPlayerId)
+		await messageBus.cleanupPlayerState(lobby.code, targetPlayerId)
+	}
+
 	function getLobbyInfo(code: string) {
 		const lobby = getLobby(code)
 		if (!lobby) throw new AppError('Lobby not found', 404)
@@ -269,6 +327,7 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		createLobby,
 		joinLobby,
 		leaveLobby,
+		kickPlayer,
 		getLobbyInfo,
 		getLobbyPlayers,
 		setMetadata,

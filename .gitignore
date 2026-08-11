@@ -6,3 +6,23 @@ releases
 .vs
 logs
 data
+!.env.example
+
+# Logs
+*.log
+
+# Turbo cache
+.turbo/
+
+# Editor
+.vs/
+*.local*
+!docker-compose.local.yml
+.claude
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Clients
+clients/*

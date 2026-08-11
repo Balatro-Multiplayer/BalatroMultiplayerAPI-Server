@@ -14,27 +14,35 @@ import {
 } from '@/components/ui/card'
 import { ApiError, apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { DeleteModDialog } from './components/delete-mod-dialog'
 import { DeleteProfileDialog } from './components/delete-profile-dialog'
+import { ModFormDialog } from './components/mod-form-dialog'
 import { ModsTable } from './components/mods-table'
 import { ProfileEntriesDialog } from './components/profile-entries-dialog'
 import { ProfileFormDialog } from './components/profile-form-dialog'
 import { ProfilesTable } from './components/profiles-table'
 import type {
+  ModForm,
   ModProfile,
   ModProfileDetail,
   ModSummary,
   ProfileForm,
 } from './components/ranked-mods-types'
-import { EMPTY_PROFILE_FORM } from './components/ranked-mods-types'
+import {
+  EMPTY_MOD_FORM,
+  EMPTY_PROFILE_FORM,
+} from './components/ranked-mods-types'
 
-// The ranked mod catalog (synced hourly from BETModIndex — see
-// BalatroMultiplayerAPI-Server's features/mods/mods-sync.service.ts) and
-// admin-authored ranked mod profiles. Deliberately distinct from
-// /admin/config's "Official Mods" section above (the pre-existing launcher
-// self-update channel, mod_versions/mod_releases) — this is a separate
-// system (mod_registry/mod_profiles) for ranked-eligibility data. Info-only
-// for now: nothing cross-checks a client's actual installed mods against a
-// profile at queue time yet.
+// The ranked mod catalog -- base mod data synced hourly from BETModIndex
+// (see BalatroMultiplayerServer's features/mods/mods-sync.service.ts), with
+// ranked eligibility, a pinned ranked version, and fully custom (non-index)
+// mod entries all editable here instead of requiring a commit/PR/CI round
+// trip through BETModIndex -- plus admin-authored ranked mod profiles.
+// Deliberately distinct from /admin/config's "Official Mods" section above
+// (the pre-existing launcher self-update channel, mod_versions/mod_releases)
+// -- this is a separate system (mod_registry/mod_profiles). Info-only for
+// now: nothing cross-checks a client's actual installed mods against this at
+// queue time yet.
 export default function RankedModsPage() {
   const { isAdmin, isModerator, pending } = useAuth()
   const router = useRouter()
@@ -65,18 +73,22 @@ export default function RankedModsPage() {
 
   const [pendingModId, setPendingModId] = useState<string | null>(null)
 
-  const toggleMut = useMutation({
-    mutationFn: async ({
-      modId,
-      allowed,
-    }: {
+  // Ranked config (allowedInRanked + an optional pinned ranked version) is
+  // entirely admin-owned now — see the server's mods.gateway.ts
+  // setRankedConfig doc comment. Either field can be sent alone.
+  const updateRankedMut = useMutation({
+    mutationFn: async (input: {
       modId: string
-      allowed: boolean
+      allowedInRanked?: boolean
+      rankedVersion?: string | null
     }) => {
-      setPendingModId(modId)
-      return apiFetch(`/webadmin/mods/${encodeURIComponent(modId)}`, {
+      setPendingModId(input.modId)
+      return apiFetch(`/webadmin/mods/${encodeURIComponent(input.modId)}`, {
         method: 'PUT',
-        body: JSON.stringify({ allowedInRanked: allowed }),
+        body: JSON.stringify({
+          allowedInRanked: input.allowedInRanked,
+          rankedVersion: input.rankedVersion,
+        }),
       })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ranked-mods'] }),
@@ -84,20 +96,92 @@ export default function RankedModsPage() {
     onSettled: () => setPendingModId(null),
   })
 
-  const resetOverrideMut = useMutation({
+  const clearRankedMut = useMutation({
     mutationFn: async (modId: string) => {
       setPendingModId(modId)
-      return apiFetch(
-        `/webadmin/mods/${encodeURIComponent(modId)}/manual-override`,
-        { method: 'DELETE' }
-      )
+      return apiFetch(`/webadmin/mods/${encodeURIComponent(modId)}/ranked`, {
+        method: 'DELETE',
+      })
     },
     onSuccess: () => {
-      toast.success('Reset to BETModIndex value — next sync will apply')
+      toast.success('Ranked config cleared')
       qc.invalidateQueries({ queryKey: ['ranked-mods'] })
     },
     onError: onErr,
     onSettled: () => setPendingModId(null),
+  })
+
+  // --- Custom mods (no BETModIndex counterpart) ---
+
+  const [modFormOpen, setModFormOpen] = useState(false)
+  const [modForm, setModForm] = useState<ModForm>(EMPTY_MOD_FORM)
+
+  const createModMut = useMutation({
+    mutationFn: (form: ModForm) =>
+      apiFetch('/webadmin/mods', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: form.id,
+          title: form.title,
+          author: form.author,
+          categories: form.categories
+            .split(',')
+            .map((c) => c.trim())
+            .filter(Boolean),
+          requiresSteamodded: form.requiresSteamodded,
+          requiresTalisman: form.requiresTalisman,
+          repoUrl: form.repoUrl || null,
+          thumbnailUrl: form.thumbnailUrl || null,
+          description: form.description || null,
+          latestVersion: form.latestVersion || null,
+          latestDownloadUrl: form.latestDownloadUrl || null,
+        }),
+      }),
+    onSuccess: () => {
+      toast.success('Custom mod created')
+      setModFormOpen(false)
+      qc.invalidateQueries({ queryKey: ['ranked-mods'] })
+    },
+    onError: onErr,
+  })
+
+  const [deleteModTarget, setDeleteModTarget] = useState<ModSummary | null>(
+    null
+  )
+  const deleteModMut = useMutation({
+    mutationFn: (modId: string) =>
+      apiFetch(`/webadmin/mods/${encodeURIComponent(modId)}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      toast.success('Mod deleted')
+      setDeleteModTarget(null)
+      qc.invalidateQueries({ queryKey: ['ranked-mods'] })
+    },
+    onError: onErr,
+  })
+
+  // Manually kicks off the same BETModIndex sync + hash-check pass that
+  // otherwise only runs at server startup and hourly (see mods-sync.service.ts
+  // server-side) — e.g. to confirm a mod's hash updated right after a new
+  // release, without waiting for the next tick.
+  const syncMut = useMutation({
+    mutationFn: () =>
+      apiFetch<{
+        ok: true
+        modsSynced: number
+        hashed: number
+        pruned: number
+      }>('/webadmin/mods/sync', { method: 'POST' }),
+    onSuccess: (result) => {
+      toast.success(
+        `Synced ${result.modsSynced} mods` +
+          (result.hashed ? ` (${result.hashed} newly hashed)` : '') +
+          (result.pruned ? ` (${result.pruned} pruned)` : '')
+      )
+      qc.invalidateQueries({ queryKey: ['ranked-mods'] })
+    },
+    onError: onErr,
   })
 
   // --- Profiles ---
@@ -219,11 +303,35 @@ export default function RankedModsPage() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Mod catalog</CardTitle>
-          <CardDescription>
-            "Allowed in ranked" toggled here overrides BETModIndex until reset.
-          </CardDescription>
+        <CardHeader className='flex flex-row items-center justify-between'>
+          <div>
+            <CardTitle>Mod catalog</CardTitle>
+            <CardDescription>
+              Ranked eligibility and an optional pinned ranked version are set
+              here directly — BETModIndex no longer carries either.
+            </CardDescription>
+          </div>
+          {isAdmin && (
+            <div className='flex gap-2'>
+              <Button
+                size='sm'
+                variant='outline'
+                onClick={() => {
+                  setModForm(EMPTY_MOD_FORM)
+                  setModFormOpen(true)
+                }}
+              >
+                New mod
+              </Button>
+              <Button
+                size='sm'
+                onClick={() => syncMut.mutate()}
+                disabled={syncMut.isPending}
+              >
+                {syncMut.isPending ? 'Syncing…' : 'Sync now'}
+              </Button>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {modsLoading || !mods ? (
@@ -234,9 +342,22 @@ export default function RankedModsPage() {
               isAdmin={isAdmin}
               pendingModId={pendingModId}
               onToggle={(mod, allowed) =>
-                toggleMut.mutate({ modId: mod.id, allowed })
+                updateRankedMut.mutate({
+                  modId: mod.id,
+                  allowedInRanked: allowed,
+                })
               }
-              onResetOverride={(modId) => resetOverrideMut.mutate(modId)}
+              onSetRankedVersion={(mod, version) =>
+                updateRankedMut.mutate({
+                  modId: mod.id,
+                  rankedVersion: version,
+                })
+              }
+              onClearRanked={(modId) => clearRankedMut.mutate(modId)}
+              onDelete={(modId) => {
+                const mod = mods.find((m) => m.id === modId)
+                if (mod) setDeleteModTarget(mod)
+              }}
             />
           )}
         </CardContent>
@@ -279,6 +400,24 @@ export default function RankedModsPage() {
           />
         </CardContent>
       </Card>
+
+      <ModFormDialog
+        open={modFormOpen}
+        form={modForm}
+        isPending={createModMut.isPending}
+        onFormChange={setModForm}
+        onSave={() => createModMut.mutate(modForm)}
+        onClose={() => setModFormOpen(false)}
+      />
+
+      <DeleteModDialog
+        target={deleteModTarget}
+        isPending={deleteModMut.isPending}
+        onConfirm={() =>
+          deleteModTarget && deleteModMut.mutate(deleteModTarget.id)
+        }
+        onClose={() => setDeleteModTarget(null)}
+      />
 
       <ProfileFormDialog
         open={profileDialog !== null}

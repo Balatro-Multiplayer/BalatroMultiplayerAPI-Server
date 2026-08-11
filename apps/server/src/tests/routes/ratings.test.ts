@@ -154,6 +154,33 @@ describe('GET /api/matchmaking/ratings', () => {
 			.query({ modId: 'speedrunning', gameMode: 'ranked:1v1', season: '3' })
 		expect(vi.mocked(getOwnRating)).toHaveBeenCalledWith('param-check', 'speedrunning', 'ranked:1v1', 3)
 	})
+
+	it('looks up an explicit playerId instead of the caller when provided', async () => {
+		vi.mocked(getOwnRating).mockResolvedValueOnce(null)
+		const res = await request(app)
+			.get('/api/matchmaking/ratings')
+			.set('Authorization', authHeader('caller-id', 'Caller'))
+			.query({ modId: 'speedrunning', gameMode: 'ranked:1v1', season: '1', playerId: 'opponent-id' })
+		expect(res.status).toBe(200)
+		expect(vi.mocked(getOwnRating)).toHaveBeenCalledWith('opponent-id', 'speedrunning', 'ranked:1v1', 1)
+	})
+
+	it('still defaults to the caller when playerId is omitted', async () => {
+		vi.mocked(getOwnRating).mockResolvedValueOnce(null)
+		await request(app)
+			.get('/api/matchmaking/ratings')
+			.set('Authorization', authHeader('self-id', 'Self'))
+			.query({ modId: 'speedrunning', gameMode: 'ranked:1v1', season: '1' })
+		expect(vi.mocked(getOwnRating)).toHaveBeenCalledWith('self-id', 'speedrunning', 'ranked:1v1', 1)
+	})
+
+	it('returns 400 for a non-string playerId', async () => {
+		const res = await request(app)
+			.get('/api/matchmaking/ratings')
+			.set('Authorization', authHeader('p1', 'Alice'))
+			.query({ modId: 'speedrunning', gameMode: 'ranked:1v1', season: '1', playerId: ['a', 'b'] })
+		expect(res.status).toBe(400)
+	})
 })
 
 describe('GET /api/matchmaking/leaderboard', () => {

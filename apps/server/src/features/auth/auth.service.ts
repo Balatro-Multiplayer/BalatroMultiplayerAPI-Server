@@ -315,6 +315,15 @@ export function createAuthService(deps: AuthServiceDeps) {
 		return sessionAndToken(session)
 	}
 
+	// Session-only, not DB-persisted -- a player's installed mods are
+	// inherently per-launch (unlike preferredJoker) and don't need durability
+	// beyond the current connection.
+	async function setInstalledMods(playerId: string, mods: string[]) {
+		const session = await ensureSession(playerId)
+		session.installedMods = mods
+		return sessionAndToken(session)
+	}
+
 	async function ensurePlayerExistsInDb(session: PlayerSession): Promise<void> {
 		const dbPlayer = await playerRepository.findPlayerById(session.playerId)
 		if (dbPlayer) return
@@ -366,6 +375,7 @@ export function createAuthService(deps: AuthServiceDeps) {
 		unlinkDiscordFromPlayer,
 		setUseDiscordName,
 		setPreferredJoker,
+		setInstalledMods,
 		acceptTos,
 		deleteAccount,
 	}

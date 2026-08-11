@@ -15,3 +15,13 @@ export function assertCanPlay(session: PlayerSession): void {
 		)
 	}
 }
+
+/**
+ * Gate for joining a ranked queue. A no-op for casual game modes and a no-op when
+ * ranked play is enabled (the default); rejects ranked queue requests otherwise.
+ */
+export function assertRankedEnabled(isRankedGameMode: boolean): void {
+	if (isRankedGameMode && getConfig().rankedEnabled === false) {
+		throw new AppError('Ranked matchmaking is currently disabled.', 403)
+	}
+}

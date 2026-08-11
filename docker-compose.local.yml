@@ -1,0 +1,22 @@
+# Opt-in overlay for local/test environments that don't have real TLS certs
+# mounted at /root/emqx-certs/<domain> (docker-compose.yml's default expects
+# them, matching production). Not auto-applied -- docker-compose.yml is the
+# base file; layer this on top explicitly:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+#
+# or export COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml once per
+# shell/CI job to make plain `docker compose ...` pick it up automatically.
+#
+# Without real certs, EMQX's stock wss:default listener (port 8084) hard-fails
+# with no_cert on cold boot and crashes the whole node -- unlike
+# listeners.ssl.default (8883, configured in apps/server/emqx/cluster.hocon),
+# which tolerates missing certs at boot. wss:default isn't published in
+# docker-compose.yml's ports: and isn't used by this project at all -- MQTT
+# clients connect over plain tcp:1883 for local/insecure dev (see that file's
+# own comment on the 1883 port) or ssl:8883 when real certs are present.
+# Disabling it here is a no-op for anything that actually uses this stack.
+services:
+  emqx:
+    environment:
+      EMQX_LISTENERS__WSS__DEFAULT__ENABLE: "false"

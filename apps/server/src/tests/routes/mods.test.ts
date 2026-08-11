@@ -31,8 +31,10 @@ describe('mods routes', () => {
 					id: 'Author@Mod',
 					name: 'Mod',
 					allowedInRanked: true,
-					latestVersion: '1.0.0',
+					rankedVersion: '1.2.3',
+					latestVersion: '1.3.0',
 					thumbnailUrl: null,
+					isCustom: false,
 				},
 			]
 			;(db as any).select = mockSelectOrderByChain(rows)
@@ -62,8 +64,10 @@ describe('mods routes', () => {
 				title: 'Mod',
 				author: 'Author',
 				allowedInRanked: true,
+				rankedVersion: null,
 				latestVersion: '1.0.0',
 				latestSha256: 'deadbeef',
+				isCustom: false,
 			}
 			;(db as any).query = {
 				...(db as any).query,
