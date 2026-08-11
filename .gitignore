@@ -18,10 +18,7 @@ data
 .vs/
 *.local*
 !docker-compose.local.yml
-# Personal Claude Code settings only (API keys, local permission overrides) -
-# .claude/commands/, .claude/skills/, etc. are meant to be shared/committed,
-# unlike the blanket ".claude" this replaces which blocked all of it.
-.claude/settings.local.json
+.claude
 
 # OS
 .DS_Store
