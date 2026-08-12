@@ -17,6 +17,7 @@ import {
 } from '../../infrastructure/gateways/mods.gateway.js'
 import { checkCustomModVersion } from './custom-mod-version-check.service.js'
 import { relocateModRoot } from './mod-archive-flatten.js'
+import { resolveReliableDownloadUrl } from './mod-source-classifier.js'
 import { fetchUpstreamModIndex } from './upstream-mod-index.service.js'
 
 const execFileAsync = promisify(execFile)
@@ -74,12 +75,17 @@ async function computePreparedZipHash(
 ): Promise<string | null> {
 	let tmpRoot: string | null = null
 	try {
-		const res = await fetch(downloadUrl, {
+		// Branch/tag archives are fetched from our own reconstructed
+		// codeload.github.com URL rather than the literal stored one -- see
+		// mod-source-classifier.ts's header comment for why the literal
+		// github.com/.../archive/... URL isn't safe to hash from directly.
+		const reliableUrl = resolveReliableDownloadUrl(downloadUrl)
+		const res = await fetch(reliableUrl, {
 			signal: AbortSignal.timeout(HASH_FETCH_TIMEOUT_MS),
 		})
 		if (!res.ok) {
 			console.error(
-				`[mods-sync] Hash fetch failed (${res.status}) for ${downloadUrl}`,
+				`[mods-sync] Hash fetch failed (${res.status}) for ${reliableUrl}`,
 			)
 			return null
 		}

@@ -1,4 +1,5 @@
 import { env } from '../../env.js'
+import { classifyDownloadUrl } from './mod-source-classifier.js'
 
 // TS port of BETModIndex's update_mod_versions.py, scoped to admin-created
 // custom mods (mod_registry.isCustom rows) that opt into
@@ -138,7 +139,7 @@ export async function checkCustomModVersion(
 	let newVersion: string | null = null
 	let newDownloadUrl: string | null = null
 
-	if (downloadUrl.includes('/archive/refs/heads/')) {
+	if (classifyDownloadUrl(downloadUrl) === 'branch') {
 		source = 'head'
 		newVersion = await fetchHeadSha(owner, repo)
 	} else if (
