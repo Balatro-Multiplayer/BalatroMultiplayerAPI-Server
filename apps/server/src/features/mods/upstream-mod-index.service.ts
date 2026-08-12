@@ -8,8 +8,15 @@ import type { ModIndexEntryInput } from '../../infrastructure/gateways/mods.gate
 // mods-sync.service.ts. Hardcoded, not env-configurable: there's exactly one
 // legitimate upstream, and keeping it out of env avoids the temptation to
 // quietly re-point this at a fork again later.
+//
+// Hits codeload.github.com directly rather than github.com's own
+// /archive/... URL (which 302-redirects there) -- confirmed live that the
+// redirect form fails deterministically under Node's fetch for this
+// payload size ("SocketError: other side closed", every single attempt,
+// while the same request against codeload.github.com directly succeeds
+// every time) instead of being an occasional network blip.
 const UPSTREAM_ZIP_URL =
-	'https://github.com/skyline69/balatro-mod-index/archive/refs/heads/main.zip'
+	'https://codeload.github.com/skyline69/balatro-mod-index/zip/refs/heads/main'
 const UPSTREAM_RAW_BASE =
 	'https://raw.githubusercontent.com/skyline69/balatro-mod-index/main'
 const FETCH_TIMEOUT_MS = 5 * 60 * 1000
