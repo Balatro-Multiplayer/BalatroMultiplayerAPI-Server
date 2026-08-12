@@ -3,7 +3,7 @@
 import { DownloadIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { API_BASE, apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api'
 
 type OS = 'Windows' | 'Mac' | 'Linux' | 'Unknown'
 
@@ -56,7 +56,14 @@ export function OSDownloadButton() {
           Exclude<OS, 'Unknown'>
         >) {
           const platform = res.platforms[OS_TO_PLATFORM[os]]
-          if (platform) links[os] = `${API_BASE}${platform.downloadUrl}`
+          // downloadUrl is already a full "/api/launcher/download/..." path
+          // meant for direct navigation (nginx routes /api/ straight to the
+          // API server) -- unlike apiFetch's JSON calls just above, this
+          // isn't routed through the /api/proxy Next.js handler, so it must
+          // NOT be prefixed with API_BASE (doing so double-prefixes /api,
+          // since the proxy handler itself re-adds /api to whatever path it
+          // receives).
+          if (platform) links[os] = platform.downloadUrl
         }
         setDownloadLinks(links)
       })

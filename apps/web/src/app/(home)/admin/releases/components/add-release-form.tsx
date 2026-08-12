@@ -14,7 +14,11 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { LauncherPlatform } from './launcher-releases-types'
-import { PLATFORM_LABELS, PLATFORMS } from './launcher-releases-types'
+import {
+  PLATFORM_ACCEPT,
+  PLATFORM_LABELS,
+  PLATFORMS,
+} from './launcher-releases-types'
 
 export function AddReleaseForm({
   isPending,
@@ -90,6 +94,8 @@ export function AddReleaseForm({
                 <Input
                   id={`release-file-${platform}`}
                   type='file'
+                  accept={PLATFORM_ACCEPT[platform]}
+                  className='file:mr-2 file:rounded-md file:border file:border-input file:bg-secondary file:px-2 file:text-secondary-foreground'
                   onChange={(e) =>
                     setFiles((f) => ({
                       ...f,
@@ -101,7 +107,7 @@ export function AddReleaseForm({
             ))}
           </div>
         </CardContent>
-        <CardFooter>
+        <CardFooter className='mt-4'>
           <Button
             type='submit'
             disabled={isPending || !version.trim() || !hasAnyFile}

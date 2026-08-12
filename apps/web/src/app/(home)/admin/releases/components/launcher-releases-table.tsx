@@ -16,6 +16,7 @@ import type {
 } from './launcher-releases-types'
 import {
   formatFileSize,
+  PLATFORM_ACCEPT,
   PLATFORM_LABELS,
   PLATFORMS,
 } from './launcher-releases-types'
@@ -70,6 +71,7 @@ function PlatformCell({
         {asset ? 'Replace' : 'Upload'}
         <input
           type='file'
+          accept={PLATFORM_ACCEPT[platform]}
           className='hidden'
           disabled={isPending}
           onChange={(e) => {

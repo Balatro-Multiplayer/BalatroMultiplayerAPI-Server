@@ -29,6 +29,17 @@ export const PLATFORM_LABELS: Record<LauncherPlatform, string> = {
   linux: 'Linux',
 }
 
+// Matches what the launcher's own build pipeline actually produces per
+// platform (Inno Setup installer, .dmg, AppImage) -- narrower than the
+// server's own ALLOWED_EXTENSIONS, which still tolerates a few legacy
+// formats. This is a client-side filter only (the file picker's own
+// `accept` attribute), not a validation boundary.
+export const PLATFORM_ACCEPT: Record<LauncherPlatform, string> = {
+  windows: '.exe',
+  mac: '.dmg',
+  linux: '.AppImage',
+}
+
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   const units = ['KB', 'MB', 'GB']
