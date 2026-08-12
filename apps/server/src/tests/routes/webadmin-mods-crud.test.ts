@@ -13,12 +13,15 @@ vi.mock('../../infrastructure/gateways/mods.gateway.js', async () => {
 	return {
 		...actual,
 		setRankedConfig: vi.fn(),
+		setFeatured: vi.fn(),
 		clearRankedConfig: vi.fn(),
 		createCustomMod: vi.fn(),
 		updateCustomMod: vi.fn(),
 		deleteCustomMod: vi.fn(),
 		getPublicModById: vi.fn(),
 		upsertProfileEntry: vi.fn(),
+		updateModFields: vi.fn(),
+		resetModFieldOverrides: vi.fn(),
 	}
 })
 
@@ -109,6 +112,154 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 			.put('/api/webadmin/mods/Nobody@Nothing')
 			.set('Authorization', token)
 			.send({ allowedInRanked: true })
+
+		expect(res.status).toBe(404)
+	})
+
+	it('returns 400 when featured is not a boolean', async () => {
+		const token = authAsAdmin('admin-ranked-6', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Author@Mod')
+			.set('Authorization', token)
+			.send({ featured: 'yes' })
+
+		expect(res.status).toBe(400)
+	})
+
+	it('sets featured for an admin, independently of ranked config', async () => {
+		vi.mocked(modsGateway.setFeatured).mockResolvedValue(true)
+		const token = authAsAdmin('admin-ranked-7', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Author@Mod')
+			.set('Authorization', token)
+			.send({ featured: true })
+
+		expect(res.status).toBe(200)
+		expect(modsGateway.setFeatured).toHaveBeenCalledWith('Author@Mod', true)
+		expect(modsGateway.setRankedConfig).not.toHaveBeenCalled()
+	})
+})
+
+describe('PATCH /api/webadmin/mods/:modId', () => {
+	it('returns 403 for a moderator', async () => {
+		const token = authAsModerator('mod-patch-1', 'Mod')
+		const res = await request(app)
+			.patch('/api/webadmin/mods/Author@Mod')
+			.set('Authorization', token)
+			.send({ description: 'New description' })
+
+		expect(res.status).toBe(403)
+		expect(modsGateway.updateModFields).not.toHaveBeenCalled()
+	})
+
+	it('returns 400 when no field is present', async () => {
+		const token = authAsAdmin('admin-patch-1', 'Admin')
+		const res = await request(app)
+			.patch('/api/webadmin/mods/Author@Mod')
+			.set('Authorization', token)
+			.send({})
+
+		expect(res.status).toBe(400)
+	})
+
+	it('returns 400 for a malformed field', async () => {
+		const token = authAsAdmin('admin-patch-2', 'Admin')
+		const res = await request(app)
+			.patch('/api/webadmin/mods/Author@Mod')
+			.set('Authorization', token)
+			.send({ categories: 'not-an-array' })
+
+		expect(res.status).toBe(400)
+	})
+
+	it('updates only the fields present in the body for an admin', async () => {
+		vi.mocked(modsGateway.updateModFields).mockResolvedValue({
+			id: 'Author@Mod',
+			description: 'New description',
+		} as any)
+		const token = authAsAdmin('admin-patch-3', 'Admin')
+		const res = await request(app)
+			.patch('/api/webadmin/mods/Author@Mod')
+			.set('Authorization', token)
+			.send({ description: 'New description' })
+
+		expect(res.status).toBe(200)
+		expect(modsGateway.updateModFields).toHaveBeenCalledWith('Author@Mod', {
+			description: 'New description',
+		})
+	})
+
+	it('returns 404 when the mod does not exist', async () => {
+		vi.mocked(modsGateway.updateModFields).mockResolvedValue(null)
+		const token = authAsAdmin('admin-patch-4', 'Admin')
+		const res = await request(app)
+			.patch('/api/webadmin/mods/Nobody@Nothing')
+			.set('Authorization', token)
+			.send({ description: 'New description' })
+
+		expect(res.status).toBe(404)
+	})
+})
+
+describe('POST /api/webadmin/mods/:modId/reset-overrides', () => {
+	it('returns 403 for a moderator', async () => {
+		const token = authAsModerator('mod-reset-1', 'Mod')
+		const res = await request(app)
+			.post('/api/webadmin/mods/Author@Mod/reset-overrides')
+			.set('Authorization', token)
+			.send({})
+
+		expect(res.status).toBe(403)
+		expect(modsGateway.resetModFieldOverrides).not.toHaveBeenCalled()
+	})
+
+	it('returns 400 when fields is not a string array', async () => {
+		const token = authAsAdmin('admin-reset-1', 'Admin')
+		const res = await request(app)
+			.post('/api/webadmin/mods/Author@Mod/reset-overrides')
+			.set('Authorization', token)
+			.send({ fields: [1, 2] })
+
+		expect(res.status).toBe(400)
+	})
+
+	it('resets the given fields for an admin', async () => {
+		vi.mocked(modsGateway.resetModFieldOverrides).mockResolvedValue(true)
+		const token = authAsAdmin('admin-reset-2', 'Admin')
+		const res = await request(app)
+			.post('/api/webadmin/mods/Author@Mod/reset-overrides')
+			.set('Authorization', token)
+			.send({ fields: ['description'] })
+
+		expect(res.status).toBe(200)
+		expect(modsGateway.resetModFieldOverrides).toHaveBeenCalledWith(
+			'Author@Mod',
+			['description'],
+		)
+	})
+
+	it('resets every overridden field when fields is omitted', async () => {
+		vi.mocked(modsGateway.resetModFieldOverrides).mockResolvedValue(true)
+		const token = authAsAdmin('admin-reset-3', 'Admin')
+		const res = await request(app)
+			.post('/api/webadmin/mods/Author@Mod/reset-overrides')
+			.set('Authorization', token)
+			.send({})
+
+		expect(res.status).toBe(200)
+		expect(modsGateway.resetModFieldOverrides).toHaveBeenCalledWith(
+			'Author@Mod',
+			undefined,
+		)
+	})
+
+	it('returns 404 when the mod does not exist', async () => {
+		vi.mocked(modsGateway.resetModFieldOverrides).mockResolvedValue(false)
+		const token = authAsAdmin('admin-reset-4', 'Admin')
+		const res = await request(app)
+			.post('/api/webadmin/mods/Nobody@Nothing/reset-overrides')
+			.set('Authorization', token)
+			.send({})
 
 		expect(res.status).toBe(404)
 	})

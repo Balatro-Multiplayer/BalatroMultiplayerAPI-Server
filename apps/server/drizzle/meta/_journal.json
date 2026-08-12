@@ -204,6 +204,13 @@
       "when": 1790400000000,
       "tag": "0028_mod_profile_version_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790500000000,
+      "tag": "0029_mod_featured_and_overrides",
+      "breakpoints": true
     }
   ]
 }

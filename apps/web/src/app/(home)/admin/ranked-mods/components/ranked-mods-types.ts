@@ -3,9 +3,29 @@ export interface ModSummary {
   name: string
   allowedInRanked: boolean
   rankedVersion: string | null
+  featured: boolean
   latestVersion: string | null
   thumbnailUrl: string | null
   isCustom: boolean
+  overriddenFields: string[]
+}
+
+export interface ModDetail {
+  id: string
+  title: string
+  author: string
+  categories: string[]
+  requiresSteamodded: boolean
+  requiresTalisman: boolean
+  repoUrl: string | null
+  thumbnailUrl: string | null
+  description: string | null
+  latestVersion: string | null
+  latestDownloadUrl: string | null
+  automaticVersionCheck: boolean
+  fixedReleaseTagUpdates: boolean
+  isCustom: boolean
+  overriddenFields: string[]
 }
 
 export interface ModForm {

@@ -17,9 +17,11 @@ export async function listPublicMods() {
 			name: modRegistry.title,
 			allowedInRanked: modRegistry.allowedInRanked,
 			rankedVersion: modRegistry.rankedVersion,
+			featured: modRegistry.featured,
 			latestVersion: modRegistry.latestVersion,
 			thumbnailUrl: modRegistry.thumbnailUrl,
 			isCustom: modRegistry.isCustom,
+			overriddenFields: modRegistry.overriddenFields,
 		})
 		.from(modRegistry)
 		.orderBy(asc(modRegistry.title))
@@ -91,18 +93,68 @@ export interface ModIndexEntryInput {
 	}>
 }
 
+// The fields a base-index entry can supply, as opposed to allowedInRanked/
+// rankedVersion/featured (permanently admin-owned, see upsertModFromIndex's
+// doc comment below) or id/isCustom/overriddenFields/latestSha256 (identity/
+// bookkeeping/server-computed, never index-supplied at all). Shared between
+// upsertModFromIndex's override check and updateModFields/
+// resetModFieldOverrides below so there's one definition of "the syncable
+// fields" for both directions.
+export const SYNCABLE_MOD_FIELDS = [
+	'title',
+	'author',
+	'categories',
+	'requiresSteamodded',
+	'requiresTalisman',
+	'repoUrl',
+	'thumbnailUrl',
+	'description',
+	'latestVersion',
+	'latestDownloadUrl',
+] as const
+export type SyncableModField = (typeof SYNCABLE_MOD_FIELDS)[number]
+
 // Upserts one index entry. Deliberately never touches allowedInRanked/
-// rankedVersion (admin-owned via PUT /api/webadmin/mods/:modId, see
-// setRankedConfig below -- the base index carries no ranked-eligibility
-// concept at all anymore) or latestSha256/mod_registry_versions.sha256 (this
-// server computes those itself -- see mods-sync.service.ts's hashing pass,
-// which runs after this upsert and needs the row/version to already exist).
-// Omitting a field from onConflictDoUpdate's `set` (rather than writing a
-// computed value back) is what makes every future sync a no-op for those
-// fields -- whatever an admin last set stays exactly as they left it.
+// rankedVersion/featured (admin-owned via PUT /api/webadmin/mods/:modId, see
+// setRankedConfig/setFeatured below -- the base index carries no concept of
+// any of these) or latestSha256/mod_registry_versions.sha256 (this server
+// computes those itself -- see mods-sync.service.ts's hashing pass, which
+// runs after this upsert and needs the row/version to already exist).
+//
+// Unlike those permanently-excluded fields, the ten SYNCABLE_MOD_FIELDS
+// *do* come from the index and should keep tracking it -- except on a
+// mod+field an admin has directly edited via PATCH /api/webadmin/mods/:modId
+// (updateModFields below), which is recorded in that row's overriddenFields.
+// A field named there is skipped in this upsert's `set` (same "omit from
+// `set` -> sync can't touch it" mechanism as the permanently-excluded
+// fields) until an admin reverts it via POST .../reset-overrides.
 export async function upsertModFromIndex(
 	entry: ModIndexEntryInput,
 ): Promise<void> {
+	const existing = await db.query.modRegistry.findFirst({
+		where: eq(modRegistry.id, entry.id),
+		columns: { overriddenFields: true },
+	})
+	const overridden = new Set(existing?.overriddenFields ?? [])
+
+	const set: Partial<typeof modRegistry.$inferInsert> = {
+		sourceUpdatedAt: new Date(),
+		updatedAt: new Date(),
+	}
+	if (!overridden.has('title')) set.title = entry.title
+	if (!overridden.has('author')) set.author = entry.author
+	if (!overridden.has('categories')) set.categories = entry.categories
+	if (!overridden.has('requiresSteamodded'))
+		set.requiresSteamodded = entry.requiresSteamodded
+	if (!overridden.has('requiresTalisman'))
+		set.requiresTalisman = entry.requiresTalisman
+	if (!overridden.has('repoUrl')) set.repoUrl = entry.repoUrl
+	if (!overridden.has('thumbnailUrl')) set.thumbnailUrl = entry.thumbnailUrl
+	if (!overridden.has('description')) set.description = entry.description
+	if (!overridden.has('latestVersion')) set.latestVersion = entry.latestVersion
+	if (!overridden.has('latestDownloadUrl'))
+		set.latestDownloadUrl = entry.latestDownloadUrl
+
 	await db
 		.insert(modRegistry)
 		.values({
@@ -119,23 +171,7 @@ export async function upsertModFromIndex(
 			latestDownloadUrl: entry.latestDownloadUrl,
 			sourceUpdatedAt: new Date(),
 		})
-		.onConflictDoUpdate({
-			target: modRegistry.id,
-			set: {
-				title: entry.title,
-				author: entry.author,
-				categories: entry.categories,
-				requiresSteamodded: entry.requiresSteamodded,
-				requiresTalisman: entry.requiresTalisman,
-				repoUrl: entry.repoUrl,
-				thumbnailUrl: entry.thumbnailUrl,
-				description: entry.description,
-				latestVersion: entry.latestVersion,
-				latestDownloadUrl: entry.latestDownloadUrl,
-				sourceUpdatedAt: new Date(),
-				updatedAt: new Date(),
-			},
-		})
+		.onConflictDoUpdate({ target: modRegistry.id, set })
 
 	for (const v of entry.versions) {
 		await db
@@ -341,6 +377,21 @@ export async function clearRankedConfig(modId: string): Promise<boolean> {
 	return row != null
 }
 
+// Kept separate from setRankedConfig even though both are "always
+// admin-owned, never synced" toggles -- featured isn't part of ranked
+// eligibility semantically, and shouldn't reset when clearRankedConfig runs.
+export async function setFeatured(
+	modId: string,
+	featured: boolean,
+): Promise<boolean> {
+	const [row] = await db
+		.update(modRegistry)
+		.set({ featured, updatedAt: new Date() })
+		.where(eq(modRegistry.id, modId))
+		.returning()
+	return row != null
+}
+
 // --- Admin: custom mods (POST/DELETE /api/webadmin/mods) ---
 
 export interface CustomModInput {
@@ -443,6 +494,90 @@ export async function deleteCustomMod(modId: string): Promise<boolean> {
 		.where(and(eq(modRegistry.id, modId), eq(modRegistry.isCustom, true)))
 		.returning({ id: modRegistry.id })
 	return rows.length > 0
+}
+
+// --- Admin: field edits + overrides (PATCH/POST /api/webadmin/mods/:modId(/reset-overrides)) ---
+
+export type ModFieldsInput = Partial<Omit<CustomModInput, 'id'>>
+
+// Edits any of the SYNCABLE_MOD_FIELDS on any mod, custom or index-synced.
+// On a custom mod this is a plain field write (sync never looks at isCustom
+// rows in the first place, so there's nothing to protect a field from). On
+// an index-synced mod, every field actually present in `input` is folded
+// into overriddenFields too -- see upsertModFromIndex's doc comment -- so
+// the next sync leaves whatever was just set here alone, even once the
+// upstream value for that field changes.
+// Returns null if the mod doesn't exist (route turns that into a 404).
+export async function updateModFields(
+	modId: string,
+	input: ModFieldsInput,
+): Promise<typeof modRegistry.$inferSelect | null> {
+	const existing = await db.query.modRegistry.findFirst({
+		where: eq(modRegistry.id, modId),
+	})
+	if (!existing) return null
+
+	const set: Partial<typeof modRegistry.$inferInsert> = { updatedAt: new Date() }
+	const edited: SyncableModField[] = []
+	function touch<K extends SyncableModField>(
+		key: K,
+		value: (typeof modRegistry.$inferInsert)[K] | undefined,
+	) {
+		if (value === undefined) return
+		set[key] = value
+		edited.push(key)
+	}
+	touch('title', input.title)
+	touch('author', input.author)
+	touch('categories', input.categories)
+	touch('requiresSteamodded', input.requiresSteamodded)
+	touch('requiresTalisman', input.requiresTalisman)
+	touch('repoUrl', input.repoUrl)
+	touch('thumbnailUrl', input.thumbnailUrl)
+	touch('description', input.description)
+	touch('latestVersion', input.latestVersion)
+	touch('latestDownloadUrl', input.latestDownloadUrl)
+
+	if (!existing.isCustom && edited.length > 0) {
+		set.overriddenFields = [
+			...new Set([...existing.overriddenFields, ...edited]),
+		]
+	}
+
+	const [row] = await db
+		.update(modRegistry)
+		.set(set)
+		.where(eq(modRegistry.id, modId))
+		.returning()
+	return row ?? null
+}
+
+// Removes the given field names (or all of them, if omitted) from a mod's
+// overriddenFields -- the *next* sync then restores the upstream value for
+// those fields (this itself doesn't fetch or write a value, just un-pins
+// it). A no-op on a custom mod (no upstream counterpart to fall back to),
+// but still a valid call -- it just clears bookkeeping that was never
+// consulted anyway.
+// Returns false if the mod doesn't exist.
+export async function resetModFieldOverrides(
+	modId: string,
+	fields?: string[],
+): Promise<boolean> {
+	const existing = await db.query.modRegistry.findFirst({
+		where: eq(modRegistry.id, modId),
+		columns: { overriddenFields: true },
+	})
+	if (!existing) return false
+
+	const remaining = fields
+		? existing.overriddenFields.filter((f) => !fields.includes(f))
+		: []
+
+	await db
+		.update(modRegistry)
+		.set({ overriddenFields: remaining, updatedAt: new Date() })
+		.where(eq(modRegistry.id, modId))
+	return true
 }
 
 // --- Admin: ranked mod profiles (PUT/DELETE /api/webadmin/mods/profiles/...) ---
