@@ -186,8 +186,21 @@ async function hashAll(candidates: HashCandidate[]): Promise<number> {
 // an already-correct hash just produces the same value again), just
 // unnecessary after the first run -- new versions from then on get hashed
 // correctly the first time by the regular sync.
-export async function recomputeAllModHashes(): Promise<void> {
-	const candidates = await listAllVersionsWithDownloadUrl()
+//
+// modIds optionally scopes this to specific mods instead of the whole
+// registry -- the full run's own worker pool (HASH_CONCURRENCY-wide,
+// hundreds of simultaneous GitHub connections) has been observed
+// triggering GitHub-side connection resets ("SocketError: other side
+// closed") on a large fraction of requests, purely from that concurrency;
+// a single mod known to need a refresh (e.g. hashAll()'s skipExisting
+// short-circuit left a live-branch mod's hash stale against upstream
+// content that moved since the last successful hash) retries far more
+// reliably alone.
+export async function recomputeAllModHashes(modIds?: string[]): Promise<void> {
+	const allCandidates = await listAllVersionsWithDownloadUrl()
+	const candidates = modIds
+		? allCandidates.filter((c) => modIds.includes(c.modId))
+		: allCandidates
 	console.log(`[mods-sync] Recomputing hashes for ${candidates.length} mod version(s)...`)
 
 	const { hashed, failed } = await runHashPool(candidates, false)
