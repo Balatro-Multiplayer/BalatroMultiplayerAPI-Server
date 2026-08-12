@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 
 const NAV = [
-  { href: '/docs', label: 'Documentation' },
+  { href: '/download', label: 'Download' },
   { href: '/leaderboards', label: 'Leaderboards' },
   { href: '/stats', label: 'Stats' },
   { href: '/support-us', label: 'Support Us' },
@@ -38,7 +38,7 @@ export function SiteHeader() {
   const pathname = usePathname()
 
   return (
-    <header className='sticky top-0 z-50 w-full border-b border-border bg-background/80 backdrop-blur'>
+    <header className='sticky top-0 z-50 w-full border-border border-b bg-background/80 backdrop-blur'>
       <div className='container mx-auto flex h-14 items-center gap-4'>
         <Link href='/' className='flex shrink-0 items-center gap-2 font-bold'>
           <Image

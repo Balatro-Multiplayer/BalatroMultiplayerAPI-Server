@@ -87,4 +87,14 @@ export const env = {
 	// number of custom mods; this exists purely for rate-limit headroom, not
 	// because it's required.
 	GITHUB_TOKEN: optional('GITHUB_TOKEN', ''),
+
+	// Root directory launcher binaries are written to/served from (see
+	// features/launcher-releases/launcher-release-storage.ts) -- local disk,
+	// not object storage. In production this must be a path backed by a
+	// persistent volume (see docker-compose.yml's api service), or uploads
+	// are lost on the next redeploy.
+	LAUNCHER_RELEASES_DIR: optional(
+		'LAUNCHER_RELEASES_DIR',
+		'./data/launcher-releases',
+	),
 } as const

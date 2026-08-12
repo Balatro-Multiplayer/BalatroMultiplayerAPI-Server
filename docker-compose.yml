@@ -57,6 +57,9 @@ services:
       EMQX_BROKER_URL: mqtt://emqx:1883
       EMQX_API_URL: http://emqx:18083/api/v5
       WEB_BASE_URL: ${WEB_BASE_URL:-https://new.balatromp.com}
+      LAUNCHER_RELEASES_DIR: /app/data/launcher-releases
+    volumes:
+      - launcher-releases:/app/data/launcher-releases
     depends_on:
       emqx:
         condition: service_healthy
@@ -90,3 +93,4 @@ volumes:
   emqx-data:
   emqx-log:
   pg-data:
+  launcher-releases:

@@ -5,6 +5,7 @@ import {
 	index,
 	integer,
 	jsonb,
+	pgEnum,
 	pgTable,
 	primaryKey,
 	serial,
@@ -297,29 +298,29 @@ export const seasons = pgTable('seasons', {
 	endedAt: timestamp('ended_at', { withTimezone: true }),
 })
 
-// Launcher release management (copied from the old site; serves the Balatro
-// Multiplayer Launcher via the public GET /api/releases endpoint).
-export const modBranches = pgTable('mod_branches', {
-	id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
-	name: text('name').notNull().unique(),
-	description: text('description'),
-	createdAt: timestamp('created_at', { withTimezone: true })
-		.notNull()
-		.defaultNow(),
-})
+// Launcher release hosting -- the new-launcher repo (github.com/Balatro-Multiplayer/new-launcher)
+// is private for anti-cheat reasons, so it can't distribute binaries via
+// GitHub Releases like the old public launcher did. This server now hosts
+// the binaries itself (see features/launcher-releases/launcher-release-storage.ts
+// for where the actual bytes live on disk) and serves update-checks/downloads
+// via the public GET /api/launcher/latest + /api/launcher/download/:version/:platform
+// endpoints. Replaces the old modReleases/modBranches ("mod_release"/"mod_branches")
+// tables, which pointed at external GitHub-asset URLs and had no file storage
+// of their own -- dropped in the same migration that adds these.
+export const launcherPlatformEnum = pgEnum('launcher_platform', [
+	'windows',
+	'mac',
+	'linux',
+])
+export type LauncherPlatform = (typeof launcherPlatformEnum.enumValues)[number]
 
-export const modReleases = pgTable('mod_release', {
+// "Latest" is derived (highest id/createdAt), not an explicit flag -- there's
+// no release-channel concept here (see launcherReleaseAssets below), just one
+// linear version history.
+export const launcherReleases = pgTable('launcher_release', {
 	id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
-	name: text('name').notNull(),
-	description: text('description'),
-	version: text('version').notNull(),
-	url: text('url').notNull(),
-	smodsVersion: text('smods_version').default('latest'),
-	lovelyVersion: text('lovely_version').default('latest'),
-	branchId: integer('branch_id')
-		.notNull()
-		.default(1)
-		.references(() => modBranches.id),
+	version: varchar('version', { length: 64 }).notNull().unique(),
+	notes: text('notes'),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -328,6 +329,36 @@ export const modReleases = pgTable('mod_release', {
 		.defaultNow()
 		.$onUpdate(() => new Date()),
 })
+
+// One row per (release, platform) -- uploads are per-platform-incremental (an
+// admin can add/replace Windows today and Mac next week for the same
+// version), so this is a child table rather than three nullable column
+// groups on launcherReleases. storagePath is relative to
+// env.LAUNCHER_RELEASES_DIR; sha256 lets a launcher verify its download
+// before self-replacing.
+export const launcherReleaseAssets = pgTable(
+	'launcher_release_asset',
+	{
+		id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
+		releaseId: integer('release_id')
+			.notNull()
+			.references(() => launcherReleases.id, { onDelete: 'cascade' }),
+		platform: launcherPlatformEnum('platform').notNull(),
+		storagePath: text('storage_path').notNull(),
+		originalFilename: text('original_filename').notNull(),
+		fileSize: integer('file_size').notNull(),
+		sha256: varchar('sha256', { length: 64 }).notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [
+		uniqueIndex('launcher_release_asset_release_platform_idx').on(
+			t.releaseId,
+			t.platform,
+		),
+	],
+)
 
 // Three-tier moderation bans. One row per ban; a player may hold several active
 // bans of different types simultaneously. A ban is ACTIVE while
@@ -438,8 +469,9 @@ export const matchRunLogs = pgTable(
 // against skyline69/balatro-mod-index directly (features/mods/mods-sync.service.ts,
 // upstream-mod-index.service.ts) and/or a direct admin edit via
 // PUT /api/webadmin/mods/:modId. This is the launcher-facing catalog
-// (GET /api/mods, /api/mods/:id) -- distinct from modReleases/modBranches
-// above, which is the unrelated, pre-existing BMP launcher self-update channel.
+// (GET /api/mods, /api/mods/:id) -- distinct from launcherReleases/
+// launcherReleaseAssets above, which is the unrelated launcher binary/update
+// channel (a different piece of software from the mods this table tracks).
 export const modRegistry = pgTable('mod_registry', {
 	// Slug form "Author@ModName", matching upstream's folder-name convention.
 	id: varchar('id', { length: 128 }).primaryKey(),

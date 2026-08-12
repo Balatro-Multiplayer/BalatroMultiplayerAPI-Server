@@ -190,6 +190,13 @@
       "when": 1790200000000,
       "tag": "0026_mod_registry_auto_version_check",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790300000000,
+      "tag": "0027_launcher_releases",
+      "breakpoints": true
     }
   ]
 }

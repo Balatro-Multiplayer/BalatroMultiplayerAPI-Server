@@ -2,8 +2,8 @@
 
 import {
   BarChart3,
-  BookOpen,
   CircleDollarSign,
+  DownloadIcon,
   Gamepad2,
   History,
   Layers,
@@ -92,11 +92,11 @@ function MobileNavLinks({ onClose }: { onClose: () => void }) {
   return (
     <nav className='flex flex-col gap-0.5 px-3 py-3'>
       <MobileMenuLink
-        href='/docs'
-        icon={<BookOpen className='size-4' />}
+        href='/download'
+        icon={<DownloadIcon className='size-4' />}
         onClick={onClose}
       >
-        Documentation
+        Download
       </MobileMenuLink>
       <MobileMenuLink
         href='/leaderboards'

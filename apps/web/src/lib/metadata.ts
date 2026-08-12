@@ -51,17 +51,3 @@ export function createMetadata({
     ...(noIndex ? { robots: { index: false, follow: false } } : {}),
   }
 }
-
-export const metadataImage = {
-  withImage(
-    slugs: string[] | undefined,
-    meta: Pick<import('next').Metadata, 'title' | 'description'>,
-  ): import('next').Metadata {
-    const path = slugs && slugs.length > 0 ? `/docs/${slugs.join('/')}` : '/docs'
-    return createMetadata({
-      title: typeof meta.title === 'string' ? meta.title : siteConfig.name,
-      description: typeof meta.description === 'string' ? meta.description : siteConfig.description,
-      path,
-    })
-  },
-}
