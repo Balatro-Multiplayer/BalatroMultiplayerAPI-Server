@@ -22,6 +22,7 @@ import { ProfileEntriesDialog } from './components/profile-entries-dialog'
 import { ProfileFormDialog } from './components/profile-form-dialog'
 import { ProfilesTable } from './components/profiles-table'
 import type {
+  ModDetail,
   ModForm,
   ModProfile,
   ModProfileDetail,
@@ -111,36 +112,132 @@ export default function RankedModsPage() {
     onSettled: () => setPendingModId(null),
   })
 
-  // --- Custom mods (no BETModIndex counterpart) ---
+  const setFeaturedMut = useMutation({
+    mutationFn: async (input: { modId: string; featured: boolean }) => {
+      setPendingModId(input.modId)
+      return apiFetch(`/webadmin/mods/${encodeURIComponent(input.modId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ featured: input.featured }),
+      })
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ranked-mods'] }),
+    onError: onErr,
+    onSettled: () => setPendingModId(null),
+  })
 
-  const [modFormOpen, setModFormOpen] = useState(false)
+  // --- Mod create/edit dialog (custom mods + field overrides on any mod) ---
+
+  // Turns a form into the PATCH/POST field payload -- shared by create and
+  // edit so both stay in sync about what "empty" means per field (empty
+  // string -> null for optional text fields, comma-split for categories).
+  function modFormToFields(form: ModForm) {
+    return {
+      title: form.title,
+      author: form.author,
+      categories: form.categories
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean),
+      requiresSteamodded: form.requiresSteamodded,
+      requiresTalisman: form.requiresTalisman,
+      repoUrl: form.repoUrl || null,
+      thumbnailUrl: form.thumbnailUrl || null,
+      description: form.description || null,
+      latestVersion: form.latestVersion || null,
+      latestDownloadUrl: form.latestDownloadUrl || null,
+    }
+  }
+
+  // Only the fields that actually changed from what was loaded -- editing
+  // just the description shouldn't also pin title/author/etc as overrides
+  // (see mods.gateway.ts's updateModFields: every key present in the PATCH
+  // body gets folded into overriddenFields).
+  function diffModFields(original: ModForm, current: ModForm) {
+    const o = modFormToFields(original)
+    const c = modFormToFields(current)
+    const out: Partial<typeof c> = {}
+    for (const key of Object.keys(c) as (keyof typeof c)[]) {
+      const changed = Array.isArray(c[key])
+        ? JSON.stringify(c[key]) !== JSON.stringify(o[key])
+        : c[key] !== o[key]
+      if (changed) (out as Record<string, unknown>)[key] = c[key]
+    }
+    return out
+  }
+
+  const [modDialog, setModDialog] = useState<
+    { mode: 'create' } | { mode: 'edit'; id: string } | null
+  >(null)
   const [modForm, setModForm] = useState<ModForm>(EMPTY_MOD_FORM)
+  const [originalModForm, setOriginalModForm] = useState<ModForm>(EMPTY_MOD_FORM)
+
+  const { data: editModDetail } = useQuery<ModDetail>({
+    queryKey: ['mod-detail', modDialog?.mode === 'edit' ? modDialog.id : null],
+    queryFn: () =>
+      apiFetch(
+        `/mods/${encodeURIComponent(modDialog?.mode === 'edit' ? modDialog.id : '')}`
+      ),
+    enabled: modDialog?.mode === 'edit',
+  })
+
+  useEffect(() => {
+    if (!editModDetail) return
+    const loaded: ModForm = {
+      id: editModDetail.id,
+      title: editModDetail.title,
+      author: editModDetail.author,
+      categories: editModDetail.categories.join(', '),
+      requiresSteamodded: editModDetail.requiresSteamodded,
+      requiresTalisman: editModDetail.requiresTalisman,
+      repoUrl: editModDetail.repoUrl ?? '',
+      thumbnailUrl: editModDetail.thumbnailUrl ?? '',
+      description: editModDetail.description ?? '',
+      latestVersion: editModDetail.latestVersion ?? '',
+      latestDownloadUrl: editModDetail.latestDownloadUrl ?? '',
+    }
+    setModForm(loaded)
+    setOriginalModForm(loaded)
+  }, [editModDetail])
 
   const createModMut = useMutation({
     mutationFn: (form: ModForm) =>
       apiFetch('/webadmin/mods', {
         method: 'POST',
-        body: JSON.stringify({
-          id: form.id,
-          title: form.title,
-          author: form.author,
-          categories: form.categories
-            .split(',')
-            .map((c) => c.trim())
-            .filter(Boolean),
-          requiresSteamodded: form.requiresSteamodded,
-          requiresTalisman: form.requiresTalisman,
-          repoUrl: form.repoUrl || null,
-          thumbnailUrl: form.thumbnailUrl || null,
-          description: form.description || null,
-          latestVersion: form.latestVersion || null,
-          latestDownloadUrl: form.latestDownloadUrl || null,
-        }),
+        body: JSON.stringify({ id: form.id, ...modFormToFields(form) }),
       }),
     onSuccess: () => {
       toast.success('Custom mod created')
-      setModFormOpen(false)
+      setModDialog(null)
       qc.invalidateQueries({ queryKey: ['ranked-mods'] })
+    },
+    onError: onErr,
+  })
+
+  const updateModFieldsMut = useMutation({
+    mutationFn: ({ modId, fields }: { modId: string; fields: object }) =>
+      apiFetch(`/webadmin/mods/${encodeURIComponent(modId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+      }),
+    onSuccess: (_data, { modId }) => {
+      toast.success('Mod updated')
+      setModDialog(null)
+      qc.invalidateQueries({ queryKey: ['ranked-mods'] })
+      qc.invalidateQueries({ queryKey: ['mod-detail', modId] })
+    },
+    onError: onErr,
+  })
+
+  const resetOverridesMut = useMutation({
+    mutationFn: (modId: string) =>
+      apiFetch(`/webadmin/mods/${encodeURIComponent(modId)}/reset-overrides`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      }),
+    onSuccess: (_data, modId) => {
+      toast.success('Overrides reset — next sync restores upstream values')
+      qc.invalidateQueries({ queryKey: ['ranked-mods'] })
+      qc.invalidateQueries({ queryKey: ['mod-detail', modId] })
     },
     onError: onErr,
   })
@@ -318,7 +415,8 @@ export default function RankedModsPage() {
                 variant='outline'
                 onClick={() => {
                   setModForm(EMPTY_MOD_FORM)
-                  setModFormOpen(true)
+                  setOriginalModForm(EMPTY_MOD_FORM)
+                  setModDialog({ mode: 'create' })
                 }}
               >
                 New mod
@@ -354,6 +452,10 @@ export default function RankedModsPage() {
                 })
               }
               onClearRanked={(modId) => clearRankedMut.mutate(modId)}
+              onSetFeatured={(mod, featured) =>
+                setFeaturedMut.mutate({ modId: mod.id, featured })
+              }
+              onEdit={(mod) => setModDialog({ mode: 'edit', id: mod.id })}
               onDelete={(modId) => {
                 const mod = mods.find((m) => m.id === modId)
                 if (mod) setDeleteModTarget(mod)
@@ -402,12 +504,29 @@ export default function RankedModsPage() {
       </Card>
 
       <ModFormDialog
-        open={modFormOpen}
+        open={modDialog !== null}
+        mode={modDialog?.mode ?? 'create'}
         form={modForm}
-        isPending={createModMut.isPending}
+        overriddenFields={editModDetail?.overriddenFields ?? []}
+        isPending={createModMut.isPending || updateModFieldsMut.isPending}
+        isResetPending={resetOverridesMut.isPending}
         onFormChange={setModForm}
-        onSave={() => createModMut.mutate(modForm)}
-        onClose={() => setModFormOpen(false)}
+        onSave={() => {
+          if (modDialog?.mode === 'edit') {
+            const fields = diffModFields(originalModForm, modForm)
+            if (Object.keys(fields).length === 0) {
+              setModDialog(null)
+              return
+            }
+            updateModFieldsMut.mutate({ modId: modDialog.id, fields })
+          } else {
+            createModMut.mutate(modForm)
+          }
+        }}
+        onReset={() =>
+          modDialog?.mode === 'edit' && resetOverridesMut.mutate(modDialog.id)
+        }
+        onClose={() => setModDialog(null)}
       />
 
       <DeleteModDialog

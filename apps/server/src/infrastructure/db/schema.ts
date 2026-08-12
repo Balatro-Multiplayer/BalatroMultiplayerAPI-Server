@@ -464,11 +464,28 @@ export const modRegistry = pgTable('mod_registry', {
 	// CHECK -- same precedent as modProfileEntries.versionConstraint below.
 	allowedInRanked: boolean('allowed_in_ranked').notNull().default(false),
 	rankedVersion: varchar('ranked_version', { length: 64 }),
+	// Admin-owned highlight flag, same "never synced from the index" shape as
+	// allowedInRanked/rankedVersion above -- the index carries no concept of
+	// this at all.
+	featured: boolean('featured').notNull().default(false),
 	// True for a mod created directly by an admin (e.g. via the "New mod"
 	// button on /admin/ranked-mods) with no base-index counterpart at all --
 	// pruneModsMissingFrom must never delete these just because they aren't
 	// in the freshly-fetched index.
 	isCustom: boolean('is_custom').notNull().default(false),
+	// Names of this row's own fields (title, description, thumbnailUrl, etc.
+	// -- the syncable fields upsertModFromIndex would otherwise overwrite)
+	// that an admin has directly edited via PATCH /api/webadmin/mods/:modId.
+	// A field named here is skipped on every future sync until an admin
+	// explicitly reverts it (POST .../reset-overrides) -- unlike
+	// allowedInRanked/rankedVersion/featured, these fields *do* have an
+	// upstream value and should keep tracking it right up until the point an
+	// admin overrides one. Meaningless for isCustom rows (never touched by
+	// sync in the first place).
+	overriddenFields: text('overridden_fields')
+		.array()
+		.notNull()
+		.default(sql`'{}'::text[]`),
 	sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()

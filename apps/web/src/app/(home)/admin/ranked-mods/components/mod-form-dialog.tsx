@@ -12,30 +12,55 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import type { ModForm } from './ranked-mods-types'
 
+// Pinned badge next to a field name -- shown when that field is in the
+// edited mod's overriddenFields, meaning an admin already edited it and
+// upsertModFromIndex will skip it on every future sync (see
+// mods.gateway.ts's doc comment) until "Reset overrides" is used.
+function PinnedBadge({ shown }: { shown: boolean }) {
+  if (!shown) return null
+  return (
+    <span className='ml-2 text-amber-600 text-xs dark:text-amber-400'>
+      pinned — stays fixed on the next sync
+    </span>
+  )
+}
+
 export function ModFormDialog({
   open,
+  mode,
   form,
+  overriddenFields,
   isPending,
+  isResetPending,
   onFormChange,
   onSave,
+  onReset,
   onClose,
 }: {
   open: boolean
+  mode: 'create' | 'edit'
   form: ModForm
+  overriddenFields: string[]
   isPending: boolean
+  isResetPending?: boolean
   onFormChange: (f: ModForm) => void
   onSave: () => void
+  onReset?: () => void
   onClose: () => void
 }) {
+  const pinned = (field: string) => overriddenFields.includes(field)
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className='sm:max-w-[500px]'>
         <DialogHeader>
-          <DialogTitle>New custom mod</DialogTitle>
+          <DialogTitle>
+            {mode === 'create' ? 'New custom mod' : 'Edit mod'}
+          </DialogTitle>
           <DialogDescription>
-            A mod entry with no BETModIndex counterpart — e.g. a partner mod not
-            listed upstream. Folded into the same hourly sync/hash pass as every
-            other mod.
+            {mode === 'create'
+              ? 'A mod entry with no BETModIndex counterpart — e.g. a partner mod not listed upstream. Folded into the same hourly sync/hash pass as every other mod.'
+              : 'Fields you change here are pinned against the mod — the hourly sync will keep updating every other field normally, but a pinned one only changes again once you reset it.'}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -45,17 +70,22 @@ export function ModFormDialog({
           }}
           className='max-h-[70vh] space-y-4 overflow-y-auto'
         >
+          {mode === 'create' && (
+            <div className='space-y-2'>
+              <Label htmlFor='mod-id'>Id</Label>
+              <Input
+                id='mod-id'
+                value={form.id}
+                onChange={(e) => onFormChange({ ...form, id: e.target.value })}
+                required
+              />
+            </div>
+          )}
           <div className='space-y-2'>
-            <Label htmlFor='mod-id'>Id</Label>
-            <Input
-              id='mod-id'
-              value={form.id}
-              onChange={(e) => onFormChange({ ...form, id: e.target.value })}
-              required
-            />
-          </div>
-          <div className='space-y-2'>
-            <Label htmlFor='mod-title'>Title</Label>
+            <Label htmlFor='mod-title'>
+              Title
+              <PinnedBadge shown={pinned('title')} />
+            </Label>
             <Input
               id='mod-title'
               value={form.title}
@@ -64,7 +94,10 @@ export function ModFormDialog({
             />
           </div>
           <div className='space-y-2'>
-            <Label htmlFor='mod-author'>Author</Label>
+            <Label htmlFor='mod-author'>
+              Author
+              <PinnedBadge shown={pinned('author')} />
+            </Label>
             <Input
               id='mod-author'
               value={form.author}
@@ -75,7 +108,10 @@ export function ModFormDialog({
             />
           </div>
           <div className='space-y-2'>
-            <Label htmlFor='mod-categories'>Categories (comma-separated)</Label>
+            <Label htmlFor='mod-categories'>
+              Categories (comma-separated)
+              <PinnedBadge shown={pinned('categories')} />
+            </Label>
             <Input
               id='mod-categories'
               value={form.categories}
@@ -85,7 +121,10 @@ export function ModFormDialog({
             />
           </div>
           <div className='flex items-center justify-between'>
-            <Label htmlFor='mod-requires-steamodded'>Requires Steamodded</Label>
+            <Label htmlFor='mod-requires-steamodded'>
+              Requires Steamodded
+              <PinnedBadge shown={pinned('requiresSteamodded')} />
+            </Label>
             <Switch
               id='mod-requires-steamodded'
               checked={form.requiresSteamodded}
@@ -95,7 +134,10 @@ export function ModFormDialog({
             />
           </div>
           <div className='flex items-center justify-between'>
-            <Label htmlFor='mod-requires-talisman'>Requires Talisman</Label>
+            <Label htmlFor='mod-requires-talisman'>
+              Requires Talisman
+              <PinnedBadge shown={pinned('requiresTalisman')} />
+            </Label>
             <Switch
               id='mod-requires-talisman'
               checked={form.requiresTalisman}
@@ -105,7 +147,10 @@ export function ModFormDialog({
             />
           </div>
           <div className='space-y-2'>
-            <Label htmlFor='mod-repo-url'>Repo URL</Label>
+            <Label htmlFor='mod-repo-url'>
+              Repo URL
+              <PinnedBadge shown={pinned('repoUrl')} />
+            </Label>
             <Input
               id='mod-repo-url'
               value={form.repoUrl}
@@ -115,7 +160,10 @@ export function ModFormDialog({
             />
           </div>
           <div className='space-y-2'>
-            <Label htmlFor='mod-thumbnail-url'>Thumbnail URL</Label>
+            <Label htmlFor='mod-thumbnail-url'>
+              Thumbnail URL
+              <PinnedBadge shown={pinned('thumbnailUrl')} />
+            </Label>
             <Input
               id='mod-thumbnail-url'
               value={form.thumbnailUrl}
@@ -125,7 +173,10 @@ export function ModFormDialog({
             />
           </div>
           <div className='space-y-2'>
-            <Label htmlFor='mod-description'>Description</Label>
+            <Label htmlFor='mod-description'>
+              Description
+              <PinnedBadge shown={pinned('description')} />
+            </Label>
             <Input
               id='mod-description'
               value={form.description}
@@ -135,7 +186,10 @@ export function ModFormDialog({
             />
           </div>
           <div className='space-y-2'>
-            <Label htmlFor='mod-latest-version'>Latest version</Label>
+            <Label htmlFor='mod-latest-version'>
+              Latest version
+              <PinnedBadge shown={pinned('latestVersion')} />
+            </Label>
             <Input
               id='mod-latest-version'
               value={form.latestVersion}
@@ -145,7 +199,10 @@ export function ModFormDialog({
             />
           </div>
           <div className='space-y-2'>
-            <Label htmlFor='mod-latest-download-url'>Latest download URL</Label>
+            <Label htmlFor='mod-latest-download-url'>
+              Latest download URL
+              <PinnedBadge shown={pinned('latestDownloadUrl')} />
+            </Label>
             <Input
               id='mod-latest-download-url'
               value={form.latestDownloadUrl}
@@ -155,6 +212,17 @@ export function ModFormDialog({
             />
           </div>
           <DialogFooter>
+            {mode === 'edit' && overriddenFields.length > 0 && onReset && (
+              <Button
+                type='button'
+                variant='ghost'
+                className='mr-auto'
+                disabled={isResetPending}
+                onClick={onReset}
+              >
+                {isResetPending ? 'Resetting…' : 'Reset overrides'}
+              </Button>
+            )}
             <Button type='button' variant='outline' onClick={onClose}>
               Cancel
             </Button>

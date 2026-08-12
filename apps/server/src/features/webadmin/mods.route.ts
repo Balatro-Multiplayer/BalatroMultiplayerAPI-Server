@@ -9,7 +9,10 @@ import {
 	getPublicModById,
 	listProfiles,
 	removeProfileEntry,
+	resetModFieldOverrides,
+	setFeatured,
 	setRankedConfig,
+	updateModFields,
 	updateProfile,
 	upsertProfileEntry,
 } from '../../infrastructure/gateways/mods.gateway.js'
@@ -54,16 +57,17 @@ router.post('/mods/sync', async (req, res, next) => {
 	}
 })
 
-// Ranked config (allowedInRanked + an optional pinned ranked version) is
-// entirely admin-owned -- see mods.gateway.ts's setRankedConfig doc comment.
-// At least one field must be present; either can be sent alone to update
-// just that one.
+// Ranked config (allowedInRanked + an optional pinned ranked version) and
+// featured are both entirely admin-owned -- see mods.gateway.ts's
+// setRankedConfig/setFeatured doc comments. At least one of the three fields
+// must be present; any can be sent alone to update just that one.
 router.put('/mods/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
-		const { allowedInRanked, rankedVersion } = req.body as {
+		const { allowedInRanked, rankedVersion, featured } = req.body as {
 			allowedInRanked?: unknown
 			rankedVersion?: unknown
+			featured?: unknown
 		}
 		if (allowedInRanked !== undefined && typeof allowedInRanked !== 'boolean') {
 			throw new AppError('allowedInRanked must be a boolean', 400)
@@ -75,13 +79,120 @@ router.put('/mods/:modId', async (req, res, next) => {
 		) {
 			throw new AppError('rankedVersion must be a string or null', 400)
 		}
-		if (allowedInRanked === undefined && rankedVersion === undefined) {
-			throw new AppError('allowedInRanked or rankedVersion is required', 400)
+		if (featured !== undefined && typeof featured !== 'boolean') {
+			throw new AppError('featured must be a boolean', 400)
 		}
-		const ok = await setRankedConfig(req.params.modId, {
-			allowedInRanked,
-			rankedVersion,
-		})
+		if (
+			allowedInRanked === undefined &&
+			rankedVersion === undefined &&
+			featured === undefined
+		) {
+			throw new AppError(
+				'allowedInRanked, rankedVersion, or featured is required',
+				400,
+			)
+		}
+		if (allowedInRanked !== undefined || rankedVersion !== undefined) {
+			const ok = await setRankedConfig(req.params.modId, {
+				allowedInRanked,
+				rankedVersion,
+			})
+			if (!ok) throw new AppError('Mod not found', 404)
+		}
+		if (featured !== undefined) {
+			const ok = await setFeatured(req.params.modId, featured)
+			if (!ok) throw new AppError('Mod not found', 404)
+		}
+		res.json({ ok: true })
+	} catch (err) {
+		next(err)
+	}
+})
+
+// Edits any of the SYNCABLE_MOD_FIELDS (title/author/categories/etc.) on any
+// mod -- custom or index-synced. On an index-synced mod, every field sent
+// here is folded into that row's overriddenFields so future syncs leave it
+// alone (see mods.gateway.ts's updateModFields doc comment); a custom mod
+// just gets a plain write. Body shape mirrors POST /mods below minus `id`
+// (immutable) -- every field is optional, only the ones present are touched.
+router.patch('/mods/:modId', async (req, res, next) => {
+	try {
+		await requireAdmin(req)
+		const body = req.body as Record<string, unknown>
+		const input: Parameters<typeof updateModFields>[1] = {}
+
+		if (body.title !== undefined) {
+			if (typeof body.title !== 'string' || !body.title)
+				throw new AppError('title must be a non-empty string', 400)
+			input.title = body.title
+		}
+		if (body.author !== undefined) {
+			if (typeof body.author !== 'string' || !body.author)
+				throw new AppError('author must be a non-empty string', 400)
+			input.author = body.author
+		}
+		if (body.categories !== undefined) {
+			if (
+				!Array.isArray(body.categories) ||
+				!body.categories.every((c) => typeof c === 'string')
+			) {
+				throw new AppError('categories must be a string array', 400)
+			}
+			input.categories = body.categories as string[]
+		}
+		if (body.requiresSteamodded !== undefined) {
+			if (typeof body.requiresSteamodded !== 'boolean')
+				throw new AppError('requiresSteamodded must be a boolean', 400)
+			input.requiresSteamodded = body.requiresSteamodded
+		}
+		if (body.requiresTalisman !== undefined) {
+			if (typeof body.requiresTalisman !== 'boolean')
+				throw new AppError('requiresTalisman must be a boolean', 400)
+			input.requiresTalisman = body.requiresTalisman
+		}
+		for (const key of [
+			'repoUrl',
+			'thumbnailUrl',
+			'description',
+			'latestVersion',
+			'latestDownloadUrl',
+		] as const) {
+			if (body[key] === undefined) continue
+			if (body[key] !== null && typeof body[key] !== 'string') {
+				throw new AppError(`${key} must be a string or null`, 400)
+			}
+			input[key] = body[key] as string | null
+		}
+
+		if (Object.keys(input).length === 0) {
+			throw new AppError('At least one field is required', 400)
+		}
+
+		const mod = await updateModFields(req.params.modId, input)
+		if (!mod) throw new AppError('Mod not found', 404)
+		res.json(mod)
+	} catch (err) {
+		next(err)
+	}
+})
+
+// Un-pins the given fields (or every overridden field, if `fields` is
+// omitted) so the next sync restores their upstream value -- see
+// mods.gateway.ts's resetModFieldOverrides doc comment.
+router.post('/mods/:modId/reset-overrides', async (req, res, next) => {
+	try {
+		await requireAdmin(req)
+		const { fields } = req.body as { fields?: unknown }
+		if (
+			fields !== undefined &&
+			(!Array.isArray(fields) || !fields.every((f) => typeof f === 'string'))
+		) {
+			throw new AppError('fields must be a string array', 400)
+		}
+		const ok = await resetModFieldOverrides(
+			req.params.modId,
+			fields as string[] | undefined,
+		)
 		if (!ok) throw new AppError('Mod not found', 404)
 		res.json({ ok: true })
 	} catch (err) {

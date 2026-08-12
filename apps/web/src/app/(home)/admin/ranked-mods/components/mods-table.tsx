@@ -18,6 +18,8 @@ export function ModsTable({
   onToggle,
   onSetRankedVersion,
   onClearRanked,
+  onSetFeatured,
+  onEdit,
   onDelete,
 }: {
   mods: ModSummary[]
@@ -26,6 +28,8 @@ export function ModsTable({
   onToggle: (mod: ModSummary, allowed: boolean) => void
   onSetRankedVersion: (mod: ModSummary, version: string | null) => void
   onClearRanked: (modId: string) => void
+  onSetFeatured: (mod: ModSummary, featured: boolean) => void
+  onEdit: (mod: ModSummary) => void
   onDelete: (modId: string) => void
 }) {
   return (
@@ -36,6 +40,7 @@ export function ModsTable({
           <TableHead>Latest version</TableHead>
           <TableHead>Allowed in ranked</TableHead>
           <TableHead>Ranked version</TableHead>
+          <TableHead>Featured</TableHead>
           <TableHead />
         </TableRow>
       </TableHeader>
@@ -48,6 +53,12 @@ export function ModsTable({
                 {mod.isCustom && (
                   <span className='ml-2 text-muted-foreground text-xs'>
                     (custom)
+                  </span>
+                )}
+                {mod.overriddenFields.length > 0 && (
+                  <span className='ml-2 text-amber-600 text-xs dark:text-amber-400'>
+                    ({mod.overriddenFields.length} field
+                    {mod.overriddenFields.length === 1 ? '' : 's'} pinned)
                   </span>
                 )}
               </p>
@@ -82,7 +93,24 @@ export function ModsTable({
                 }}
               />
             </TableCell>
+            <TableCell>
+              <Switch
+                checked={mod.featured}
+                disabled={!isAdmin || pendingModId === mod.id}
+                onCheckedChange={(checked) => onSetFeatured(mod, checked)}
+              />
+            </TableCell>
             <TableCell className='space-x-1'>
+              {isAdmin && (
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  disabled={pendingModId === mod.id}
+                  onClick={() => onEdit(mod)}
+                >
+                  Edit
+                </Button>
+              )}
               {isAdmin && (mod.allowedInRanked || mod.rankedVersion) && (
                 <Button
                   variant='ghost'
@@ -110,7 +138,7 @@ export function ModsTable({
         {mods.length === 0 && (
           <TableRow>
             <TableCell
-              colSpan={5}
+              colSpan={6}
               className='text-center text-muted-foreground'
             >
               No mods synced yet — BET_MOD_INDEX_URL may not be configured, or
