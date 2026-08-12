@@ -24,7 +24,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import type { ModProfileDetail, ModSummary } from './ranked-mods-types'
+import type {
+  ModProfileDetail,
+  ModProfileVersionMode,
+  ModSummary,
+} from './ranked-mods-types'
+
+const VERSION_MODE_LABELS: Record<ModProfileVersionMode, string> = {
+  exact: 'Exact version',
+  latest: 'Latest',
+  latestRanked: 'Latest ranked',
+}
 
 export function ProfileEntriesDialog({
   profile,
@@ -39,26 +49,34 @@ export function ProfileEntriesDialog({
   isPending: boolean
   onUpsertEntry: (
     modId: string,
-    versionConstraint: string,
+    versionMode: ModProfileVersionMode,
+    pinnedVersion: string | null,
     allowed: boolean
   ) => void
   onRemoveEntry: (modId: string) => void
   onClose: () => void
 }) {
   const [modId, setModId] = useState('')
-  const [versionConstraint, setVersionConstraint] = useState('any')
+  const [versionMode, setVersionMode] =
+    useState<ModProfileVersionMode>('latest')
+  const [pinnedVersion, setPinnedVersion] = useState('')
   const [allowed, setAllowed] = useState(true)
 
   const modName = (id: string) => mods.find((m) => m.id === id)?.name ?? id
+
+  const resetForm = () => {
+    setModId('')
+    setVersionMode('latest')
+    setPinnedVersion('')
+    setAllowed(true)
+  }
 
   return (
     <Dialog
       open={profile !== null}
       onOpenChange={(o) => {
         if (!o) {
-          setModId('')
-          setVersionConstraint('any')
-          setAllowed(true)
+          resetForm()
           onClose()
         }
       }}
@@ -67,8 +85,9 @@ export function ProfileEntriesDialog({
         <DialogHeader>
           <DialogTitle>{profile?.name} — mods</DialogTitle>
           <DialogDescription>
-            versionConstraint accepts "any", an exact version string, or
-            "min:&lt;version&gt;".
+            Pin each mod to an exact version, always resolve to the newest
+            version, or always resolve to whatever's currently marked
+            ranked-safe.
           </DialogDescription>
         </DialogHeader>
 
@@ -86,7 +105,9 @@ export function ProfileEntriesDialog({
               <TableRow key={entry.modId}>
                 <TableCell>{modName(entry.modId)}</TableCell>
                 <TableCell className='font-mono text-xs'>
-                  {entry.versionConstraint}
+                  {entry.versionMode === 'exact'
+                    ? entry.pinnedVersion
+                    : VERSION_MODE_LABELS[entry.versionMode]}
                 </TableCell>
                 <TableCell>{entry.allowed ? 'Yes' : 'No'}</TableCell>
                 <TableCell>
@@ -129,22 +150,46 @@ export function ProfileEntriesDialog({
               </SelectContent>
             </Select>
           </div>
-          <Input
-            className='w-32'
-            placeholder='any'
-            value={versionConstraint}
-            onChange={(e) => setVersionConstraint(e.target.value)}
-          />
+          <Select
+            value={versionMode}
+            onValueChange={(v) => setVersionMode(v as ModProfileVersionMode)}
+          >
+            <SelectTrigger className='w-36'>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(
+                Object.keys(VERSION_MODE_LABELS) as ModProfileVersionMode[]
+              ).map((mode) => (
+                <SelectItem key={mode} value={mode}>
+                  {VERSION_MODE_LABELS[mode]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {versionMode === 'exact' && (
+            <Input
+              className='w-32'
+              placeholder='1.2.3'
+              value={pinnedVersion}
+              onChange={(e) => setPinnedVersion(e.target.value)}
+            />
+          )}
           <div className='flex items-center gap-2 pb-2'>
             <Switch checked={allowed} onCheckedChange={setAllowed} />
           </div>
           <Button
-            disabled={!modId || isPending}
+            disabled={
+              !modId || isPending || (versionMode === 'exact' && !pinnedVersion)
+            }
             onClick={() => {
-              onUpsertEntry(modId, versionConstraint || 'any', allowed)
-              setModId('')
-              setVersionConstraint('any')
-              setAllowed(true)
+              onUpsertEntry(
+                modId,
+                versionMode,
+                versionMode === 'exact' ? pinnedVersion : null,
+                allowed
+              )
+              resetForm()
             }}
           >
             Add

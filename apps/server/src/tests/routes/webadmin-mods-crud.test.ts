@@ -18,6 +18,7 @@ vi.mock('../../infrastructure/gateways/mods.gateway.js', async () => {
 		updateCustomMod: vi.fn(),
 		deleteCustomMod: vi.fn(),
 		getPublicModById: vi.fn(),
+		upsertProfileEntry: vi.fn(),
 	}
 })
 
@@ -332,5 +333,76 @@ describe('DELETE /api/webadmin/mods/:modId', () => {
 
 		expect(res.status).toBe(200)
 		expect(modsGateway.deleteCustomMod).toHaveBeenCalledWith('Custom@Mod')
+	})
+})
+
+describe('PUT /api/webadmin/mods/profiles/:id/entries/:modId', () => {
+	it('returns 403 for a moderator', async () => {
+		const token = authAsModerator('mod-entry-1', 'Mod')
+		const res = await request(app)
+			.put('/api/webadmin/mods/profiles/profile-1/entries/Author@Mod')
+			.set('Authorization', token)
+			.send({ versionMode: 'latest', allowed: true })
+
+		expect(res.status).toBe(403)
+		expect(modsGateway.upsertProfileEntry).not.toHaveBeenCalled()
+	})
+
+	it('returns 400 for an unrecognized versionMode', async () => {
+		const token = authAsAdmin('admin-entry-1', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/profiles/profile-1/entries/Author@Mod')
+			.set('Authorization', token)
+			.send({ versionMode: 'min:1.0.0', allowed: true })
+
+		expect(res.status).toBe(400)
+		expect(modsGateway.upsertProfileEntry).not.toHaveBeenCalled()
+	})
+
+	it('returns 400 when versionMode is exact but pinnedVersion is missing', async () => {
+		const token = authAsAdmin('admin-entry-2', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/profiles/profile-1/entries/Author@Mod')
+			.set('Authorization', token)
+			.send({ versionMode: 'exact', allowed: true })
+
+		expect(res.status).toBe(400)
+		expect(modsGateway.upsertProfileEntry).not.toHaveBeenCalled()
+	})
+
+	it('upserts a latestRanked entry, ignoring any stray pinnedVersion', async () => {
+		vi.mocked(modsGateway.upsertProfileEntry).mockResolvedValue({} as any)
+		const token = authAsAdmin('admin-entry-3', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/profiles/profile-1/entries/Author@Mod')
+			.set('Authorization', token)
+			.send({ versionMode: 'latestRanked', pinnedVersion: '9.9.9', allowed: true })
+
+		expect(res.status).toBe(200)
+		expect(modsGateway.upsertProfileEntry).toHaveBeenCalledWith({
+			profileId: 'profile-1',
+			modId: 'Author@Mod',
+			versionMode: 'latestRanked',
+			pinnedVersion: null,
+			allowed: true,
+		})
+	})
+
+	it('upserts an exact entry with its pinnedVersion', async () => {
+		vi.mocked(modsGateway.upsertProfileEntry).mockResolvedValue({} as any)
+		const token = authAsAdmin('admin-entry-4', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/profiles/profile-1/entries/Author@Mod')
+			.set('Authorization', token)
+			.send({ versionMode: 'exact', pinnedVersion: '1.2.3', allowed: false })
+
+		expect(res.status).toBe(200)
+		expect(modsGateway.upsertProfileEntry).toHaveBeenCalledWith({
+			profileId: 'profile-1',
+			modId: 'Author@Mod',
+			versionMode: 'exact',
+			pinnedVersion: '1.2.3',
+			allowed: false,
+		})
 	})
 })

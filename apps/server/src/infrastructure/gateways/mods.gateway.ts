@@ -5,6 +5,7 @@ import {
 	modProfiles,
 	modRegistry,
 	modRegistryVersions,
+	type ModProfileVersionMode,
 } from '../db/schema.js'
 
 // --- Public catalog reads (GET /api/mods, GET /api/mods/:id) ---
@@ -37,6 +38,36 @@ export async function getPublicModById(id: string) {
 		.where(eq(modRegistryVersions.modId, id))
 
 	return { ...mod, versions }
+}
+
+// --- Public catalog reads (GET /api/mods/profiles, GET /api/mods/profiles/:slug) ---
+//
+// One-shot list-with-entries, not a separate per-profile fetch for each --
+// the launcher's preset picker needs every preset's full mod list up front
+// to populate a dropdown, and the profile count is small (admin-authored).
+
+export async function listPublicProfiles() {
+	const profiles = await db
+		.select()
+		.from(modProfiles)
+		.orderBy(asc(modProfiles.name))
+	const entries = await db.select().from(modProfileEntries)
+	return profiles.map((profile) => ({
+		...profile,
+		entries: entries.filter((e) => e.profileId === profile.id),
+	}))
+}
+
+export async function getPublicProfileBySlug(slug: string) {
+	const profile = await db.query.modProfiles.findFirst({
+		where: eq(modProfiles.slug, slug),
+	})
+	if (!profile) return null
+	const entries = await db
+		.select()
+		.from(modProfileEntries)
+		.where(eq(modProfileEntries.profileId, profile.id))
+	return { ...profile, entries }
 }
 
 // --- BETModIndex sync (features/mods/mods-sync.service.ts) ---
@@ -148,7 +179,7 @@ export async function pruneModsMissingFrom(ids: string[]): Promise<number> {
 // Every mod_registry_versions row that has a downloadUrl to hash from --
 // not just the current latest version per mod (that's all the regular
 // sync ever hashes). A ranked mod profile can pin an exact historical
-// version too (see modProfileEntries.versionConstraint's doc comment), so
+// version too (see modProfileEntries.versionMode's doc comment), so
 // a historical version's hash matters just as much as the latest one's
 // once it's the one actually being verified against.
 export async function listAllVersionsWithDownloadUrl(): Promise<
@@ -461,7 +492,8 @@ export async function deleteProfile(id: string): Promise<void> {
 export async function upsertProfileEntry(input: {
 	profileId: string
 	modId: string
-	versionConstraint: string
+	versionMode: ModProfileVersionMode
+	pinnedVersion: string | null
 	allowed: boolean
 }) {
 	const [row] = await db
@@ -470,7 +502,8 @@ export async function upsertProfileEntry(input: {
 		.onConflictDoUpdate({
 			target: [modProfileEntries.profileId, modProfileEntries.modId],
 			set: {
-				versionConstraint: input.versionConstraint,
+				versionMode: input.versionMode,
+				pinnedVersion: input.pinnedVersion,
 				allowed: input.allowed,
 			},
 		})

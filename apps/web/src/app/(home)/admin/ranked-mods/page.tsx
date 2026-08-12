@@ -25,6 +25,7 @@ import type {
   ModForm,
   ModProfile,
   ModProfileDetail,
+  ModProfileVersionMode,
   ModSummary,
   ProfileForm,
 } from './components/ranked-mods-types'
@@ -324,19 +325,21 @@ export default function RankedModsPage() {
     mutationFn: ({
       profileId,
       modId,
-      versionConstraint,
+      versionMode,
+      pinnedVersion,
       allowed,
     }: {
       profileId: string
       modId: string
-      versionConstraint: string
+      versionMode: ModProfileVersionMode
+      pinnedVersion: string | null
       allowed: boolean
     }) =>
       apiFetch(
         `/webadmin/mods/profiles/${profileId}/entries/${encodeURIComponent(modId)}`,
         {
           method: 'PUT',
-          body: JSON.stringify({ versionConstraint, allowed }),
+          body: JSON.stringify({ versionMode, pinnedVersion, allowed }),
         }
       ),
     onSuccess: () =>
@@ -527,12 +530,13 @@ export default function RankedModsPage() {
         profile={entriesProfile ?? null}
         mods={mods ?? []}
         isPending={entryMut.isPending || removeEntryMut.isPending}
-        onUpsertEntry={(modId, versionConstraint, allowed) =>
+        onUpsertEntry={(modId, versionMode, pinnedVersion, allowed) =>
           entriesProfileId &&
           entryMut.mutate({
             profileId: entriesProfileId,
             modId,
-            versionConstraint,
+            versionMode,
+            pinnedVersion,
             allowed,
           })
         }

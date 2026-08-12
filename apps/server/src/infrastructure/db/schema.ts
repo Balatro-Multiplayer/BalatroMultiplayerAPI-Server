@@ -490,7 +490,7 @@ export const modRegistry = pgTable('mod_registry', {
 	// no ranked-eligibility concept of its own. rankedVersion null means any
 	// version of this ranked-allowed mod is fine; a set value pins ranked
 	// eligibility to that exact version. App-level interpretation only, no DB
-	// CHECK -- same precedent as modProfileEntries.versionConstraint below.
+	// CHECK -- consumed by modProfileEntries' 'latestRanked' versionMode below.
 	allowedInRanked: boolean('allowed_in_ranked').notNull().default(false),
 	rankedVersion: varchar('ranked_version', { length: 64 }),
 	// True for a mod created directly by an admin (e.g. via the "New mod"
@@ -562,6 +562,20 @@ export const modProfiles = pgTable('mod_profiles', {
 		.defaultNow(),
 })
 
+// The three ways a profile entry can pin a mod's version: an exact string
+// (pairs with pinnedVersion below), always resolve to whatever's newest, or
+// always resolve to modRegistry.rankedVersion (the admin-pinned "known good
+// for ranked" build). Replaces the old free-text versionConstraint
+// ('any'/exact/'min:<version>') -- that scheme required app-level parsing
+// with no fixed vocabulary; this is a closed set the launcher can switch on.
+export const modProfileVersionModeEnum = pgEnum('mod_profile_version_mode', [
+	'exact',
+	'latest',
+	'latestRanked',
+])
+export type ModProfileVersionMode =
+	(typeof modProfileVersionModeEnum.enumValues)[number]
+
 export const modProfileEntries = pgTable(
 	'mod_profile_entries',
 	{
@@ -572,11 +586,11 @@ export const modProfileEntries = pgTable(
 		modId: varchar('mod_id', { length: 128 })
 			.notNull()
 			.references(() => modRegistry.id, { onDelete: 'cascade' }),
-		// 'any' | an exact version string | a "min:<version>" string -- interpreted
-		// app-level only, matching playerBans.banType's precedent (no DB CHECK).
-		versionConstraint: varchar('version_constraint', { length: 64 })
+		versionMode: modProfileVersionModeEnum('version_mode')
 			.notNull()
-			.default('any'),
+			.default('latest'),
+		// Only meaningful when versionMode is 'exact' -- ignored otherwise.
+		pinnedVersion: varchar('pinned_version', { length: 64 }),
 		// Lets a profile explicitly blocklist a mod rather than only allowlist.
 		allowed: boolean('allowed').notNull().default(true),
 	},

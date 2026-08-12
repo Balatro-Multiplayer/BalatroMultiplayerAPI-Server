@@ -15,6 +15,7 @@ import {
 	upsertProfileEntry,
 } from '../../infrastructure/gateways/mods.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
+import { modProfileVersionModeEnum } from '../../infrastructure/db/schema.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { syncModRegistry } from '../mods/mods-sync.service.js'
 
@@ -301,15 +302,29 @@ router.delete('/mods/profiles/:id', async (req, res, next) => {
 router.put('/mods/profiles/:id/entries/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
-		const { versionConstraint, allowed } = req.body as {
-			versionConstraint?: unknown
+		const { versionMode, pinnedVersion, allowed } = req.body as {
+			versionMode?: unknown
+			pinnedVersion?: unknown
 			allowed?: unknown
 		}
+		if (
+			typeof versionMode !== 'string' ||
+			!modProfileVersionModeEnum.enumValues.includes(
+				versionMode as (typeof modProfileVersionModeEnum.enumValues)[number],
+			)
+		)
+			throw new AppError(
+				`versionMode must be one of: ${modProfileVersionModeEnum.enumValues.join(', ')}`,
+				400,
+			)
+		if (versionMode === 'exact' && typeof pinnedVersion !== 'string')
+			throw new AppError('pinnedVersion is required when versionMode is exact', 400)
+
 		const entry = await upsertProfileEntry({
 			profileId: req.params.id,
 			modId: req.params.modId,
-			versionConstraint:
-				typeof versionConstraint === 'string' ? versionConstraint : 'any',
+			versionMode: versionMode as (typeof modProfileVersionModeEnum.enumValues)[number],
+			pinnedVersion: versionMode === 'exact' ? (pinnedVersion as string) : null,
 			allowed: typeof allowed === 'boolean' ? allowed : true,
 		})
 		res.json(entry)

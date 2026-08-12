@@ -50,11 +50,14 @@ export interface ModProfile {
   updatedAt: string
 }
 
+export type ModProfileVersionMode = 'exact' | 'latest' | 'latestRanked'
+
 export interface ModProfileEntry {
   id: number
   profileId: string
   modId: string
-  versionConstraint: string
+  versionMode: ModProfileVersionMode
+  pinnedVersion: string | null
   allowed: boolean
 }
 

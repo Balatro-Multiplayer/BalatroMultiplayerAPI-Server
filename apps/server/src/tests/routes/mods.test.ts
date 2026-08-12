@@ -92,4 +92,82 @@ describe('mods routes', () => {
 			expect(res.body.versions).toEqual(versions)
 		})
 	})
+
+	describe('GET /api/mods/profiles', () => {
+		it('returns profiles with their entries attached, no auth required', async () => {
+			const profile = {
+				id: 'profile-1',
+				name: 'Ranked Core',
+				slug: 'ranked-core',
+				description: null,
+				createdBy: null,
+			}
+			const entry = {
+				id: 1,
+				profileId: 'profile-1',
+				modId: 'Author@Mod',
+				versionMode: 'latestRanked',
+				pinnedVersion: null,
+				allowed: true,
+			}
+			;(db as any).select = vi
+				.fn()
+				.mockReturnValueOnce({
+					from: vi.fn().mockReturnValue({
+						orderBy: vi.fn().mockResolvedValue([profile]),
+					}),
+				})
+				.mockReturnValueOnce({
+					from: vi.fn().mockResolvedValue([entry]),
+				})
+
+			const res = await request(app).get('/api/mods/profiles')
+
+			expect(res.status).toBe(200)
+			expect(res.body).toEqual([{ ...profile, entries: [entry] }])
+		})
+	})
+
+	describe('GET /api/mods/profiles/:slug', () => {
+		it('returns 404 when the profile does not exist', async () => {
+			;(db as any).query = {
+				...(db as any).query,
+				modProfiles: { findFirst: vi.fn().mockResolvedValue(undefined) },
+			}
+
+			const res = await request(app).get('/api/mods/profiles/nonexistent')
+
+			expect(res.status).toBe(404)
+		})
+
+		it('returns the profile with its entries when found', async () => {
+			const profile = {
+				id: 'profile-1',
+				name: 'Ranked Core',
+				slug: 'ranked-core',
+				description: null,
+				createdBy: null,
+			}
+			;(db as any).query = {
+				...(db as any).query,
+				modProfiles: { findFirst: vi.fn().mockResolvedValue(profile) },
+			}
+			const entries = [
+				{
+					id: 1,
+					profileId: 'profile-1',
+					modId: 'Author@Mod',
+					versionMode: 'exact',
+					pinnedVersion: '1.0.0',
+					allowed: true,
+				},
+			]
+			;(db as any).select = mockSelectWhereChain(entries)
+
+			const res = await request(app).get('/api/mods/profiles/ranked-core')
+
+			expect(res.status).toBe(200)
+			expect(res.body).toEqual({ ...profile, entries })
+		})
+	})
 })
