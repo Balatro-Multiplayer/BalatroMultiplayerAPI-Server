@@ -2,7 +2,7 @@ node_modules
 .env
 dist
 .vscode
-releases
+/releases
 .vs
 logs
 data
