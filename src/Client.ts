@@ -47,7 +47,12 @@ class Client {
 	skips = 0
 	furthestBlind = 0
 
-	livesBlocker = false
+	/** Guards against a duplicate life loss from the *same* cause firing twice
+	 *  (e.g. two failRound call sites for one blind failure). Kept separate per
+	 *  cause so a timer expiry and a blind/round loss can each cost a life even
+	 *  when they happen within the same round. */
+	roundLivesBlocker = false
+	timerLivesBlocker = false
 
 	location = 'loc_selecting'
 
@@ -96,24 +101,35 @@ class Client {
 	}
 
 	resetBlocker = () => {
-		this.livesBlocker = false
+		this.roundLivesBlocker = false
+		this.timerLivesBlocker = false
 	}
 
-	loseLife = () => {
-		if (!this.livesBlocker) {
-			this.lives -= 1
-			this.livesBlocker = true
-			this.sendAction({ action: "playerInfo", lives: this.lives });
-			if (this.lobby && this.lobby.host && this.lobby.guest) {
-				const enemy = this.lobby.host === this ? this.lobby.guest : this.lobby.host
-				enemy.sendAction({
-					action: "enemyInfo",
-					handsLeft: this.handsLeft,
-					score: this.score.toString(),
-					skips: this.skips,
-					lives: this.lives,
-				});
-			}
+	/**
+	 * @param cause 'round' for a blind/PvP-hand loss, 'timer' for an ante/PvP
+	 * timer expiry. Each cause has its own once-per-round guard, so a timer
+	 * expiry and a round loss can both cost a life in the same round.
+	 */
+	loseLife = (cause: 'round' | 'timer' = 'round') => {
+		const alreadyLost = cause === 'timer' ? this.timerLivesBlocker : this.roundLivesBlocker
+		if (alreadyLost) return
+
+		this.lives -= 1
+		if (cause === 'timer') {
+			this.timerLivesBlocker = true
+		} else {
+			this.roundLivesBlocker = true
+		}
+		this.sendAction({ action: "playerInfo", lives: this.lives });
+		if (this.lobby && this.lobby.host && this.lobby.guest) {
+			const enemy = this.lobby.host === this ? this.lobby.guest : this.lobby.host
+			enemy.sendAction({
+				action: "enemyInfo",
+				handsLeft: this.handsLeft,
+				score: this.score.toString(),
+				skips: this.skips,
+				lives: this.lives,
+			});
 		}
 	}
 

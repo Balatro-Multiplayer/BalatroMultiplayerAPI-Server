@@ -42,7 +42,8 @@ interface SavedGameState {
 	isReady: boolean;
 	firstReady: boolean;
 	isReadyLobby: boolean;
-	livesBlocker: boolean;
+	roundLivesBlocker: boolean;
+	timerLivesBlocker: boolean;
 	location: string;
 	username: string;
 	modHash: string;
@@ -171,7 +172,8 @@ class Lobby {
 				isReady: client.isReady,
 				firstReady: client.firstReady,
 				isReadyLobby: client.isReadyLobby,
-				livesBlocker: client.livesBlocker,
+				roundLivesBlocker: client.roundLivesBlocker,
+				timerLivesBlocker: client.timerLivesBlocker,
 				location: client.location,
 				username: client.username,
 				modHash: client.modHash,
@@ -217,7 +219,8 @@ class Lobby {
 		newClient.isReady = savedState.isReady;
 		newClient.firstReady = savedState.firstReady;
 		newClient.isReadyLobby = savedState.isReadyLobby;
-		newClient.livesBlocker = savedState.livesBlocker;
+		newClient.roundLivesBlocker = savedState.roundLivesBlocker;
+		newClient.timerLivesBlocker = savedState.timerLivesBlocker;
 		newClient.location = savedState.location;
 		newClient.username = savedState.username;
 		newClient.modHash = savedState.modHash;

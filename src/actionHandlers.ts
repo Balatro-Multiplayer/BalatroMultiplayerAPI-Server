@@ -316,7 +316,7 @@ const playHandAction = (
 			roundWinner.id === lobby.host.id ? lobby.guest : lobby.host;
 
 		if (!lobby.host.score.equalTo(lobby.guest.score)) {
-			roundLoser.loseLife();
+			roundLoser.loseLife('round');
 
 			// If no lives are left, we end the game
 			if (lobby.host.lives <= 0 || lobby.guest.lives <= 0) {
@@ -348,7 +348,7 @@ const failPvPTimerAction = (
 ) => {
     const lobby = client.lobby;
 
-	client.loseLife();
+	client.loseLife('timer');
 
 	if (!lobby) return;
 
@@ -415,7 +415,7 @@ const failRoundAction = (client: Client) => {
 	if (!lobby || !enemy) return;
 
 	if (lobby.options.death_on_round_loss) {
-		client.loseLife();
+		client.loseLife('round');
 	}
 
 	if (client.lives === 0) {
@@ -721,7 +721,7 @@ const pauseAnteTimerAction = (
 const failTimerAction = (client: Client) => {
 	const lobby = client.lobby;
 
-	client.loseLife();
+	client.loseLife('timer');
 
 	if (!lobby) return;
 
