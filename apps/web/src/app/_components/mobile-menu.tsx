@@ -3,6 +3,7 @@
 import {
   BarChart3,
   CircleDollarSign,
+  DoorOpen,
   DownloadIcon,
   Gamepad2,
   History,
@@ -172,6 +173,13 @@ function MobileAdminSection({ onClose }: { onClose: () => void }) {
           onClick={onClose}
         >
           Users &amp; Bans
+        </MobileMenuLink>
+        <MobileMenuLink
+          href='/admin/lobbies'
+          icon={<DoorOpen className='size-4' />}
+          onClick={onClose}
+        >
+          Lobbies
         </MobileMenuLink>
         <MobileMenuLink
           href='/admin/logs'

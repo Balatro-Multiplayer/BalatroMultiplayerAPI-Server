@@ -5,6 +5,7 @@ import { authenticate } from '../../middleware/authenticate.js'
 import chatLogsRouter from './chat-logs.route.js'
 import configRouter from './config.route.js'
 import launcherReleasesRouter from './launcher-releases.route.js'
+import lobbiesRouter from './lobbies.route.js'
 import matchConflictsRouter from './match-conflicts.route.js'
 import matchesRouter from './matches.route.js'
 import modsRouter from './mods.route.js'
@@ -38,6 +39,7 @@ router.use(chatLogsRouter)
 router.use(reportsRouter)
 router.use(seasonsRouter)
 router.use(matchesRouter)
+router.use(lobbiesRouter)
 router.use(matchConflictsRouter)
 router.use(launcherReleasesRouter)
 router.use(configRouter)

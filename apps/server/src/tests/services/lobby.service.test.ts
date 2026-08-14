@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createLobbyService } from '../../features/lobby/lobby.service.js'
-import { createSession, getSession, lobbies } from '../../state/index.js'
-import type { JwtPayload } from '../../shared/types/index.js'
-import { verifyJwt } from '../../features/auth/jwt.js'
-import type { IMessageBus } from '../../contracts/IMessageBus.js'
 import type { IGracePeriodService } from '../../contracts/IGracePeriodService.js'
 import type { IMatchmakingCoordinator } from '../../contracts/IMatchmakingCoordinator.js'
+import type { IMessageBus } from '../../contracts/IMessageBus.js'
+import { verifyJwt } from '../../features/auth/jwt.js'
+import { createLobbyService } from '../../features/lobby/lobby.service.js'
+import type { JwtPayload } from '../../shared/types/index.js'
+import { createSession, getSession, lobbies } from '../../state/index.js'
 
 function makePlayer(id: string, steamName: string): JwtPayload {
 	createSession(steamName, { id })
@@ -84,7 +84,9 @@ describe('lobby.service', () => {
 			expect(messageBus.publishPlayerInfo).toHaveBeenCalledWith(
 				lobby.code,
 				'host-mods',
-				expect.objectContaining({ mods: ['Steamodded-1.0.0', 'MultiplayerAPI-2.3.0'] }),
+				expect.objectContaining({
+					mods: ['Steamodded-1.0.0', 'MultiplayerAPI-2.3.0'],
+				}),
 			)
 		})
 
@@ -246,7 +248,10 @@ describe('lobby.service', () => {
 			const playerB = makePlayer('playerB', 'Bob')
 			const { lobby: realLobby } = await service.createLobby(playerB, 'mod1')
 
-			const { lobby: joinedLobby } = await service.joinLobby(playerA, realLobby.code)
+			const { lobby: joinedLobby } = await service.joinLobby(
+				playerA,
+				realLobby.code,
+			)
 			expect(joinedLobby.code).toBe(realLobby.code)
 			expect(joinedLobby.hasPlayer('playerA')).toBe(true)
 		})
@@ -377,7 +382,10 @@ describe('lobby.service', () => {
 			await service.leaveLobby(host, code)
 
 			expect(lobbies.has(code)).toBe(false)
-			expect(messageBus.cleanupLobbyTopics).toHaveBeenCalledWith(code, expect.any(Array))
+			expect(messageBus.cleanupLobbyTopics).toHaveBeenCalledWith(
+				code,
+				expect.any(Array),
+			)
 		})
 
 		it('throws if lobby does not exist', async () => {
@@ -446,7 +454,9 @@ describe('lobby.service', () => {
 
 			expect(lobby.hasPlayer('guest1')).toBe(false)
 			expect(lobby.kickedPlayerIds.has('guest1')).toBe(true)
-			expect(gracePeriodService.cancelGracePeriodSilently).toHaveBeenCalledWith('guest1')
+			expect(gracePeriodService.cancelGracePeriodSilently).toHaveBeenCalledWith(
+				'guest1',
+			)
 			expect(messageBus.publishEvent).toHaveBeenCalledWith(
 				lobby.code,
 				expect.objectContaining({
@@ -455,8 +465,14 @@ describe('lobby.service', () => {
 					data: { kickedBy: 'host1' },
 				}),
 			)
-			expect(messageBus.clearPlayerInfo).toHaveBeenCalledWith(lobby.code, 'guest1')
-			expect(messageBus.cleanupPlayerState).toHaveBeenCalledWith(lobby.code, 'guest1')
+			expect(messageBus.clearPlayerInfo).toHaveBeenCalledWith(
+				lobby.code,
+				'guest1',
+			)
+			expect(messageBus.cleanupPlayerState).toHaveBeenCalledWith(
+				lobby.code,
+				'guest1',
+			)
 		})
 
 		it('denies a non-host from kicking, with no state mutation', async () => {
@@ -519,9 +535,9 @@ describe('lobby.service', () => {
 				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
 			})
 			const host = makePlayer('host1', 'Alice')
-			await expect(
-				service.kickPlayer(host, 'ZZZZZ', 'guest1'),
-			).rejects.toThrow('Lobby not found')
+			await expect(service.kickPlayer(host, 'ZZZZZ', 'guest1')).rejects.toThrow(
+				'Lobby not found',
+			)
 		})
 
 		it('calls forfeitMatchForLeave with the target id and remaining connected players', async () => {
@@ -583,6 +599,179 @@ describe('lobby.service', () => {
 		})
 	})
 
+	describe('adminKickPlayer', () => {
+		it('removes a guest and publishes player_kicked with an admin kickedBy tag', async () => {
+			const messageBus = makeMockMessageBus()
+			const service = createLobbyService({
+				messageBus,
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+			const guest = makePlayer('guest1', 'Bob')
+			await service.joinLobby(guest, lobby.code)
+
+			await service.adminKickPlayer(lobby.code, 'guest1', 'admin1')
+
+			expect(lobby.hasPlayer('guest1')).toBe(false)
+			expect(lobby.kickedPlayerIds.has('guest1')).toBe(true)
+			expect(messageBus.publishEvent).toHaveBeenCalledWith(
+				lobby.code,
+				expect.objectContaining({
+					type: 'player_kicked',
+					playerId: 'guest1',
+					data: { kickedBy: 'admin:admin1' },
+				}),
+			)
+		})
+
+		it('can remove the host, transferring host to a remaining player', async () => {
+			const messageBus = makeMockMessageBus()
+			const service = createLobbyService({
+				messageBus,
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+			const guest = makePlayer('guest1', 'Bob')
+			await service.joinLobby(guest, lobby.code)
+
+			await service.adminKickPlayer(lobby.code, 'host1', 'admin1')
+
+			expect(lobby.hasPlayer('host1')).toBe(false)
+			expect(lobby.hostId).toBe('guest1')
+			expect(messageBus.publishEvent).toHaveBeenCalledWith(
+				lobby.code,
+				expect.objectContaining({ type: 'host_changed', playerId: 'guest1' }),
+			)
+		})
+
+		it('kicking the sole remaining player closes the lobby', async () => {
+			const messageBus = makeMockMessageBus()
+			const service = createLobbyService({
+				messageBus,
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+
+			await service.adminKickPlayer(lobby.code, 'host1', 'admin1')
+
+			expect(lobbies.has(lobby.code)).toBe(false)
+			expect(messageBus.publishEvent).toHaveBeenCalledWith(
+				lobby.code,
+				expect.objectContaining({ type: 'lobby_closed' }),
+			)
+			expect(messageBus.cleanupLobbyTopics).toHaveBeenCalledWith(lobby.code)
+		})
+
+		it('throws if the target is not in the lobby', async () => {
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+
+			await expect(
+				service.adminKickPlayer(lobby.code, 'nobody', 'admin1'),
+			).rejects.toThrow('Player not in this lobby')
+		})
+
+		it('throws if the lobby does not exist', async () => {
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+
+			await expect(
+				service.adminKickPlayer('ZZZZZ', 'guest1', 'admin1'),
+			).rejects.toThrow('Lobby not found')
+		})
+	})
+
+	describe('adminCloseLobby', () => {
+		it('removes every member and closes the lobby', async () => {
+			const messageBus = makeMockMessageBus()
+			const service = createLobbyService({
+				messageBus,
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+			const guest = makePlayer('guest1', 'Bob')
+			await service.joinLobby(guest, lobby.code)
+
+			await service.adminCloseLobby(lobby.code, 'admin1')
+
+			expect(lobbies.has(lobby.code)).toBe(false)
+			expect(messageBus.publishEvent).toHaveBeenCalledWith(
+				lobby.code,
+				expect.objectContaining({
+					type: 'player_kicked',
+					playerId: 'host1',
+					data: { kickedBy: 'admin:admin1' },
+				}),
+			)
+			expect(messageBus.publishEvent).toHaveBeenCalledWith(
+				lobby.code,
+				expect.objectContaining({
+					type: 'player_kicked',
+					playerId: 'guest1',
+					data: { kickedBy: 'admin:admin1' },
+				}),
+			)
+			expect(messageBus.publishEvent).toHaveBeenCalledWith(
+				lobby.code,
+				expect.objectContaining({ type: 'lobby_closed' }),
+			)
+		})
+
+		it('forfeits an active match for every remaining player as they are removed', async () => {
+			const matchmakingCoordinator = makeMockMatchmakingCoordinator()
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator,
+			})
+			const host = makePlayer('host1', 'Alice')
+			const { lobby } = await service.createLobby(host, 'mod1')
+			const guest = makePlayer('guest1', 'Bob')
+			await service.joinLobby(guest, lobby.code)
+
+			await service.adminCloseLobby(lobby.code, 'admin1')
+
+			expect(matchmakingCoordinator.forfeitMatchForLeave).toHaveBeenCalledWith(
+				lobby.code,
+				'host1',
+				['guest1'],
+			)
+			expect(matchmakingCoordinator.forfeitMatchForLeave).toHaveBeenCalledWith(
+				lobby.code,
+				'guest1',
+				[],
+			)
+		})
+
+		it('throws if the lobby does not exist', async () => {
+			const service = createLobbyService({
+				messageBus: makeMockMessageBus(),
+				gracePeriodService: makeMockGracePeriodService(),
+				matchmakingCoordinator: makeMockMatchmakingCoordinator(),
+			})
+
+			await expect(service.adminCloseLobby('ZZZZZ', 'admin1')).rejects.toThrow(
+				'Lobby not found',
+			)
+		})
+	})
+
 	describe('getLobbyInfo', () => {
 		it('returns the lobby', async () => {
 			const service = createLobbyService({
@@ -622,8 +811,16 @@ describe('lobby.service', () => {
 			const players = service.getLobbyPlayers(lobby.code)
 			expect(players).toEqual(
 				expect.arrayContaining([
-					expect.objectContaining({ id: 'host1', displayName: 'Alice', isAway: false }),
-					expect.objectContaining({ id: 'guest1', displayName: 'Bob', isAway: false }),
+					expect.objectContaining({
+						id: 'host1',
+						displayName: 'Alice',
+						isAway: false,
+					}),
+					expect.objectContaining({
+						id: 'guest1',
+						displayName: 'Bob',
+						isAway: false,
+					}),
 				]),
 			)
 		})
@@ -644,10 +841,9 @@ describe('lobby.service', () => {
 
 			expect(result).toEqual({ ante: 1 })
 			expect(lobby.metadata).toEqual({ ante: 1 })
-			expect(messageBus.publishMetadata).toHaveBeenCalledWith(
-				lobby.code,
-				{ ante: 1 },
-			)
+			expect(messageBus.publishMetadata).toHaveBeenCalledWith(lobby.code, {
+				ante: 1,
+			})
 		})
 
 		it('merges with existing metadata', async () => {
@@ -660,7 +856,9 @@ describe('lobby.service', () => {
 			const { lobby } = await service.createLobby(host, 'mod1')
 
 			await service.setMetadata(host, lobby.code, { ante: 1 })
-			const result = await service.setMetadata(host, lobby.code, { stake: 'gold' })
+			const result = await service.setMetadata(host, lobby.code, {
+				stake: 'gold',
+			})
 
 			expect(result).toEqual({ ante: 1, stake: 'gold' })
 		})
