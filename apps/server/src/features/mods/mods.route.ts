@@ -7,9 +7,11 @@ import {
 } from '../../infrastructure/gateways/mods.gateway.js'
 
 // Public, launcher/website/mod-facing endpoint. No auth -- same trust level as
-// /api/releases. GET /api/mods is the compact list (id/name/allowedInRanked/
-// latestVersion/thumbnail); GET /api/mods/:id adds everything else, including
-// the hash the launcher verifies a downloaded mod archive against.
+// /api/releases. GET /api/mods is the compact list (id/name/rankedVersion/
+// sourceType/latestVersion/thumbnail -- a mod is ranked-allowed iff
+// rankedVersion is non-null, see schema.ts's rankedVersion doc comment);
+// GET /api/mods/:id adds everything else, including the hash the launcher
+// verifies a downloaded mod archive against.
 //
 // /profiles and /profiles/:slug are registered before /:id so they aren't
 // swallowed by the modId wildcard -- modIds are "Author@ModName", so a

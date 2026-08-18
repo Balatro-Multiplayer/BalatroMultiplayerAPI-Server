@@ -218,6 +218,13 @@
       "when": 1790600000000,
       "tag": "0030_mod_registry_hidden",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790700000000,
+      "tag": "0031_mod_registry_single_ranked_field",
+      "breakpoints": true
     }
   ]
 }

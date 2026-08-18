@@ -12,9 +12,8 @@ vi.mock('../../infrastructure/gateways/mods.gateway.js', async () => {
 	>('../../infrastructure/gateways/mods.gateway.js')
 	return {
 		...actual,
-		setRankedConfig: vi.fn(),
+		setRankedVersion: vi.fn(),
 		setFeatured: vi.fn(),
-		clearRankedConfig: vi.fn(),
 		createCustomMod: vi.fn(),
 		updateCustomMod: vi.fn(),
 		deleteCustomMod: vi.fn(),
@@ -44,18 +43,39 @@ function authAsAdmin(playerId: string, steamName: string) {
 }
 
 describe('PUT /api/webadmin/mods/:modId', () => {
+	const releaseMod = {
+		id: 'Author@Mod',
+		latestDownloadUrl:
+			'https://github.com/author/mod/releases/download/v1.2.3/mod.zip',
+		latestVersion: '1.2.3',
+		versions: [{ version: '1.2.3' }, { version: '1.0.0' }],
+	}
+	const branchMod = {
+		id: 'Author@Mod',
+		latestDownloadUrl:
+			'https://github.com/author/mod/archive/refs/heads/main.zip',
+		latestVersion: 'abcdef1',
+		versions: [{ version: 'abcdef1' }],
+	}
+	const customMod = {
+		id: 'Author@Mod',
+		latestDownloadUrl: 'https://example.com/mod.zip',
+		latestVersion: '1.0.0',
+		versions: [{ version: '1.0.0' }],
+	}
+
 	it('returns 403 for a moderator', async () => {
 		const token = authAsModerator('mod-ranked-1', 'Mod')
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author@Mod')
 			.set('Authorization', token)
-			.send({ allowedInRanked: true })
+			.send({ rankedVersion: '1.2.3' })
 
 		expect(res.status).toBe(403)
-		expect(modsGateway.setRankedConfig).not.toHaveBeenCalled()
+		expect(modsGateway.setRankedVersion).not.toHaveBeenCalled()
 	})
 
-	it('returns 400 when neither field is present', async () => {
+	it('returns 400 when no field is present', async () => {
 		const token = authAsAdmin('admin-ranked-1', 'Admin')
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author@Mod')
@@ -75,23 +95,76 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		expect(res.status).toBe(400)
 	})
 
-	it('updates allowedInRanked and rankedVersion together for an admin', async () => {
-		vi.mocked(modsGateway.setRankedConfig).mockResolvedValue(true)
+	it('sets rankedVersion for an admin when it is a known version of a release-type mod', async () => {
+		vi.mocked(modsGateway.getPublicModById).mockResolvedValue(releaseMod as any)
+		vi.mocked(modsGateway.setRankedVersion).mockResolvedValue(true)
 		const token = authAsAdmin('admin-ranked-3', 'Admin')
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author@Mod')
 			.set('Authorization', token)
-			.send({ allowedInRanked: true, rankedVersion: '1.2.3' })
+			.send({ rankedVersion: '1.2.3' })
 
 		expect(res.status).toBe(200)
-		expect(modsGateway.setRankedConfig).toHaveBeenCalledWith('Author@Mod', {
-			allowedInRanked: true,
-			rankedVersion: '1.2.3',
-		})
+		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith(
+			'Author@Mod',
+			'1.2.3',
+		)
 	})
 
-	it('allows updating just rankedVersion, leaving allowedInRanked untouched', async () => {
-		vi.mocked(modsGateway.setRankedConfig).mockResolvedValue(true)
+	it('rejects rankedVersion for a release-type mod when it is not a known version', async () => {
+		vi.mocked(modsGateway.getPublicModById).mockResolvedValue(releaseMod as any)
+		const token = authAsAdmin('admin-ranked-3b', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Author@Mod')
+			.set('Authorization', token)
+			.send({ rankedVersion: '9.9.9' })
+
+		expect(res.status).toBe(400)
+		expect(modsGateway.setRankedVersion).not.toHaveBeenCalled()
+	})
+
+	it('accepts rankedVersion for a branch-tracked mod when it matches the current version', async () => {
+		vi.mocked(modsGateway.getPublicModById).mockResolvedValue(branchMod as any)
+		vi.mocked(modsGateway.setRankedVersion).mockResolvedValue(true)
+		const token = authAsAdmin('admin-ranked-3c', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Author@Mod')
+			.set('Authorization', token)
+			.send({ rankedVersion: 'abcdef1' })
+
+		expect(res.status).toBe(200)
+		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith(
+			'Author@Mod',
+			'abcdef1',
+		)
+	})
+
+	it('rejects rankedVersion for a branch-tracked mod when it is not the current version', async () => {
+		vi.mocked(modsGateway.getPublicModById).mockResolvedValue(branchMod as any)
+		const token = authAsAdmin('admin-ranked-3d', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Author@Mod')
+			.set('Authorization', token)
+			.send({ rankedVersion: 'stale99' })
+
+		expect(res.status).toBe(400)
+		expect(modsGateway.setRankedVersion).not.toHaveBeenCalled()
+	})
+
+	it('rejects any rankedVersion for a custom-hosted mod', async () => {
+		vi.mocked(modsGateway.getPublicModById).mockResolvedValue(customMod as any)
+		const token = authAsAdmin('admin-ranked-3e', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Author@Mod')
+			.set('Authorization', token)
+			.send({ rankedVersion: '1.0.0' })
+
+		expect(res.status).toBe(400)
+		expect(modsGateway.setRankedVersion).not.toHaveBeenCalled()
+	})
+
+	it('allows clearing rankedVersion to null without any source validation', async () => {
+		vi.mocked(modsGateway.setRankedVersion).mockResolvedValue(true)
 		const token = authAsAdmin('admin-ranked-4', 'Admin')
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author@Mod')
@@ -99,21 +172,23 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 			.send({ rankedVersion: null })
 
 		expect(res.status).toBe(200)
-		expect(modsGateway.setRankedConfig).toHaveBeenCalledWith('Author@Mod', {
-			allowedInRanked: undefined,
-			rankedVersion: null,
-		})
+		expect(modsGateway.getPublicModById).not.toHaveBeenCalled()
+		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith(
+			'Author@Mod',
+			null,
+		)
 	})
 
 	it('returns 404 when the mod does not exist', async () => {
-		vi.mocked(modsGateway.setRankedConfig).mockResolvedValue(false)
+		vi.mocked(modsGateway.getPublicModById).mockResolvedValue(null)
 		const token = authAsAdmin('admin-ranked-5', 'Admin')
 		const res = await request(app)
 			.put('/api/webadmin/mods/Nobody@Nothing')
 			.set('Authorization', token)
-			.send({ allowedInRanked: true })
+			.send({ rankedVersion: '1.2.3' })
 
 		expect(res.status).toBe(404)
+		expect(modsGateway.setRankedVersion).not.toHaveBeenCalled()
 	})
 
 	it('returns 400 when featured is not a boolean', async () => {
@@ -126,7 +201,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		expect(res.status).toBe(400)
 	})
 
-	it('sets featured for an admin, independently of ranked config', async () => {
+	it('sets featured for an admin, independently of rankedVersion', async () => {
 		vi.mocked(modsGateway.setFeatured).mockResolvedValue(true)
 		const token = authAsAdmin('admin-ranked-7', 'Admin')
 		const res = await request(app)
@@ -136,7 +211,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 
 		expect(res.status).toBe(200)
 		expect(modsGateway.setFeatured).toHaveBeenCalledWith('Author@Mod', true)
-		expect(modsGateway.setRankedConfig).not.toHaveBeenCalled()
+		expect(modsGateway.setRankedVersion).not.toHaveBeenCalled()
 	})
 })
 
@@ -275,15 +350,18 @@ describe('DELETE /api/webadmin/mods/:modId/ranked', () => {
 		expect(res.status).toBe(403)
 	})
 
-	it('clears ranked config for an admin', async () => {
-		vi.mocked(modsGateway.clearRankedConfig).mockResolvedValue(true)
+	it('clears rankedVersion for an admin', async () => {
+		vi.mocked(modsGateway.setRankedVersion).mockResolvedValue(true)
 		const token = authAsAdmin('admin-clear-1', 'Admin')
 		const res = await request(app)
 			.delete('/api/webadmin/mods/Author@Mod/ranked')
 			.set('Authorization', token)
 
 		expect(res.status).toBe(200)
-		expect(modsGateway.clearRankedConfig).toHaveBeenCalledWith('Author@Mod')
+		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith(
+			'Author@Mod',
+			null,
+		)
 	})
 })
 
@@ -527,7 +605,11 @@ describe('PUT /api/webadmin/mods/profiles/:id/entries/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/profiles/profile-1/entries/Author@Mod')
 			.set('Authorization', token)
-			.send({ versionMode: 'latestRanked', pinnedVersion: '9.9.9', allowed: true })
+			.send({
+				versionMode: 'latestRanked',
+				pinnedVersion: '9.9.9',
+				allowed: true,
+			})
 
 		expect(res.status).toBe(200)
 		expect(modsGateway.upsertProfileEntry).toHaveBeenCalledWith({

@@ -1,7 +1,6 @@
 import { Router } from 'express'
 import { modProfileVersionModeEnum } from '../../infrastructure/db/schema.js'
 import {
-	clearRankedConfig,
 	createCustomMod,
 	createProfile,
 	deleteCustomMod,
@@ -14,7 +13,7 @@ import {
 	resetModFieldOverrides,
 	setFeatured,
 	setHidden,
-	setRankedConfig,
+	setRankedVersion,
 	updateCustomMod,
 	updateModFields,
 	updateProfile,
@@ -22,6 +21,7 @@ import {
 } from '../../infrastructure/gateways/mods.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
+import { classifyDownloadUrl } from '../mods/mod-source-classifier.js'
 import { syncModRegistry } from '../mods/mods-sync.service.js'
 
 // Ranked mod catalog admin surface: manual per-mod ranked-allowlist overrides
@@ -75,21 +75,30 @@ router.post('/mods/sync', async (req, res, next) => {
 	}
 })
 
-// Ranked config (allowedInRanked + an optional pinned ranked version),
-// featured, and hidden are all entirely admin-owned -- see mods.gateway.ts's
-// setRankedConfig/setFeatured/setHidden doc comments. At least one of the
-// four fields must be present; any can be sent alone to update just that one.
+// rankedVersion, featured, and hidden are all entirely admin-owned -- see
+// mods.gateway.ts's setRankedVersion/setFeatured/setHidden doc comments. At
+// least one of the three fields must be present; any can be sent alone to
+// update just that one.
+//
+// A non-null rankedVersion is the sole ranked-eligibility signal now (see
+// schema.ts's rankedVersion doc comment) -- validated here, not in the
+// gateway, since it needs the mod's current latestDownloadUrl/latestVersion
+// and known mod_registry_versions, which this handler already has to fetch
+// anyway to 404 on an unknown modId before touching anything else:
+//   - sourceType 'custom' (mod-source-classifier.ts) -> always rejected,
+//     nothing to pin against reliably.
+//   - sourceType 'branch' -> only the mod's own current latestVersion is
+//     accepted (a branch archive URL always re-resolves to current HEAD,
+//     so an older value could never actually be re-fetched).
+//   - sourceType 'release' -> any version that actually appears in the
+//     mod's mod_registry_versions history is accepted.
 router.put('/mods/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
-		const { allowedInRanked, rankedVersion, featured, hidden } = req.body as {
-			allowedInRanked?: unknown
+		const { rankedVersion, featured, hidden } = req.body as {
 			rankedVersion?: unknown
 			featured?: unknown
 			hidden?: unknown
-		}
-		if (allowedInRanked !== undefined && typeof allowedInRanked !== 'boolean') {
-			throw new AppError('allowedInRanked must be a boolean', 400)
 		}
 		if (
 			rankedVersion !== undefined &&
@@ -105,21 +114,39 @@ router.put('/mods/:modId', async (req, res, next) => {
 			throw new AppError('hidden must be a boolean', 400)
 		}
 		if (
-			allowedInRanked === undefined &&
 			rankedVersion === undefined &&
 			featured === undefined &&
 			hidden === undefined
 		) {
-			throw new AppError(
-				'allowedInRanked, rankedVersion, featured, or hidden is required',
-				400,
-			)
+			throw new AppError('rankedVersion, featured, or hidden is required', 400)
 		}
-		if (allowedInRanked !== undefined || rankedVersion !== undefined) {
-			const ok = await setRankedConfig(req.params.modId, {
-				allowedInRanked,
-				rankedVersion,
-			})
+		if (rankedVersion !== undefined) {
+			if (rankedVersion !== null) {
+				const mod = await getPublicModById(req.params.modId, {
+					includeHidden: true,
+				})
+				if (!mod) throw new AppError('Mod not found', 404)
+				const sourceType = classifyDownloadUrl(mod.latestDownloadUrl ?? '')
+				if (sourceType === 'custom') {
+					throw new AppError(
+						"Custom-hosted mods can't be ranked-allowed -- their source can't be reliably re-fetched or verified",
+						400,
+					)
+				}
+				if (sourceType === 'branch' && rankedVersion !== mod.latestVersion) {
+					throw new AppError(
+						'Branch-tracked mods can only be pinned to their current version',
+						400,
+					)
+				}
+				if (
+					sourceType === 'release' &&
+					!mod.versions.some((v) => v.version === rankedVersion)
+				) {
+					throw new AppError('Not a known version of this mod', 400)
+				}
+			}
+			const ok = await setRankedVersion(req.params.modId, rankedVersion)
 			if (!ok) throw new AppError('Mod not found', 404)
 		}
 		if (featured !== undefined) {
@@ -232,7 +259,7 @@ router.post('/mods/:modId/reset-overrides', async (req, res, next) => {
 router.delete('/mods/:modId/ranked', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
-		const ok = await clearRankedConfig(req.params.modId)
+		const ok = await setRankedVersion(req.params.modId, null)
 		if (!ok) throw new AppError('Mod not found', 404)
 		res.json({ ok: true })
 	} catch (err) {

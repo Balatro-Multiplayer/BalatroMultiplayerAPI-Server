@@ -1,4 +1,5 @@
 import { and, asc, eq, isNotNull, notInArray } from 'drizzle-orm'
+import { classifyDownloadUrl } from '../../features/mods/mod-source-classifier.js'
 import { db } from '../db/index.js'
 import {
 	type ModProfileVersionMode,
@@ -20,11 +21,11 @@ export async function listPublicMods(opts?: { includeHidden?: boolean }) {
 		.select({
 			id: modRegistry.id,
 			name: modRegistry.title,
-			allowedInRanked: modRegistry.allowedInRanked,
 			rankedVersion: modRegistry.rankedVersion,
 			featured: modRegistry.featured,
 			hidden: modRegistry.hidden,
 			latestVersion: modRegistry.latestVersion,
+			latestDownloadUrl: modRegistry.latestDownloadUrl,
 			thumbnailUrl: modRegistry.thumbnailUrl,
 			isCustom: modRegistry.isCustom,
 			overriddenFields: modRegistry.overriddenFields,
@@ -32,7 +33,17 @@ export async function listPublicMods(opts?: { includeHidden?: boolean }) {
 		.from(modRegistry)
 		.where(opts?.includeHidden ? undefined : eq(modRegistry.hidden, false))
 		.orderBy(asc(modRegistry.title))
-	return rows
+	// sourceType is a pure function of latestDownloadUrl (see
+	// mod-source-classifier.ts) -- computed here rather than stored, same
+	// "no DB column of its own" shape the classifier itself documents.
+	// Exposed to the admin UI (which version-pin options are even legal for
+	// a mod) and to the public API for the same reason the launcher wants
+	// it: to know whether an "any version" pin makes sense before ranked
+	// eligibility is decided from rankedVersion alone.
+	return rows.map(({ latestDownloadUrl, ...row }) => ({
+		...row,
+		sourceType: classifyDownloadUrl(latestDownloadUrl ?? ''),
+	}))
 }
 
 // Same includeHidden shape as listPublicMods above -- a hidden mod is
@@ -53,7 +64,11 @@ export async function getPublicModById(
 		.from(modRegistryVersions)
 		.where(eq(modRegistryVersions.modId, id))
 
-	return { ...mod, versions }
+	return {
+		...mod,
+		sourceType: classifyDownloadUrl(mod.latestDownloadUrl ?? ''),
+		versions,
+	}
 }
 
 // --- Public catalog reads (GET /api/mods/profiles, GET /api/mods/profiles/:slug) ---
@@ -107,8 +122,8 @@ export interface ModIndexEntryInput {
 	}>
 }
 
-// The fields a base-index entry can supply, as opposed to allowedInRanked/
-// rankedVersion/featured (permanently admin-owned, see upsertModFromIndex's
+// The fields a base-index entry can supply, as opposed to rankedVersion/
+// featured (permanently admin-owned, see upsertModFromIndex's
 // doc comment below) or id/isCustom/overriddenFields/latestSha256 (identity/
 // bookkeeping/server-computed, never index-supplied at all). Shared between
 // upsertModFromIndex's override check and updateModFields/
@@ -128,9 +143,9 @@ export const SYNCABLE_MOD_FIELDS = [
 ] as const
 export type SyncableModField = (typeof SYNCABLE_MOD_FIELDS)[number]
 
-// Upserts one index entry. Deliberately never touches allowedInRanked/
-// rankedVersion/featured/hidden (admin-owned via PUT /api/webadmin/mods/:modId,
-// see setRankedConfig/setFeatured/setHidden below -- the base index carries
+// Upserts one index entry. Deliberately never touches rankedVersion/
+// featured/hidden (admin-owned via PUT /api/webadmin/mods/:modId,
+// see setRankedVersion/setFeatured/setHidden below -- the base index carries
 // no concept of any of these) or latestSha256/mod_registry_versions.sha256 (this server
 // computes those itself -- see mods-sync.service.ts's hashing pass, which
 // runs after this upsert and needs the row/version to already exist).
@@ -354,47 +369,31 @@ export async function storeComputedHash(
 		)
 }
 
-// --- Admin: ranked config (PUT/DELETE /api/webadmin/mods/:modId(/ranked)) ---
+// --- Admin: ranked version (PUT/DELETE /api/webadmin/mods/:modId(/ranked)) ---
 
-// At least one of the two fields is expected to be present (enforced at the
-// route layer) -- both are entirely admin-owned now, so a partial update
-// (e.g. only pinning a version without touching allowedInRanked) just leaves
-// the other field as it already was.
-export async function setRankedConfig(
+// The sole ranked-eligibility write path: null un-ranks the mod, any other
+// value ranks it and pins it to exactly that version. A plain update with
+// no validation of its own -- the caller (webadmin mods.route.ts's PUT
+// handler) is responsible for checking the custom/branch/release rules
+// (see schema.ts's rankedVersion doc comment) against the mod's current
+// sourceType/versions *before* calling this, since that needs data
+// (latestDownloadUrl, mod_registry_versions) this function has no reason to
+// re-fetch on every call.
+export async function setRankedVersion(
 	modId: string,
-	input: { allowedInRanked?: boolean; rankedVersion?: string | null },
+	rankedVersion: string | null,
 ): Promise<boolean> {
-	const set: Partial<typeof modRegistry.$inferInsert> = {
-		updatedAt: new Date(),
-	}
-	if (input.allowedInRanked !== undefined)
-		set.allowedInRanked = input.allowedInRanked
-	if (input.rankedVersion !== undefined) set.rankedVersion = input.rankedVersion
-
 	const [row] = await db
 		.update(modRegistry)
-		.set(set)
+		.set({ rankedVersion, updatedAt: new Date() })
 		.where(eq(modRegistry.id, modId))
 		.returning()
 	return row != null
 }
 
-// Clears this mod's ranked config back to the defaults (not allowed, no
-// version pin) -- there's no "index value" to reset to anymore (see
-// upsertModFromIndex's doc comment), so this is a hard clear, not a
-// hand-back.
-export async function clearRankedConfig(modId: string): Promise<boolean> {
-	const [row] = await db
-		.update(modRegistry)
-		.set({ allowedInRanked: false, rankedVersion: null, updatedAt: new Date() })
-		.where(eq(modRegistry.id, modId))
-		.returning()
-	return row != null
-}
-
-// Kept separate from setRankedConfig even though both are "always
+// Kept separate from setRankedVersion even though both are "always
 // admin-owned, never synced" toggles -- featured isn't part of ranked
-// eligibility semantically, and shouldn't reset when clearRankedConfig runs.
+// eligibility semantically, and shouldn't reset when a mod is un-ranked.
 export async function setFeatured(
 	modId: string,
 	featured: boolean,
@@ -409,7 +408,7 @@ export async function setFeatured(
 
 // Same "always admin-owned, never synced" shape as setFeatured above, kept
 // separate for the same reason -- hidden isn't part of ranked eligibility
-// either, and shouldn't reset when clearRankedConfig runs.
+// either, and shouldn't reset when a mod is un-ranked.
 export async function setHidden(
 	modId: string,
 	hidden: boolean,
@@ -483,8 +482,8 @@ export async function createCustomMod(
 }
 
 // Partial update of a custom mod's own fields -- distinct from
-// setRankedConfig/clearRankedConfig above, which only ever touch ranked
-// config. Scoped to isCustom rows only: a synced mod's fields come from the
+// setRankedVersion above, which only ever touches ranked eligibility.
+// Scoped to isCustom rows only: a synced mod's fields come from the
 // index and would just be overwritten on the next sync anyway. Undefined
 // fields are left untouched; explicit null clears a nullable field.
 export interface UpdateCustomModInput {

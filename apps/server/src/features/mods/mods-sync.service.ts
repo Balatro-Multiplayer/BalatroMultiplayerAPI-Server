@@ -139,7 +139,10 @@ interface HashRunResult {
 // stored hash is left alone (skipExisting=true, hashAll()'s regular sync
 // behavior) or unconditionally recomputed and overwritten
 // (skipExisting=false, recomputeAllModHashes()'s one-off backfill).
-async function runHashPool(candidates: HashCandidate[], skipExisting: boolean): Promise<HashRunResult> {
+async function runHashPool(
+	candidates: HashCandidate[],
+	skipExisting: boolean,
+): Promise<HashRunResult> {
 	let next = 0
 	let hashed = 0
 	const failed: Array<{ modId: string; version: string }> = []
@@ -207,7 +210,9 @@ export async function recomputeAllModHashes(modIds?: string[]): Promise<void> {
 	const candidates = modIds
 		? allCandidates.filter((c) => modIds.includes(c.modId))
 		: allCandidates
-	console.log(`[mods-sync] Recomputing hashes for ${candidates.length} mod version(s)...`)
+	console.log(
+		`[mods-sync] Recomputing hashes for ${candidates.length} mod version(s)...`,
+	)
 
 	const { hashed, failed } = await runHashPool(candidates, false)
 
@@ -227,10 +232,10 @@ export async function recomputeAllModHashes(modIds?: string[]): Promise<void> {
 // -- a whole-repo zip download, no GitHub API/token needed) and upserts it
 // into mod_registry/mod_registry_versions.
 //
-// Ranked eligibility and a pinned ranked version are entirely admin-owned in
-// this server's own DB now (see mods.gateway.ts's setRankedConfig/
-// upsertModFromIndex doc comments) -- the index never carries either, so
-// this sync doesn't touch them at all.
+// Ranked eligibility (a pinned ranked version, or null for none) is
+// entirely admin-owned in this server's own DB now (see mods.gateway.ts's
+// setRankedVersion/upsertModFromIndex doc comments) -- the index never
+// carries it, so this sync doesn't touch it at all.
 //
 // After every mod is upserted, prunes any mod_registry row whose id wasn't
 // in this sync (see pruneModsMissingFrom's doc comment -- isCustom rows are

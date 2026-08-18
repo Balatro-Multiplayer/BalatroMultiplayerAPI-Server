@@ -83,40 +83,26 @@ export default function RankedModsPage() {
 
   const [pendingModId, setPendingModId] = useState<string | null>(null)
 
-  // Ranked config (allowedInRanked + an optional pinned ranked version) is
-  // entirely admin-owned now — see the server's mods.gateway.ts
-  // setRankedConfig doc comment. Either field can be sent alone.
-  const updateRankedMut = useMutation({
+  // rankedVersion is the sole ranked-eligibility signal now -- null un-ranks
+  // a mod, any other value ranks it and pins it to exactly that version
+  // (validated server-side against sourceType, see webadmin mods.route.ts's
+  // PUT handler doc comment). Setting it to null goes through the same PUT
+  // as any other value rather than the separate DELETE .../ranked endpoint
+  // -- both work, but ModsTable's dropdown always has a concrete next value
+  // (including "None"), so there's never a reason to hit the DELETE path
+  // from this page.
+  const setRankedVersionMut = useMutation({
     mutationFn: async (input: {
       modId: string
-      allowedInRanked?: boolean
-      rankedVersion?: string | null
+      rankedVersion: string | null
     }) => {
       setPendingModId(input.modId)
       return apiFetch(`/webadmin/mods/${encodeURIComponent(input.modId)}`, {
         method: 'PUT',
-        body: JSON.stringify({
-          allowedInRanked: input.allowedInRanked,
-          rankedVersion: input.rankedVersion,
-        }),
+        body: JSON.stringify({ rankedVersion: input.rankedVersion }),
       })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ranked-mods'] }),
-    onError: onErr,
-    onSettled: () => setPendingModId(null),
-  })
-
-  const clearRankedMut = useMutation({
-    mutationFn: async (modId: string) => {
-      setPendingModId(modId)
-      return apiFetch(`/webadmin/mods/${encodeURIComponent(modId)}/ranked`, {
-        method: 'DELETE',
-      })
-    },
-    onSuccess: () => {
-      toast.success('Ranked config cleared')
-      qc.invalidateQueries({ queryKey: ['ranked-mods'] })
-    },
     onError: onErr,
     onSettled: () => setPendingModId(null),
   })
@@ -476,19 +462,12 @@ export default function RankedModsPage() {
               mods={mods}
               isAdmin={isAdmin}
               pendingModId={pendingModId}
-              onToggle={(mod, allowed) =>
-                updateRankedMut.mutate({
-                  modId: mod.id,
-                  allowedInRanked: allowed,
-                })
-              }
               onSetRankedVersion={(mod, version) =>
-                updateRankedMut.mutate({
+                setRankedVersionMut.mutate({
                   modId: mod.id,
                   rankedVersion: version,
                 })
               }
-              onClearRanked={(modId) => clearRankedMut.mutate(modId)}
               onSetFeatured={(mod, featured) =>
                 setFeaturedMut.mutate({ modId: mod.id, featured })
               }

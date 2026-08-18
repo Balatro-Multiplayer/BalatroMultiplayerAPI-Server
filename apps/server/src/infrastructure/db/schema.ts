@@ -486,16 +486,23 @@ export const modRegistry = pgTable('mod_registry', {
 	latestVersion: varchar('latest_version', { length: 64 }),
 	latestDownloadUrl: text('latest_download_url'),
 	latestSha256: varchar('latest_sha256', { length: 64 }),
-	// Both admin-owned, not synced from the index -- the upstream index carries
-	// no ranked-eligibility concept of its own. rankedVersion null means any
-	// version of this ranked-allowed mod is fine; a set value pins ranked
-	// eligibility to that exact version. App-level interpretation only, no DB
-	// CHECK -- consumed by modProfileEntries' 'latestRanked' versionMode below.
-	allowedInRanked: boolean('allowed_in_ranked').notNull().default(false),
+	// Admin-owned, not synced from the index -- the upstream index carries no
+	// ranked-eligibility concept of its own. The sole source of ranked
+	// eligibility: null means this mod is not ranked-allowed; a set value
+	// means it's ranked-allowed and pinned to exactly that version -- there
+	// is no "any version is fine" state. Enforced at write time (see
+	// setRankedVersion/webadmin mods.route.ts's PUT handler), not via a DB
+	// CHECK: a custom-sourced mod (see mod-source-classifier.ts's
+	// ModSourceType) can never be set here at all; a branch-sourced mod can
+	// only be pinned to its current latestVersion (a branch archive URL
+	// always re-resolves to current HEAD, so an old value is unfetchable);
+	// only a release-sourced mod can be pinned to any of its historical
+	// mod_registry_versions entries, since those stay individually
+	// fetchable forever. Consumed by modProfileEntries' 'latestRanked'
+	// versionMode below.
 	rankedVersion: varchar('ranked_version', { length: 64 }),
 	// Admin-owned highlight flag, same "never synced from the index" shape as
-	// allowedInRanked/rankedVersion above -- the index carries no concept of
-	// this at all.
+	// rankedVersion above -- the index carries no concept of this at all.
 	featured: boolean('featured').notNull().default(false),
 	// Admin-owned, same "never synced from the index" shape as featured above
 	// -- excludes this mod from the public GET /api/mods catalog (launcher/
@@ -531,7 +538,7 @@ export const modRegistry = pgTable('mod_registry', {
 	// that an admin has directly edited via PATCH /api/webadmin/mods/:modId.
 	// A field named here is skipped on every future sync until an admin
 	// explicitly reverts it (POST .../reset-overrides) -- unlike
-	// allowedInRanked/rankedVersion/featured, these fields *do* have an
+	// rankedVersion/featured/hidden, these fields *do* have an
 	// upstream value and should keep tracking it right up until the point an
 	// admin overrides one. Meaningless for isCustom rows (never touched by
 	// sync in the first place).

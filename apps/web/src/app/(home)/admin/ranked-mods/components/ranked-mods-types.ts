@@ -1,14 +1,26 @@
+// A mod is ranked-allowed iff rankedVersion is non-null -- there's no
+// separate "allowed" flag anymore (see the server's schema.ts rankedVersion
+// doc comment). sourceType (mirrors the server's ModSourceType) determines
+// what values rankedVersion may even be set to: 'custom' mods can never be
+// ranked-allowed; 'branch' mods only to their current latestVersion;
+// 'release' mods to any of their known versions.
+export type ModSourceType = 'branch' | 'release' | 'custom'
+
 export interface ModSummary {
   id: string
   name: string
-  allowedInRanked: boolean
   rankedVersion: string | null
+  sourceType: ModSourceType
   featured: boolean
   hidden: boolean
   latestVersion: string | null
   thumbnailUrl: string | null
   isCustom: boolean
   overriddenFields: string[]
+}
+
+export interface ModVersion {
+  version: string
 }
 
 export interface ModDetail {
@@ -28,6 +40,8 @@ export interface ModDetail {
   isCustom: boolean
   overriddenFields: string[]
   hidden: boolean
+  sourceType: ModSourceType
+  versions: ModVersion[]
 }
 
 export interface ModForm {
