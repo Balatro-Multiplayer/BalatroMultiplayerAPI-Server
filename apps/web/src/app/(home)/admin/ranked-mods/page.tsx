@@ -71,9 +71,13 @@ export default function RankedModsPage() {
 
   // --- Mods ---
 
+  // Reads from /webadmin/mods rather than the public /mods -- the public
+  // route (and its gateway default) excludes hidden mods, and this table
+  // needs to keep showing/managing them (see mods.gateway.ts's
+  // listPublicMods includeHidden doc comment).
   const { data: mods, isLoading: modsLoading } = useQuery<ModSummary[]>({
     queryKey: ['ranked-mods'],
-    queryFn: () => apiFetch('/mods'),
+    queryFn: () => apiFetch('/webadmin/mods'),
     enabled: canView,
   })
 
@@ -130,6 +134,19 @@ export default function RankedModsPage() {
     onSettled: () => setPendingModId(null),
   })
 
+  const setHiddenMut = useMutation({
+    mutationFn: async (input: { modId: string; hidden: boolean }) => {
+      setPendingModId(input.modId)
+      return apiFetch(`/webadmin/mods/${encodeURIComponent(input.modId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ hidden: input.hidden }),
+      })
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ranked-mods'] }),
+    onError: onErr,
+    onSettled: () => setPendingModId(null),
+  })
+
   // --- Mod create/edit dialog (custom mods + field overrides on any mod) ---
 
   // Turns a form into the PATCH/POST field payload -- shared by create and
@@ -176,13 +193,14 @@ export default function RankedModsPage() {
     { mode: 'create' } | { mode: 'edit'; id: string } | null
   >(null)
   const [modForm, setModForm] = useState<ModForm>(EMPTY_MOD_FORM)
-  const [originalModForm, setOriginalModForm] = useState<ModForm>(EMPTY_MOD_FORM)
+  const [originalModForm, setOriginalModForm] =
+    useState<ModForm>(EMPTY_MOD_FORM)
 
   const { data: editModDetail } = useQuery<ModDetail>({
     queryKey: ['mod-detail', modDialog?.mode === 'edit' ? modDialog.id : null],
     queryFn: () =>
       apiFetch(
-        `/mods/${encodeURIComponent(modDialog?.mode === 'edit' ? modDialog.id : '')}`
+        `/webadmin/mods/${encodeURIComponent(modDialog?.mode === 'edit' ? modDialog.id : '')}`
       ),
     enabled: modDialog?.mode === 'edit',
   })
@@ -423,8 +441,8 @@ export default function RankedModsPage() {
             <CardTitle>Mod catalog</CardTitle>
             <CardDescription>
               Ranked eligibility, an optional pinned ranked version, and every
-              other field are set here directly — edits to a synced mod's
-              field are pinned against future syncs until reset.
+              other field are set here directly — edits to a synced mod's field
+              are pinned against future syncs until reset.
             </CardDescription>
           </div>
           {isAdmin && (
@@ -473,6 +491,9 @@ export default function RankedModsPage() {
               onClearRanked={(modId) => clearRankedMut.mutate(modId)}
               onSetFeatured={(mod, featured) =>
                 setFeaturedMut.mutate({ modId: mod.id, featured })
+              }
+              onSetHidden={(mod, hidden) =>
+                setHiddenMut.mutate({ modId: mod.id, hidden })
               }
               onEdit={(mod) => setModDialog({ mode: 'edit', id: mod.id })}
               onDelete={(modId) => {

@@ -211,6 +211,13 @@
       "when": 1790500000000,
       "tag": "0029_mod_featured_and_overrides",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790600000000,
+      "tag": "0030_mod_registry_hidden",
+      "breakpoints": true
     }
   ]
 }

@@ -19,6 +19,7 @@ export function ModsTable({
   onSetRankedVersion,
   onClearRanked,
   onSetFeatured,
+  onSetHidden,
   onEdit,
   onDelete,
 }: {
@@ -29,6 +30,7 @@ export function ModsTable({
   onSetRankedVersion: (mod: ModSummary, version: string | null) => void
   onClearRanked: (modId: string) => void
   onSetFeatured: (mod: ModSummary, featured: boolean) => void
+  onSetHidden: (mod: ModSummary, hidden: boolean) => void
   onEdit: (mod: ModSummary) => void
   onDelete: (modId: string) => void
 }) {
@@ -41,6 +43,7 @@ export function ModsTable({
           <TableHead>Allowed in ranked</TableHead>
           <TableHead>Ranked version</TableHead>
           <TableHead>Featured</TableHead>
+          <TableHead>Hidden</TableHead>
           <TableHead />
         </TableRow>
       </TableHeader>
@@ -100,6 +103,13 @@ export function ModsTable({
                 onCheckedChange={(checked) => onSetFeatured(mod, checked)}
               />
             </TableCell>
+            <TableCell>
+              <Switch
+                checked={mod.hidden}
+                disabled={!isAdmin || pendingModId === mod.id}
+                onCheckedChange={(checked) => onSetHidden(mod, checked)}
+              />
+            </TableCell>
             <TableCell className='space-x-1'>
               {isAdmin && (
                 <Button
@@ -138,7 +148,7 @@ export function ModsTable({
         {mods.length === 0 && (
           <TableRow>
             <TableCell
-              colSpan={6}
+              colSpan={7}
               className='text-center text-muted-foreground'
             >
               No mods synced yet — MOD_INDEX_SYNC_ENABLED may not be set, or the

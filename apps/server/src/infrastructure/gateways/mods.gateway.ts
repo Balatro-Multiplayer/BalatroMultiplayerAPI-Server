@@ -1,16 +1,21 @@
 import { and, asc, eq, isNotNull, notInArray } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
+	type ModProfileVersionMode,
 	modProfileEntries,
 	modProfiles,
 	modRegistry,
 	modRegistryVersions,
-	type ModProfileVersionMode,
 } from '../db/schema.js'
 
 // --- Public catalog reads (GET /api/mods, GET /api/mods/:id) ---
 
-export async function listPublicMods() {
+// includeHidden defaults false -- the actual public route (features/mods/
+// mods.route.ts) always calls this with no args, so a hidden mod drops out
+// of what the launcher/website see. The admin route (features/webadmin/
+// mods.route.ts) is the only caller that passes includeHidden: true, so
+// /admin/ranked-mods can still see and un-hide a hidden mod.
+export async function listPublicMods(opts?: { includeHidden?: boolean }) {
 	const rows = await db
 		.select({
 			id: modRegistry.id,
@@ -18,21 +23,30 @@ export async function listPublicMods() {
 			allowedInRanked: modRegistry.allowedInRanked,
 			rankedVersion: modRegistry.rankedVersion,
 			featured: modRegistry.featured,
+			hidden: modRegistry.hidden,
 			latestVersion: modRegistry.latestVersion,
 			thumbnailUrl: modRegistry.thumbnailUrl,
 			isCustom: modRegistry.isCustom,
 			overriddenFields: modRegistry.overriddenFields,
 		})
 		.from(modRegistry)
+		.where(opts?.includeHidden ? undefined : eq(modRegistry.hidden, false))
 		.orderBy(asc(modRegistry.title))
 	return rows
 }
 
-export async function getPublicModById(id: string) {
+// Same includeHidden shape as listPublicMods above -- a hidden mod is
+// treated as not-found for the public single-mod fetch too, unless the
+// admin route opts in.
+export async function getPublicModById(
+	id: string,
+	opts?: { includeHidden?: boolean },
+) {
 	const mod = await db.query.modRegistry.findFirst({
 		where: eq(modRegistry.id, id),
 	})
 	if (!mod) return null
+	if (mod.hidden && !opts?.includeHidden) return null
 
 	const versions = await db
 		.select()
@@ -115,9 +129,9 @@ export const SYNCABLE_MOD_FIELDS = [
 export type SyncableModField = (typeof SYNCABLE_MOD_FIELDS)[number]
 
 // Upserts one index entry. Deliberately never touches allowedInRanked/
-// rankedVersion/featured (admin-owned via PUT /api/webadmin/mods/:modId, see
-// setRankedConfig/setFeatured below -- the base index carries no concept of
-// any of these) or latestSha256/mod_registry_versions.sha256 (this server
+// rankedVersion/featured/hidden (admin-owned via PUT /api/webadmin/mods/:modId,
+// see setRankedConfig/setFeatured/setHidden below -- the base index carries
+// no concept of any of these) or latestSha256/mod_registry_versions.sha256 (this server
 // computes those itself -- see mods-sync.service.ts's hashing pass, which
 // runs after this upsert and needs the row/version to already exist).
 //
@@ -231,7 +245,8 @@ export async function listAllVersionsWithDownloadUrl(): Promise<
 		.where(isNotNull(modRegistryVersions.downloadUrl))
 
 	return rows.filter(
-		(r): r is { modId: string; version: string; downloadUrl: string } => r.downloadUrl !== null,
+		(r): r is { modId: string; version: string; downloadUrl: string } =>
+			r.downloadUrl !== null,
 	)
 }
 
@@ -392,6 +407,21 @@ export async function setFeatured(
 	return row != null
 }
 
+// Same "always admin-owned, never synced" shape as setFeatured above, kept
+// separate for the same reason -- hidden isn't part of ranked eligibility
+// either, and shouldn't reset when clearRankedConfig runs.
+export async function setHidden(
+	modId: string,
+	hidden: boolean,
+): Promise<boolean> {
+	const [row] = await db
+		.update(modRegistry)
+		.set({ hidden, updatedAt: new Date() })
+		.where(eq(modRegistry.id, modId))
+		.returning()
+	return row != null
+}
+
 // --- Admin: custom mods (POST/DELETE /api/webadmin/mods) ---
 
 export interface CustomModInput {
@@ -517,7 +547,9 @@ export async function updateModFields(
 	})
 	if (!existing) return null
 
-	const set: Partial<typeof modRegistry.$inferInsert> = { updatedAt: new Date() }
+	const set: Partial<typeof modRegistry.$inferInsert> = {
+		updatedAt: new Date(),
+	}
 	const edited: SyncableModField[] = []
 	function touch<K extends SyncableModField>(
 		key: K,

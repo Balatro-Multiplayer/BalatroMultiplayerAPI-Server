@@ -497,6 +497,12 @@ export const modRegistry = pgTable('mod_registry', {
 	// allowedInRanked/rankedVersion above -- the index carries no concept of
 	// this at all.
 	featured: boolean('featured').notNull().default(false),
+	// Admin-owned, same "never synced from the index" shape as featured above
+	// -- excludes this mod from the public GET /api/mods catalog (launcher/
+	// website) while keeping it manageable on /admin/ranked-mods. For a mod
+	// an admin wants out of players' hands without deleting it outright (e.g.
+	// a dead-repo mod that can no longer be verified).
+	hidden: boolean('hidden').notNull().default(false),
 	// True for a mod created directly by an admin (e.g. via the "New mod"
 	// button on /admin/ranked-mods) with no base-index counterpart at all --
 	// pruneModsMissingFrom must never delete these just because they aren't

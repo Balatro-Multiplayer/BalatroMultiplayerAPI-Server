@@ -4,6 +4,7 @@ export interface ModSummary {
   allowedInRanked: boolean
   rankedVersion: string | null
   featured: boolean
+  hidden: boolean
   latestVersion: string | null
   thumbnailUrl: string | null
   isCustom: boolean
@@ -26,6 +27,7 @@ export interface ModDetail {
   fixedReleaseTagUpdates: boolean
   isCustom: boolean
   overriddenFields: string[]
+  hidden: boolean
 }
 
 export interface ModForm {

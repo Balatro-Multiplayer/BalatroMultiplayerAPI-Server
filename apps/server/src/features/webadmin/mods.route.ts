@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { modProfileVersionModeEnum } from '../../infrastructure/db/schema.js'
 import {
 	clearRankedConfig,
 	createCustomMod,
@@ -8,9 +9,11 @@ import {
 	getProfileById,
 	getPublicModById,
 	listProfiles,
+	listPublicMods,
 	removeProfileEntry,
 	resetModFieldOverrides,
 	setFeatured,
+	setHidden,
 	setRankedConfig,
 	updateCustomMod,
 	updateModFields,
@@ -18,7 +21,6 @@ import {
 	upsertProfileEntry,
 } from '../../infrastructure/gateways/mods.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
-import { modProfileVersionModeEnum } from '../../infrastructure/db/schema.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { syncModRegistry } from '../mods/mods-sync.service.js'
 
@@ -41,6 +43,20 @@ async function requireAdmin(req: import('express').Request) {
 	}
 }
 
+// Admin-only mirror of the public GET /api/mods (see features/mods/
+// mods.route.ts) that includes hidden mods -- the /admin/ranked-mods page
+// reads from this instead of the public route so a hidden mod stays
+// visible/manageable there (see mods.gateway.ts's listPublicMods
+// includeHidden doc comment). No wildcard-vs-/mods/profiles ordering risk
+// here since this is an exact path, unlike GET /mods/:modId below.
+router.get('/mods', async (_req, res, next) => {
+	try {
+		res.json(await listPublicMods({ includeHidden: true }))
+	} catch (err) {
+		next(err)
+	}
+})
+
 // Manually kicks off the same upstream sync + prepared-archive hashing pass
 // that otherwise only runs at server startup and on the hourly interval (see
 // mods-sync.service.ts) -- e.g. to confirm a mod's hash updated right after a
@@ -59,17 +75,18 @@ router.post('/mods/sync', async (req, res, next) => {
 	}
 })
 
-// Ranked config (allowedInRanked + an optional pinned ranked version) and
-// featured are both entirely admin-owned -- see mods.gateway.ts's
-// setRankedConfig/setFeatured doc comments. At least one of the three fields
-// must be present; any can be sent alone to update just that one.
+// Ranked config (allowedInRanked + an optional pinned ranked version),
+// featured, and hidden are all entirely admin-owned -- see mods.gateway.ts's
+// setRankedConfig/setFeatured/setHidden doc comments. At least one of the
+// four fields must be present; any can be sent alone to update just that one.
 router.put('/mods/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
-		const { allowedInRanked, rankedVersion, featured } = req.body as {
+		const { allowedInRanked, rankedVersion, featured, hidden } = req.body as {
 			allowedInRanked?: unknown
 			rankedVersion?: unknown
 			featured?: unknown
+			hidden?: unknown
 		}
 		if (allowedInRanked !== undefined && typeof allowedInRanked !== 'boolean') {
 			throw new AppError('allowedInRanked must be a boolean', 400)
@@ -84,13 +101,17 @@ router.put('/mods/:modId', async (req, res, next) => {
 		if (featured !== undefined && typeof featured !== 'boolean') {
 			throw new AppError('featured must be a boolean', 400)
 		}
+		if (hidden !== undefined && typeof hidden !== 'boolean') {
+			throw new AppError('hidden must be a boolean', 400)
+		}
 		if (
 			allowedInRanked === undefined &&
 			rankedVersion === undefined &&
-			featured === undefined
+			featured === undefined &&
+			hidden === undefined
 		) {
 			throw new AppError(
-				'allowedInRanked, rankedVersion, or featured is required',
+				'allowedInRanked, rankedVersion, featured, or hidden is required',
 				400,
 			)
 		}
@@ -103,6 +124,10 @@ router.put('/mods/:modId', async (req, res, next) => {
 		}
 		if (featured !== undefined) {
 			const ok = await setFeatured(req.params.modId, featured)
+			if (!ok) throw new AppError('Mod not found', 404)
+		}
+		if (hidden !== undefined) {
+			const ok = await setHidden(req.params.modId, hidden)
 			if (!ok) throw new AppError('Mod not found', 404)
 		}
 		res.json({ ok: true })
@@ -317,7 +342,9 @@ router.put('/mods/:modId/custom', async (req, res, next) => {
 router.delete('/mods/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
-		const mod = await getPublicModById(req.params.modId)
+		const mod = await getPublicModById(req.params.modId, {
+			includeHidden: true,
+		})
 		if (!mod) throw new AppError('Mod not found', 404)
 		if (!mod.isCustom) {
 			throw new AppError(
@@ -345,6 +372,23 @@ router.get('/mods/profiles/:id', async (req, res, next) => {
 		const profile = await getProfileById(req.params.id)
 		if (!profile) throw new AppError('Profile not found', 404)
 		res.json(profile)
+	} catch (err) {
+		next(err)
+	}
+})
+
+// Admin-only mirror of the public GET /api/mods/:id that includes hidden
+// mods (see the GET /mods comment above). Registered after /mods/profiles
+// and /mods/profiles/:id on purpose -- same reasoning as the public
+// router's own comment: this wildcard would otherwise swallow those static
+// paths since they share the GET method.
+router.get('/mods/:modId', async (req, res, next) => {
+	try {
+		const mod = await getPublicModById(req.params.modId, {
+			includeHidden: true,
+		})
+		if (!mod) throw new AppError('Mod not found', 404)
+		res.json(mod)
 	} catch (err) {
 		next(err)
 	}
@@ -429,12 +473,16 @@ router.put('/mods/profiles/:id/entries/:modId', async (req, res, next) => {
 				400,
 			)
 		if (versionMode === 'exact' && typeof pinnedVersion !== 'string')
-			throw new AppError('pinnedVersion is required when versionMode is exact', 400)
+			throw new AppError(
+				'pinnedVersion is required when versionMode is exact',
+				400,
+			)
 
 		const entry = await upsertProfileEntry({
 			profileId: req.params.id,
 			modId: req.params.modId,
-			versionMode: versionMode as (typeof modProfileVersionModeEnum.enumValues)[number],
+			versionMode:
+				versionMode as (typeof modProfileVersionModeEnum.enumValues)[number],
 			pinnedVersion: versionMode === 'exact' ? (pinnedVersion as string) : null,
 			allowed: typeof allowed === 'boolean' ? allowed : true,
 		})
