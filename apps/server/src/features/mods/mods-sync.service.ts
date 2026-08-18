@@ -1,9 +1,6 @@
-import { execFile } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { promisify } from 'node:util'
 import AdmZip from 'adm-zip'
 import { env } from '../../env.js'
 import {
@@ -17,9 +14,8 @@ import {
 } from '../../infrastructure/gateways/mods.gateway.js'
 import { checkCustomModVersion } from './custom-mod-version-check.service.js'
 import { relocateModRoot } from './mod-archive-flatten.js'
+import { computeModFolderHash } from './mod-folder-hash.js'
 import { fetchUpstreamModIndex } from './upstream-mod-index.service.js'
-
-const execFileAsync = promisify(execFile)
 
 export interface ModRegistrySyncSummary {
 	modsSynced: number
@@ -37,37 +33,33 @@ const HASH_FETCH_TIMEOUT_MS = 30_000
 // this pass blocks server startup (see main.ts: the server doesn't start
 // accepting connections until the first sync completes).
 const HASH_CONCURRENCY = 8
-// Generous cap on the rebuilt zip's size -- real mods are Lua source plus
-// small assets, nowhere near this; it only exists to keep a malformed or
-// unexpectedly huge archive from growing an unbounded in-memory buffer.
-const MAX_ZIP_SIZE_BYTES = 512 * 1024 * 1024
 
-// Mirrors the launcher's ModDownloadCache::sanitize() + the versionPart
-// half of cachedExtractedPath() exactly (see moddownloadcache.cpp): the
-// rebuilt archive's single top-level folder is named after *this*, not the
-// mod's id or title, and that name is part of what modzip hashes (see
-// modzip.c's basename_of()) -- it has to match byte-for-byte or the hash
-// never will, even though the loader itself doesn't care what the folder's
-// named.
+// tmpRoot's own random suffix already guarantees uniqueness between
+// concurrent hashAll() workers (including two different mods that happen to
+// share a version string) -- extractedDir just needs *a* name, since unlike
+// the old modzip-based scheme, the folder's own name never enters the hash
+// itself (computeModFolderHash() hashes paths relative to it -- see that
+// module's own comment). Kept version-derived anyway purely for
+// readability if this temp dir is ever inspected mid-run.
 function extractedFolderName(version: string): string {
 	const sanitized = version.replace(/[@/\\]/g, '_')
 	return `${sanitized || '_default'}_extracted`
 }
 
-// Rebuilds the archive exactly the way the launcher's ModInstaller does
-// before deploying it into a user's Mods folder: downloads the raw release
-// archive, extracts it, flattens/relocates its real mod-root folder (see
-// mod-archive-flatten.ts, a port of relocateModRoot()), then rezips
-// deterministically via modzip (a thin libzip wrapper matching the
-// launcher's own ZipWriter::zipDirectory() byte-for-byte -- see
-// native/modzip/modzip.c). Hashes *that* archive, not the raw download,
+// Reproduces exactly what the launcher's ModInstaller deploys into a
+// player's Mods folder: downloads the raw release archive, extracts it,
+// flattens/relocates its real mod-root folder (see mod-archive-flatten.ts,
+// a port of relocateModRoot()), then hashes that flattened folder's content
+// directly (computeModFolderHash() -- a port of the launcher's own
+// ModFileHash::hashDirectory()). Hashes *that*, not the raw download,
 // because the raw download is never what actually lands in a player's Mods
-// folder, or what RunController::currentZipMatchesServerHash() verifies
-// against. Best-effort like the old raw-archive hasher: a slow/dead
-// download URL, an unreadable archive, or a missing modzip binary (e.g.
-// local dev outside Docker, where it isn't compiled -- see Dockerfile)
+// folder, or what RunController::currentModMatchesServerHash() verifies
+// against -- mods now deploy as real extracted folders, not zips (NFS.mount()
+// zip-mounting didn't work correctly for every mod), so there's no archive
+// step left to reproduce at all past the flatten. Best-effort like the old
+// raw-archive hasher: a slow/dead download URL or an unreadable archive
 // logs and returns null rather than failing the whole sync over one mod.
-async function computePreparedZipHash(
+async function computeModFolderHashForRelease(
 	modId: string,
 	version: string,
 	downloadUrl: string,
@@ -85,12 +77,6 @@ async function computePreparedZipHash(
 		}
 		const rawBytes = Buffer.from(await res.arrayBuffer())
 
-		// tmpRoot itself is a random-suffixed unique directory (avoids
-		// collisions between concurrent hashAll() workers, including two
-		// different mods that happen to share a version string) --
-		// extractedDir nested inside it is the name that actually matters,
-		// since modzip uses *its* basename as the archive's top-level
-		// wrapper folder.
 		tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'bmp-mod-hash-'))
 		const extractedDir = path.join(tmpRoot, extractedFolderName(version))
 		await fs.mkdir(extractedDir, { recursive: true })
@@ -98,12 +84,7 @@ async function computePreparedZipHash(
 		new AdmZip(rawBytes).extractAllTo(extractedDir, true)
 		await relocateModRoot(extractedDir)
 
-		const { stdout } = await execFileAsync('modzip', [extractedDir], {
-			encoding: 'buffer',
-			maxBuffer: MAX_ZIP_SIZE_BYTES,
-		})
-
-		return createHash('sha256').update(stdout).digest('hex')
+		return await computeModFolderHash(extractedDir)
 	} catch (err) {
 		console.error(`[mods-sync] Failed to hash ${modId}@${version}:`, err)
 		return null
@@ -149,7 +130,7 @@ async function runHashPool(candidates: HashCandidate[], skipExisting: boolean): 
 				if (existingHash) continue
 			}
 
-			const hash = await computePreparedZipHash(modId, version, downloadUrl)
+			const hash = await computeModFolderHashForRelease(modId, version, downloadUrl)
 			if (hash) {
 				await storeComputedHash(modId, version, hash)
 				hashed++
@@ -169,12 +150,14 @@ async function hashAll(candidates: HashCandidate[]): Promise<number> {
 }
 
 // One-off maintenance operation, not part of the regular hourly/startup
-// sync cycle: every hash stored before the prepared-zip-hash rewrite was
-// computed over the raw GitHub download, which is never what
-// RunController::currentZipMatchesServerHash() (new-launcher) actually
-// verifies against (see computePreparedZipHash's doc comment) -- those
-// stored values are simply wrong under the corrected algorithm, not just
-// stale. This recomputes every mod_registry_versions row that has a
+// sync cycle: every hash stored before the folder-hash rewrite was computed
+// over an archive (first the raw GitHub download, later a rebuilt
+// deterministic zip -- see git history), never a plain directory's content,
+// which is never what RunController::currentModMatchesServerHash()
+// (new-launcher) actually verifies against now (see
+// computeModFolderHashForRelease's doc comment) -- those stored values are
+// simply wrong under the corrected algorithm, not just stale. This
+// recomputes every mod_registry_versions row that has a
 // downloadUrl, unconditionally (ignores getStoredHash's short-circuit
 // entirely, unlike hashAll() above) -- not just the current latest version
 // per mod, since a ranked mod profile can pin an exact historical version
@@ -215,14 +198,14 @@ export async function recomputeAllModHashes(): Promise<void> {
 //
 // After every mod is upserted, prunes any mod_registry row whose id wasn't
 // in this sync (see pruneModsMissingFrom's doc comment -- isCustom rows are
-// exempt) and hashes each remaining mod's prepared archive -- every mod, not
-// just ranked-allowed ones (the launcher needs a verifiable hash to
-// auto-install any mod, not only ranked-eligible ones), including
+// exempt) and hashes each remaining mod's flattened, extracted content --
+// every mod, not just ranked-allowed ones (the launcher needs a verifiable
+// hash to auto-install any mod, not only ranked-eligible ones), including
 // admin-created custom mods (listCustomMods() below), which aren't in the
 // fetched index at all -- that doesn't already have a stored hash for that
-// exact version. "Prepared" means run through the same extract/flatten/rezip
-// pipeline the launcher itself applies before deploying a mod into the Mods
-// folder (see computePreparedZipHash's doc comment) -- not a hash of the raw
+// exact version. Run through the same extract/flatten pipeline the launcher
+// itself applies before deploying a mod into the Mods folder (see
+// computeModFolderHashForRelease's doc comment) -- not a hash of the raw
 // download, which is never what actually gets loaded or what Ranked
 // verification checks against. A mod's hash is only ever recomputed when its
 // version changes.
