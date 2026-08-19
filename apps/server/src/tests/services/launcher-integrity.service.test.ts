@@ -229,7 +229,7 @@ describe('launcher-integrity.service', () => {
 			)
 		})
 
-		it('leaves the session unverified (not disconnected) on a wrong response before ever passing', async () => {
+		it('disconnects the player on a wrong response, even before ever passing', async () => {
 			const messageBus = makeMockMessageBus()
 			const repository = makeMockRepository()
 			const service = createLauncherIntegrityService({ messageBus, repository })
@@ -245,7 +245,7 @@ describe('launcher-integrity.service', () => {
 			})
 
 			expect(service.isLauncherVerified('player1')).toBe(false)
-			expect(kickClient).not.toHaveBeenCalled()
+			expect(kickClient).toHaveBeenCalledWith('player1')
 			expect(repository.insertEvent).toHaveBeenCalledWith(
 				'player1',
 				'login',
@@ -253,7 +253,7 @@ describe('launcher-integrity.service', () => {
 			)
 		})
 
-		it('records an explicit refusal without disconnecting, and does not re-ask this session', async () => {
+		it('disconnects on an explicit login refusal, with a forewarning message', async () => {
 			const messageBus = makeMockMessageBus()
 			const repository = makeMockRepository()
 			const service = createLauncherIntegrityService({ messageBus, repository })
@@ -267,15 +267,20 @@ describe('launcher-integrity.service', () => {
 			})
 
 			expect(service.isLauncherVerified('player1')).toBe(false)
-			expect(kickClient).not.toHaveBeenCalled()
+			expect(kickClient).toHaveBeenCalledWith('player1')
 			expect(repository.insertEvent).toHaveBeenCalledWith(
 				'player1',
 				'login',
 				'refused',
 			)
+			expect(messageBus.publishToPlayer).toHaveBeenCalledWith(
+				'player1',
+				'challenge',
+				expect.objectContaining({ type: 'failed', reason: 'refused' }),
+			)
 		})
 
-		it('treats an unanswered login challenge as an implicit refusal on timeout, without disconnecting', async () => {
+		it('disconnects on an unanswered (timed-out) login challenge', async () => {
 			vi.useFakeTimers()
 			const messageBus = makeMockMessageBus()
 			const repository = makeMockRepository()
@@ -286,7 +291,7 @@ describe('launcher-integrity.service', () => {
 			await vi.advanceTimersByTimeAsync(LOGIN_CHALLENGE_TIMEOUT_MS + 100)
 
 			expect(service.isLauncherVerified('player1')).toBe(false)
-			expect(kickClient).not.toHaveBeenCalled()
+			expect(kickClient).toHaveBeenCalledWith('player1')
 			expect(repository.insertEvent).toHaveBeenCalledWith(
 				'player1',
 				'login',
@@ -339,6 +344,11 @@ describe('launcher-integrity.service', () => {
 				'player1',
 				'periodic',
 				'wrong_response',
+			)
+			expect(messageBus.publishToPlayer).toHaveBeenCalledWith(
+				'player1',
+				'challenge',
+				expect.objectContaining({ type: 'failed', reason: 'wrong_response' }),
 			)
 		})
 	})

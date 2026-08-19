@@ -68,15 +68,20 @@ export type LauncherIntegrityService = ReturnType<
 // see BalatroMultiplayerAPI's challenge relay -- since the client can't just
 // answer for itself) at login and at random intervals during the connection.
 //
-// Refusing the login challenge only blocks ranked queueing for that session
-// (see matchmaking.service.ts's joinQueue guard) -- it does NOT disconnect
-// the player, and it is not re-asked again until their next fresh login.
-// Failing (wrong answer or timeout) the login challenge before ever passing
-// is treated the same as an explicit refusal, for the same reason: there's
-// nothing "compromised" to react to yet if they never proved anything in the
-// first place. Only failing a challenge AFTER having already passed one --
-// i.e. going from verified to unverified mid-session -- triggers an actual
-// forced disconnect with an integrity warning.
+// Any challenge failure -- wrong answer, timeout, or an explicit refusal,
+// whether it's the very first (login) challenge or a later periodic one --
+// disconnects the player via kickClient() (see failIntegrity below), after
+// first telling them why over the same channel (a 'challenge'/type='failed'
+// message the mod surfaces as a real in-game notice - see
+// BalatroMultiplayerAPI's networking/connection.lua and
+// ui/anticheat_failed_overlay.lua). This is deliberately NOT a punitive
+// ban - it relies on the already-existing, disconnect-cause-agnostic grace
+// period in grace-period.service.ts (releasePlayerLobbyOrSession) to let a
+// legitimate player relaunch and rejoin their lobby/match within the grace
+// window. Telling them what happened is what makes that actually useful:
+// an unexplained disconnect gives a player no reason to go relaunch their
+// launcher specifically, rather than assuming a network blip or server
+// issue.
 //
 // The real verify()/issue() cryptography never lives in this repo -- see
 // ChallengeStrategy in packages/types. Until registerPrivate supplies one
@@ -187,10 +192,24 @@ export function createLauncherIntegrityService(
 	}
 
 	// Shared terminal path for "this challenge did not resolve cleanly",
-	// whichever way it happened (wrong response, timeout, or an explicit
-	// refusal of a periodic challenge). `wasVerifiedBefore` decides the
-	// severity: session-only if they'd never passed a challenge yet this
-	// session, a forced disconnect if they had.
+	// whichever way it happened (wrong response, timeout, or a refusal --
+	// login or periodic, doesn't matter, see handleChallengeResponse). Every
+	// path disconnects unconditionally now: `wasVerifiedBefore` is kept as a
+	// parameter since every call site already computes it and it remains
+	// useful context for the audit trail, but it no longer changes what
+	// happens to the connection.
+	//
+	// Explicitly tells the client why before kicking it (see
+	// networking/connection.lua's handling of this message on the mod side,
+	// which surfaces it as a real in-game notice - ui/anticheat_failed_overlay.lua)
+	// rather than silently dropping the connection: a player who gets caught
+	// off guard by an unexplained disconnect has no way to tell "my launcher
+	// closed" apart from "the server fell over", so they'd have no reason to
+	// go relaunch and reconnect. The grace period this then lands in
+	// (releasePlayerLobbyOrSession in grace-period.service.ts) is what
+	// actually keeps this non-punitive - the message is best-effort (a lost
+	// notification just means a less informative disconnect, not a security
+	// hole, same as the 'verified' publish above).
 	async function failIntegrity(
 		playerId: string,
 		kind: ChallengeKind,
@@ -208,17 +227,14 @@ export function createLauncherIntegrityService(
 		if (!session) return
 
 		session.launcherVerified = false
-
-		if (!wasVerifiedBefore) {
-			session.launcherRefused = true
-			return
-		}
+		session.launcherRefused = true
 
 		await messageBus
 			.publishToPlayer(playerId, 'challenge', {
 				type: 'failed',
 				reason,
-				message: 'Launcher integrity compromised -- disconnecting.',
+				message:
+					"Anti-cheat check failed. Relaunch your launcher, then reconnect to pick back up.",
 			})
 			.catch(() => {})
 		await kickClient(playerId)
@@ -265,22 +281,6 @@ export function createLauncherIntegrityService(
 		const wasVerifiedBefore = session.launcherVerified
 
 		if (payload.refused === true) {
-			// Only meaningful for the login challenge -- by definition a periodic
-			// challenge only ever fires for a session that already passed login,
-			// so refusing one now IS the compromise signal, not a polite decline.
-			if (active.kind === 'login') {
-				session.launcherVerified = false
-				session.launcherRefused = true
-				await repository
-					.insertEvent(playerId, 'login', 'refused')
-					.catch((err) => {
-						console.error(
-							'[launcher-integrity] Failed to record integrity event:',
-							err,
-						)
-					})
-				return
-			}
 			await failIntegrity(playerId, active.kind, wasVerifiedBefore, 'refused')
 			return
 		}

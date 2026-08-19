@@ -10,9 +10,10 @@ export interface IntegrityChallenge {
 export interface IntegritySession {
 	playerId: string
 	launcherVerified: boolean
-	// Set once the login challenge is refused/failed/timed out without ever
-	// having passed -- session-scoped, so it clears on the next fresh login
-	// (handleClientConnected always starts from a fresh session).
+	// Set on any challenge failure (refused/wrong/timeout), login or periodic
+	// -- session-scoped, so it clears on the next fresh login
+	// (handleClientConnected always starts from a fresh session). Currently
+	// write-only (no consumer reads it yet); kept for audit/debugging value.
 	launcherRefused: boolean
 	activeChallenge?: IntegrityChallenge
 	nextChallengeTimer?: ReturnType<typeof setTimeout>

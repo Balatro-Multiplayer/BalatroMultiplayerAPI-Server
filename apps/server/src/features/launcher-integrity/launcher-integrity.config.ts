@@ -17,8 +17,8 @@ export const LOGIN_CHALLENGE_TIMEOUT_MS = 30_000
 
 // Periodic re-challenge interval is randomized within this window (jittered,
 // not fixed) so the interval itself can't be used to predict/evade a check.
-export const PERIODIC_MIN_MS = 5 * 60 * 1000
-export const PERIODIC_MAX_MS = 20 * 60 * 1000
+export const PERIODIC_MIN_MS = 3 * 60 * 1000
+export const PERIODIC_MAX_MS = 5 * 60 * 1000
 
 // Grace delay between EMQX's client.connected webhook firing and the server
 // issuing the login challenge, giving the client's own SUBSCRIBE to
