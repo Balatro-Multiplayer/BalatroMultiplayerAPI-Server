@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ILauncherIntegrityRepository } from '../../contracts/ILauncherIntegrityRepository.js'
 import type { IMessageBus } from '../../contracts/IMessageBus.js'
-import { kickClient } from '../../infrastructure/emqx/emqx-admin.service.js'
+import { env } from '../../env.js'
 import * as launcherIntegrityGateway from '../../infrastructure/gateways/launcher-integrity.gateway.js'
 import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
 import type {
@@ -70,18 +70,15 @@ export type LauncherIntegrityService = ReturnType<
 //
 // Any challenge failure -- wrong answer, timeout, or an explicit refusal,
 // whether it's the very first (login) challenge or a later periodic one --
-// disconnects the player via kickClient() (see failIntegrity below), after
-// first telling them why over the same channel (a 'challenge'/type='failed'
-// message the mod surfaces as a real in-game notice - see
-// BalatroMultiplayerAPI's networking/connection.lua and
-// ui/anticheat_failed_overlay.lua). This is deliberately NOT a punitive
-// ban - it relies on the already-existing, disconnect-cause-agnostic grace
-// period in grace-period.service.ts (releasePlayerLobbyOrSession) to let a
-// legitimate player relaunch and rejoin their lobby/match within the grace
-// window. Telling them what happened is what makes that actually useful:
-// an unexplained disconnect gives a player no reason to go relaunch their
-// launcher specifically, rather than assuming a network blip or server
-// issue.
+// clears launcherVerified and tells the player why over the same channel (a
+// 'challenge'/type='failed' message the mod surfaces as a real in-game
+// notice - see BalatroMultiplayerAPI's networking/connection.lua and
+// ui/anticheat_failed_overlay.lua), but does NOT disconnect them (see
+// failIntegrity below). A cctl-launched or otherwise non-BET client can
+// never answer this challenge, and by design that only costs it Ranked
+// eligibility (isLauncherVerified() gates the Ranked queue guard in
+// matchmaking.service.ts) -- Casual play, private lobbies, and everything
+// else stay fully usable while unverified.
 //
 // The real verify()/issue() cryptography never lives in this repo -- see
 // ChallengeStrategy in packages/types. Until registerPrivate supplies one
@@ -176,6 +173,17 @@ export function createLauncherIntegrityService(
 	async function handleClientConnected(playerId: string): Promise<void> {
 		if (!strategy) return
 		clearSession(playerId)
+
+		// See env.ts's doc comment: a dev-only bypass so a non-BET client (e.g.
+		// ClaudeControl-driven testing) can be Ranked-eligible without ever
+		// answering a real challenge. No challenge is issued at all -- not even
+		// a periodic one later -- since the client has no way to answer either.
+		if (env.DEV_AUTO_VERIFY_LAUNCHER) {
+			const session = getOrCreateSession(playerId)
+			session.launcherVerified = true
+			return
+		}
+
 		await issueChallenge(playerId, 'login')
 	}
 
@@ -193,23 +201,19 @@ export function createLauncherIntegrityService(
 
 	// Shared terminal path for "this challenge did not resolve cleanly",
 	// whichever way it happened (wrong response, timeout, or a refusal --
-	// login or periodic, doesn't matter, see handleChallengeResponse). Every
-	// path disconnects unconditionally now: `wasVerifiedBefore` is kept as a
-	// parameter since every call site already computes it and it remains
-	// useful context for the audit trail, but it no longer changes what
-	// happens to the connection.
+	// login or periodic, doesn't matter, see handleChallengeResponse).
+	// `wasVerifiedBefore` is kept as a parameter since every call site already
+	// computes it and it remains useful context for the audit trail, even
+	// though it doesn't change what happens here.
 	//
-	// Explicitly tells the client why before kicking it (see
-	// networking/connection.lua's handling of this message on the mod side,
-	// which surfaces it as a real in-game notice - ui/anticheat_failed_overlay.lua)
-	// rather than silently dropping the connection: a player who gets caught
-	// off guard by an unexplained disconnect has no way to tell "my launcher
-	// closed" apart from "the server fell over", so they'd have no reason to
-	// go relaunch and reconnect. The grace period this then lands in
-	// (releasePlayerLobbyOrSession in grace-period.service.ts) is what
-	// actually keeps this non-punitive - the message is best-effort (a lost
-	// notification just means a less informative disconnect, not a security
-	// hole, same as the 'verified' publish above).
+	// Deliberately does NOT disconnect the player -- only clears
+	// launcherVerified, which is all matchmaking.service.ts's Ranked queue
+	// guard actually checks. Casual play, private lobbies, chat, etc. are
+	// untouched by a failed/refused/timed-out challenge. This is what makes
+	// the check non-punitive for anyone who simply isn't running through the
+	// real launcher (Casual players, a manual game launch, ClaudeControl-driven
+	// testing) instead of relying on the disconnect-then-grace-period dance a
+	// kick would otherwise require.
 	async function failIntegrity(
 		playerId: string,
 		kind: ChallengeKind,
@@ -233,11 +237,9 @@ export function createLauncherIntegrityService(
 			.publishToPlayer(playerId, 'challenge', {
 				type: 'failed',
 				reason,
-				message:
-					"Anti-cheat check failed. Relaunch your launcher, then reconnect to pick back up.",
+				message: "Anti-cheat check failed. You'll need to pass it to queue for Ranked.",
 			})
 			.catch(() => {})
-		await kickClient(playerId)
 	}
 
 	// Fired by the setTimeout armed in issueChallenge -- looks the challenge up

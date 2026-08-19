@@ -229,7 +229,7 @@ describe('launcher-integrity.service', () => {
 			)
 		})
 
-		it('disconnects the player on a wrong response, even before ever passing', async () => {
+		it('unverifies the player on a wrong response without disconnecting, even before ever passing', async () => {
 			const messageBus = makeMockMessageBus()
 			const repository = makeMockRepository()
 			const service = createLauncherIntegrityService({ messageBus, repository })
@@ -245,7 +245,7 @@ describe('launcher-integrity.service', () => {
 			})
 
 			expect(service.isLauncherVerified('player1')).toBe(false)
-			expect(kickClient).toHaveBeenCalledWith('player1')
+			expect(kickClient).not.toHaveBeenCalled()
 			expect(repository.insertEvent).toHaveBeenCalledWith(
 				'player1',
 				'login',
@@ -253,7 +253,7 @@ describe('launcher-integrity.service', () => {
 			)
 		})
 
-		it('disconnects on an explicit login refusal, with a forewarning message', async () => {
+		it('unverifies on an explicit login refusal, with a forewarning message, without disconnecting', async () => {
 			const messageBus = makeMockMessageBus()
 			const repository = makeMockRepository()
 			const service = createLauncherIntegrityService({ messageBus, repository })
@@ -267,7 +267,7 @@ describe('launcher-integrity.service', () => {
 			})
 
 			expect(service.isLauncherVerified('player1')).toBe(false)
-			expect(kickClient).toHaveBeenCalledWith('player1')
+			expect(kickClient).not.toHaveBeenCalled()
 			expect(repository.insertEvent).toHaveBeenCalledWith(
 				'player1',
 				'login',
@@ -280,7 +280,7 @@ describe('launcher-integrity.service', () => {
 			)
 		})
 
-		it('disconnects on an unanswered (timed-out) login challenge', async () => {
+		it('unverifies on an unanswered (timed-out) login challenge without disconnecting', async () => {
 			vi.useFakeTimers()
 			const messageBus = makeMockMessageBus()
 			const repository = makeMockRepository()
@@ -291,7 +291,7 @@ describe('launcher-integrity.service', () => {
 			await vi.advanceTimersByTimeAsync(LOGIN_CHALLENGE_TIMEOUT_MS + 100)
 
 			expect(service.isLauncherVerified('player1')).toBe(false)
-			expect(kickClient).toHaveBeenCalledWith('player1')
+			expect(kickClient).not.toHaveBeenCalled()
 			expect(repository.insertEvent).toHaveBeenCalledWith(
 				'player1',
 				'login',
@@ -301,7 +301,7 @@ describe('launcher-integrity.service', () => {
 	})
 
 	describe('periodic challenge failure after an earlier pass', () => {
-		it('force-disconnects the player and does not just leave them unverified', async () => {
+		it('revokes verification on a failed periodic challenge without disconnecting', async () => {
 			const messageBus = makeMockMessageBus()
 			const repository = makeMockRepository()
 			const service = createLauncherIntegrityService({ messageBus, repository })
@@ -339,7 +339,7 @@ describe('launcher-integrity.service', () => {
 			})
 
 			expect(service.isLauncherVerified('player1')).toBe(false)
-			expect(kickClient).toHaveBeenCalledWith('player1')
+			expect(kickClient).not.toHaveBeenCalled()
 			expect(repository.insertEvent).toHaveBeenCalledWith(
 				'player1',
 				'periodic',

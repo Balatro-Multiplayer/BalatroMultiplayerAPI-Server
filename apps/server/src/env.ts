@@ -70,6 +70,16 @@ export const env = {
 	// casual queueing is unaffected. On by default.
 	RANKED_ENABLED: optionalBool('RANKED_ENABLED', true),
 
+	// Dev-only escape hatch for local Ranked testing without a real BET launcher
+	// (e.g. ClaudeControl-driven clients, which can never answer the launcher-
+	// integrity HMAC challenge -- see launcher-integrity.service.ts). When true,
+	// every player is marked launcher-verified on connect and never issued a
+	// challenge at all, rather than needing to actually pass one. Forced off
+	// outside development regardless of the raw env value, so a stray .env
+	// setting can never enable this in production.
+	DEV_AUTO_VERIFY_LAUNCHER:
+		!IS_PRODUCTION && optionalBool('DEV_AUTO_VERIFY_LAUNCHER', false),
+
 	// On/off switch for the hourly mod-registry sync (features/mods/mods-sync.service.ts,
 	// which fetches skyline69/balatro-mod-index directly -- see
 	// upstream-mod-index.service.ts). Off by default so local dev/tests don't
