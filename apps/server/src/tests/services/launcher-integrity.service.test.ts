@@ -187,6 +187,48 @@ describe('launcher-integrity.service', () => {
 			expect(kickClient).not.toHaveBeenCalled()
 		})
 
+		it('publishes a verified acknowledgement on a correct response', async () => {
+			const messageBus = makeMockMessageBus()
+			const repository = makeMockRepository()
+			const service = createLauncherIntegrityService({ messageBus, repository })
+			service.setChallengeStrategy(makeFakeStrategy())
+
+			await service.handleClientConnected('player1')
+			const challengeId = await getIssuedChallengeId(messageBus)
+			await service.handleChallengeResponse('player1', {
+				challengeId,
+				response: 'anything',
+			})
+
+			expect(messageBus.publishToPlayer).toHaveBeenCalledWith(
+				'player1',
+				'challenge',
+				expect.objectContaining({ type: 'verified', challengeId, kind: 'login' }),
+			)
+		})
+
+		it('does not publish a verified acknowledgement on a wrong response', async () => {
+			const messageBus = makeMockMessageBus()
+			const repository = makeMockRepository()
+			const service = createLauncherIntegrityService({ messageBus, repository })
+			const strategy = makeFakeStrategy()
+			strategy.answerIsCorrect = false
+			service.setChallengeStrategy(strategy)
+
+			await service.handleClientConnected('player1')
+			const challengeId = await getIssuedChallengeId(messageBus)
+			await service.handleChallengeResponse('player1', {
+				challengeId,
+				response: 'wrong',
+			})
+
+			expect(messageBus.publishToPlayer).not.toHaveBeenCalledWith(
+				'player1',
+				'challenge',
+				expect.objectContaining({ type: 'verified' }),
+			)
+		})
+
 		it('leaves the session unverified (not disconnected) on a wrong response before ever passing', async () => {
 			const messageBus = makeMockMessageBus()
 			const repository = makeMockRepository()

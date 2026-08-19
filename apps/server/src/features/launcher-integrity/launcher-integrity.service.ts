@@ -303,6 +303,24 @@ export function createLauncherIntegrityService(
 		session.launcherVerified = true
 		session.launcherRefused = false
 
+		// Tells the mod it actually passed, not just that it answered - see
+		// MPAPI's networking/connection.lua and anticheat/launcher_channel.lua.
+		// Without this, nothing client-side ever learns the *server's* verdict
+		// on a challenge response, which is exactly what a Ranked queue-button
+		// gate needs (a client-only "did BET answer" check can't tell a wrong
+		// answer from a right one). Best-effort like the 'failed' publish
+		// below - a lost notification just means the client's gate stays
+		// closed until the next periodic challenge succeeds, not a security
+		// hole (the server-side joinQueue() guard is the actual enforcement
+		// point either way).
+		await messageBus
+			.publishToPlayer(playerId, 'challenge', {
+				type: 'verified',
+				challengeId: active.challengeId,
+				kind: active.kind,
+			})
+			.catch(() => {})
+
 		// Hardware IDs only ever ride along on the login challenge (see
 		// hardwarefingerprint.cpp / RankedSupervisor on the launcher side) --
 		// storing one attached to a periodic response would be unexpected, not
