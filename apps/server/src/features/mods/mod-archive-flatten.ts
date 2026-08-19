@@ -5,8 +5,8 @@ import path from 'node:path'
 // findShallowestLuaDirs() / flattenSingleRootFolder() (see
 // new-launcher/src/mods/modinstaller.cpp) - this has to produce the exact
 // same on-disk layout the launcher's own extraction step would, since
-// mods-sync.service.ts feeds the result straight into modzip (see
-// native/modzip/modzip.c), and the resulting hash only means anything if
+// mods-sync.service.ts feeds the result straight into computeModFolderHash()
+// (see mod-folder-hash.ts), and the resulting hash only means anything if
 // this matches what a real install actually flattens a mod archive into.
 //
 // Safety bound on how many nested wrapper folders flattenSingleRootFolder()
