@@ -26,7 +26,7 @@ export const LEADERBOARD_CATEGORIES: LeaderboardCategory[] = [
   {
     id: 'speedrun',
     label: 'Speedrun',
-    modId: 'MultiplayerSpeedrunning',
+    modId: 'MultiplayerSPDRN',
     metric: 'time',
     metricLabel: 'Best Time',
     modes: [
