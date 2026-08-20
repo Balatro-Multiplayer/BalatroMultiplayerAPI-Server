@@ -40,9 +40,21 @@ export async function listPublicMods(opts?: { includeHidden?: boolean }) {
 	// a mod) and to the public API for the same reason the launcher wants
 	// it: to know whether an "any version" pin makes sense before ranked
 	// eligibility is decided from rankedVersion alone.
-	return rows.map(({ latestDownloadUrl, ...row }) => ({
+	//
+	// latestDownloadUrl itself is kept in the response (not just used to
+	// derive sourceType and discarded) -- this is the compact list
+	// ModIndexManager::onModListFetched() diffs against its own cache to
+	// decide which mods need a full GET /api/mods/:id detail refetch. It
+	// used to be stripped out here, which meant an admin editing ONLY a
+	// mod's URL (not its version/rankedVersion/featured, the only fields
+	// that WERE compared) was invisible to that diff forever - the
+	// launcher's cached defaultDownloadUrl (itself only ever populated from
+	// the detail endpoint, see ModIndexEntry::fromApiJson) just never got
+	// refreshed. Confirmed live: editing Blueprint's latestDownloadUrl
+	// alone never reached any launcher instance.
+	return rows.map((row) => ({
 		...row,
-		sourceType: classifyDownloadUrl(latestDownloadUrl ?? ''),
+		sourceType: classifyDownloadUrl(row.latestDownloadUrl ?? ''),
 	}))
 }
 

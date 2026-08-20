@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { checkCustomModVersion } from '../../features/mods/custom-mod-version-check.service.js'
+import { AppError } from '../../shared/utils/errors.js'
+import {
+	checkCustomModVersion,
+	resolveSourceInput,
+} from '../../features/mods/custom-mod-version-check.service.js'
 
 function jsonResponse(status: number, body: unknown): Response {
 	return new Response(JSON.stringify(body), { status })
@@ -177,5 +181,104 @@ describe('checkCustomModVersion', () => {
 		})
 
 		expect(result).toBeNull()
+	})
+})
+
+describe('resolveSourceInput', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals()
+	})
+
+	it('branch: resolves that specific branch\'s own HEAD, not the default branch\'s', async () => {
+		mockFetch((url) => {
+			// /commits/{ref} (a single commit object), not /commits (an array) -
+			// the whole point is this must ask for the named branch specifically.
+			if (url.endsWith('/repos/Alice/Mod/commits/dev')) {
+				return jsonResponse(200, { sha: 'aaaaaaaaaaaaaaaa' })
+			}
+			throw new Error(`unexpected fetch: ${url}`)
+		})
+
+		const result = await resolveSourceInput({
+			sourceType: 'branch',
+			repoUrl: 'https://github.com/Alice/Mod',
+			branch: 'dev',
+		})
+
+		expect(result).toEqual({
+			latestDownloadUrl: 'https://github.com/Alice/Mod/archive/refs/heads/dev.zip',
+			latestVersion: 'aaaaaaa',
+		})
+	})
+
+	it("branch: throws when the branch doesn't resolve", async () => {
+		mockFetch(() => jsonResponse(404, {}))
+
+		await expect(
+			resolveSourceInput({
+				sourceType: 'branch',
+				repoUrl: 'https://github.com/Alice/Mod',
+				branch: 'nonexistent',
+			}),
+		).rejects.toThrow(AppError)
+	})
+
+	it('release: resolves the latest tag into an archive/refs/tags URL', async () => {
+		mockFetch((url) => {
+			if (url.endsWith('/repos/Bob/Mod/releases/latest')) {
+				return jsonResponse(200, { tag_name: 'v3.0.0' })
+			}
+			throw new Error(`unexpected fetch: ${url}`)
+		})
+
+		const result = await resolveSourceInput({
+			sourceType: 'release',
+			repoUrl: 'https://github.com/Bob/Mod',
+		})
+
+		expect(result).toEqual({
+			latestDownloadUrl: 'https://github.com/Bob/Mod/archive/refs/tags/v3.0.0.zip',
+			latestVersion: 'v3.0.0',
+		})
+	})
+
+	it('release: throws when the repo has zero releases', async () => {
+		mockFetch(() => jsonResponse(404, {}))
+
+		await expect(
+			resolveSourceInput({
+				sourceType: 'release',
+				repoUrl: 'https://github.com/Bob/Mod',
+			}),
+		).rejects.toThrow(AppError)
+	})
+
+	it('branch/release: throws on a repoUrl that is not a github.com URL', async () => {
+		mockFetch(() => {
+			throw new Error('should not fetch')
+		})
+
+		await expect(
+			resolveSourceInput({
+				sourceType: 'release',
+				repoUrl: 'https://example.com/not-github',
+			}),
+		).rejects.toThrow(AppError)
+	})
+
+	it('custom: passes the URL through untouched with no network call at all', async () => {
+		mockFetch(() => {
+			throw new Error('should not fetch')
+		})
+
+		const result = await resolveSourceInput({
+			sourceType: 'custom',
+			url: 'https://example.com/mod.zip',
+		})
+
+		expect(result).toEqual({
+			latestDownloadUrl: 'https://example.com/mod.zip',
+			latestVersion: null,
+		})
 	})
 })

@@ -47,8 +47,14 @@ describe('mods routes', () => {
 			const res = await request(app).get('/api/mods')
 
 			expect(res.status).toBe(200)
-			const { latestDownloadUrl, ...expected } = rows[0]
-			expect(res.body).toEqual([{ ...expected, sourceType: 'release' }])
+			// latestDownloadUrl must stay in the compact response (not just get
+			// consumed to derive sourceType and discarded) -- it's what
+			// ModIndexManager::onModListFetched() on the launcher side diffs
+			// against its cache to decide whether a mod needs a detail refetch.
+			// Stripping it here once meant an admin editing ONLY a mod's URL
+			// (version/rankedVersion/featured unchanged) was invisible to every
+			// launcher instance, forever.
+			expect(res.body).toEqual([{ ...rows[0], sourceType: 'release' }])
 		})
 	})
 

@@ -1,7 +1,7 @@
 'use client'
 
 import type { FormEvent } from 'react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -11,108 +11,101 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { LauncherPlatform } from './launcher-releases-types'
 import {
-  PLATFORM_ACCEPT,
-  PLATFORM_LABELS,
-  PLATFORMS,
-} from './launcher-releases-types'
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import type { GithubReleaseOption } from './launcher-releases-types'
 
 export function AddReleaseForm({
+  githubReleases,
+  isLoadingGithubReleases,
   isPending,
   onSubmit,
 }: {
+  githubReleases: GithubReleaseOption[]
+  isLoadingGithubReleases: boolean
   isPending: boolean
-  onSubmit: (formData: FormData) => void
+  onSubmit: (tag: string) => void
 }) {
-  const [version, setVersion] = useState('')
-  const [notes, setNotes] = useState('')
-  const [files, setFiles] = useState<Partial<Record<LauncherPlatform, File>>>(
-    {}
+  const [tag, setTag] = useState('')
+
+  // Not-yet-imported tags first, newest first within each group (the API
+  // already returns them newest-first) - the whole point of this picker is
+  // finding a release to import, so already-imported ones (still shown, for
+  // re-importing under a different scenario) shouldn't push those down.
+  const sorted = [...githubReleases].sort(
+    (a, b) => Number(a.alreadyImported) - Number(b.alreadyImported)
   )
 
-  const hasAnyFile = Object.values(files).some(Boolean)
-
-  function reset() {
-    setVersion('')
-    setNotes('')
-    setFiles({})
-  }
+  useEffect(() => {
+    if (!tag && sorted[0]) setTag(sorted[0].tag)
+  }, [sorted, tag])
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    const formData = new FormData()
-    formData.set('version', version.trim())
-    if (notes.trim()) formData.set('notes', notes.trim())
-    for (const platform of PLATFORMS) {
-      const file = files[platform]
-      if (file) formData.set(platform, file)
-    }
-    onSubmit(formData)
-    reset()
+    if (!tag) return
+    onSubmit(tag)
   }
+
+  const selected = githubReleases.find((r) => r.tag === tag)
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>New launcher release</CardTitle>
+        <CardTitle>Import a launcher release</CardTitle>
         <CardDescription>
-          Upload a version number plus at least one platform binary. Missing
-          platforms can be added later by uploading them against the same
-          version below.
+          Pulls version + platform binaries from a GitHub release already
+          built by new-launcher's own CI - nothing is uploaded from this
+          browser.
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit}>
         <CardContent className='space-y-4'>
           <div className='space-y-2'>
-            <Label htmlFor='release-version'>Version</Label>
-            <Input
-              id='release-version'
-              placeholder='1.2.0'
-              value={version}
-              onChange={(e) => setVersion(e.target.value)}
-              required
-            />
-          </div>
-          <div className='space-y-2'>
-            <Label htmlFor='release-notes'>Notes (optional)</Label>
-            <Input
-              id='release-notes'
-              placeholder='Changelog summary'
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-          </div>
-          <div className='grid gap-4 sm:grid-cols-3'>
-            {PLATFORMS.map((platform) => (
-              <div key={platform} className='space-y-2'>
-                <Label htmlFor={`release-file-${platform}`}>
-                  {PLATFORM_LABELS[platform]}
-                </Label>
-                <Input
-                  id={`release-file-${platform}`}
-                  type='file'
-                  accept={PLATFORM_ACCEPT[platform]}
-                  className='file:mr-2 file:rounded-md file:border file:border-input file:bg-secondary file:px-2 file:text-secondary-foreground'
-                  onChange={(e) =>
-                    setFiles((f) => ({
-                      ...f,
-                      [platform]: e.target.files?.[0],
-                    }))
+            <Label htmlFor='release-tag'>GitHub release</Label>
+            <Select value={tag} onValueChange={setTag}>
+              <SelectTrigger id='release-tag' className='w-full'>
+                <SelectValue
+                  placeholder={
+                    isLoadingGithubReleases
+                      ? 'Loading releases…'
+                      : 'Select a release'
                   }
                 />
-              </div>
-            ))}
+              </SelectTrigger>
+              <SelectContent>
+                {sorted.map((r) => (
+                  <SelectItem key={r.tag} value={r.tag}>
+                    {r.name ?? r.tag}
+                    {r.alreadyImported ? ' (already imported)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
+          {selected?.body ? (
+            <div className='space-y-1'>
+              <Label className='text-muted-foreground text-xs'>
+                Release notes (from GitHub)
+              </Label>
+              <p className='whitespace-pre-wrap text-muted-foreground text-sm'>
+                {selected.body}
+              </p>
+            </div>
+          ) : null}
         </CardContent>
         <CardFooter className='mt-4'>
-          <Button
-            type='submit'
-            disabled={isPending || !version.trim() || !hasAnyFile}
-          >
-            {isPending ? 'Uploading…' : 'Upload release'}
+          <Button type='submit' disabled={isPending || !tag}>
+            {isPending
+              ? 'Importing…'
+              : selected?.alreadyImported
+                ? 'Re-import'
+                : 'Import release'}
           </Button>
         </CardFooter>
       </form>

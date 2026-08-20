@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream'
 import { Router } from 'express'
 import type { LauncherPlatform } from '../../infrastructure/db/schema.js'
 import {
@@ -6,7 +7,10 @@ import {
 	getReleaseByVersion,
 } from '../../infrastructure/gateways/launcher-releases.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
-import * as storage from '../launcher-releases/launcher-release-storage.js'
+import {
+	assertSafeVersion,
+	resolveAssetDownloadStream,
+} from '../launcher-releases/launcher-github-releases.service.js'
 
 // Public, launcher-facing endpoints -- no auth, matching the old
 // GET /api/releases precedent ("the launcher polls it"). The new (private)
@@ -37,9 +41,9 @@ function extname(filename: string): string {
 
 // Returns every platform in one payload rather than requiring three
 // requests -- the launcher already knows its own OS, this just avoids a
-// round trip per platform. A platform key is `null` when nothing's been
-// uploaded for it yet (not a 404) -- 404 is reserved for "no release has
-// ever been uploaded at all".
+// round trip per platform. A platform key is `null` when the imported
+// GitHub release didn't have a build for it (not a 404) -- 404 is reserved
+// for "no release has ever been imported at all".
 router.get('/latest', async (_req, res, next) => {
 	try {
 		const release = await getLatestRelease()
@@ -80,7 +84,7 @@ router.get('/download/:version/:platform', async (req, res, next) => {
 		}
 		// Re-validate even though only admin-sanitized versions are ever
 		// stored -- this route is public, treat params as hostile.
-		storage.assertSafeVersion(version)
+		assertSafeVersion(version)
 
 		const release = await getReleaseByVersion(version)
 		if (!release) throw new AppError('Release not found', 404)
@@ -97,7 +101,14 @@ router.get('/download/:version/:platform', async (req, res, next) => {
 		)
 		res.setHeader('Content-Length', String(asset.fileSize))
 
-		const stream = storage.openAssetStream(asset.storagePath)
+		// Proxies the real bytes from GitHub (see resolveAssetDownloadStream's
+		// own comment for why this is a two-hop fetch) - never buffered in
+		// memory here, streamed straight through to the response the same way
+		// the old local-disk version was.
+		const githubRes = await resolveAssetDownloadStream(asset.githubAssetId)
+		const stream = Readable.fromWeb(
+			githubRes.body as import('node:stream/web').ReadableStream,
+		)
 		stream.on('error', next)
 		stream.pipe(res)
 	} catch (err) {

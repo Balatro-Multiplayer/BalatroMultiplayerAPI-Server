@@ -54,10 +54,19 @@ export interface ModForm {
   repoUrl: string
   thumbnailUrl: string
   description: string
+  // sourceType drives what the save payload actually sends (see
+  // mod-form-dialog.tsx / page.tsx's modFormToFields): 'branch'/'release'
+  // send { sourceInput } and the server resolves latestVersion/
+  // latestDownloadUrl itself (see custom-mod-version-check.service.ts's
+  // resolveSourceInput) instead of the admin typing a raw URL; 'custom'
+  // sends latestVersion/latestDownloadUrl directly, unchanged from before.
+  sourceType: ModSourceType
+  // Only meaningful when sourceType === 'branch' - see BRANCH_ARCHIVE_RE
+  // below for how this gets pre-filled when editing an existing mod.
+  branch: string
   latestVersion: string
   latestDownloadUrl: string
   automaticVersionCheck: boolean
-  fixedReleaseTagUpdates: boolean
 }
 
 export const EMPTY_MOD_FORM: ModForm = {
@@ -70,10 +79,26 @@ export const EMPTY_MOD_FORM: ModForm = {
   repoUrl: '',
   thumbnailUrl: '',
   description: '',
+  sourceType: 'custom',
+  branch: 'main',
   latestVersion: '',
   latestDownloadUrl: '',
   automaticVersionCheck: false,
-  fixedReleaseTagUpdates: false,
+}
+
+// Mirrors the server's BRANCH_ARCHIVE regex (mod-source-classifier.ts) just
+// enough to pull the branch name back out of an existing mod's
+// latestDownloadUrl for pre-filling the "Branch name" field when editing -
+// the server already tells us sourceType itself (ModDetail.sourceType), so
+// this is only needed for the one extra piece 'branch' mode needs beyond that.
+const BRANCH_ARCHIVE_RE =
+  /^https:\/\/github\.com\/[^/]+\/[^/]+\/archive\/refs\/heads\/(.+)\.zip$/
+
+export function extractBranchName(latestDownloadUrl: string | null): string {
+  const match = latestDownloadUrl
+    ? BRANCH_ARCHIVE_RE.exec(latestDownloadUrl)
+    : null
+  return match?.[1] ?? 'main'
 }
 
 export interface ModProfile {

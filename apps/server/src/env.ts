@@ -89,22 +89,15 @@ export const env = {
 	// pattern used elsewhere in this file.
 	MOD_INDEX_SYNC_ENABLED: optionalBool('MOD_INDEX_SYNC_ENABLED', false),
 
-	// Optional -- sent as an Authorization header on the handful of
-	// api.github.com calls custom-mod-version-check.service.ts makes (one or
-	// two per opted-in custom mod, not per upstream mod -- the bulk upstream
-	// index itself comes from a zip download, not the API). Unauthenticated
-	// GitHub REST already allows 60 req/hr, comfortably enough for a small
-	// number of custom mods; this exists purely for rate-limit headroom, not
-	// because it's required.
+	// Optional for custom-mod-version-check.service.ts's calls against the
+	// *public* skyline69/balatro-mod-index repo (rate-limit headroom only,
+	// unauthenticated GitHub REST already allows 60 req/hr) -- but
+	// effectively REQUIRED for features/launcher-releases/launcher-github-releases.service.ts,
+	// which reads Releases from the *private* Balatro-Multiplayer/new-launcher
+	// repo and needs a token with repo (classic) or Contents:Read
+	// (fine-grained) access to that specific repo, or every launcher-release
+	// admin action and every public download fails with a clear 500. Kept as
+	// one shared optional() rather than two separately-required vars since
+	// the mods feature must keep working even before this token exists.
 	GITHUB_TOKEN: optional('GITHUB_TOKEN', ''),
-
-	// Root directory launcher binaries are written to/served from (see
-	// features/launcher-releases/launcher-release-storage.ts) -- local disk,
-	// not object storage. In production this must be a path backed by a
-	// persistent volume (see docker-compose.yml's api service), or uploads
-	// are lost on the next redeploy.
-	LAUNCHER_RELEASES_DIR: optional(
-		'LAUNCHER_RELEASES_DIR',
-		'./data/launcher-releases',
-	),
 } as const

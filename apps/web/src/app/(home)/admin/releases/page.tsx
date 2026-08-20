@@ -10,6 +10,7 @@ import { AddReleaseForm } from './components/add-release-form'
 import { DeleteReleaseDialog } from './components/delete-release-dialog'
 import { LauncherReleasesTable } from './components/launcher-releases-table'
 import type {
+  GithubReleaseOption,
   LauncherPlatform,
   LauncherRelease,
 } from './components/launcher-releases-types'
@@ -18,12 +19,18 @@ interface ReleasesResponse {
   releases: LauncherRelease[]
 }
 
-// Admin surface for the new (private) launcher's binaries -- see this
+interface GithubReleasesResponse {
+  releases: GithubReleaseOption[]
+}
+
+// Admin surface for the new (private) launcher's releases -- see this
 // server's features/launcher/launcher.route.ts for the public
-// GET /api/launcher/latest + download endpoints these uploads feed. The
-// launcher's repo is private for anti-cheat reasons, so it can't use GitHub
-// Releases the way the old public launcher did; this server hosts the
-// binaries itself instead.
+// GET /api/launcher/latest + download endpoints these imports feed. The
+// launcher's repo is private for anti-cheat reasons, so end users can't be
+// pointed at its GitHub Releases directly, but its own CI already builds
+// and uploads every platform binary there - this page just imports a
+// chosen release's asset metadata (not the binaries themselves, which stay
+// on GitHub and get proxied on download) rather than re-uploading them here.
 export default function AdminReleasesPage() {
   const { isAdmin, isModerator, pending } = useAuth()
   const router = useRouter()
@@ -44,6 +51,13 @@ export default function AdminReleasesPage() {
   })
   const releases = releasesQ.data?.releases ?? []
 
+  const githubReleasesQ = useQuery<GithubReleasesResponse>({
+    queryKey: ['admin-launcher-releases-github'],
+    queryFn: () => apiFetch('/webadmin/launcher-releases/github-releases'),
+    enabled: canAccess,
+  })
+  const githubReleases = githubReleasesQ.data?.releases ?? []
+
   const onErr = (e: unknown) =>
     toast.error(
       e instanceof ApiError
@@ -52,43 +66,37 @@ export default function AdminReleasesPage() {
           ? e.message
           : 'Request failed'
     )
-  const invalidate = () =>
+  const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['admin-launcher-releases'] })
+    qc.invalidateQueries({ queryKey: ['admin-launcher-releases-github'] })
+  }
 
-  const uploadMut = useMutation({
-    mutationFn: (formData: FormData) =>
-      apiFetch('/webadmin/launcher-releases', {
+  const importMut = useMutation({
+    mutationFn: (tag: string) =>
+      apiFetch('/webadmin/launcher-releases/from-github', {
         method: 'POST',
-        body: formData,
+        body: JSON.stringify({ tag }),
       }),
     onSuccess: () => {
-      toast.success('Release uploaded')
+      toast.success('Release imported')
       invalidate()
     },
     onError: onErr,
   })
 
-  const platformUploadMut = useMutation({
-    mutationFn: ({
-      release,
-      platform,
-      file,
-    }: {
-      release: LauncherRelease
-      platform: LauncherPlatform
-      file: File
-    }) => {
+  // Re-runs the same import against a release's already-stored tag - all
+  // platforms come from one GitHub release together, so there's no more
+  // "just replace Mac" - this just re-pulls current metadata for all of them.
+  const resyncMut = useMutation({
+    mutationFn: (release: LauncherRelease) => {
       setPendingReleaseId(release.id)
-      const formData = new FormData()
-      formData.set('version', release.version)
-      formData.set(platform, file)
-      return apiFetch('/webadmin/launcher-releases', {
+      return apiFetch('/webadmin/launcher-releases/from-github', {
         method: 'POST',
-        body: formData,
+        body: JSON.stringify({ tag: release.githubReleaseTag }),
       })
     },
     onSuccess: () => {
-      toast.success('Binary uploaded')
+      toast.success('Release re-synced from GitHub')
       invalidate()
     },
     onError: onErr,
@@ -146,9 +154,7 @@ export default function AdminReleasesPage() {
         releases={releases}
         isLoading={releasesQ.isLoading}
         pendingReleaseId={pendingReleaseId}
-        onUpload={(release, platform, file) =>
-          platformUploadMut.mutate({ release, platform, file })
-        }
+        onResync={(release) => resyncMut.mutate(release)}
         onDeletePlatform={(release, platform) =>
           deletePlatformMut.mutate({ release, platform })
         }
@@ -156,8 +162,10 @@ export default function AdminReleasesPage() {
       />
 
       <AddReleaseForm
-        isPending={uploadMut.isPending}
-        onSubmit={(formData) => uploadMut.mutate(formData)}
+        githubReleases={githubReleases}
+        isLoadingGithubReleases={githubReleasesQ.isLoading}
+        isPending={importMut.isPending}
+        onSubmit={(tag) => importMut.mutate(tag)}
       />
 
       <DeleteReleaseDialog

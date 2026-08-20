@@ -33,6 +33,7 @@ import type {
 import {
   EMPTY_MOD_FORM,
   EMPTY_PROFILE_FORM,
+  extractBranchName,
 } from './components/ranked-mods-types'
 
 // The ranked mod catalog -- base mod data synced hourly straight from
@@ -138,8 +139,13 @@ export default function RankedModsPage() {
   // Turns a form into the PATCH/POST field payload -- shared by create and
   // edit so both stay in sync about what "empty" means per field (empty
   // string -> null for optional text fields, comma-split for categories).
+  // Branch/Release mode sends a structured sourceInput instead of a raw
+  // latestDownloadUrl - the server resolves the real URL (+ latestVersion)
+  // itself (see custom-mod-version-check.service.ts's resolveSourceInput),
+  // rather than asking the admin to hand-type one of mod-source-classifier.ts's
+  // regex-shaped URL conventions.
   function modFormToFields(form: ModForm) {
-    return {
+    const base = {
       title: form.title,
       author: form.author,
       categories: form.categories
@@ -151,26 +157,52 @@ export default function RankedModsPage() {
       repoUrl: form.repoUrl || null,
       thumbnailUrl: form.thumbnailUrl || null,
       description: form.description || null,
+      automaticVersionCheck: form.automaticVersionCheck,
+    }
+    if (form.sourceType === 'branch') {
+      return {
+        ...base,
+        sourceInput: {
+          sourceType: 'branch' as const,
+          repoUrl: form.repoUrl,
+          branch: form.branch || 'main',
+        },
+      }
+    }
+    if (form.sourceType === 'release') {
+      return {
+        ...base,
+        sourceInput: { sourceType: 'release' as const, repoUrl: form.repoUrl },
+      }
+    }
+    return {
+      ...base,
       latestVersion: form.latestVersion || null,
       latestDownloadUrl: form.latestDownloadUrl || null,
-      automaticVersionCheck: form.automaticVersionCheck,
-      fixedReleaseTagUpdates: form.fixedReleaseTagUpdates,
     }
   }
 
   // Only the fields that actually changed from what was loaded -- editing
   // just the description shouldn't also pin title/author/etc as overrides
   // (see mods.gateway.ts's updateModFields: every key present in the PATCH
-  // body gets folded into overriddenFields).
+  // body gets folded into overriddenFields). sourceInput is a plain object,
+  // not a primitive, so it needs the same JSON-stringify comparison as
+  // categories -- otherwise a same-content-but-freshly-built object would
+  // always look "changed" (different reference every render) and every
+  // save of a Branch/Release mod would re-resolve from GitHub even when
+  // nothing actually changed.
   function diffModFields(original: ModForm, current: ModForm) {
     const o = modFormToFields(original)
     const c = modFormToFields(current)
     const out: Partial<typeof c> = {}
     for (const key of Object.keys(c) as (keyof typeof c)[]) {
-      const changed = Array.isArray(c[key])
-        ? JSON.stringify(c[key]) !== JSON.stringify(o[key])
-        : c[key] !== o[key]
-      if (changed) (out as Record<string, unknown>)[key] = c[key]
+      const ov = o[key]
+      const cv = c[key]
+      const changed =
+        typeof cv === 'object' && cv !== null
+          ? JSON.stringify(cv) !== JSON.stringify(ov)
+          : cv !== ov
+      if (changed) (out as Record<string, unknown>)[key] = cv
     }
     return out
   }
@@ -203,10 +235,15 @@ export default function RankedModsPage() {
       repoUrl: editModDetail.repoUrl ?? '',
       thumbnailUrl: editModDetail.thumbnailUrl ?? '',
       description: editModDetail.description ?? '',
+      // sourceType comes straight from the server (already computed from
+      // the mod's current latestDownloadUrl) rather than reclassifying it
+      // client-side - see extractBranchName's own comment on why the
+      // branch name still needs pulling out separately.
+      sourceType: editModDetail.sourceType,
+      branch: extractBranchName(editModDetail.latestDownloadUrl),
       latestVersion: editModDetail.latestVersion ?? '',
       latestDownloadUrl: editModDetail.latestDownloadUrl ?? '',
       automaticVersionCheck: editModDetail.automaticVersionCheck,
-      fixedReleaseTagUpdates: editModDetail.fixedReleaseTagUpdates,
     }
     setModForm(loaded)
     setOriginalModForm(loaded)

@@ -299,14 +299,21 @@ export const seasons = pgTable('seasons', {
 })
 
 // Launcher release hosting -- the new-launcher repo (github.com/Balatro-Multiplayer/new-launcher)
-// is private for anti-cheat reasons, so it can't distribute binaries via
-// GitHub Releases like the old public launcher did. This server now hosts
-// the binaries itself (see features/launcher-releases/launcher-release-storage.ts
-// for where the actual bytes live on disk) and serves update-checks/downloads
-// via the public GET /api/launcher/latest + /api/launcher/download/:version/:platform
-// endpoints. Replaces the old modReleases/modBranches ("mod_release"/"mod_branches")
-// tables, which pointed at external GitHub-asset URLs and had no file storage
-// of their own -- dropped in the same migration that adds these.
+// is private for anti-cheat reasons, so end users can't be pointed at its
+// GitHub Releases page directly (no auth, and the repo itself must stay
+// hidden). Its CI still builds and uploads every platform binary to a real
+// (private) GitHub Release though, so this table stores a *reference* to
+// that release's assets (see features/launcher-releases/launcher-github-releases.service.ts
+// for the authenticated GitHub calls that resolve/proxy them) rather than
+// hosting the bytes itself -- an earlier version of this table stored a
+// local disk path per asset and required uploading every binary through
+// this server's own admin UI, which hit Cloudflare's request-size cap when
+// uploading multiple platforms together. Serves update-checks/downloads via
+// the public GET /api/launcher/latest + /api/launcher/download/:version/:platform
+// endpoints, unchanged by this switch. Replaces the old modReleases/modBranches
+// ("mod_release"/"mod_branches") tables, which pointed at external GitHub-asset
+// URLs directly (no per-asset id/hash tracking) -- dropped in the same
+// migration that originally added these.
 export const launcherPlatformEnum = pgEnum('launcher_platform', [
 	'windows',
 	'mac',
@@ -320,6 +327,11 @@ export type LauncherPlatform = (typeof launcherPlatformEnum.enumValues)[number]
 export const launcherReleases = pgTable('launcher_release', {
 	id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
 	version: varchar('version', { length: 64 }).notNull().unique(),
+	// The GitHub release tag this row was resolved from (e.g. "v0.2.0",
+	// version above has the leading "v" stripped) -- needed to re-resolve
+	// this release's assets later (the admin UI's "re-sync" action) without
+	// the admin having to remember/retype which tag it came from.
+	githubReleaseTag: varchar('github_release_tag', { length: 128 }).notNull(),
 	notes: text('notes'),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()
@@ -330,12 +342,15 @@ export const launcherReleases = pgTable('launcher_release', {
 		.$onUpdate(() => new Date()),
 })
 
-// One row per (release, platform) -- uploads are per-platform-incremental (an
-// admin can add/replace Windows today and Mac next week for the same
-// version), so this is a child table rather than three nullable column
-// groups on launcherReleases. storagePath is relative to
-// env.LAUNCHER_RELEASES_DIR; sha256 lets a launcher verify its download
-// before self-replacing.
+// One row per (release, platform) -- a GitHub release can be missing a
+// platform (e.g. the Mac build failed that run), so this is a child table
+// rather than three nullable column groups on launcherReleases, same as
+// before. githubAssetId is GitHub's own numeric release-asset id, used to
+// resolve a download via GET /repos/{owner}/{repo}/releases/assets/{id}
+// (see launcher-github-releases.service.ts) -- no bytes live in this
+// database or on this server's disk. sha256 comes from GitHub's own asset
+// digest field and still lets a launcher verify its download before
+// self-replacing, unchanged from before.
 export const launcherReleaseAssets = pgTable(
 	'launcher_release_asset',
 	{
@@ -344,7 +359,7 @@ export const launcherReleaseAssets = pgTable(
 			.notNull()
 			.references(() => launcherReleases.id, { onDelete: 'cascade' }),
 		platform: launcherPlatformEnum('platform').notNull(),
-		storagePath: text('storage_path').notNull(),
+		githubAssetId: integer('github_asset_id').notNull(),
 		originalFilename: text('original_filename').notNull(),
 		fileSize: integer('file_size').notNull(),
 		sha256: varchar('sha256', { length: 64 }).notNull(),

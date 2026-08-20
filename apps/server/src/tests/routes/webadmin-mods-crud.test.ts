@@ -274,6 +274,116 @@ describe('PATCH /api/webadmin/mods/:modId', () => {
 
 		expect(res.status).toBe(404)
 	})
+
+	// sourceInput (Branch/Release mode - see mod-form-dialog.tsx) resolves
+	// latestDownloadUrl/latestVersion server-side via a real GitHub call
+	// instead of the admin typing a raw URL - see
+	// custom-mod-version-check.service.ts's resolveSourceInput.
+	describe('sourceInput', () => {
+		function jsonResponse(status: number, body: unknown): Response {
+			return new Response(JSON.stringify(body), { status })
+		}
+		function mockFetch(handler: (url: string) => Response) {
+			vi.stubGlobal(
+				'fetch',
+				vi.fn(async (input: string | URL) => handler(input.toString())),
+			)
+		}
+
+		it('branch: resolves and overrides any directly-sent latestDownloadUrl/latestVersion', async () => {
+			mockFetch((url) => {
+				if (url.endsWith('/repos/Author/Mod/commits/dev')) {
+					return jsonResponse(200, { sha: 'aaaaaaaaaaaaaaaa' })
+				}
+				throw new Error(`unexpected fetch: ${url}`)
+			})
+			vi.mocked(modsGateway.updateModFields).mockResolvedValue({
+				id: 'Author@Mod',
+			} as any)
+
+			const token = authAsAdmin('admin-patch-branch', 'Admin')
+			const res = await request(app)
+				.patch('/api/webadmin/mods/Author@Mod')
+				.set('Authorization', token)
+				.send({
+					latestDownloadUrl: 'https://should-be-ignored.example/x.zip',
+					sourceInput: {
+						sourceType: 'branch',
+						repoUrl: 'https://github.com/Author/Mod',
+						branch: 'dev',
+					},
+				})
+
+			expect(res.status).toBe(200)
+			expect(modsGateway.updateModFields).toHaveBeenCalledWith('Author@Mod', {
+				latestDownloadUrl:
+					'https://github.com/Author/Mod/archive/refs/heads/dev.zip',
+				latestVersion: 'aaaaaaa',
+			})
+			vi.unstubAllGlobals()
+		})
+
+		it('release: resolves the latest tag', async () => {
+			mockFetch((url) => {
+				if (url.endsWith('/repos/Author/Mod/releases/latest')) {
+					return jsonResponse(200, { tag_name: 'v2.0.0' })
+				}
+				throw new Error(`unexpected fetch: ${url}`)
+			})
+			vi.mocked(modsGateway.updateModFields).mockResolvedValue({
+				id: 'Author@Mod',
+			} as any)
+
+			const token = authAsAdmin('admin-patch-release', 'Admin')
+			const res = await request(app)
+				.patch('/api/webadmin/mods/Author@Mod')
+				.set('Authorization', token)
+				.send({
+					sourceInput: {
+						sourceType: 'release',
+						repoUrl: 'https://github.com/Author/Mod',
+					},
+				})
+
+			expect(res.status).toBe(200)
+			expect(modsGateway.updateModFields).toHaveBeenCalledWith('Author@Mod', {
+				latestDownloadUrl:
+					'https://github.com/Author/Mod/archive/refs/tags/v2.0.0.zip',
+				latestVersion: 'v2.0.0',
+			})
+			vi.unstubAllGlobals()
+		})
+
+		it('release: returns an error (not a silent success) when the repo has zero releases', async () => {
+			mockFetch(() => jsonResponse(404, {}))
+
+			const token = authAsAdmin('admin-patch-release-none', 'Admin')
+			const res = await request(app)
+				.patch('/api/webadmin/mods/Author@Mod')
+				.set('Authorization', token)
+				.send({
+					sourceInput: {
+						sourceType: 'release',
+						repoUrl: 'https://github.com/Author/Mod',
+					},
+				})
+
+			expect(res.status).toBeGreaterThanOrEqual(400)
+			expect(modsGateway.updateModFields).not.toHaveBeenCalled()
+			vi.unstubAllGlobals()
+		})
+
+		it("returns 400 for an unrecognized sourceInput.sourceType ('custom' isn't valid here)", async () => {
+			const token = authAsAdmin('admin-patch-source-bad', 'Admin')
+			const res = await request(app)
+				.patch('/api/webadmin/mods/Author@Mod')
+				.set('Authorization', token)
+				.send({ sourceInput: { sourceType: 'custom', url: 'x' } })
+
+			expect(res.status).toBe(400)
+			expect(modsGateway.updateModFields).not.toHaveBeenCalled()
+		})
+	})
 })
 
 describe('POST /api/webadmin/mods/:modId/reset-overrides', () => {
@@ -413,6 +523,50 @@ describe('POST /api/webadmin/mods', () => {
 			.send(validBody)
 
 		expect(res.status).toBe(409)
+	})
+
+	it('sourceInput (branch): resolves the URL/version and forces automaticVersionCheck on', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: string | URL) => {
+				const url = input.toString()
+				if (url.endsWith('/repos/Author/Mod/commits/main')) {
+					return new Response(JSON.stringify({ sha: 'bbbbbbbbbbbbbbbb' }), {
+						status: 200,
+					})
+				}
+				throw new Error(`unexpected fetch: ${url}`)
+			}),
+		)
+		vi.mocked(modsGateway.createCustomMod).mockResolvedValue({
+			...validBody,
+			isCustom: true,
+		} as any)
+
+		const token = authAsAdmin('admin-create-branch', 'Admin')
+		const res = await request(app)
+			.post('/api/webadmin/mods')
+			.set('Authorization', token)
+			.send({
+				...validBody,
+				automaticVersionCheck: false, // must be overridden to true below
+				sourceInput: {
+					sourceType: 'branch',
+					repoUrl: 'https://github.com/Author/Mod',
+					branch: 'main',
+				},
+			})
+
+		expect(res.status).toBe(201)
+		expect(modsGateway.createCustomMod).toHaveBeenCalledWith(
+			expect.objectContaining({
+				latestDownloadUrl:
+					'https://github.com/Author/Mod/archive/refs/heads/main.zip',
+				latestVersion: 'bbbbbbb',
+				automaticVersionCheck: true,
+			}),
+		)
+		vi.unstubAllGlobals()
 	})
 
 	it('defaults automaticVersionCheck/fixedReleaseTagUpdates to undefined when omitted', async () => {

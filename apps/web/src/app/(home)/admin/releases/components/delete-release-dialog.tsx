@@ -29,7 +29,8 @@ export function DeleteReleaseDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete release {target?.version}?</AlertDialogTitle>
           <AlertDialogDescription>
-            This deletes all uploaded binaries for this version. This can't be
+            This stops this server advertising any platform binary for this
+            version (the GitHub release itself is untouched). This can't be
             undone.
           </AlertDialogDescription>
         </AlertDialogHeader>

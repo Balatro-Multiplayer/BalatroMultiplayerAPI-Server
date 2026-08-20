@@ -5,7 +5,7 @@ import { launcherReleaseAssets, launcherReleases } from '../db/schema.js'
 
 export interface LauncherReleaseAsset {
 	platform: LauncherPlatform
-	storagePath: string
+	githubAssetId: number
 	originalFilename: string
 	fileSize: number
 	sha256: string
@@ -14,6 +14,7 @@ export interface LauncherReleaseAsset {
 export interface LauncherReleaseWithAssets {
 	id: number
 	version: string
+	githubReleaseTag: string
 	notes: string | null
 	createdAt: Date
 	updatedAt: Date
@@ -26,7 +27,7 @@ async function withAssets(
 	const assets = await db
 		.select({
 			platform: launcherReleaseAssets.platform,
-			storagePath: launcherReleaseAssets.storagePath,
+			githubAssetId: launcherReleaseAssets.githubAssetId,
 			originalFilename: launcherReleaseAssets.originalFilename,
 			fileSize: launcherReleaseAssets.fileSize,
 			sha256: launcherReleaseAssets.sha256,
@@ -84,28 +85,35 @@ export async function getReleaseWithAssetsById(
 }
 
 // Finds the release row for `version`, creating it if this is the first
-// upload for that version. Used by the upload route before writing any
-// asset rows -- a release can exist with zero, one, two, or three assets at
-// any point (uploads are per-platform-incremental), so "does this version
-// exist yet" and "does it have a windows/mac/linux binary yet" are separate
-// questions.
+// import for that version. Used by the from-github import route before
+// writing any asset rows -- a release can exist with zero, one, two, or
+// three assets at any point (a GitHub release can be missing a platform's
+// build), so "does this version exist yet" and "does it have a
+// windows/mac/linux binary yet" are separate questions. Always refreshes
+// githubReleaseTag/updatedAt even on an already-existing version, since the
+// admin UI's "re-sync" action calls this with the same version on purpose
+// to re-pull asset metadata from GitHub.
 export async function upsertRelease(
 	version: string,
+	githubReleaseTag: string,
 	notes?: string | null,
 ): Promise<typeof launcherReleases.$inferSelect> {
 	const existing = await getReleaseByVersion(version)
 	if (existing) {
-		if (notes === undefined) return existing
 		const [updated] = await db
 			.update(launcherReleases)
-			.set({ notes, updatedAt: new Date() })
+			.set({
+				githubReleaseTag,
+				...(notes !== undefined ? { notes } : {}),
+				updatedAt: new Date(),
+			})
 			.where(eq(launcherReleases.id, existing.id))
 			.returning()
 		return updated
 	}
 	const [created] = await db
 		.insert(launcherReleases)
-		.values({ version, notes: notes ?? null })
+		.values({ version, githubReleaseTag, notes: notes ?? null })
 		.returning()
 	return created
 }
@@ -123,15 +131,16 @@ export async function getAsset(
 	return asset ?? null
 }
 
-// Upserts by (releaseId, platform) -- replacing an existing platform's
-// binary for a version is an update, not a new row. createdAt is bumped on
-// replace since it represents "when this file was uploaded", not "when this
-// row was first created".
+// Upserts by (releaseId, platform) -- re-resolving an existing platform's
+// asset for a version (a re-sync, or GitHub's asset having been replaced
+// under the same release) is an update, not a new row. createdAt is bumped
+// on replace since it represents "when this asset reference was resolved",
+// not "when this row was first created".
 export async function upsertAsset(
 	releaseId: number,
 	platform: LauncherPlatform,
 	input: {
-		storagePath: string
+		githubAssetId: number
 		originalFilename: string
 		fileSize: number
 		sha256: string
@@ -148,9 +157,8 @@ export async function upsertAsset(
 	return row
 }
 
-// Deletes the whole release row (cascades to its assets) -- returns the
-// deleted row so the caller can clean up its on-disk directory via
-// storage.deleteVersionDir(version).
+// Deletes the whole release row (cascades to its assets) -- nothing further
+// for the caller to clean up (asset bytes live on GitHub, not this server).
 export async function deleteRelease(
 	id: number,
 ): Promise<typeof launcherReleases.$inferSelect | null> {
@@ -161,8 +169,9 @@ export async function deleteRelease(
 	return row ?? null
 }
 
-// Deletes just one platform's asset row -- returns the deleted row so the
-// caller can clean up its on-disk file via storage.deleteAsset(storagePath).
+// Deletes just one platform's asset row -- e.g. to stop advertising a
+// platform whose GitHub build is known-bad. Nothing further for the caller
+// to clean up (asset bytes live on GitHub, not this server).
 export async function deleteAssetRow(
 	releaseId: number,
 	platform: LauncherPlatform,

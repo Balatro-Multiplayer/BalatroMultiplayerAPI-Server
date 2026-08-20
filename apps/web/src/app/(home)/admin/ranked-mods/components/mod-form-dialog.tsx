@@ -9,8 +9,15 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import type { ModForm } from './ranked-mods-types'
+import type { ModForm, ModSourceType } from './ranked-mods-types'
 
 // Pinned badge next to a field name -- shown when that field is in the
 // edited mod's overriddenFields, meaning an admin already edited it and
@@ -186,62 +193,99 @@ export function ModFormDialog({
             />
           </div>
           <div className='space-y-2'>
-            <Label htmlFor='mod-latest-version'>
-              Latest version
-              <PinnedBadge shown={pinned('latestVersion')} />
+            <Label htmlFor='mod-source-type'>
+              Source
+              <PinnedBadge
+                shown={pinned('latestDownloadUrl') || pinned('latestVersion')}
+              />
             </Label>
-            <Input
-              id='mod-latest-version'
-              value={form.latestVersion}
-              onChange={(e) =>
-                onFormChange({ ...form, latestVersion: e.target.value })
+            <Select
+              value={form.sourceType}
+              onValueChange={(v) =>
+                onFormChange({ ...form, sourceType: v as ModSourceType })
               }
-            />
+            >
+              <SelectTrigger id='mod-source-type' className='w-full'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='branch'>Branch</SelectItem>
+                <SelectItem value='release'>Release</SelectItem>
+                <SelectItem value='custom'>Custom</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className='text-muted-foreground text-xs'>
+              {form.sourceType === 'branch' &&
+                'Resolved from Repo URL + the branch below - always tracks that branch\'s current commit.'}
+              {form.sourceType === 'release' &&
+                'Resolved from Repo URL\'s latest GitHub release - no other input needed.'}
+              {form.sourceType === 'custom' &&
+                'A direct download URL this server has no way to auto-resolve or auto-update.'}
+            </p>
           </div>
-          <div className='space-y-2'>
-            <Label htmlFor='mod-latest-download-url'>
-              Latest download URL
-              <PinnedBadge shown={pinned('latestDownloadUrl')} />
-            </Label>
-            <Input
-              id='mod-latest-download-url'
-              value={form.latestDownloadUrl}
-              onChange={(e) =>
-                onFormChange({ ...form, latestDownloadUrl: e.target.value })
-              }
-            />
-          </div>
-          <div className='flex items-center justify-between'>
-            <div>
-              <Label htmlFor='mod-auto-version-check'>
-                Automatic version check
-              </Label>
-              <p className='text-muted-foreground text-xs'>
-                Requires Repo URL — checks GitHub hourly for a new release (or
-                commit, if Latest download URL points at a branch archive).
-              </p>
-            </div>
-            <Switch
-              id='mod-auto-version-check'
-              checked={form.automaticVersionCheck}
-              onCheckedChange={(v) =>
-                onFormChange({ ...form, automaticVersionCheck: v })
-              }
-            />
-          </div>
-          {form.automaticVersionCheck && (
-            <div className='flex items-center justify-between'>
-              <Label htmlFor='mod-fixed-release-tag'>
-                Track specific release asset's tag
-              </Label>
-              <Switch
-                id='mod-fixed-release-tag'
-                checked={form.fixedReleaseTagUpdates}
-                onCheckedChange={(v) =>
-                  onFormChange({ ...form, fixedReleaseTagUpdates: v })
+          {form.sourceType === 'branch' && (
+            <div className='space-y-2'>
+              <Label htmlFor='mod-branch'>Branch name</Label>
+              <Input
+                id='mod-branch'
+                value={form.branch}
+                placeholder='main'
+                onChange={(e) =>
+                  onFormChange({ ...form, branch: e.target.value })
                 }
               />
             </div>
+          )}
+          {form.sourceType === 'custom' && (
+            <>
+              <div className='space-y-2'>
+                <Label htmlFor='mod-latest-version'>
+                  Latest version
+                  <PinnedBadge shown={pinned('latestVersion')} />
+                </Label>
+                <Input
+                  id='mod-latest-version'
+                  value={form.latestVersion}
+                  onChange={(e) =>
+                    onFormChange({ ...form, latestVersion: e.target.value })
+                  }
+                />
+              </div>
+              <div className='space-y-2'>
+                <Label htmlFor='mod-latest-download-url'>
+                  Latest download URL
+                  <PinnedBadge shown={pinned('latestDownloadUrl')} />
+                </Label>
+                <Input
+                  id='mod-latest-download-url'
+                  value={form.latestDownloadUrl}
+                  onChange={(e) =>
+                    onFormChange({
+                      ...form,
+                      latestDownloadUrl: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className='flex items-center justify-between'>
+                <div>
+                  <Label htmlFor='mod-auto-version-check'>
+                    Automatic version check
+                  </Label>
+                  <p className='text-muted-foreground text-xs'>
+                    Requires Repo URL — checks GitHub hourly for a new
+                    release.
+                  </p>
+                </div>
+                <Switch
+                  id='mod-auto-version-check'
+                  checked={form.automaticVersionCheck}
+                  onCheckedChange={(v) =>
+                    onFormChange({ ...form, automaticVersionCheck: v })
+                  }
+                />
+              </div>
+            </>
           )}
           <DialogFooter>
             {mode === 'edit' && overriddenFields.length > 0 && onReset && (

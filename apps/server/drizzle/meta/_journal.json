@@ -225,6 +225,13 @@
       "when": 1790700000000,
       "tag": "0031_mod_registry_single_ranked_field",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790800000000,
+      "tag": "0032_launcher_releases_github",
+      "breakpoints": true
     }
   ]
 }

@@ -2,7 +2,7 @@ export type LauncherPlatform = 'windows' | 'mac' | 'linux'
 
 export interface LauncherReleaseAsset {
   platform: LauncherPlatform
-  storagePath: string
+  githubAssetId: number
   originalFilename: string
   fileSize: number
   sha256: string
@@ -11,10 +11,22 @@ export interface LauncherReleaseAsset {
 export interface LauncherRelease {
   id: number
   version: string
+  githubReleaseTag: string
   notes: string | null
   createdAt: string
   updatedAt: string
   assets: LauncherReleaseAsset[]
+}
+
+// A GitHub release from new-launcher's own repo, for the admin UI's picker
+// (GET /api/webadmin/launcher-releases/github-releases) - not yet imported
+// into LauncherRelease until an admin picks one.
+export interface GithubReleaseOption {
+  tag: string
+  name: string | null
+  publishedAt: string
+  body: string | null
+  alreadyImported: boolean
 }
 
 export const PLATFORMS: readonly LauncherPlatform[] = [
@@ -27,17 +39,6 @@ export const PLATFORM_LABELS: Record<LauncherPlatform, string> = {
   windows: 'Windows',
   mac: 'Mac',
   linux: 'Linux',
-}
-
-// Matches what the launcher's own build pipeline actually produces per
-// platform (Inno Setup installer, .dmg, AppImage) -- narrower than the
-// server's own ALLOWED_EXTENSIONS, which still tolerates a few legacy
-// formats. This is a client-side filter only (the file picker's own
-// `accept` attribute), not a validation boundary.
-export const PLATFORM_ACCEPT: Record<LauncherPlatform, string> = {
-  windows: '.exe',
-  mac: '.dmg',
-  linux: '.AppImage',
 }
 
 export function formatFileSize(bytes: number): string {

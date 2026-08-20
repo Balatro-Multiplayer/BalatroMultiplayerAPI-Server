@@ -1,7 +1,7 @@
 import request from 'supertest'
 import { describe, expect, it, vi } from 'vitest'
 import { signJwt } from '../../features/auth/jwt.js'
-import * as storage from '../../features/launcher-releases/launcher-release-storage.js'
+import * as githubReleases from '../../features/launcher-releases/launcher-github-releases.service.js'
 import * as launcherReleasesGateway from '../../infrastructure/gateways/launcher-releases.gateway.js'
 import * as playerGateway from '../../infrastructure/gateways/player.gateway.js'
 import { createSession } from '../../state/index.js'
@@ -9,7 +9,6 @@ import { createTestApp } from './app.js'
 
 vi.mock('../../infrastructure/gateways/launcher-releases.gateway.js', () => ({
 	listReleases: vi.fn(),
-	getAsset: vi.fn(),
 	getReleaseWithAssetsById: vi.fn(),
 	upsertRelease: vi.fn(),
 	upsertAsset: vi.fn(),
@@ -21,13 +20,12 @@ vi.mock('../../infrastructure/gateways/launcher-releases.gateway.js', () => ({
 // same call as vi.mock( for Vitest's static hoisting to find it -- wrapping
 // this call across lines breaks the mock silently (throws "no export
 // defined on the mock" at request time instead of at import time).
-vi.mock('../../features/launcher-releases/launcher-release-storage.js', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('../../features/launcher-releases/launcher-release-storage.js')>()
+vi.mock('../../features/launcher-releases/launcher-github-releases.service.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../../features/launcher-releases/launcher-github-releases.service.js')>()
 	return {
 		...actual,
-		writeAsset: vi.fn(),
-		deleteAsset: vi.fn(),
-		deleteVersionDir: vi.fn(),
+		listRecentReleases: vi.fn(),
+		resolveReleaseByTag: vi.fn(),
 	}
 })
 
@@ -49,70 +47,133 @@ function authAsAdmin(playerId: string, steamName: string) {
 	return `Bearer ${signJwt({ playerId, steamName })}`
 }
 
-describe('POST /api/webadmin/launcher-releases', () => {
+describe('GET /api/webadmin/launcher-releases/github-releases', () => {
+	it('flags tags already imported into this server', async () => {
+		vi.mocked(githubReleases.listRecentReleases).mockResolvedValue([
+			{ tag: 'v0.2.0', name: 'v0.2.0', publishedAt: '2026-08-20', body: null },
+			{ tag: 'v0.1.4', name: 'v0.1.4', publishedAt: '2026-08-19', body: null },
+		])
+		vi.mocked(launcherReleasesGateway.listReleases).mockResolvedValue([
+			{
+				id: 1,
+				version: '0.1.4',
+				githubReleaseTag: 'v0.1.4',
+				notes: null,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+				assets: [],
+			},
+		])
+
+		const token = authAsModerator('mod-view', 'Mod')
+		const res = await request(app)
+			.get('/api/webadmin/launcher-releases/github-releases')
+			.set('Authorization', token)
+
+		expect(res.status).toBe(200)
+		expect(res.body.releases).toEqual([
+			{
+				tag: 'v0.2.0',
+				name: 'v0.2.0',
+				publishedAt: '2026-08-20',
+				body: null,
+				alreadyImported: false,
+			},
+			{
+				tag: 'v0.1.4',
+				name: 'v0.1.4',
+				publishedAt: '2026-08-19',
+				body: null,
+				alreadyImported: true,
+			},
+		])
+	})
+})
+
+describe('POST /api/webadmin/launcher-releases/from-github', () => {
 	it('returns 403 for a moderator', async () => {
 		const token = authAsModerator('mod-1', 'Mod')
 		const res = await request(app)
-			.post('/api/webadmin/launcher-releases')
+			.post('/api/webadmin/launcher-releases/from-github')
 			.set('Authorization', token)
-			.field('version', '1.0.0')
-			.attach('windows', Buffer.from('exe contents'), 'launcher.exe')
+			.send({ tag: 'v1.0.0' })
 
 		expect(res.status).toBe(403)
 		expect(launcherReleasesGateway.upsertRelease).not.toHaveBeenCalled()
 	})
 
-	it('returns 400 when version is missing', async () => {
+	it('returns 400 when tag is missing', async () => {
 		const token = authAsAdmin('admin-1', 'Admin')
 		const res = await request(app)
-			.post('/api/webadmin/launcher-releases')
+			.post('/api/webadmin/launcher-releases/from-github')
 			.set('Authorization', token)
-			.attach('windows', Buffer.from('exe contents'), 'launcher.exe')
+			.send({})
 
 		expect(res.status).toBe(400)
 	})
 
-	it('returns 400 when no platform file is attached', async () => {
+	it('returns 404 for a tag with no matching GitHub release', async () => {
+		vi.mocked(githubReleases.resolveReleaseByTag).mockResolvedValue(null)
 		const token = authAsAdmin('admin-2', 'Admin')
 		const res = await request(app)
-			.post('/api/webadmin/launcher-releases')
+			.post('/api/webadmin/launcher-releases/from-github')
 			.set('Authorization', token)
-			.field('version', '1.0.0')
+			.send({ tag: 'v9.9.9' })
 
-		expect(res.status).toBe(400)
+		expect(res.status).toBe(404)
 	})
 
-	it('returns 400 for an unsafe version string', async () => {
+	it('returns 400 when the release has no recognized platform assets', async () => {
+		vi.mocked(githubReleases.resolveReleaseByTag).mockResolvedValue({
+			version: '1.0.0',
+			notes: null,
+			assets: [],
+		})
 		const token = authAsAdmin('admin-3', 'Admin')
 		const res = await request(app)
-			.post('/api/webadmin/launcher-releases')
+			.post('/api/webadmin/launcher-releases/from-github')
 			.set('Authorization', token)
-			.field('version', '../../etc')
-			.attach('windows', Buffer.from('exe contents'), 'launcher.exe')
+			.send({ tag: 'v1.0.0' })
 
 		expect(res.status).toBe(400)
 	})
 
-	it('uploads a single platform binary and upserts the release/asset', async () => {
+	it('imports a release and upserts one asset row per matched platform', async () => {
+		vi.mocked(githubReleases.resolveReleaseByTag).mockResolvedValue({
+			version: '1.0.0',
+			notes: 'changelog',
+			assets: [
+				{
+					platform: 'windows',
+					githubAssetId: 111,
+					originalFilename: 'BET-Setup.exe',
+					fileSize: 12,
+					sha256: 'a'.repeat(64),
+				},
+				{
+					platform: 'mac',
+					githubAssetId: 222,
+					originalFilename: 'BET.dmg',
+					fileSize: 9,
+					sha256: 'b'.repeat(64),
+				},
+			],
+		})
 		vi.mocked(launcherReleasesGateway.upsertRelease).mockResolvedValue({
 			id: 1,
 			version: '1.0.0',
-			notes: null,
+			githubReleaseTag: 'v1.0.0',
+			notes: 'changelog',
 			createdAt: new Date(),
 			updatedAt: new Date(),
 		} as any)
-		vi.mocked(launcherReleasesGateway.getAsset).mockResolvedValue(null)
-		vi.mocked(storage.writeAsset).mockResolvedValue({
-			storagePath: '1.0.0/windows.exe',
-			sha256: 'a'.repeat(64),
-			fileSize: 12,
-		})
 		vi.mocked(
 			launcherReleasesGateway.getReleaseWithAssetsById,
 		).mockResolvedValue({
 			id: 1,
 			version: '1.0.0',
-			notes: null,
+			githubReleaseTag: 'v1.0.0',
+			notes: 'changelog',
 			createdAt: new Date(),
 			updatedAt: new Date(),
 			assets: [],
@@ -120,77 +181,32 @@ describe('POST /api/webadmin/launcher-releases', () => {
 
 		const token = authAsAdmin('admin-4', 'Admin')
 		const res = await request(app)
-			.post('/api/webadmin/launcher-releases')
+			.post('/api/webadmin/launcher-releases/from-github')
 			.set('Authorization', token)
-			.field('version', '1.0.0')
-			.attach('windows', Buffer.from('exe contents'), 'launcher.exe')
+			.send({ tag: 'v1.0.0' })
 
 		expect(res.status).toBe(201)
 		expect(launcherReleasesGateway.upsertRelease).toHaveBeenCalledWith(
 			'1.0.0',
-			undefined,
-		)
-		expect(storage.writeAsset).toHaveBeenCalledWith(
-			'1.0.0',
-			'windows',
-			'.exe',
-			expect.any(String),
+			'v1.0.0',
+			'changelog',
 		)
 		expect(launcherReleasesGateway.upsertAsset).toHaveBeenCalledWith(
 			1,
 			'windows',
 			{
-				storagePath: '1.0.0/windows.exe',
-				originalFilename: 'launcher.exe',
+				githubAssetId: 111,
+				originalFilename: 'BET-Setup.exe',
 				fileSize: 12,
 				sha256: 'a'.repeat(64),
 			},
 		)
-	})
-
-	it('deletes the old file when replacing a platform with a different extension', async () => {
-		vi.mocked(launcherReleasesGateway.upsertRelease).mockResolvedValue({
-			id: 2,
-			version: '2.0.0',
-			notes: null,
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		} as any)
-		vi.mocked(launcherReleasesGateway.getAsset).mockResolvedValue({
-			id: 1,
-			releaseId: 2,
-			platform: 'mac',
-			storagePath: '2.0.0/mac.zip',
-			originalFilename: 'old.zip',
-			fileSize: 5,
-			sha256: 'b'.repeat(64),
-			createdAt: new Date(),
-		} as any)
-		vi.mocked(storage.writeAsset).mockResolvedValue({
-			storagePath: '2.0.0/mac.dmg',
-			sha256: 'c'.repeat(64),
+		expect(launcherReleasesGateway.upsertAsset).toHaveBeenCalledWith(1, 'mac', {
+			githubAssetId: 222,
+			originalFilename: 'BET.dmg',
 			fileSize: 9,
+			sha256: 'b'.repeat(64),
 		})
-		vi.mocked(
-			launcherReleasesGateway.getReleaseWithAssetsById,
-		).mockResolvedValue({
-			id: 2,
-			version: '2.0.0',
-			notes: null,
-			createdAt: new Date(),
-			updatedAt: new Date(),
-			assets: [],
-		})
-
-		const token = authAsAdmin('admin-5', 'Admin')
-		const res = await request(app)
-			.post('/api/webadmin/launcher-releases')
-			.set('Authorization', token)
-			.field('version', '2.0.0')
-			.attach('mac', Buffer.from('dmg contents'), 'launcher.dmg')
-
-		expect(res.status).toBe(201)
-		expect(storage.deleteAsset).toHaveBeenCalledWith('2.0.0/mac.zip')
 	})
 })
 
@@ -215,10 +231,11 @@ describe('DELETE /api/webadmin/launcher-releases/:id', () => {
 		expect(res.status).toBe(404)
 	})
 
-	it('deletes the release row and its version directory', async () => {
+	it('deletes the release row', async () => {
 		vi.mocked(launcherReleasesGateway.deleteRelease).mockResolvedValue({
 			id: 3,
 			version: '3.0.0',
+			githubReleaseTag: 'v3.0.0',
 			notes: null,
 			createdAt: new Date(),
 			updatedAt: new Date(),
@@ -229,7 +246,6 @@ describe('DELETE /api/webadmin/launcher-releases/:id', () => {
 			.set('Authorization', token)
 
 		expect(res.status).toBe(200)
-		expect(storage.deleteVersionDir).toHaveBeenCalledWith('3.0.0')
 	})
 })
 
@@ -253,13 +269,13 @@ describe('DELETE /api/webadmin/launcher-releases/:id/:platform', () => {
 		expect(res.status).toBe(404)
 	})
 
-	it('deletes just the one platform asset', async () => {
+	it('deletes just the one platform asset row', async () => {
 		vi.mocked(launcherReleasesGateway.deleteAssetRow).mockResolvedValue({
 			id: 1,
 			releaseId: 1,
 			platform: 'linux',
-			storagePath: '1.0.0/linux.AppImage',
-			originalFilename: 'launcher.AppImage',
+			githubAssetId: 333,
+			originalFilename: 'BET-linux.AppImage',
 			fileSize: 5,
 			sha256: 'd'.repeat(64),
 			createdAt: new Date(),
@@ -270,6 +286,5 @@ describe('DELETE /api/webadmin/launcher-releases/:id/:platform', () => {
 			.set('Authorization', token)
 
 		expect(res.status).toBe(200)
-		expect(storage.deleteAsset).toHaveBeenCalledWith('1.0.0/linux.AppImage')
 	})
 })

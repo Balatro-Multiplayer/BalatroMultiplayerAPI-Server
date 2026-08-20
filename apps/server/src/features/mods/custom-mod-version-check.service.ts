@@ -1,4 +1,5 @@
 import { env } from '../../env.js'
+import { AppError } from '../../shared/utils/errors.js'
 import { classifyDownloadUrl } from './mod-source-classifier.js'
 
 // TS port of BETModIndex's update_mod_versions.py, scoped to admin-created
@@ -78,12 +79,29 @@ async function fetchLatestTag(
 	return data.tag_name ?? null
 }
 
+// ref omitted -> the default branch's most recent commit (GitHub returns an
+// array from /commits with no ref - existing checkCustomModVersion() 'head'
+// callers rely on exactly this shape, since a mod's stored branch-archive
+// URL doesn't get its branch name extracted/passed through there today).
+// ref given -> that specific branch/sha's own commit (GitHub returns a
+// single object from /commits/{ref}, a different shape) - used by
+// resolveSourceInput()'s Branch mode below, which does know the exact
+// branch name and would otherwise silently resolve the wrong branch's HEAD
+// whenever it isn't the repo's default.
 async function fetchHeadSha(
 	owner: string,
 	repo: string,
+	ref?: string,
 ): Promise<string | null> {
-	const res = await githubGet(`/repos/${owner}/${repo}/commits`)
+	const path = ref
+		? `/repos/${owner}/${repo}/commits/${ref}`
+		: `/repos/${owner}/${repo}/commits`
+	const res = await githubGet(path)
 	if (!res || res.status === 404) return null
+	if (ref) {
+		const data = (await res.json()) as { sha?: string }
+		return data.sha ? data.sha.slice(0, 7) : null
+	}
 	const data = (await res.json()) as Array<{ sha: string }>
 	if (!Array.isArray(data) || data.length === 0) return null
 	return data[0].sha.slice(0, 7)
@@ -170,4 +188,70 @@ export async function checkCustomModVersion(
 
 	if (!newVersion || newVersion === mod.latestVersion) return null
 	return { newVersion, newDownloadUrl, source }
+}
+
+// Admin-facing counterpart to checkCustomModVersion above: that function
+// re-checks an *existing* latestDownloadUrl for drift; this one constructs
+// a fresh one from a structured "what kind of source is this" choice (see
+// mods.route.ts's PATCH /mods/:modId and POST /mods, and mod-form-dialog.tsx
+// on the client) instead of asking an admin to hand-type one of
+// mod-source-classifier.ts's five regex-shaped URL conventions themselves -
+// the actual root cause of a real bug where an admin's edit was technically
+// valid but silently unpropagatable (see git history).
+export type SourceInput =
+	| { sourceType: 'branch'; repoUrl: string; branch: string }
+	| { sourceType: 'release'; repoUrl: string }
+	| { sourceType: 'custom'; url: string }
+
+export interface ResolvedSource {
+	latestDownloadUrl: string
+	latestVersion: string | null
+}
+
+// Throws AppError (never returns null) - this runs synchronously inside an
+// admin's save action, unlike checkCustomModVersion's best-effort/silent-
+// skip shape meant for an unattended periodic job. An admin actively
+// choosing "Branch" or "Release" needs to know immediately if the repo/
+// branch/tag couldn't actually be resolved, not have the save silently
+// succeed with a stale or empty URL.
+export async function resolveSourceInput(
+	input: SourceInput,
+): Promise<ResolvedSource> {
+	if (input.sourceType === 'custom') {
+		return { latestDownloadUrl: input.url, latestVersion: null }
+	}
+
+	const repoInfo = extractRepoInfo(input.repoUrl)
+	if (!repoInfo) {
+		throw new AppError(
+			'repoUrl must be a github.com/<owner>/<repo> URL to resolve a branch or release source',
+			400,
+		)
+	}
+	const { owner, repo } = repoInfo
+	const canonicalRepoUrl = `https://github.com/${owner}/${repo}`
+
+	if (input.sourceType === 'branch') {
+		const sha = await fetchHeadSha(owner, repo, input.branch)
+		if (!sha) {
+			throw new AppError(
+				`Couldn't find branch '${input.branch}' on ${canonicalRepoUrl} - check the branch name and try again`,
+				400,
+			)
+		}
+		return {
+			latestDownloadUrl: `${canonicalRepoUrl}/archive/refs/heads/${input.branch}.zip`,
+			latestVersion: sha,
+		}
+	}
+
+	// 'release'
+	const tag = await fetchLatestTag(owner, repo)
+	if (!tag) {
+		throw new AppError(`No releases found on ${canonicalRepoUrl}`, 400)
+	}
+	return {
+		latestDownloadUrl: `${canonicalRepoUrl}/archive/refs/tags/${tag}.zip`,
+		latestVersion: tag,
+	}
 }

@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream'
 import request from 'supertest'
 import { describe, expect, it, vi } from 'vitest'
-import * as storage from '../../features/launcher-releases/launcher-release-storage.js'
+import * as githubReleases from '../../features/launcher-releases/launcher-github-releases.service.js'
 import * as launcherReleasesGateway from '../../infrastructure/gateways/launcher-releases.gateway.js'
 import { createTestApp } from './app.js'
 
@@ -15,18 +15,18 @@ vi.mock('../../infrastructure/gateways/launcher-releases.gateway.js', () => ({
 // same call as vi.mock( for Vitest's static hoisting to find it -- wrapping
 // this call across lines breaks the mock silently (throws "no export
 // defined on the mock" at request time instead of at import time).
-vi.mock('../../features/launcher-releases/launcher-release-storage.js', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('../../features/launcher-releases/launcher-release-storage.js')>()
+vi.mock('../../features/launcher-releases/launcher-github-releases.service.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../../features/launcher-releases/launcher-github-releases.service.js')>()
 	return {
 		...actual,
-		openAssetStream: vi.fn(),
+		resolveAssetDownloadStream: vi.fn(),
 	}
 })
 
 const app = createTestApp()
 
 describe('GET /api/launcher/latest', () => {
-	it('returns 404 when no release has ever been uploaded', async () => {
+	it('returns 404 when no release has ever been imported', async () => {
 		vi.mocked(launcherReleasesGateway.getLatestRelease).mockResolvedValue(null)
 		const res = await request(app).get('/api/launcher/latest')
 		expect(res.status).toBe(404)
@@ -36,13 +36,14 @@ describe('GET /api/launcher/latest', () => {
 		vi.mocked(launcherReleasesGateway.getLatestRelease).mockResolvedValue({
 			id: 1,
 			version: '1.2.0',
+			githubReleaseTag: 'v1.2.0',
 			notes: null,
 			createdAt: new Date('2026-08-10T12:00:00Z'),
 			updatedAt: new Date('2026-08-10T12:00:00Z'),
 			assets: [
 				{
 					platform: 'windows',
-					storagePath: '1.2.0/windows.exe',
+					githubAssetId: 111,
 					originalFilename: 'launcher.exe',
 					fileSize: 100,
 					sha256: 'a'.repeat(64),
@@ -89,6 +90,7 @@ describe('GET /api/launcher/download/:version/:platform', () => {
 		vi.mocked(launcherReleasesGateway.getReleaseByVersion).mockResolvedValue({
 			id: 1,
 			version: '1.0.0',
+			githubReleaseTag: 'v1.0.0',
 			notes: null,
 			createdAt: new Date(),
 			updatedAt: new Date(),
@@ -98,10 +100,11 @@ describe('GET /api/launcher/download/:version/:platform', () => {
 		expect(res.status).toBe(404)
 	})
 
-	it('streams the file with the right headers', async () => {
+	it('streams the proxied GitHub asset with the right headers', async () => {
 		vi.mocked(launcherReleasesGateway.getReleaseByVersion).mockResolvedValue({
 			id: 1,
 			version: '1.0.0',
+			githubReleaseTag: 'v1.0.0',
 			notes: null,
 			createdAt: new Date(),
 			updatedAt: new Date(),
@@ -110,17 +113,15 @@ describe('GET /api/launcher/download/:version/:platform', () => {
 			id: 1,
 			releaseId: 1,
 			platform: 'windows',
-			storagePath: '1.0.0/windows.exe',
+			githubAssetId: 111,
 			originalFilename: 'balatro-multiplayer-launcher.exe',
 			fileSize: 5,
 			sha256: 'a'.repeat(64),
 			createdAt: new Date(),
 		} as any)
-		vi.mocked(storage.openAssetStream).mockReturnValue(
-			Readable.from([Buffer.from('hello')]) as ReturnType<
-				typeof storage.openAssetStream
-			>,
-		)
+		vi.mocked(githubReleases.resolveAssetDownloadStream).mockResolvedValue({
+			body: Readable.toWeb(Readable.from([Buffer.from('hello')])),
+		} as Response)
 
 		const res = await request(app).get('/api/launcher/download/1.0.0/windows')
 		expect(res.status).toBe(200)

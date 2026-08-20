@@ -21,8 +21,55 @@ import {
 } from '../../infrastructure/gateways/mods.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
+import {
+	type SourceInput,
+	resolveSourceInput,
+} from '../mods/custom-mod-version-check.service.js'
 import { classifyDownloadUrl } from '../mods/mod-source-classifier.js'
 import { syncModRegistry } from '../mods/mods-sync.service.js'
+
+// Validates+resolves an admin-supplied `sourceInput` (see mod-form-dialog.tsx
+// and custom-mod-version-check.service.ts's resolveSourceInput doc comment)
+// into the flat fields updateModFields()/createCustomMod() already expect -
+// shared by POST /mods and PATCH /mods/:modId below. Only 'branch'/'release'
+// are ever expected here - 'custom' mode sends latestDownloadUrl directly
+// instead (there's nothing to resolve for an arbitrary URL), so this throws
+// on anything else rather than silently accepting it.
+async function resolveSourceInputField(body: Record<string, unknown>): Promise<{
+	latestDownloadUrl: string
+	latestVersion: string | null
+} | null> {
+	if (body.sourceInput === undefined) return null
+	const si = body.sourceInput as Record<string, unknown>
+
+	if (si.sourceType === 'branch') {
+		if (typeof si.repoUrl !== 'string' || !si.repoUrl) {
+			throw new AppError('sourceInput.repoUrl is required for branch', 400)
+		}
+		if (typeof si.branch !== 'string' || !si.branch) {
+			throw new AppError('sourceInput.branch is required for branch', 400)
+		}
+		const input: SourceInput = {
+			sourceType: 'branch',
+			repoUrl: si.repoUrl,
+			branch: si.branch,
+		}
+		return resolveSourceInput(input)
+	}
+
+	if (si.sourceType === 'release') {
+		if (typeof si.repoUrl !== 'string' || !si.repoUrl) {
+			throw new AppError('sourceInput.repoUrl is required for release', 400)
+		}
+		const input: SourceInput = { sourceType: 'release', repoUrl: si.repoUrl }
+		return resolveSourceInput(input)
+	}
+
+	throw new AppError(
+		"sourceInput.sourceType must be 'branch' or 'release'",
+		400,
+	)
+}
 
 // Ranked mod catalog admin surface: manual per-mod ranked-allowlist overrides
 // and named "ranked mod profiles" (admin-curated allowed/blocked mod lists,
@@ -218,6 +265,22 @@ router.patch('/mods/:modId', async (req, res, next) => {
 			input[key] = body[key] as string | null
 		}
 
+		// Branch/Release mode: resolves latestDownloadUrl/latestVersion from
+		// repoUrl (+ branch name, for Branch) instead of the admin typing a
+		// raw URL - see resolveSourceInputField's own comment. Takes priority
+		// over any latestVersion/latestDownloadUrl the body also happened to
+		// send directly (the client only ever sends one or the other).
+		// automaticVersionCheck isn't touched here - it's isCustom-only
+		// (ignored for a synced mod, see schema.ts's own doc comment) and
+		// updateModFields doesn't write it at all; the admin's existing
+		// toggle (PUT /mods/:modId/custom, isCustom rows only) is untouched
+		// by this.
+		const resolved = await resolveSourceInputField(body)
+		if (resolved) {
+			input.latestDownloadUrl = resolved.latestDownloadUrl
+			input.latestVersion = resolved.latestVersion
+		}
+
 		if (Object.keys(input).length === 0) {
 			throw new AppError('At least one field is required', 400)
 		}
@@ -281,6 +344,15 @@ router.post('/mods', async (req, res, next) => {
 		if (typeof author !== 'string' || !author)
 			throw new AppError('author is required', 400)
 
+		// Branch/Release mode: resolves latestDownloadUrl/latestVersion from
+		// repoUrl (+ branch name, for Branch) instead of the admin typing a
+		// raw URL - see resolveSourceInputField's own comment. Every mod this
+		// route creates is isCustom=true by definition, so (unlike the PATCH
+		// route below, which also edits synced mods) automaticVersionCheck is
+		// always meaningful here - force it on so a Branch/Release mod keeps
+		// tracking its source without the admin needing to separately opt in.
+		const resolved = await resolveSourceInputField(body)
+
 		const mod = await createCustomMod({
 			id,
 			title,
@@ -302,15 +374,19 @@ router.post('/mods', async (req, res, next) => {
 			description:
 				typeof body.description === 'string' ? body.description : null,
 			latestVersion:
-				typeof body.latestVersion === 'string' ? body.latestVersion : null,
+				resolved?.latestVersion ??
+				(typeof body.latestVersion === 'string' ? body.latestVersion : null),
 			latestDownloadUrl:
-				typeof body.latestDownloadUrl === 'string'
+				resolved?.latestDownloadUrl ??
+				(typeof body.latestDownloadUrl === 'string'
 					? body.latestDownloadUrl
-					: null,
+					: null),
 			automaticVersionCheck:
-				typeof body.automaticVersionCheck === 'boolean'
-					? body.automaticVersionCheck
-					: undefined,
+				resolved !== null
+					? true
+					: typeof body.automaticVersionCheck === 'boolean'
+						? body.automaticVersionCheck
+						: undefined,
 			fixedReleaseTagUpdates:
 				typeof body.fixedReleaseTagUpdates === 'boolean'
 					? body.fixedReleaseTagUpdates
