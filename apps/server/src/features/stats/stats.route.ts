@@ -9,6 +9,8 @@ import {
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import { getCurrentSeason } from '../../infrastructure/gateways/matchmaking.gateway.js'
 import { PLACEMENT_GAMES } from '../matchmaking/elo.service.js'
+import { totalPlayerCount } from '../matchmaking/queue.js'
+import { matches, queues } from '../../state/matchmaking.js'
 import { AppError } from '../../shared/utils/errors.js'
 
 const router = Router()
@@ -130,6 +132,48 @@ router.get('/leaderboard', async (req, res, next) => {
 			totalPages: Math.max(1, Math.ceil(total / pageSize)),
 			entries,
 		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+// Live "N queued / M in game" counts, per gameMode, for a mod -- e.g. to
+// show on each button of a Find Game menu. Reads straight off the same
+// in-memory Maps the matchmaking loop itself uses (state/matchmaking.ts) --
+// no DB, no cache, since the whole point is being live and a scan over
+// these Maps is already far cheaper than any query would be. Single-process
+// in-memory state, same assumption the matchmaking loop already makes
+// (no distributed lock) -- if this server ever runs multiple replicas, this
+// only reflects whichever one served the request.
+//
+// One call returns every gameMode currently active for modId, not just one
+// -- a menu with several buttons only needs one round-trip. A gameMode with
+// zero queued and zero in-match players is omitted entirely rather than
+// listed with explicit zeros; callers should treat an absent key as 0/0.
+router.get('/queue-counts', (req, res, next) => {
+	try {
+		const { modId } = req.query
+		if (!modId || typeof modId !== 'string') throw new AppError('Missing modId', 400)
+
+		const counts: Record<string, { queued: number; inMatch: number }> = {}
+
+		const prefix = `${modId}:`
+		for (const [key, entries] of queues.entries()) {
+			if (!key.startsWith(prefix)) continue
+			const queued = totalPlayerCount(entries)
+			if (queued === 0) continue
+			const gameMode = key.slice(prefix.length)
+			counts[gameMode] = counts[gameMode] || { queued: 0, inMatch: 0 }
+			counts[gameMode].queued = queued
+		}
+
+		for (const match of matches.values()) {
+			if (match.modId !== modId || match.playerIds.length === 0) continue
+			counts[match.gameMode] = counts[match.gameMode] || { queued: 0, inMatch: 0 }
+			counts[match.gameMode].inMatch += match.playerIds.length
+		}
+
+		res.json({ modId, gameModes: counts })
 	} catch (err) {
 		next(err)
 	}
