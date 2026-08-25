@@ -337,6 +337,40 @@ export async function applyDetectedVersion(
 		})
 }
 
+// Upserts a single mod_registry_versions row for one exact modId+version -
+// the same shape applyDetectedVersion() above inserts inline for a custom
+// mod's detected version, generalized so mods-sync.service.ts's
+// ensureVersionHashed() can call it for *any* mod (custom or index-synced)
+// whose latestVersion/latestDownloadUrl an admin just resolved via a
+// Branch/Release source-type edit (see webadmin/mods.route.ts's
+// resolveSourceInputField). That admin-edit path used to update only the
+// mod_registry row itself - never mod_registry_versions - which meant the
+// edited version had no row for the regular sync's hashAll() to ever pick
+// up (hashAll()'s candidates come from the freshly-*fetched* upstream
+// index/custom-mod list, never from this table's or mod_registry's current
+// state - see mods-sync.service.ts's runSync() comment) and could never be
+// selected as a ranked-version pin either, since the admin UI's version
+// dropdown for a 'release' mod only offers what's already in this table.
+// Confirmed live: Blueprint's admin-overridden release tag ("v.3.3") had
+// no row here at all, months after the override - the regular sync's own
+// hash pass, and repeated manual "Sync now" clicks, could never have found
+// it no matter how many times either ran, since neither one ever looks at
+// what an admin already set outside the upstream-index/custom-mod-check
+// flow.
+export async function upsertVersionRow(
+	modId: string,
+	version: string,
+	downloadUrl: string,
+): Promise<void> {
+	await db
+		.insert(modRegistryVersions)
+		.values({ modId, version, downloadUrl })
+		.onConflictDoUpdate({
+			target: [modRegistryVersions.modId, modRegistryVersions.version],
+			set: { downloadUrl },
+		})
+}
+
 // --- Server-computed hashes (mods-sync.service.ts) ---
 
 // Null when never computed yet, or when the version's own row is missing

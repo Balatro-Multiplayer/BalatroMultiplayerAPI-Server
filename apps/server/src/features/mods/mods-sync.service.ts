@@ -11,11 +11,12 @@ import {
 	pruneModsMissingFrom,
 	storeComputedHash,
 	upsertModFromIndex,
+	upsertVersionRow,
 } from '../../infrastructure/gateways/mods.gateway.js'
 import { checkCustomModVersion } from './custom-mod-version-check.service.js'
 import { relocateModRoot } from './mod-archive-flatten.js'
-import { resolveReliableDownloadUrl } from './mod-source-classifier.js'
 import { computeModFolderHash } from './mod-folder-hash.js'
+import { resolveReliableDownloadUrl } from './mod-source-classifier.js'
 import { fetchUpstreamModIndex } from './upstream-mod-index.service.js'
 
 export interface ModRegistrySyncSummary {
@@ -139,7 +140,11 @@ async function runHashPool(
 				if (existingHash) continue
 			}
 
-			const hash = await computeModFolderHashForRelease(modId, version, downloadUrl)
+			const hash = await computeModFolderHashForRelease(
+				modId,
+				version,
+				downloadUrl,
+			)
 			if (hash) {
 				await storeComputedHash(modId, version, hash)
 				hashed++
@@ -207,6 +212,53 @@ export async function recomputeAllModHashes(modIds?: string[]): Promise<void> {
 			`[mods-sync] Failed (see earlier [mods-sync] Failed to hash lines above for why): ${failed
 				.map((f) => `${f.modId}@${f.version}`)
 				.join(', ')}`,
+		)
+	}
+}
+
+// Closes a real gap in the admin-edit path: webadmin/mods.route.ts's
+// resolveSourceInputField() resolves a fresh latestVersion/latestDownloadUrl
+// for an admin's Branch/Release source-type edit, but the PATCH/POST
+// handlers that call it only ever wrote those two fields onto the
+// mod_registry row itself - never into mod_registry_versions, and never
+// hashed anything. That version then had no way to *ever* get hashed:
+// hashAll()'s candidates come from the freshly-fetched upstream index entry
+// (or, for a custom mod, checkCustomModVersion()'s own detection) - neither
+// one has any idea an admin manually pointed a mod somewhere else, so an
+// admin-overridden version could sit there indefinitely with no row and no
+// hash no matter how many times the regular sync or the "Sync now" button
+// ran. Confirmed live as the actual cause of a real report: Blueprint's
+// admin-pinned release tag never got a stored hash, and could never even
+// be *selected* as the ranked-version pin (the admin UI's dropdown for a
+// 'release' mod only offers versions already present in
+// mod_registry_versions).
+//
+// Call right after resolving a Branch/Release source edit, before the
+// request responds - synchronous/awaited on purpose (matches
+// resolveSourceInput()'s own "admin needs to know immediately, not have
+// this silently fail in the background" philosophy), but best-effort: a
+// failed fetch/hash here is logged, not thrown - the field edit itself
+// already succeeded and shouldn't be rolled back over a transient hashing
+// failure, which the regular sync or a follow-up manual retry can still
+// recover (this function is safely re-callable - upsertVersionRow()
+// upserts, and getStoredHash()'s short-circuit means a second call after a
+// first success is a no-op).
+export async function ensureVersionHashed(
+	modId: string,
+	version: string,
+	downloadUrl: string,
+): Promise<void> {
+	await upsertVersionRow(modId, version, downloadUrl)
+
+	const existingHash = await getStoredHash(modId, version)
+	if (existingHash) return
+
+	const hash = await computeModFolderHashForRelease(modId, version, downloadUrl)
+	if (hash) {
+		await storeComputedHash(modId, version, hash)
+	} else {
+		console.error(
+			`[mods-sync] Couldn't hash ${modId}@${version} right after an admin source edit - it has no ranked-eligible hash yet; the regular sync won't retry this on its own (it only re-checks its own upstream/custom-mod-detected versions) - re-saving the same source edit will retry this too.`,
 		)
 	}
 }

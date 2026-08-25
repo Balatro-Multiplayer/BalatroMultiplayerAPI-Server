@@ -7,6 +7,7 @@ import {
 	deleteProfile,
 	getProfileById,
 	getPublicModById,
+	getStoredHash,
 	listProfiles,
 	listPublicMods,
 	removeProfileEntry,
@@ -26,7 +27,7 @@ import {
 	resolveSourceInput,
 } from '../mods/custom-mod-version-check.service.js'
 import { classifyDownloadUrl } from '../mods/mod-source-classifier.js'
-import { syncModRegistry } from '../mods/mods-sync.service.js'
+import { ensureVersionHashed, syncModRegistry } from '../mods/mods-sync.service.js'
 
 // Validates+resolves an admin-supplied `sourceInput` (see mod-form-dialog.tsx
 // and custom-mod-version-check.service.ts's resolveSourceInput doc comment)
@@ -190,7 +191,36 @@ router.put('/mods/:modId', async (req, res, next) => {
 					sourceType === 'release' &&
 					!mod.versions.some((v) => v.version === rankedVersion)
 				) {
-					throw new AppError('Not a known version of this mod', 400)
+					// Recovery path, not the normal case: the mod's own current
+					// latestVersion should always be a legal ranked pin, even if
+					// it has no mod_registry_versions row/hash yet. That gap
+					// normally closes itself right after a Branch/Release source
+					// edit (see ensureVersionHashed()'s own comment) - but the
+					// admin UI's PATCH is diff-based, only resending sourceInput
+					// when something in it actually changed, so an admin who
+					// already saved the right source once (and is now just stuck
+					// with an unhashed version - see Blueprint's real-world case)
+					// has no way to re-trigger that from the edit dialog alone.
+					// Retry hashing right now, once, for exactly this one
+					// recoverable case - mod.latestDownloadUrl is already known-
+					// correct for mod.latestVersion, there's nothing to resolve,
+					// only to (re)compute.
+					if (rankedVersion === mod.latestVersion && mod.latestDownloadUrl) {
+						await ensureVersionHashed(
+							req.params.modId,
+							rankedVersion,
+							mod.latestDownloadUrl,
+						)
+					}
+					const stillUnknown = !(await getStoredHash(req.params.modId, rankedVersion))
+					if (stillUnknown) {
+						throw new AppError(
+							rankedVersion === mod.latestVersion
+								? "Couldn't compute a hash for this mod's current version - check the server logs (mods-sync) for why the download/extraction failed, then try again"
+								: 'Not a known version of this mod',
+							400,
+						)
+					}
 				}
 			}
 			const ok = await setRankedVersion(req.params.modId, rankedVersion)
@@ -287,6 +317,22 @@ router.patch('/mods/:modId', async (req, res, next) => {
 
 		const mod = await updateModFields(req.params.modId, input)
 		if (!mod) throw new AppError('Mod not found', 404)
+
+		// See ensureVersionHashed()'s own comment for why this can't be left
+		// to the regular sync - an admin-resolved Branch/Release version has
+		// no other path to ever get a mod_registry_versions row or a hash at
+		// all otherwise. Only meaningful when resolved actually ran (Branch/
+		// Release mode) and produced a real version to hash - a 'branch' mod
+		// with an unreachable ref already threw out of resolveSourceInputField
+		// above, and Custom mode never reaches here since resolved stays null.
+		if (resolved?.latestVersion) {
+			await ensureVersionHashed(
+				req.params.modId,
+				resolved.latestVersion,
+				resolved.latestDownloadUrl,
+			)
+		}
+
 		res.json(mod)
 	} catch (err) {
 		next(err)
@@ -393,6 +439,19 @@ router.post('/mods', async (req, res, next) => {
 					: undefined,
 		})
 		if (!mod) throw new AppError(`A mod with id '${id}' already exists`, 409)
+
+		// See ensureVersionHashed()'s own comment. automaticVersionCheck being
+		// forced on above means the *next* sync would eventually reach this
+		// version too (via checkCustomModVersion() re-detecting the same
+		// value as "no change" and moving on to hashing it) - but that could
+		// be up to an hour away, and only re-detects successfully if nothing
+		// about the repo changed out from under it in the meantime. Hashing
+		// it immediately here instead means a freshly created Branch/Release
+		// mod is actually ranked-pinnable right away, not just eventually.
+		if (resolved?.latestVersion) {
+			await ensureVersionHashed(id, resolved.latestVersion, resolved.latestDownloadUrl)
+		}
+
 		res.status(201).json(mod)
 	} catch (err) {
 		next(err)
