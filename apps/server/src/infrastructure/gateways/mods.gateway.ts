@@ -92,9 +92,25 @@ export async function getPublicModById(
 	// classify it against, and hiding it on a guess risks losing a
 	// genuinely-valid pinned version over an absent column, not a
 	// mismatched one.
-	const versions = allVersions.filter(
-		(v) => !v.downloadUrl || classifyDownloadUrl(v.downloadUrl) === sourceType,
-	)
+	const versions = allVersions
+		.filter((v) => !v.downloadUrl || classifyDownloadUrl(v.downloadUrl) === sourceType)
+		// The launcher's RunController::resolveFromReleases() (new-launcher,
+		// keepAtLatestVersion path) takes releases.first() as "the latest"
+		// unconditionally, matching real GitHub releases-API responses
+		// (always newest-first) -- but this array reflects raw DB row order,
+		// which is neither insertion order nor chronological (confirmed
+		// live: CardSleeves' oldest row ended up first, so every
+		// keepAtLatestVersion install silently deployed a stale branch
+		// commit's content under the current version's name). Stable-sort
+		// the mod's own current version to the front so array order always
+		// matches what "latest" actually means, regardless of DB row order
+		// or releasedAt gaps (admin-resolved rows have no releasedAt at
+		// all).
+		.sort((a, b) => {
+			if (a.version === mod.latestVersion) return -1
+			if (b.version === mod.latestVersion) return 1
+			return 0
+		})
 
 	return {
 		...mod,
