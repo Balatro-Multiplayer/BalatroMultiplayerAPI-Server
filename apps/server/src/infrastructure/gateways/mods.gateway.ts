@@ -71,14 +71,34 @@ export async function getPublicModById(
 	if (!mod) return null
 	if (mod.hidden && !opts?.includeHidden) return null
 
-	const versions = await db
+	const allVersions = await db
 		.select()
 		.from(modRegistryVersions)
 		.where(eq(modRegistryVersions.modId, id))
 
+	const sourceType = classifyDownloadUrl(mod.latestDownloadUrl ?? '')
+
+	// mod_registry_versions is a strict union across this mod's entire
+	// sourceType history -- a row is only ever upserted or updated, never
+	// deleted or re-tagged, so a mod that switched sourceType (e.g. an
+	// admin re-pointing a Branch-tracked mod at a real GitHub Release, as
+	// with Blueprint - see mods-sync.service.ts's ensureVersionHashed())
+	// keeps every pre-switch row forever. Confirmed live: without this
+	// filter, /admin/ranked-mods' Ranked Version dropdown for a 'release'
+	// mod lists old branch-commit-hash entries indistinguishably alongside
+	// real release tags, since ModVersion exposes no downloadUrl/sourceType
+	// of its own for a consumer to tell them apart. A row with no
+	// downloadUrl on file is kept rather than dropped -- there's nothing to
+	// classify it against, and hiding it on a guess risks losing a
+	// genuinely-valid pinned version over an absent column, not a
+	// mismatched one.
+	const versions = allVersions.filter(
+		(v) => !v.downloadUrl || classifyDownloadUrl(v.downloadUrl) === sourceType,
+	)
+
 	return {
 		...mod,
-		sourceType: classifyDownloadUrl(mod.latestDownloadUrl ?? ''),
+		sourceType,
 		versions,
 	}
 }

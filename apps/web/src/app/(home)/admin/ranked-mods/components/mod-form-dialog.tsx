@@ -127,32 +127,6 @@ export function ModFormDialog({
               }
             />
           </div>
-          <div className='flex items-center justify-between'>
-            <Label htmlFor='mod-requires-steamodded'>
-              Requires Steamodded
-              <PinnedBadge shown={pinned('requiresSteamodded')} />
-            </Label>
-            <Switch
-              id='mod-requires-steamodded'
-              checked={form.requiresSteamodded}
-              onCheckedChange={(v) =>
-                onFormChange({ ...form, requiresSteamodded: v })
-              }
-            />
-          </div>
-          <div className='flex items-center justify-between'>
-            <Label htmlFor='mod-requires-talisman'>
-              Requires Talisman
-              <PinnedBadge shown={pinned('requiresTalisman')} />
-            </Label>
-            <Switch
-              id='mod-requires-talisman'
-              checked={form.requiresTalisman}
-              onCheckedChange={(v) =>
-                onFormChange({ ...form, requiresTalisman: v })
-              }
-            />
-          </div>
           <div className='space-y-2'>
             <Label htmlFor='mod-repo-url'>
               Repo URL
