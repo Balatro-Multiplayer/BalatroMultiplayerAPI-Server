@@ -16,6 +16,10 @@ export const SOFT_RESET_ANCHOR = 1200
 export const RANKED_SPREAD_INITIAL = 150
 export const RANKED_SPREAD_EXPAND_RATE = 50
 export const RANKED_SPREAD_CAP = 600
+// §11.x: widened from the textbook 400 so wide-spread ranked matches (up to
+// RANKED_SPREAD_CAP) stay worth playing for the favourite -- a 600-point
+// favourite's win now nets ~8 rating instead of ~1.
+export const ELO_SCALE = 1000
 export const DECAY_INACTIVE_THRESHOLD_DAYS = 7
 export const DECAY_RATE_PER_DAY = 5
 export const LEADERBOARD_TOP_N = 100
@@ -32,7 +36,7 @@ export function effectiveK(gamesPlayed: number, performance: number): number {
 }
 
 export function expectedScore(ratingA: number, ratingB: number): number {
-	return 1 / (1 + 10 ** ((ratingB - ratingA) / 400))
+	return 1 / (1 + 10 ** ((ratingB - ratingA) / ELO_SCALE))
 }
 
 // Returns integer-rounded deltas.
@@ -63,35 +67,35 @@ export function compute1v1(
 	}
 }
 
-// FFA: one winner, all others lose. Uses K/(N-1) per virtual matchup.
+// FFA: every player is scored against every other player by relative place
+// (lower place wins, equal place draws), each virtual matchup weighted
+// K/(N-1). Ties -- including ties for first -- score as draws rather than
+// collapsing to a single "the winner" who excludes any co-winners.
 export function computeFFA(
 	players: Array<{
 		playerId: string
 		rating: number
 		gamesPlayed: number
 		performance: number
-		isWinner: boolean
+		place: number
 	}>,
 ): Map<string, number> {
 	const n = players.length
 	if (n < 2) return new Map(players.map((p) => [p.playerId, 0]))
 
-	const deltas = new Map<string, number>(players.map((p) => [p.playerId, 0]))
-	const winner = players.find((p) => p.isWinner)
-	if (!winner) return deltas
-
-	const losers = players.filter((p) => !p.isWinner)
 	const kDivisor = n - 1
+	const deltas = new Map<string, number>()
 
-	for (const loser of losers) {
-		const ea = expectedScore(winner.rating, loser.rating)
-		const eb = 1 - ea
-		const ka = effectiveK(winner.gamesPlayed, winner.performance) / kDivisor
-		const kb = effectiveK(loser.gamesPlayed, loser.performance) / kDivisor
-		const winnerDelta = Math.round(ka * (1 - ea))
-		const loserDelta = Math.round(kb * (0 - eb))
-		deltas.set(winner.playerId, (deltas.get(winner.playerId) ?? 0) + winnerDelta)
-		deltas.set(loser.playerId, (deltas.get(loser.playerId) ?? 0) + loserDelta)
+	for (const p of players) {
+		const kp = effectiveK(p.gamesPlayed, p.performance) / kDivisor
+		let sum = 0
+		for (const q of players) {
+			if (q.playerId === p.playerId) continue
+			const score = p.place < q.place ? 1 : p.place > q.place ? 0 : 0.5
+			const ep = expectedScore(p.rating, q.rating)
+			sum += kp * (score - ep)
+		}
+		deltas.set(p.playerId, Math.round(sum))
 	}
 
 	return deltas
@@ -184,7 +188,6 @@ export function computeRatingDeltas(
 	}
 
 	if (mode === 'ffa') {
-		const winnerPlace = Math.min(...placements.map((p) => p.place))
 		return computeFFA(
 			placements.map((p) => {
 				const r = ratings.get(p.playerId)!
@@ -193,7 +196,7 @@ export function computeRatingDeltas(
 					rating: r.rating,
 					gamesPlayed: r.gamesPlayed,
 					performance: p.performance ?? 0,
-					isWinner: p.place === winnerPlace,
+					place: p.place,
 				}
 			}),
 		)
