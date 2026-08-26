@@ -234,6 +234,29 @@ export const matchResultConflicts = pgTable('match_result_conflicts', {
 		.defaultNow(),
 })
 
+// A candidate "wrongful auto-forfeit" -- a player reconnected (MQTT or a
+// fresh HTTP re-auth) shortly after a match involving them resolved via the
+// grace-period auto-forfeit path (matchmaking_matches.result_reported_by =
+// 'system'), which is exactly the race that let a legitimately-reconnected
+// player still get forfeited (see grace-period.service.ts's GRACE_PERIOD_MS).
+// Purely a flag for a moderator to review and, if it really was wrongful,
+// void via void-match.ts's voidMatch() -- never an automatic rating change,
+// since the reconnect timing alone isn't proof the forfeit was wrong (see
+// RECONCILIATION_WINDOW_MS in matchmaking.service.ts).
+export const forfeitReconciliationFlags = pgTable('forfeit_reconciliation_flags', {
+	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+	matchId: varchar('match_id', { length: 36 }).notNull(),
+	lobbyCode: varchar('lobby_code', { length: 6 }).notNull(),
+	playerId: uuid('player_id').notNull(),
+	forfeitedAt: timestamp('forfeited_at', { withTimezone: true }).notNull(),
+	reconnectedAt: timestamp('reconnected_at', { withTimezone: true }).notNull(),
+	status: varchar('status', { length: 16 }).notNull().default('open'), // open | voided | dismissed
+	resolutionNotes: text('resolution_notes'),
+	createdAt: timestamp('created_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+})
+
 // Persisted mirror of grace-period.service.ts's in-memory `gracePeriods` Map
 // -- a disconnected player's 2-minute countdown before auto-forfeit,
 // durable across a bmp-api restart. No FK on playerId, same precedent as

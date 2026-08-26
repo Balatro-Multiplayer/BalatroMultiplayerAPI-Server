@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { env } from '../../env.js'
 import {
 	cancelGracePeriodImmediate,
+	checkForWrongfulForfeit,
 	notifyReconnected,
 	startGracePeriod,
 } from '../../infrastructure/mqtt/grace-period.service.js'
@@ -70,6 +71,19 @@ function handleClientConnected(clientid: string): void {
 	// reconnected-but-still-mid-match player get auto-forfeited anyway (see
 	// grace-period.service.ts's GRACE_PERIOD_MS and expireGracePeriod).
 	const reconnectedEntry = cancelGracePeriodImmediate(clientid)
+
+	// If there was no active grace period to cancel, this reconnect may still
+	// be arriving just *after* one already expired into an auto-forfeit (the
+	// race A.1 mostly closes, but not entirely -- e.g. every lightweight
+	// retry attempt failed too). Not time-critical (a DB read, purely for a
+	// moderator-review flag -- see checkForWrongfulForfeit), so it rides
+	// along in this same delayed block rather than the synchronous cancel
+	// path above.
+	if (!reconnectedEntry) {
+		void checkForWrongfulForfeit(clientid).catch((err) =>
+			console.error('[grace-period] checkForWrongfulForfeit error:', err),
+		)
+	}
 
 	setTimeout(() => {
 		if (reconnectedEntry) {

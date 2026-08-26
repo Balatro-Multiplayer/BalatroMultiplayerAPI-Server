@@ -115,7 +115,12 @@ export interface PlacementEntry {
 
 export type Privilege = 'admin' | 'moderator' | 'tester' | (string & {})
 export type BanType = 'chat' | 'queue' | 'account'
-export type MatchStatus = 'active' | 'resolved'
+// 'voided' means a resolved match's rating effect has been reversed (e.g. it
+// was wrongly auto-forfeited by a reconnect race, see void-match.ts) --
+// resultPlacements/resultReportedBy/resultReportedAt are left intact as a
+// historical record of what was originally reported, only the status (and
+// the ratings it fed into) change.
+export type MatchStatus = 'active' | 'resolved' | 'voided'
 export type ReportType = 'cheating' | 'chat_abuse' | 'griefing' | 'inappropriate_username' | 'other'
 export type ReportStatus = 'open' | 'resolved'
 

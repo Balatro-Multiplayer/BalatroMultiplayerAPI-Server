@@ -4,6 +4,7 @@ import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { authenticate } from '../../middleware/authenticate.js'
 import chatLogsRouter from './chat-logs.route.js'
 import configRouter from './config.route.js'
+import forfeitReconciliationRouter from './forfeit-reconciliation.route.js'
 import launcherReleasesRouter from './launcher-releases.route.js'
 import lobbiesRouter from './lobbies.route.js'
 import matchConflictsRouter from './match-conflicts.route.js'
@@ -41,6 +42,7 @@ router.use(seasonsRouter)
 router.use(matchesRouter)
 router.use(lobbiesRouter)
 router.use(matchConflictsRouter)
+router.use(forfeitReconciliationRouter)
 router.use(launcherReleasesRouter)
 router.use(configRouter)
 router.use(modsRouter)
