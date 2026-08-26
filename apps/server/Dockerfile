@@ -20,4 +20,10 @@ RUN pnpm --filter balatro-multiplayer-api-server build
 
 EXPOSE 8788
 
-CMD ["sh", "-c", "pnpm --filter balatro-multiplayer-api-server migrate && pnpm --filter balatro-multiplayer-api-server start"]
+# Migrations are no longer run on every boot -- for the blue-green swap
+# (scripts/deploy-color-swap.sh) they'd otherwise race between the two
+# colors and add latency to every cutover for no benefit (drizzle's
+# migrator is idempotent, but still costs a real DB round-trip). Run once,
+# explicitly, before starting either color: `docker compose run --rm
+# api-blue pnpm --filter balatro-multiplayer-api-server migrate`.
+CMD ["sh", "-c", "pnpm --filter balatro-multiplayer-api-server start"]

@@ -44,13 +44,20 @@ services:
     networks:
       - bmp
 
-  api:
+  # api-blue/api-green: the blue-green pair (scripts/deploy-color-swap.sh).
+  # Neither publishes a host port or is reachable as plain "api" on the bmp
+  # network -- the `nginx` service below is the only stable address, for
+  # both external traffic (published 80/443 in prod, 127.0.0.1:8788 for
+  # local dev -- see docker-compose.local.yml) and EMQX's own webhook/authn
+  # calls (which are hardcoded to "http://api:8788" in
+  # cluster.hocon/emqx-provision.service.ts and were never changed -- nginx
+  # just took over that identity via a network alias, so EMQX never needs to
+  # know a swap happened at all).
+  api-blue: &api-color
     build:
       context: .
       dockerfile: apps/server/Dockerfile
-    container_name: bmp-api
-    ports:
-      - "127.0.0.1:8788:8788"
+    container_name: bmp-api-blue
     env_file: ./apps/server/.env
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/bmp
@@ -62,22 +69,79 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    healthcheck:
+      # node's global fetch (no curl/wget in node:22-alpine) against the
+      # existing /health endpoint (main.ts) -- previously unused by anything,
+      # including this service's own depends_on/restart-readiness.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8788/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
     networks:
       - bmp
+
+  api-green:
+    <<: *api-color
+    container_name: bmp-api-green
+
+  # The ONLY reverse proxy for this whole stack -- replaces what used to be
+  # a separately hand-maintained host-level nginx install on bmpserver
+  # (/etc/nginx/sites-available/bmp), so all server config, TLS included,
+  # lives in this repo/compose file instead of split across two places.
+  # nginx/prod/server.conf is the prod-realistic default (TLS, Cloudflare,
+  # web/api routing, matching the old host config exactly);
+  # docker-compose.local.yml swaps in nginx/local/server.conf (plain HTTP,
+  # no domain) for local dev. nginx/upstream.conf is the one file
+  # scripts/deploy-color-swap.sh ever rewrites, in either environment.
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: bmp-nginx
+    networks:
+      bmp:
+        aliases:
+          - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/prod/server.conf:/etc/nginx/conf.d/server.conf:ro
+      - ./nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+      # Cloudflare Origin CA cert for new.balatromp.com -- long-lived, no
+      # certbot/renewal hook needed (unlike EMQX's mqtt.balatromp.com cert
+      # above, which is real Let's Encrypt and does renew).
+      - /etc/nginx/ssl/bmp.crt:/etc/nginx/ssl/bmp.crt:ro
+      - /etc/nginx/ssl/bmp.key:/etc/nginx/ssl/bmp.key:ro
+    depends_on:
+      api-blue:
+        condition: service_started
+    healthcheck:
+      # Generous start_period -- this proxies straight through to whichever
+      # api color is currently starting, so it can't become healthy any
+      # faster than that color's own app boot (mods-sync alone can take
+      # several seconds). --no-check-certificate: this healthcheck runs
+      # inside the container without the host's CA trust store; the cert
+      # itself is real and valid for real external clients.
+      test: ["CMD", "wget", "-q", "--no-check-certificate", "--spider", "https://localhost/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+      start_period: 45s
+    restart: unless-stopped
 
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
     container_name: bmp-web
-    ports:
-      - "127.0.0.1:3000:3000"
     environment:
       NODE_ENV: production
-      API_SERVER_URL: http://bmp-api:8788
+      API_SERVER_URL: http://api:8788
     depends_on:
-      - api
+      nginx:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - bmp
