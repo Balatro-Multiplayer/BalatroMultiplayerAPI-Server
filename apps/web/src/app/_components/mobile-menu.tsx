@@ -12,6 +12,7 @@ import {
   LogOut,
   Menu as MenuIcon,
   MessageSquare,
+  Newspaper,
   PackageOpen,
   Palette,
   Puzzle,
@@ -200,7 +201,14 @@ function MobileAdminSection({ onClose }: { onClose: () => void }) {
           icon={<PackageOpen className='size-4' />}
           onClick={onClose}
         >
-          Releases
+          BET Releases
+        </MobileMenuLink>
+        <MobileMenuLink
+          href='/admin/blog'
+          icon={<Newspaper className='size-4' />}
+          onClick={onClose}
+        >
+          Blog
         </MobileMenuLink>
         <MobileMenuLink
           href='/admin/games'

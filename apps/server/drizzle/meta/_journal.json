@@ -246,6 +246,13 @@
       "when": 1791000000000,
       "tag": "0034_grace_periods",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791100000000,
+      "tag": "0035_blog_posts",
+      "breakpoints": true
     }
   ]
 }

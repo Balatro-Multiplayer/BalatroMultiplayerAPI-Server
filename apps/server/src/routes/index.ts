@@ -2,6 +2,7 @@ import { Router } from 'express'
 import adminRouter from '../features/admin/admin.route.js'
 import { createAuthRouter } from '../features/auth/auth.route.js'
 import { createAuthService } from '../features/auth/auth.service.js'
+import blogRouter from '../features/blog/blog.route.js'
 import emqxRouter from '../features/emqx/emqx.route.js'
 import launcherRouter from '../features/launcher/launcher.route.js'
 import { createLobbyRouter } from '../features/lobby/lobby.route.js'
@@ -49,6 +50,7 @@ router.use('/api/reports', createReportsRouter())
 router.use('/api/runs', createReplayLogRouter(replayLogService))
 router.use('/api/stats', statsRouter)
 router.use('/api/launcher', launcherRouter)
+router.use('/api/blog', blogRouter)
 router.use('/api/mods', modsRouter)
 router.use('/api/webadmin', webadminRouter)
 router.use('/emqx', emqxRouter)

@@ -52,7 +52,10 @@ export function NavAuth() {
                 <Link href='/admin/seasons'>Seasons</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href='/admin/releases'>Releases</Link>
+                <Link href='/admin/releases'>BET Releases</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href='/admin/blog'>Blog</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href='/admin/games'>Match History</Link>

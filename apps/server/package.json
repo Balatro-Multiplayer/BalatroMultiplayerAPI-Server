@@ -26,7 +26,8 @@
 		"mqtt": "^5.10.0",
 		"multer": "^2.2.0",
 		"obscenity": "^0.4.6",
-		"pg": "^8.13.0"
+		"pg": "^8.13.0",
+		"sanitize-html": "^2.17.7"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "*",
@@ -36,6 +37,7 @@
 		"@types/multer": "^2.2.0",
 		"@types/node": "^22.0.0",
 		"@types/pg": "^8.11.0",
+		"@types/sanitize-html": "^2.16.1",
 		"@types/supertest": "^6.0.0",
 		"drizzle-kit": "^0.30.0",
 		"supertest": "^7.0.0",
