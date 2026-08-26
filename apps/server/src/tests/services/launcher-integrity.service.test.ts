@@ -459,6 +459,194 @@ describe('launcher-integrity.service', () => {
 		})
 	})
 
+	describe('ranked_readiness challenge', () => {
+		it('issues a ranked_readiness challenge on demand', async () => {
+			const messageBus = makeMockMessageBus()
+			const service = createLauncherIntegrityService({
+				messageBus,
+				repository: makeMockRepository(),
+			})
+			service.setChallengeStrategy(makeFakeStrategy())
+
+			await service.issueRankedReadinessChallenge('player1')
+
+			expect(messageBus.publishToPlayer).toHaveBeenCalledWith(
+				'player1',
+				'challenge',
+				expect.objectContaining({ type: 'issued', kind: 'ranked_readiness' }),
+			)
+		})
+
+		it('does not touch isLauncherVerified or publish anything when both are current', async () => {
+			const messageBus = makeMockMessageBus()
+			const service = createLauncherIntegrityService({
+				messageBus,
+				repository: makeMockRepository(),
+			})
+			service.setChallengeStrategy(makeFakeStrategy())
+			const onFailed = vi.fn()
+			service.onRankedReadinessFailed(onFailed)
+
+			await service.issueRankedReadinessChallenge('player1')
+			const challengeId = await getIssuedChallengeId(messageBus)
+			await service.handleChallengeResponse('player1', {
+				challengeId,
+				response: { signature: 'sig', launcherCurrent: true, modsCurrent: true },
+			})
+
+			expect(onFailed).not.toHaveBeenCalled()
+			expect(service.isLauncherVerified('player1')).toBe(false)
+			expect(messageBus.publishToPlayer).not.toHaveBeenCalledWith(
+				'player1',
+				'challenge',
+				expect.objectContaining({ type: 'verified' }),
+			)
+		})
+
+		it('reports launcher_outdated when the verdict says the launcher itself is stale', async () => {
+			const messageBus = makeMockMessageBus()
+			const service = createLauncherIntegrityService({
+				messageBus,
+				repository: makeMockRepository(),
+			})
+			service.setChallengeStrategy(makeFakeStrategy())
+			const onFailed = vi.fn()
+			service.onRankedReadinessFailed(onFailed)
+
+			await service.issueRankedReadinessChallenge('player1')
+			const challengeId = await getIssuedChallengeId(messageBus)
+			await service.handleChallengeResponse('player1', {
+				challengeId,
+				response: { signature: 'sig', launcherCurrent: false, modsCurrent: true },
+			})
+
+			expect(onFailed).toHaveBeenCalledWith('player1', 'launcher_outdated')
+		})
+
+		it('reports mods_outdated when only the mods are stale', async () => {
+			const messageBus = makeMockMessageBus()
+			const service = createLauncherIntegrityService({
+				messageBus,
+				repository: makeMockRepository(),
+			})
+			service.setChallengeStrategy(makeFakeStrategy())
+			const onFailed = vi.fn()
+			service.onRankedReadinessFailed(onFailed)
+
+			await service.issueRankedReadinessChallenge('player1')
+			const challengeId = await getIssuedChallengeId(messageBus)
+			await service.handleChallengeResponse('player1', {
+				challengeId,
+				response: { signature: 'sig', launcherCurrent: true, modsCurrent: false },
+			})
+
+			expect(onFailed).toHaveBeenCalledWith('player1', 'mods_outdated')
+		})
+
+		it('reports launcher_outdated on an explicit refusal', async () => {
+			const messageBus = makeMockMessageBus()
+			const service = createLauncherIntegrityService({
+				messageBus,
+				repository: makeMockRepository(),
+			})
+			service.setChallengeStrategy(makeFakeStrategy())
+			const onFailed = vi.fn()
+			service.onRankedReadinessFailed(onFailed)
+
+			await service.issueRankedReadinessChallenge('player1')
+			const challengeId = await getIssuedChallengeId(messageBus)
+			await service.handleChallengeResponse('player1', {
+				challengeId,
+				refused: true,
+			})
+
+			expect(onFailed).toHaveBeenCalledWith('player1', 'launcher_outdated')
+		})
+
+		it('reports launcher_outdated when the base signature fails to verify', async () => {
+			const messageBus = makeMockMessageBus()
+			const service = createLauncherIntegrityService({
+				messageBus,
+				repository: makeMockRepository(),
+			})
+			const strategy = makeFakeStrategy()
+			strategy.answerIsCorrect = false
+			service.setChallengeStrategy(strategy)
+			const onFailed = vi.fn()
+			service.onRankedReadinessFailed(onFailed)
+
+			await service.issueRankedReadinessChallenge('player1')
+			const challengeId = await getIssuedChallengeId(messageBus)
+			await service.handleChallengeResponse('player1', {
+				challengeId,
+				response: { signature: 'wrong', launcherCurrent: true, modsCurrent: true },
+			})
+
+			expect(onFailed).toHaveBeenCalledWith('player1', 'launcher_outdated')
+		})
+
+		it('reports launcher_outdated on timeout, without disconnecting or touching launcherVerified', async () => {
+			vi.useFakeTimers()
+			const messageBus = makeMockMessageBus()
+			const repository = makeMockRepository()
+			const service = createLauncherIntegrityService({ messageBus, repository })
+			service.setChallengeStrategy(makeFakeStrategy())
+			const onFailed = vi.fn()
+			service.onRankedReadinessFailed(onFailed)
+
+			await service.issueRankedReadinessChallenge('player1')
+			await vi.advanceTimersByTimeAsync(60_000)
+
+			expect(onFailed).toHaveBeenCalledWith('player1', 'launcher_outdated')
+			expect(kickClient).not.toHaveBeenCalled()
+			expect(service.isLauncherVerified('player1')).toBe(false)
+		})
+
+		it('does not affect a separately-verified login session', async () => {
+			const messageBus = makeMockMessageBus()
+			const service = createLauncherIntegrityService({
+				messageBus,
+				repository: makeMockRepository(),
+			})
+			service.setChallengeStrategy(makeFakeStrategy())
+			const onFailed = vi.fn()
+			service.onRankedReadinessFailed(onFailed)
+
+			// Pass login first.
+			await service.handleClientConnected('player1')
+			const loginChallengeId = await getIssuedChallengeId(messageBus)
+			await service.handleChallengeResponse('player1', {
+				challengeId: loginChallengeId,
+				response: 'ok',
+			})
+			expect(service.isLauncherVerified('player1')).toBe(true)
+
+			// A ranked_readiness challenge reporting stale mods must not flip
+			// the unrelated login-verified flag - see
+			// handleRankedReadinessResponse's own comment on why.
+			// getIssuedChallengeId finds the *first* 'issued' publish, which
+			// by now is the login one from above - find the readiness one
+			// specifically instead.
+			await service.issueRankedReadinessChallenge('player1')
+			const readinessCall = (
+				messageBus.publishToPlayer as ReturnType<typeof vi.fn>
+			).mock.calls.find(
+				([, subtopic, payload]) =>
+					subtopic === 'challenge' &&
+					payload.type === 'issued' &&
+					payload.kind === 'ranked_readiness',
+			)
+			const readinessChallengeId = readinessCall![2].challengeId as string
+			await service.handleChallengeResponse('player1', {
+				challengeId: readinessChallengeId,
+				response: { signature: 'sig', launcherCurrent: true, modsCurrent: false },
+			})
+
+			expect(onFailed).toHaveBeenCalledWith('player1', 'mods_outdated')
+			expect(service.isLauncherVerified('player1')).toBe(true)
+		})
+	})
+
 	describe('clearSession / clearAll', () => {
 		it('clearSession removes all state for a player', async () => {
 			const messageBus = makeMockMessageBus()

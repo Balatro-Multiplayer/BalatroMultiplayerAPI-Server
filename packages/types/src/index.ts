@@ -95,6 +95,19 @@ export type MatchmakingEvent =
 			}>
 			timestamp: string
 	  }
+	| {
+			// Pushed when a post-queue-join ranked_readiness challenge (see
+			// ChallengeKind below) is refused, fails, or comes back reporting
+			// the launcher and/or its Ranked-legal mods aren't current - the
+			// server has already dequeued the player by the time this
+			// arrives. 'launcher_outdated' takes priority over
+			// 'mods_outdated' when both are true, since updating BET also
+			// resolves stale mods on the next launch.
+			type: 'queue_cancelled'
+			modId: string
+			gameMode: string
+			reason: 'launcher_outdated' | 'mods_outdated'
+	  }
 
 export interface QueueOpts {
 	modId: string
@@ -126,7 +139,16 @@ export type ReportStatus = 'open' | 'resolved'
 
 // --- Launcher integrity challenge/response (see registerPrivate below) ---
 
-export type ChallengeKind = 'login' | 'periodic'
+// 'ranked_readiness' is issued right after a Ranked queue join (see
+// matchmaking.service.ts::joinQueue), not at connect time or on the
+// periodic interval like the other two - it answers "is the launcher and
+// every active Ranked-legal mod still current *right now*", forcing a
+// fresh check on the launcher side rather than trusting anything cached
+// from earlier in the session. See RANKED_READINESS_SPEC.md in
+// features/launcher-integrity/ for its response shape, which differs
+// from login/periodic's (a signed {launcherCurrent, modsCurrent}
+// verdict, not a bare signature).
+export type ChallengeKind = 'login' | 'periodic' | 'ranked_readiness'
 
 export interface ChallengeIssuance {
 	nonce: string

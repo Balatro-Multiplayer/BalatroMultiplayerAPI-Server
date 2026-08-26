@@ -25,6 +25,7 @@ import {
 } from '../../state/matchmaking.js'
 import type { PlayerSession } from '../../state/player.js'
 import { launcherIntegrityService } from '../launcher-integrity/launcher-integrity.service.js'
+import type { RankedReadinessFailureReason } from '../launcher-integrity/launcher-integrity.service.js'
 import { replayLogService } from '../replay-log/replay-log.service.js'
 import { MIN_MS_PER_HAND } from './anti-cheat.config.js'
 import {
@@ -34,10 +35,12 @@ import {
 } from './elo.service.js'
 import {
 	addToPlayerQueues,
+	findActiveRankedQueueEntry,
 	getHostFromEntries,
 	getPlayerIdsFromEntries,
 	isRanked,
 	leaveAllQueues,
+	leaveQueue,
 	removeFromPlayerQueues,
 	runCasualQueue,
 	runRankedQueue,
@@ -166,6 +169,39 @@ function placementsMatch(a: PlacementEntry[], b: PlacementEntry[]): boolean {
 
 export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 	const { messageBus, matchRepository, banRepository } = deps
+
+	// The one handler launcherIntegrityService.onRankedReadinessFailed()
+	// ever gets - registered here, at this factory's own module-singleton
+	// construction (see routes/index.ts), rather than importing matchmaking
+	// into launcher-integrity.service.ts (which would be circular -
+	// matchmaking already imports launcherIntegrityService, for the
+	// isLauncherVerified() gate below). Dequeues the player and tells them
+	// why over the same 'matchmaking' topic match_found/match_resolved
+	// already use - see findActiveRankedQueueEntry's own comment on why a
+	// lookup is needed at all (the challenge is issued per-player, not
+	// per-queue-entry).
+	launcherIntegrityService.onRankedReadinessFailed(
+		(playerId: string, reason: RankedReadinessFailureReason) => {
+			const target = findActiveRankedQueueEntry(playerId)
+			if (!target) return // already left the queue on their own - nothing to cancel
+
+			leaveQueue(playerId, target.modId, target.gameMode)
+
+			messageBus
+				.publishToPlayer(playerId, 'matchmaking', {
+					type: 'queue_cancelled',
+					modId: target.modId,
+					gameMode: target.gameMode,
+					reason,
+				})
+				.catch((err) => {
+					console.error(
+						'[matchmaking] Failed to publish queue_cancelled:',
+						err,
+					)
+				})
+		},
+	)
 
 	// §11.6: every player's client reports the same match at roughly the same
 	// time (all of them react to the same match_found/player_won broadcast),
@@ -365,6 +401,27 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 			if (!queues.has(key)) queues.set(key, [])
 			queues.get(key)!.push(entry)
 			addToPlayerQueues([session.playerId], key)
+
+			// Fresh, queue-time recheck on top of the isLauncherVerified()
+			// gate above - that only proves the login/periodic identity
+			// handshake once passed at some point in this connection, not
+			// that the launcher and every active Ranked-legal mod are
+			// *still* current right now (a release could have shipped mid-
+			// session). Fire-and-forget: joinQueue itself stays synchronous/
+			// instant, the eventual refusal (if any) arrives later and
+			// dequeues the player via onRankedReadinessFailed above - see
+			// RANKED_READINESS_SPEC.md for the full challenge/response
+			// contract.
+			if (isRanked(gameMode) && launcherIntegrityService.isEnabled()) {
+				launcherIntegrityService
+					.issueRankedReadinessChallenge(session.playerId)
+					.catch((err) => {
+						console.error(
+							'[matchmaking] Failed to issue ranked_readiness challenge:',
+							err,
+						)
+					})
+			}
 		}
 
 		const position = totalPlayerCount(queues.get(key) ?? [])
@@ -907,7 +964,16 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		extra: Record<string, unknown> = {},
 	): Promise<void> {
 		const match = matches.get(matchId)
-		if (!match) return // already resolved (e.g. the other player's grace expired first) -- no-op
+		if (!match) {
+			console.log(
+				`[matchmaking] autoForfeitMatch no-op: matchId=${matchId} forfeitingPlayer=${forfeitingPlayerId} (already resolved)`,
+			)
+			return // already resolved (e.g. the other player's grace expired first) -- no-op
+		}
+
+		console.log(
+			`[matchmaking] autoForfeitMatch: matchId=${matchId} lobby=${match.lobbyCode} forfeitingPlayer=${forfeitingPlayerId} remaining=${remainingConnectedPlayerIds.join(',')}`,
+		)
 
 		if (remainingConnectedPlayerIds.length === 0) {
 			// Everyone else is gone too -- no legitimate winner to forfeit to,
@@ -996,6 +1062,18 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		})
 	}
 
+	// The exact, minimal set of players a boot-time restart needs to force
+	// back through a real reconnect (see reconnect-recovery.service.ts) --
+	// everyone restoreMatchesFromDb() just found mid-active-match, and nobody
+	// else. Read after restoreMatchesFromDb() has populated `matches`.
+	function getActiveMatchPlayerIds(): string[] {
+		const ids = new Set<string>()
+		for (const match of matches.values()) {
+			for (const playerId of match.playerIds) ids.add(playerId)
+		}
+		return [...ids]
+	}
+
 	return {
 		joinQueue,
 		updateGroupQueueOnLobbyJoin,
@@ -1006,6 +1084,7 @@ export function createMatchmakingService(deps: MatchmakingServiceDeps) {
 		stopMatchmaking,
 		restoreMatchesFromDb,
 		restorePlayerMatchSession,
+		getActiveMatchPlayerIds,
 		markRunStart,
 		reportResult,
 		autoForfeitMatch,
