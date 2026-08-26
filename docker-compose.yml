@@ -109,13 +109,25 @@ services:
       - ./nginx/prod/server.conf:/etc/nginx/conf.d/server.conf:ro
       - ./nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf
       - ./nginx/snippets:/etc/nginx/snippets:ro
-      # Cloudflare Origin CA cert for new.balatromp.com -- long-lived, no
-      # certbot/renewal hook needed (unlike EMQX's mqtt.balatromp.com cert
-      # above, which is real Let's Encrypt and does renew).
+      # Self-signed, 10-year cert for new.balatromp.com (confirmed via
+      # `openssl x509` - issuer == subject) - NOT a Cloudflare Origin CA
+      # cert despite what an earlier version of this comment claimed. Works
+      # today because the Cloudflare zone's SSL/TLS mode is "Full", not
+      # "Full (strict)" (which would reject an untrusted origin cert
+      # outright) - if that mode is ever tightened, this needs a real
+      # Origin CA cert first. Long-lived either way, no certbot/renewal
+      # hook needed (unlike EMQX's mqtt.balatromp.com cert below, which is
+      # real Let's Encrypt and does renew - see the certbot mount below).
       - /etc/nginx/ssl/bmp.crt:/etc/nginx/ssl/bmp.crt:ro
       - /etc/nginx/ssl/bmp.key:/etc/nginx/ssl/bmp.key:ro
+      # certbot's webroot HTTP-01 authenticator for mqtt.balatromp.com
+      # drops its challenge file here; nginx/prod/server.conf's
+      # mqtt.balatromp.com server block serves it back. Read-only - only
+      # certbot itself (running on the host, outside this container) ever
+      # writes here.
+      - /var/www/certbot:/var/www/certbot:ro
     depends_on:
-      api-blue:
+      api-green:
         condition: service_started
     healthcheck:
       # Generous start_period -- this proxies straight through to whichever
