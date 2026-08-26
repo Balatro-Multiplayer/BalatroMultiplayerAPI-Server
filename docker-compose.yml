@@ -133,10 +133,20 @@ services:
       # Generous start_period -- this proxies straight through to whichever
       # api color is currently starting, so it can't become healthy any
       # faster than that color's own app boot (mods-sync alone can take
-      # several seconds). --no-check-certificate: this healthcheck runs
-      # inside the container without the host's CA trust store; the cert
-      # itself is real and valid for real external clients.
-      test: ["CMD", "wget", "-q", "--no-check-certificate", "--spider", "https://localhost/health"]
+      # several seconds). Hits the internal :8788 listener (server.conf's
+      # first server block - the same one EMQX/web use via the "api"
+      # network alias), not the public :443 vhost - the public vhost's
+      # bare "/health" (no /api/ prefix) falls through to location / (the
+      # web app, which has no such route -> 404), and only ever answers
+      # "/api/health" for API concerns anyway, which the app itself
+      # doesn't register (its real /health route is unprefixed - see
+      # main.ts). Plain http, not https - :8788 is internal-only, no TLS.
+      # 127.0.0.1 explicitly, not "localhost" - this image resolves
+      # localhost to ::1 first and there's no [::]:8788 listener (the
+      # :8788 server block, unlike the others, has no "listen [::]:8788;"
+      # line), so wget's IPv6 attempt would just hang/refuse and never
+      # fall back to IPv4 on its own.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8788/health"]
       interval: 5s
       timeout: 3s
       retries: 6
