@@ -234,6 +234,23 @@ export const matchResultConflicts = pgTable('match_result_conflicts', {
 		.defaultNow(),
 })
 
+// Persisted mirror of grace-period.service.ts's in-memory `gracePeriods` Map
+// -- a disconnected player's 2-minute countdown before auto-forfeit,
+// durable across a bmp-api restart. No FK on playerId, same precedent as
+// forfeitReconciliationFlags above: a grace period can involve a temp/dev
+// account never written to `players` (see authenticateAsTemp).
+export const gracePeriods = pgTable('grace_periods', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	playerId: uuid('player_id').notNull(),
+	lobbyCode: varchar('lobby_code', { length: 6 }).notNull(),
+	displayName: text('display_name').notNull(),
+	disconnectedAt: timestamp('disconnected_at', { withTimezone: true }).notNull(),
+	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+	createdAt: timestamp('created_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+})
+
 export const matchmakingRatings = pgTable(
 	'matchmaking_ratings',
 	{
@@ -374,6 +391,50 @@ export const launcherReleaseAssets = pgTable(
 		),
 	],
 )
+
+export const blogPostKindEnum = pgEnum('blog_post_kind', ['patch_notes', 'news'])
+export type BlogPostKind = (typeof blogPostKindEnum.enumValues)[number]
+
+export const blogPostStatusEnum = pgEnum('blog_post_status', [
+	'draft',
+	'published',
+])
+export type BlogPostStatus = (typeof blogPostStatusEnum.enumValues)[number]
+
+// Patch notes / news posts, authored via the admin Blog page (Tiptap editor
+// in apps/web, HTML sanitized server-side in features/webadmin/blog.route.ts
+// before it ever reaches this table) and pulled by the launcher's
+// GET /api/blog/latest (features/blog/blog.route.ts). "Latest per category"
+// is derived (highest publishedAt among status='published' rows for that
+// kind), not an explicit flag -- same "latest = most recent" precedent as
+// launcherReleases above.
+//
+// status/publishedAt is a deliberate two-column draft/publish model rather
+// than a single nullable timestamp: publishing always bumps publishedAt to
+// now (so an unpublish-then-republish can become "latest" again), while
+// unpublishing only flips status back to 'draft' and leaves publishedAt
+// alone, so the admin UI can still show when a post was last live even
+// while it's pulled back to draft.
+export const blogPosts = pgTable('blog_post', {
+	id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
+	kind: blogPostKindEnum('kind').notNull(),
+	title: varchar('title', { length: 200 }).notNull(),
+	// Sanitized HTML only -- see blog.route.ts's allowlist, chosen to match
+	// exactly what the launcher's QLabel rich-text engine can render.
+	bodyHtml: text('body_html').notNull(),
+	status: blogPostStatusEnum('status').notNull().default('draft'),
+	publishedAt: timestamp('published_at', { withTimezone: true }),
+	// Not a FK -- same pattern as actionLogs.playerId, so a deleted/altered
+	// player row never blocks or cascade-deletes a historical post.
+	authorPlayerId: text('author_player_id').notNull(),
+	createdAt: timestamp('created_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true })
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+})
 
 // Three-tier moderation bans. One row per ban; a player may hold several active
 // bans of different types simultaneously. A ban is ACTIVE while

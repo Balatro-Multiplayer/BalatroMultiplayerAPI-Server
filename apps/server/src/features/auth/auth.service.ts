@@ -12,6 +12,7 @@ import { hashProviderId } from '../../shared/utils/hash.js'
 import { getConfig } from '../../state/config.js'
 import type { IPlayerRepository, PlayerRecord } from '../../contracts/IPlayerRepository.js'
 import type { IGracePeriodService } from '../../contracts/IGracePeriodService.js'
+import type { IMatchSessionRestorer } from '../../contracts/IMatchSessionRestorer.js'
 import { pseudonymizeChatLogsForPlayer } from '../../infrastructure/gateways/history.gateway.js'
 import { pseudonymizeRunLogsForPlayer } from '../../infrastructure/gateways/replay-log.gateway.js'
 import { listMutes } from '../../infrastructure/gateways/mute.gateway.js'
@@ -24,6 +25,7 @@ type SessionAndToken = { session: PlayerSession; token: string }
 interface AuthServiceDeps {
 	playerRepository: IPlayerRepository
 	gracePeriodService: Pick<IGracePeriodService, 'cancelGracePeriod'>
+	matchSessionRestorer: IMatchSessionRestorer
 }
 
 export type AuthService = ReturnType<typeof createAuthService>
@@ -87,7 +89,19 @@ function ensureProviderNotLinkedElsewhere(
 }
 
 export function createAuthService(deps: AuthServiceDeps) {
-	const { playerRepository, gracePeriodService } = deps
+	const { playerRepository, gracePeriodService, matchSessionRestorer } = deps
+
+	// A session rebuilt here means none existed in memory a moment ago -- the
+	// exact "server forgot me" shape left behind by an app-only restart (see
+	// matchmaking.service.ts's restorePlayerMatchSession doc comment). Cancel
+	// any grace period left dangling from before the restart, and re-attach
+	// the player to their active match/lobby if the DB says they're still in
+	// one, so a mid-match player reconnecting via a fresh HTTP auth doesn't
+	// silently lose match/lobby membership the way it did prior to this fix.
+	async function reattachRestoredSession(session: PlayerSession): Promise<void> {
+		await gracePeriodService.cancelGracePeriod(session.playerId)
+		await matchSessionRestorer.restorePlayerMatchSession(session)
+	}
 
 	async function ensureSession(playerId: string): Promise<PlayerSession> {
 		const existing = getSession(playerId)
@@ -119,6 +133,7 @@ export function createAuthService(deps: AuthServiceDeps) {
 		// with the same Steam identity (steamIdHash survives deletion for exactly
 		// this reason) -- a no-op if the account was never deleted.
 		if (dbPlayer.deletedAt) await playerRepository.reactivateIfDeleted(dbPlayer.id)
+		await reattachRestoredSession(session)
 		return sessionAndToken(session)
 	}
 
@@ -168,6 +183,7 @@ export function createAuthService(deps: AuthServiceDeps) {
 		)
 		await playerRepository.updateSteamName(dbPlayer.id, discordName)
 		await playerRepository.updateDiscordUsername(dbPlayer.id, discordName)
+		await reattachRestoredSession(session)
 		return sessionAndToken(session)
 	}
 

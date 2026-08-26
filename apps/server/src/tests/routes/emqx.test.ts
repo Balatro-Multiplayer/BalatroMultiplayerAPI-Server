@@ -3,6 +3,7 @@ import request from 'supertest'
 import { createTestApp } from './app.js'
 import { signJwt } from '../../features/auth/jwt.js'
 import { Lobby, createSession, lobbies } from '../../state/index.js'
+import { isInGracePeriod, startGracePeriod } from '../../infrastructure/mqtt/grace-period.service.js'
 
 const app = createTestApp()
 
@@ -115,6 +116,42 @@ describe('EMQX webhook routes', () => {
 
 			expect(res.status).toBe(200)
 			expect(res.body).toEqual({ result: 'deny' })
+		})
+	})
+
+	describe('POST /emqx/webhook', () => {
+		it('client.connected cancels a pending grace period for that player, before any HTTP re-auth', async () => {
+			const lobby = new Lobby('RCNCT', 'mod1', 'host1')
+			lobbies.set('RCNCT', lobby)
+			// Needs a second still-connected player, or startGracePeriod's §7.8
+			// "everyone in the lobby is away" fast-path immediately expires the
+			// grace period we're about to test cancelling.
+			lobby.addPlayer(createSession('Bob', { id: 'host1' }))
+			const session = createSession('Alice', { id: 'reconnector1' })
+			lobby.addPlayer(session)
+
+			await startGracePeriod('reconnector1')
+			expect(isInGracePeriod('reconnector1')).toBe(true)
+
+			const res = await request(app)
+				.post('/emqx/webhook')
+				.send({ event: 'client.connected', clientid: 'reconnector1' })
+
+			expect(res.status).toBe(200)
+			// The grace-period cancellation is synchronous (only the
+			// player_reconnected/replay-tail notification is delayed) -- see
+			// emqx.route.ts's handleClientConnected -- so this should already
+			// be reflected by the time the webhook responds.
+			expect(isInGracePeriod('reconnector1')).toBe(false)
+		})
+
+		it('client.connected is a no-op when the player was never in a grace period', async () => {
+			const res = await request(app)
+				.post('/emqx/webhook')
+				.send({ event: 'client.connected', clientid: 'never-disconnected' })
+
+			expect(res.status).toBe(200)
+			expect(isInGracePeriod('never-disconnected')).toBe(false)
 		})
 	})
 })

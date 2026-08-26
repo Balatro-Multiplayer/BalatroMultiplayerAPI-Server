@@ -33,9 +33,24 @@ vi.mock('../infrastructure/gateways/refresh-token.gateway.js', () => ({
 	cleanupExpiredTokens: vi.fn().mockResolvedValue(0),
 }))
 
+// A minimal fluent-builder stand-in for db.select()... chains (from/where/
+// orderBy/limit/offset, any order, any subset) -- thenable so `await
+// db.select()...` resolves to an empty array by default at whatever point a
+// caller stops chaining. Tests that care about actual rows override the
+// specific call with vi.mocked(db.select).mockReturnValueOnce(...).
+function createSelectChain(): any {
+	const chain: any = {}
+	for (const method of ['from', 'where', 'orderBy', 'limit', 'offset', 'groupBy']) {
+		chain[method] = vi.fn(() => chain)
+	}
+	chain.then = (resolve: (rows: unknown[]) => void) => resolve([])
+	return chain
+}
+
 // Mock the database — no real PostgreSQL in tests
 vi.mock('../infrastructure/db/index.js', () => ({
 	db: {
+		select: vi.fn(() => createSelectChain()),
 		insert: vi.fn().mockReturnValue({
 			values: vi.fn().mockResolvedValue(undefined),
 		}),
@@ -43,6 +58,9 @@ vi.mock('../infrastructure/db/index.js', () => ({
 			set: vi.fn().mockReturnValue({
 				where: vi.fn().mockResolvedValue(undefined),
 			}),
+		}),
+		delete: vi.fn().mockReturnValue({
+			where: vi.fn().mockResolvedValue(undefined),
 		}),
 		// Only wired up as needed (e.g. purgeExpiredDeletedPlayerHashes); not
 		// every test path touches it. mockResolvedValue([]) as a safe default.

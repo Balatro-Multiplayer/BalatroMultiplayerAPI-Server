@@ -1,6 +1,10 @@
 import { Router } from 'express'
 import { env } from '../../env.js'
-import { startGracePeriod } from '../../infrastructure/mqtt/grace-period.service.js'
+import {
+	cancelGracePeriodImmediate,
+	notifyReconnected,
+	startGracePeriod,
+} from '../../infrastructure/mqtt/grace-period.service.js'
 import { revokeSpectator } from '../../infrastructure/mqtt/spectator-registry.js'
 import type {
 	EmqxAuthRequest,
@@ -56,7 +60,24 @@ function isSystemClientId(clientid: string): boolean {
 // LOGIN_CHALLENGE_DELAY_MS for why this is necessary (non-retained publish).
 function handleClientConnected(clientid: string): void {
 	if (isSystemClientId(clientid)) return
+
+	// Cancel any pending ranked-forfeit grace period the instant the raw MQTT
+	// CONNECT succeeds -- this fires on every reconnect (client redialing with
+	// its still-cached JWT, no HTTP re-auth needed) as well as a fresh login,
+	// and cancelGracePeriodImmediate is a no-op if the player wasn't in one.
+	// Safe to run inline (unlike notifyReconnected below): it only touches the
+	// in-memory timer/map, no MQTT publish. This closes the race that let a
+	// reconnected-but-still-mid-match player get auto-forfeited anyway (see
+	// grace-period.service.ts's GRACE_PERIOD_MS and expireGracePeriod).
+	const reconnectedEntry = cancelGracePeriodImmediate(clientid)
+
 	setTimeout(() => {
+		if (reconnectedEntry) {
+			void notifyReconnected(reconnectedEntry).catch((err) =>
+				console.error('[grace-period] notifyReconnected error:', err),
+			)
+		}
+
 		void launcherIntegrityService
 			.handleClientConnected(clientid)
 			.catch((err) =>

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IGracePeriodService } from '../../contracts/IGracePeriodService.js'
+import type { IMatchSessionRestorer } from '../../contracts/IMatchSessionRestorer.js'
 import type {
 	IPlayerRepository,
 	PlayerRecord,
@@ -69,11 +70,22 @@ function makeMockGracePeriodService(): Pick<
 	}
 }
 
+function makeMockMatchSessionRestorer(): IMatchSessionRestorer {
+	return {
+		restorePlayerMatchSession: vi.fn().mockResolvedValue(undefined),
+	}
+}
+
 function makeAuthService() {
 	const playerRepository = makeMockPlayerRepository()
 	const gracePeriodService = makeMockGracePeriodService()
-	const service = createAuthService({ playerRepository, gracePeriodService })
-	return { service, playerRepository, gracePeriodService }
+	const matchSessionRestorer = makeMockMatchSessionRestorer()
+	const service = createAuthService({
+		playerRepository,
+		gracePeriodService,
+		matchSessionRestorer,
+	})
+	return { service, playerRepository, gracePeriodService, matchSessionRestorer }
 }
 
 describe('auth.service', () => {
@@ -135,6 +147,15 @@ describe('auth.service', () => {
 			expect(playerRepository.createPlayer).not.toHaveBeenCalled()
 		})
 
+		it('does not attempt match-session restore for a brand new account', async () => {
+			// A freshly-generated player ID can't already have an active match
+			// row -- reattachRestoredSession is only for the "server forgot me"
+			// DB-restore case, not brand new signups.
+			const { service, matchSessionRestorer } = makeAuthService()
+			await service.authenticateWithSteam('steam1', 'Alice')
+			expect(matchSessionRestorer.restorePlayerMatchSession).not.toHaveBeenCalled()
+		})
+
 		it('reuses existing in-memory session on re-auth', async () => {
 			const { service } = makeAuthService()
 			const first = await service.authenticateWithSteam('steam1', 'Alice')
@@ -155,7 +176,8 @@ describe('auth.service', () => {
 		})
 
 		it('restores from DB when not in memory', async () => {
-			const { service, playerRepository } = makeAuthService()
+			const { service, playerRepository, gracePeriodService, matchSessionRestorer } =
+				makeAuthService()
 			const steamIdHash = hashProviderId('steam1')
 			vi.mocked(playerRepository.findPlayerBySteamIdHash).mockResolvedValueOnce(
 				{
@@ -170,6 +192,11 @@ describe('auth.service', () => {
 			expect(session.playerId).toBe('db-player-id')
 			expect(session.steamIdHash).toBe(steamIdHash)
 			expect(session.discordIdHash).toBe('some-discord-hash')
+			// A session rebuilt from a DB row (none existed in memory) means this
+			// could be a post-restart reconnect -- see auth.service.ts's
+			// reattachRestoredSession.
+			expect(gracePeriodService.cancelGracePeriod).toHaveBeenCalledWith('db-player-id')
+			expect(matchSessionRestorer.restorePlayerMatchSession).toHaveBeenCalledWith(session)
 			expect(session.steamName).toBe('Alice')
 		})
 	})
@@ -191,6 +218,12 @@ describe('auth.service', () => {
 			expect(decoded?.playerId).toBe(session.playerId)
 		})
 
+		it('does not attempt match-session restore for a brand new account', async () => {
+			const { service, matchSessionRestorer } = makeAuthService()
+			await service.authenticateWithDiscord('disc1', 'Bob')
+			expect(matchSessionRestorer.restorePlayerMatchSession).not.toHaveBeenCalled()
+		})
+
 		it('reuses existing in-memory session on re-auth', async () => {
 			const { service } = makeAuthService()
 			const first = await service.authenticateWithDiscord('disc1', 'Bob')
@@ -201,7 +234,8 @@ describe('auth.service', () => {
 		})
 
 		it('restores from DB when not in memory', async () => {
-			const { service, playerRepository } = makeAuthService()
+			const { service, playerRepository, gracePeriodService, matchSessionRestorer } =
+				makeAuthService()
 			const discordIdHash = hashProviderId('disc1')
 			vi.mocked(
 				playerRepository.findPlayerByDiscordIdHash,
@@ -216,6 +250,8 @@ describe('auth.service', () => {
 			expect(session.playerId).toBe('db-player-id')
 			expect(session.discordIdHash).toBe(discordIdHash)
 			expect(session.steamIdHash).toBe('some-steam-hash')
+			expect(gracePeriodService.cancelGracePeriod).toHaveBeenCalledWith('db-player-id')
+			expect(matchSessionRestorer.restorePlayerMatchSession).toHaveBeenCalledWith(session)
 		})
 
 		it('propagates DB errors from createPlayer', async () => {

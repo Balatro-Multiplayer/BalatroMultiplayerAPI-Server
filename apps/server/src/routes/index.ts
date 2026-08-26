@@ -30,6 +30,7 @@ export const matchmakingService = createMatchmakingService({
 export const authService = createAuthService({
 	playerRepository: playerGateway,
 	gracePeriodService,
+	matchSessionRestorer: matchmakingService,
 })
 
 export const lobbyService = createLobbyService({
