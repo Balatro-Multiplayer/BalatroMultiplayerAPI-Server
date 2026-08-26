@@ -133,56 +133,92 @@ describe('elo.service', () => {
 	describe('computeFFA', () => {
 		it('returns zero delta for single player', () => {
 			const result = computeFFA([
-				{ playerId: 'p1', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: true },
+				{ playerId: 'p1', rating: 1000, gamesPlayed: 10, performance: 0, place: 1 },
 			])
 			expect(result.get('p1')).toBe(0)
 		})
 
-		it('returns zeros when no winner is marked', () => {
-			const result = computeFFA([
-				{ playerId: 'a', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: false },
-				{ playerId: 'b', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: false },
-			])
-			expect(result.get('a')).toBe(0)
-			expect(result.get('b')).toBe(0)
-		})
-
 		it('winner gains and loser loses in 2-player FFA', () => {
 			const result = computeFFA([
-				{ playerId: 'w', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: true },
-				{ playerId: 'l', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: false },
+				{ playerId: 'w', rating: 1000, gamesPlayed: 10, performance: 0, place: 1 },
+				{ playerId: 'l', rating: 1000, gamesPlayed: 10, performance: 0, place: 2 },
 			])
 			expect(result.get('w')).toBeGreaterThan(0)
 			expect(result.get('l')).toBeLessThan(0)
 		})
 
-		it('all losers receive negative delta in N-player FFA', () => {
+		it('deltas are strictly ordered by place and zero-sum for equal-rated players', () => {
+			// With every pairing scored against a 0.5 expectation, a
+			// better-than-median finish (e.g. 2nd of 4) can still net
+			// positive -- only last place is guaranteed negative. This is
+			// the correct round-robin generalization, unlike the old
+			// winner-take-all model where every non-winner was negative
+			// regardless of how many players they outplaced.
 			const result = computeFFA([
-				{ playerId: 'w', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: true },
-				{ playerId: 'l1', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: false },
-				{ playerId: 'l2', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: false },
-				{ playerId: 'l3', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: false },
+				{ playerId: 'w', rating: 1000, gamesPlayed: 10, performance: 0, place: 1 },
+				{ playerId: 'l1', rating: 1000, gamesPlayed: 10, performance: 0, place: 2 },
+				{ playerId: 'l2', rating: 1000, gamesPlayed: 10, performance: 0, place: 3 },
+				{ playerId: 'l3', rating: 1000, gamesPlayed: 10, performance: 0, place: 4 },
 			])
+			expect(result.get('w')!).toBeGreaterThan(result.get('l1')!)
+			expect(result.get('l1')!).toBeGreaterThan(result.get('l2')!)
+			expect(result.get('l2')!).toBeGreaterThan(result.get('l3')!)
 			expect(result.get('w')).toBeGreaterThan(0)
-			expect(result.get('l1')).toBeLessThan(0)
-			expect(result.get('l2')).toBeLessThan(0)
 			expect(result.get('l3')).toBeLessThan(0)
+			const total = [...result.values()].reduce((sum, d) => sum + d, 0)
+			expect(total).toBe(0)
 		})
 
-		it('equal-rated losers receive the same delta', () => {
+		it('equal-rated equal-place losers receive the same delta', () => {
 			const result = computeFFA([
-				{ playerId: 'w', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: true },
-				{ playerId: 'l1', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: false },
-				{ playerId: 'l2', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: false },
+				{ playerId: 'w', rating: 1000, gamesPlayed: 10, performance: 0, place: 1 },
+				{ playerId: 'l1', rating: 1000, gamesPlayed: 10, performance: 0, place: 2 },
+				{ playerId: 'l2', rating: 1000, gamesPlayed: 10, performance: 0, place: 2 },
 			])
 			expect(result.get('l1')).toBe(result.get('l2'))
 		})
 
+		it('a worse place than another loser still loses more (mid-table placement matters)', () => {
+			const result = computeFFA([
+				{ playerId: 'w', rating: 1000, gamesPlayed: 10, performance: 0, place: 1 },
+				{ playerId: 'second', rating: 1000, gamesPlayed: 10, performance: 0, place: 2 },
+				{ playerId: 'last', rating: 1000, gamesPlayed: 10, performance: 0, place: 3 },
+			])
+			expect(result.get('last')!).toBeLessThan(result.get('second')!)
+		})
+
+		it('co-winners tied for first both gain -- neither is silently zeroed', () => {
+			// Regression test: a prior implementation picked only the first
+			// same-place entry as "the" winner, so a tied co-winner listed
+			// second in the array got excluded from both the winner and
+			// loser paths and ended up with a delta of exactly 0.
+			const result = computeFFA([
+				{ playerId: 'w1', rating: 1000, gamesPlayed: 10, performance: 0, place: 1 },
+				{ playerId: 'w2', rating: 1000, gamesPlayed: 10, performance: 0, place: 1 },
+				{ playerId: 'l', rating: 1000, gamesPlayed: 10, performance: 0, place: 3 },
+			])
+			expect(result.get('w1')).toBeGreaterThan(0)
+			expect(result.get('w2')).toBeGreaterThan(0)
+			expect(result.get('w1')).toBe(result.get('w2'))
+			expect(result.get('l')).toBeLessThan(0)
+		})
+
+		it('players tied at the same place score a draw against each other', () => {
+			const tiedForFirst = computeFFA([
+				{ playerId: 'w1', rating: 1000, gamesPlayed: 10, performance: 0, place: 1 },
+				{ playerId: 'w2', rating: 1000, gamesPlayed: 10, performance: 0, place: 1 },
+			])
+			// Two equal-rated players who tie score expectedScore = 0.5 each
+			// with outcome 0.5 each -- a wash, same as compute1v1's draw case.
+			expect(tiedForFirst.get('w1')).toBe(0)
+			expect(tiedForFirst.get('w2')).toBe(0)
+		})
+
 		it('includes all player IDs in the result', () => {
 			const players = [
-				{ playerId: 'a', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: true },
-				{ playerId: 'b', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: false },
-				{ playerId: 'c', rating: 1000, gamesPlayed: 10, performance: 0, isWinner: false },
+				{ playerId: 'a', rating: 1000, gamesPlayed: 10, performance: 0, place: 1 },
+				{ playerId: 'b', rating: 1000, gamesPlayed: 10, performance: 0, place: 2 },
+				{ playerId: 'c', rating: 1000, gamesPlayed: 10, performance: 0, place: 2 },
 			]
 			const result = computeFFA(players)
 			expect(result.has('a')).toBe(true)
@@ -321,7 +357,7 @@ describe('elo.service', () => {
 		})
 
 		describe('ffa mode', () => {
-			it('winner gains, all losers lose', () => {
+			it('winner gains, last place loses, placements ordered in between', () => {
 				const ratings = new Map([['a', r()], ['b', r()], ['c', r()]])
 				const deltas = computeRatingDeltas(
 					'ffa',
@@ -333,7 +369,27 @@ describe('elo.service', () => {
 					ratings,
 				)
 				expect(deltas.get('a')).toBeGreaterThan(0)
-				expect(deltas.get('b')).toBeLessThan(0)
+				expect(deltas.get('c')).toBeLessThan(0)
+				expect(deltas.get('a')!).toBeGreaterThan(deltas.get('b')!)
+				expect(deltas.get('b')!).toBeGreaterThan(deltas.get('c')!)
+			})
+
+			it('co-winners tied for first both gain in a real 3-player match shape', () => {
+				// Regression test for the live bug: a 3-player match where two
+				// players tied for 1st used to silently zero the delta for
+				// whichever tied winner was NOT first in the placements array.
+				const ratings = new Map([['a', r()], ['b', r()], ['c', r()]])
+				const deltas = computeRatingDeltas(
+					'ffa',
+					[
+						{ playerId: 'a', place: 1 },
+						{ playerId: 'b', place: 1 },
+						{ playerId: 'c', place: 3 },
+					],
+					ratings,
+				)
+				expect(deltas.get('a')).toBeGreaterThan(0)
+				expect(deltas.get('b')).toBeGreaterThan(0)
 				expect(deltas.get('c')).toBeLessThan(0)
 			})
 		})
