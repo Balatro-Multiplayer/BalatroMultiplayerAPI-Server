@@ -27,10 +27,13 @@ stores the original as evidence.
 
 ## Running it
 
-The service is wired into the repo's compose file; from the repo root:
+The service is wired into the repo's compose file as 5 replicas
+(`moderation-1`..`moderation-5`) behind an internal load balancer
+(`moderation-lb`) — see [CPU](#cpu) for why it's 5 processes rather than one
+bigger one. From the repo root:
 
 ```sh
-docker compose up -d moderation
+docker compose up -d moderation-1 moderation-2 moderation-3 moderation-4 moderation-5 moderation-lb
 ```
 
 Then give it a model (see below). Nothing else is required — the word lists
@@ -41,17 +44,38 @@ ship inside the image, so a stock container is already configured.
 The guard model is **not** in the image or the repo — it is far past GitHub's
 100MB file limit. The service needs one to do anything.
 
-Put the `.gguf` in the `moderation-model-cache` volume, once:
+**Quantize before staging.** The training pipeline exports F16 (unquantized)
+`.gguf` files — this doubles the per-weight memory-bandwidth cost the model
+pays on every inference versus a quantized one, for no accuracy benefit on a
+classification/reranking task. Convert to Q8_0 first (needs a `llama-quantize`
+build — `llama.cpp`'s own tool, vendored under `node-llama-cpp`'s install, or
+build from source):
 
 ```sh
-docker cp your-model.gguf bmp-moderation:/model-cache/
-docker compose restart moderation
+llama-quantize your-model.gguf your-model.Q8_0.gguf Q8_0
 ```
 
-The filename does not have to match anything. `GUARD_MODEL` defaults to the
-`/model-cache` **directory**, so the service loads whatever single `.gguf` is
-in there and logs which one. Point `GUARD_MODEL` at a specific file if you
-keep several — with more than one present it refuses to guess and says so.
+Live-benchmarked on an EPYC 9645 (12 vCPU): quantizing gave a 31-66%
+throughput improvement across every thread/replica configuration tried, with
+`model.fileInsights.supportsRanking` confirmed still `true` afterward — this
+is a one-time, low-risk conversion, not a retrain.
+
+Put the `.gguf` in the `moderation-model-cache` volume, **once** — all 5
+replicas share it (see [CPU](#cpu)):
+
+```sh
+docker cp your-model.Q8_0.gguf bmp-moderation-1:/model-cache/
+docker compose restart moderation-1 moderation-2 moderation-3 moderation-4 moderation-5
+```
+
+Each replica only reads the model at its own process boot (`rankEngine.ts`'s
+`loadRankingContext`), so staging happens exactly once but every replica
+needs its own restart to pick it up. Keep **exactly one** `.gguf` in the
+volume — `GUARD_MODEL` defaults to the `/model-cache` **directory**, and with
+more than one file present the service refuses to guess which to load and
+says so (every replica fails closed identically, since they share the same
+volume). Point `GUARD_MODEL` at a specific file instead if you need to keep
+several around.
 
 The volume survives restarts, rebuilds and image updates — only
 `docker compose down -v` clears it.
@@ -78,25 +102,68 @@ Roughly 4 GiB of free RAM is needed to load it.
 
 ### CPU
 
-The rank-based guard (one forward pass, no autoregressive decode) defaults
-`GUARD_THREADS` to 2 rather than matching all visible cores — a holdover from
-the old text-generating guard's sizing, not yet re-benchmarked for the
-much-cheaper rank model. Capping CPUs below `GUARD_THREADS` is the one
-configuration that fails badly rather than gracefully: llama.cpp threads
-spin-wait, so oversubscription collapses throughput. Change both together or
-neither.
+**Why 5 replicas instead of one bigger instance.** Each process gets exactly
+one node-llama-cpp `RankingContext` (`rankEngine.ts`'s `loadRankingContext`),
+and `JudgeLane` (`service.ts`) doesn't queue or parallelize concurrent
+requests across it — it only sheds ones that can't meet their deadline.
+`GUARD_THREADS` controls intra-inference parallelism (splitting *one* forward
+pass's matrix math across threads), not concurrent-request throughput, so
+past a point, raising it just makes each individual call faster without
+letting more calls run at once. Separate OS processes don't have that
+ceiling — five of them can each answer a request in true parallel across
+distinct cores.
+
+This was measured live, not assumed: on an EPYC 9645 (12 vCPU, 2 cores
+reserved for the rest of the stack), single-lane throughput climbed nearly
+linearly with `GUARD_THREADS` up through 12 (unlike the old generative
+guard, which plateaued hard past 4), but splitting the same core budget
+across more, smaller lanes still won outright — 5×`GUARD_THREADS=2` measured
+**6.50 msg/sec** aggregate (quantized model) vs. **4.15 msg/sec** for one
+`GUARD_THREADS=10` instance. Oversubscribing threads past the real core
+count (`GUARD_THREADS=16`+ on 12 real cores) made things *worse*, not
+better — this isn't "more threads always helps," it's "more independent
+processes helps, more threads per process has a ceiling." This is a
+single-session measurement on one box, not a formal load test — worth
+re-checking after any change to hardware, replica count, or model.
+
+Compose therefore ships 5 named replicas (`moderation-1`..`5`) behind
+`moderation-lb`, each defaulting `GUARD_THREADS=2` (tunable via
+`MODERATION_GUARD_THREADS`, applied to all 5 — see [Configuration](#configuration)).
+Replica *count* itself isn't env-var-driven — retuning it means editing
+`docker-compose.yml`'s `moderation-1`..`5` blocks directly, same tradeoff the
+existing blue/green pair already accepts for its own (2-way) replica count.
+
+Independent of replica count: capping a single container's CPUs below its
+own `GUARD_THREADS` is the one configuration that fails badly rather than
+gracefully — llama.cpp threads spin-wait, so oversubscription collapses that
+container's throughput. Change both together or neither, per replica.
 
 ## Configuration
+
+Per-container env vars, as read by `apps/moderation/src/main.ts` inside each
+replica:
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `GUARD_MODEL` | `/model-cache` | Model file, or a directory holding exactly one `.gguf`. |
 | `SHADOW_MODE` | `1` in compose | `1` = log what the guard *would* block without blocking. `0` = enforce. |
-| `GUARD_THREADS` | `2` | Only set this alongside a CPU cap — see above. |
+| `GUARD_THREADS` | `2` | Only set this alongside a CPU cap — see [CPU](#cpu). |
+| `GUARD_LOW_THRESHOLD` / `GUARD_HIGH_THRESHOLD` | `0.35` / `0.8` | Routing thresholds against the model's yes-probability score — see `rankEngine.ts`. |
 | `MODERATION_BEARER_TOKEN` | unset | Optional `Authorization: Bearer`. The service publishes no host port, so a network boundary already protects it; set one before exposing it. |
 | `PORT` | `8001` | |
 | `ALLOWLIST_PATH` / `REWRITES_PATH` / `APPROVED_DOMAINS_PATH` | bundled copies | Override the shipped word lists. |
 | `MODERATION_REQUIRE_LISTS` | `0` | `1` turns an unreadable configured list into a startup failure instead of a silent degrade. |
+
+Compose-level indirection (`docker-compose.yml`'s `moderation-1`..`5`
+blocks), applied uniformly to all 5 replicas — set these instead of
+`GUARD_THREADS` directly when invoking `docker compose`, since the
+per-container var above is itself sourced from these:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MODERATION_GUARD_THREADS` | `2` | → each replica's `GUARD_THREADS`. |
+| `MODERATION_GUARD_LOW_THRESHOLD` / `MODERATION_GUARD_HIGH_THRESHOLD` | `0.35` / `0.8` | → each replica's `GUARD_LOW_THRESHOLD` / `GUARD_HIGH_THRESHOLD`. |
+| `MODERATION_BEARER_TOKEN` | unset | → each replica's `MODERATION_BEARER_TOKEN` (same var name, just also settable at the compose level). |
 
 `SHADOW_MODE=1` only relaxes the **model** tier — the deterministic tiers
 (threats, blocklist, PII, rewrites) enforce in both modes. It
