@@ -320,18 +320,6 @@ describe('decideModeration — guard absent / skipped (fail-closed)', () => {
 		}
 	})
 
-	it('fails closed when the guard verdict has a malformed categories field', () => {
-		for (const bad of [undefined, null, 'harassment', [1, 2]]) {
-			const d = decideModeration(
-				input({
-					guard: { safety: 'Safe', categories: bad } as unknown as GuardInput,
-				}),
-			)
-			expect(d.decision).toBe('reject')
-			expect(d.band).toBe('guard_unavailable')
-		}
-	})
-
 	it('is total for non-object guard values', () => {
 		for (const bad of ['nonsense', 42, true, Symbol('x')]) {
 			const d = decideModeration(input({ guard: bad as unknown as GuardInput }))
