@@ -220,6 +220,11 @@ export class GameClient {
 		return data.metadata
 	}
 
+	async kick(code: string, targetPlayerId: string): Promise<void> {
+		const res = await this.http('POST', `/api/lobbies/${code}/kick/${targetPlayerId}`)
+		if (!res.ok) throw new Error(`kick failed: ${res.status} ${await res.text()}`)
+	}
+
 	async queue(
 		modId: string,
 		gameMode: string,

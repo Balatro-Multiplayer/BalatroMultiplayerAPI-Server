@@ -93,6 +93,7 @@ export function createLobbyRouter(service: LobbyService): Router {
 					hostId: lobby.hostId,
 					maxPlayers: lobby.maxPlayers,
 					metadata: lobby.metadata,
+					type: lobby.type,
 					isHost: true,
 					players: Array.from(lobby.players.values()).map((p) => ({
 						id: p.playerId,
@@ -119,6 +120,7 @@ export function createLobbyRouter(service: LobbyService): Router {
 					hostId: lobby.hostId,
 					maxPlayers: lobby.maxPlayers,
 					metadata: lobby.metadata,
+					type: lobby.type,
 					isHost: lobby.hostId === req.player!.playerId,
 					players: Array.from(lobby.players.values()).map((p) => ({
 						id: p.playerId,
@@ -142,6 +144,16 @@ export function createLobbyRouter(service: LobbyService): Router {
 		}
 	})
 
+	router.post('/:code/kick/:targetId', async (req, res, next) => {
+		try {
+			const { code, targetId } = req.params
+			await service.kickPlayer(req.player!, code, targetId)
+			res.json({ ok: true })
+		} catch (err) {
+			next(err)
+		}
+	})
+
 	router.get('/:code', async (req, res, next) => {
 		try {
 			const lobby = service.getLobbyInfo(req.params.code)
@@ -153,6 +165,7 @@ export function createLobbyRouter(service: LobbyService): Router {
 					hostId: lobby.hostId,
 					maxPlayers: lobby.maxPlayers,
 					metadata: lobby.metadata,
+					type: lobby.type,
 					isHost: lobby.hostId === req.player!.playerId,
 					players: Array.from(lobby.players.values()).map((p) => ({
 						id: p.playerId,
@@ -183,6 +196,9 @@ export function createLobbyRouter(service: LobbyService): Router {
 		try {
 			const lobby = getLobby(req.params.code)
 			if (!lobby) throw new AppError('Lobby not found', 404)
+			if (lobby.kickedPlayerIds.has(req.player!.playerId)) {
+				throw new AppError('You have been kicked from this lobby', 403)
+			}
 
 			const spectatable =
 				lobby.type === 'public' || lobby.metadata.spectatable === true

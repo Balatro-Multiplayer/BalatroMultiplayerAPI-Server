@@ -2,14 +2,17 @@
 
 import {
   BarChart3,
-  BookOpen,
   CircleDollarSign,
+  DoorOpen,
+  DownloadIcon,
   Gamepad2,
+  History,
   Layers,
   LogIn,
   LogOut,
   Menu as MenuIcon,
   MessageSquare,
+  Newspaper,
   PackageOpen,
   Palette,
   Puzzle,
@@ -91,11 +94,11 @@ function MobileNavLinks({ onClose }: { onClose: () => void }) {
   return (
     <nav className='flex flex-col gap-0.5 px-3 py-3'>
       <MobileMenuLink
-        href='/docs'
-        icon={<BookOpen className='size-4' />}
+        href='/download'
+        icon={<DownloadIcon className='size-4' />}
         onClick={onClose}
       >
-        Documentation
+        Download
       </MobileMenuLink>
       <MobileMenuLink
         href='/leaderboards'
@@ -144,6 +147,13 @@ function MobileAccountSection({ onClose }: { onClose: () => void }) {
         >
           My Account
         </MobileMenuLink>
+        <MobileMenuLink
+          href='/matches'
+          icon={<History className='size-4' />}
+          onClick={onClose}
+        >
+          My Matches
+        </MobileMenuLink>
       </div>
     </>
   )
@@ -166,6 +176,13 @@ function MobileAdminSection({ onClose }: { onClose: () => void }) {
           Users &amp; Bans
         </MobileMenuLink>
         <MobileMenuLink
+          href='/admin/lobbies'
+          icon={<DoorOpen className='size-4' />}
+          onClick={onClose}
+        >
+          Lobbies
+        </MobileMenuLink>
+        <MobileMenuLink
           href='/admin/logs'
           icon={<MessageSquare className='size-4' />}
           onClick={onClose}
@@ -184,7 +201,14 @@ function MobileAdminSection({ onClose }: { onClose: () => void }) {
           icon={<PackageOpen className='size-4' />}
           onClick={onClose}
         >
-          Releases
+          BET Releases
+        </MobileMenuLink>
+        <MobileMenuLink
+          href='/admin/blog'
+          icon={<Newspaper className='size-4' />}
+          onClick={onClose}
+        >
+          Blog
         </MobileMenuLink>
         <MobileMenuLink
           href='/admin/games'

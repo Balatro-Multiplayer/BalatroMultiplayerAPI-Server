@@ -1,3 +1,5 @@
+'use client'
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -8,7 +10,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import type { Release } from './releases-types'
+import type { LauncherRelease } from './launcher-releases-types'
 
 export function DeleteReleaseDialog({
   target,
@@ -16,7 +18,7 @@ export function DeleteReleaseDialog({
   onConfirm,
   onClose,
 }: {
-  target: Release | null
+  target: LauncherRelease | null
   isPending: boolean
   onConfirm: () => void
   onClose: () => void
@@ -25,20 +27,21 @@ export function DeleteReleaseDialog({
     <AlertDialog open={target !== null} onOpenChange={(o) => !o && onClose()}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete release?</AlertDialogTitle>
+          <AlertDialogTitle>Delete release {target?.version}?</AlertDialogTitle>
           <AlertDialogDescription>
-            This permanently deletes
-            {target && <strong> "{target.name}"</strong>}. This cannot be undone.
+            This stops this server advertising any platform binary for this
+            version (the GitHub release itself is untouched). This can't be
+            undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            className='bg-destructive text-white hover:bg-destructive/90'
-            onClick={onConfirm}
             disabled={isPending}
+            onClick={onConfirm}
+            className='bg-destructive text-white hover:bg-destructive/90'
           >
-            Delete
+            {isPending ? 'Deleting…' : 'Delete'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

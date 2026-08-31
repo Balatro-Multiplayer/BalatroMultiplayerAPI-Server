@@ -10,18 +10,22 @@ import * as replayLogGateway from '../../infrastructure/gateways/replay-log.gate
 import { compressToBase64 } from '../../shared/utils/compression.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { getLobby } from '../../state/index.js'
+import { matchByLobby } from '../../state/matchmaking.js'
 
 // Indefinite (NULL expiresAt) is reserved for flagged/disputed runs -- see
 // finalizeRun's flags param, set by matchmaking.service.ts's evaluateAntiCheat.
 const RUN_TTL_MS = 180 * 24 * 60 * 60 * 1000
 
-// Framing opcodes (see BalatroMultiplayerAPI's api/replay/recorder.lua,
-// MPAPI.replay -- the generic recorder every mod's PVP.RLOG-style alias
-// points at) are excluded from the anti-cheat hash input on both sides --
-// they're emitted directly via emit_carbon, bypassing RLOG.record, so the
-// client's own hash (computed over RLOG._structured_events) never includes
-// them either.
-const FRAMING_OPCODES = new Set(['manifest', 'end', 'chk'])
+// Framing opcodes excluded from the anti-cheat hash input on both sides.
+// Only 'end'/'chk' now -- match_manifest/lobby_info/run_info (see
+// BalatroMultiplayerAPI's api/replay/framing_codes.lua) are ordinary
+// MPAPI.RLOG_CODE-recorded events like any other opcode, so (unlike the old
+// single 'manifest' event, which bypassed RLOG.record via emit_carbon
+// directly) they DO participate in the hash now -- a tampered seed/deck/
+// stake is caught the same way a tampered play/buy/sell would be. 'end'/
+// 'chk' remain excluded: 'end' carries the outcome the hash itself is meant
+// to attest to, and 'chk' IS the hash.
+const FRAMING_OPCODES = new Set(['end', 'chk'])
 
 // Mirrors api/replay/recorder.lua's canonical_hash_input/encode_event_tuple:
 // gameplay events only, encoded as [t, opcode, args] positional tuples (array
@@ -61,27 +65,20 @@ export interface LogEvent {
 	args?: unknown
 }
 
-// The manifest event's args is the full PVP.RLOG.begin_run table (see
-// networking/action_handlers.lua's action_start_game) -- only the fields a
-// seeded local run bootstrap (PVP._start_playback) actually needs are
-// validated here.
-function isManifestArgs(args: unknown): args is {
-	seed: string
-	deck: string
-	sleeve?: string
-	challenge?: string
-	ruleset: string
-	gamemode: string
-	stake?: number
-} {
+// lobby_info's args (see api/replay/framing_codes.lua) -- gamemode/ruleset
+// only; players/decks/options aren't needed for a spectator bootstrap.
+function isLobbyInfoArgs(args: unknown): args is { gamemode: string; ruleset: string } {
 	if (!args || typeof args !== 'object') return false
 	const a = args as Record<string, unknown>
-	return (
-		typeof a.seed === 'string' &&
-		typeof a.deck === 'string' &&
-		typeof a.ruleset === 'string' &&
-		typeof a.gamemode === 'string'
-	)
+	return typeof a.gamemode === 'string' && typeof a.ruleset === 'string'
+}
+
+// run_info's args (see api/replay/framing_codes.lua) -- what a seeded local
+// run bootstrap (PVP._start_playback/SPDRN._start_playback) actually needs.
+function isRunInfoArgs(args: unknown): args is { seed: string; deck: string; stake?: number } {
+	if (!args || typeof args !== 'object') return false
+	const a = args as Record<string, unknown>
+	return typeof a.seed === 'string' && typeof a.deck === 'string'
 }
 
 interface PlayerBuffer {
@@ -94,11 +91,14 @@ interface RunBuffer {
 	players: Map<string, PlayerBuffer>
 }
 
-// §22.3 full-fidelity spectate: the manifest fields a client needs to
-// bootstrap a seeded local run (PVP._start_playback) that reproduces this
-// player's exact cards -- same shape PVP.RLOG.begin_run records client-side
-// (api/replay/recorder.lua's REQUIRED_MANIFEST_KEYS), a subset of the full
-// manifest event's own payload.
+// §22.3 full-fidelity spectate: the fields a client needs to bootstrap a
+// seeded local run (PVP._start_playback/SPDRN._start_playback) that
+// reproduces this player's exact cards -- merged from lobby_info (gamemode/
+// ruleset, plus sleeve/challenge riding in PvP's own options dict, see
+// networking/action_handlers.lua's action_start_game) and the LAST-seen
+// run_info (not first: a spectator joining mid-match during a later run of a
+// multi-run match needs the CURRENT run's seed/deck/stake, not the first
+// one's -- see api/replay/framing_codes.lua).
 export interface SpectatorManifest {
 	seed: string
 	deck: string
@@ -160,11 +160,19 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 					const lobby = getLobby(lobbyCode)
 					if (!lobby) return null // lobby already gone -- nothing to anchor this run to
 
+					// matchByLobby only holds ranked+casual matchmaking matches (see
+					// grace-period.service.ts's own comment on the same lookup) --
+					// undefined here for a practice/private lobby, which correctly
+					// leaves matchmakingMatchId null for those. Previously always
+					// null regardless: nothing ever populated this column despite it
+					// existing in the schema specifically for this join, which is
+					// exactly what left the admin Match History page with no way to
+					// link a match row to its RLOG run.
 					const runId = await repository.insertRun({
 						lobbyCode,
 						modId: lobby.modId,
 						lobbyType: lobby.type,
-						matchmakingMatchId: null,
+						matchmakingMatchId: matchByLobby.get(lobbyCode)?.matchId ?? null,
 					})
 					const created: RunBuffer = { runId, players: new Map() }
 					runs.set(lobbyCode, created)
@@ -325,6 +333,13 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 		return { runs, total, page, pageSize }
 	}
 
+	// Admin Match History's "View Log" button: resolves a page of matchIds to
+	// their RLOG run ids in one query, exact (not a lobby-code-recency guess --
+	// see getRunIdsForMatchIds's own doc comment).
+	async function getRunIdsForMatchIds(matchIds: string[]): Promise<Map<string, string>> {
+		return repository.getRunIdsForMatchIds(matchIds)
+	}
+
 	// Phase 7: best-effort one-time state snapshot for a spectator joining a
 	// live match, derived from whatever the in-memory buffer has observed so
 	// far for each player (their most recent ante marker and hand result).
@@ -338,7 +353,9 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 			let ante: string | null = null
 			let score: string | null = null
 			let handsRemaining: number | null = null
-			let manifest: SpectatorManifest | null = null
+			let lobbyInfo: { gamemode: string; ruleset: string; sleeve: string | null; challenge: string | null } | null =
+				null
+			let runInfo: { seed: string; deck: string; stake: number | null } | null = null
 
 			for (const event of buf.events) {
 				if (
@@ -354,22 +371,96 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 					const [s, h] = event.args
 					if (typeof s === 'string') score = s
 					if (typeof h === 'number') handsRemaining = h
-				} else if (event.opcode === 'manifest' && isManifestArgs(event.args)) {
-					manifest = {
+				} else if (event.opcode === 'lobby_info' && !lobbyInfo && isLobbyInfoArgs(event.args)) {
+					const options = (event.args as { options?: Record<string, unknown> }).options ?? {}
+					lobbyInfo = {
+						gamemode: event.args.gamemode,
+						ruleset: event.args.ruleset,
+						sleeve: typeof options.sleeve === 'string' ? options.sleeve : null,
+						challenge: typeof options.challenge === 'string' ? options.challenge : null,
+					}
+				} else if (event.opcode === 'run_info' && isRunInfoArgs(event.args)) {
+					// Last-seen, not first -- see SpectatorManifest's own comment.
+					runInfo = {
 						seed: event.args.seed,
 						deck: event.args.deck,
-						sleeve: event.args.sleeve ?? null,
-						challenge: event.args.challenge ?? null,
-						ruleset: event.args.ruleset,
-						gamemode: event.args.gamemode,
 						stake: typeof event.args.stake === 'number' ? event.args.stake : null,
 					}
 				}
 			}
 
+			const manifest: SpectatorManifest | null =
+				lobbyInfo && runInfo
+					? {
+							seed: runInfo.seed,
+							deck: runInfo.deck,
+							stake: runInfo.stake,
+							ruleset: lobbyInfo.ruleset,
+							gamemode: lobbyInfo.gamemode,
+							sleeve: lobbyInfo.sleeve,
+							challenge: lobbyInfo.challenge,
+						}
+					: null
+
 			snapshot.push({ playerId, ante, score, handsRemaining, manifest })
 		}
 		return snapshot
+	}
+
+	// Crash-relaunch rejoin detection: "does this player have a match still in
+	// progress right now" -- scans the live in-memory buffer (the same one
+	// handleActionLogEvent/getTail already use), not Postgres. A run only
+	// gets a durable matchRunLogs row at finalize time (see finalizeRun
+	// above), so an in-progress run's player list only exists here while the
+	// server process that received its events is still running -- exactly
+	// the scenario this is for (the CLIENT crashed and relaunched, not the
+	// server). Surviving a server restart too would need a second signal
+	// (e.g. matchmaking.service.ts's restorePlayerMatchSession, which reads
+	// Postgres) -- not needed for the common case and not wired up here.
+	// `events` is this player's OWN buffered stream (getTail(lobbyCode,
+	// playerId, 0)), included inline rather than requiring a second request:
+	// GET /:runId/replay (getReplay) can't serve this -- it reads DB-persisted
+	// matchRunLogs rows, which don't exist yet for a run that's still active
+	// (those are only written at finalize time, see finalizeRun) -- confirmed
+	// live, it 403s ("Not a participant in this run") for a genuinely active
+	// run's own participant. Rejoin only ever needs the rejoining player's OWN
+	// events to fast-forward their own local state (opponent catch-up is a
+	// separate, already-existing mechanism -- grace-period.service.ts's
+	// pushReplayCatchUp, unrelated to this), so there's no need to also
+	// resolve/merge every other player's stream here.
+	function findActiveRunForPlayer(
+		playerId: string,
+	): { runId: string; lobbyCode: string; modId: string; events: LogEvent[] } | null {
+		for (const [lobbyCode, run] of runs) {
+			if (run.players.has(playerId)) {
+				const lobby = getLobby(lobbyCode)
+				// The run buffer's own player list (populated by
+				// handleActionLogEvent) is NOT tied to live lobby membership --
+				// an explicit Abandon (POST /api/lobbies/:code/leave) removes the
+				// player from the LOBBY but doesn't touch this run's buffer at all
+				// (only a full lobby close or grace-period expiry finalizes/clears
+				// it, and the lobby here is still alive for its other player(s)).
+				// Without this check, a player who explicitly abandoned would keep
+				// getting the rejoin prompt on every subsequent relaunch until the
+				// whole match ends for everyone else too -- confirmed live.
+				if (!lobby || !lobby.hasPlayer(playerId)) continue
+				return {
+					runId: run.runId,
+					lobbyCode,
+					modId: lobby?.modId ?? '',
+					// getTail's filter is `e.t > sinceT`, strictly exclusive --
+					// correct for its original caller (opponent catch-up: "events
+					// since I last saw them", where the boundary event was already
+					// delivered) but sinceT=0 would silently drop the manifest
+					// event itself, which is always recorded at t=0 (see
+					// recorder.lua's begin_run) -- confirmed live, rejoin failed
+					// with "no manifest event" until this was -1'd. -1 is safe
+					// since every real event's t is >= 0.
+					events: getTail(lobbyCode, playerId, -1),
+				}
+			}
+		}
+		return null
 	}
 
 	return {
@@ -378,10 +469,12 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 		hasBufferedRun,
 		getReplay,
 		listMyRuns,
+		getRunIdsForMatchIds,
 		getSpectatorSnapshot,
 		verifyPlayerHash,
 		countHandResultEvents,
 		getTail,
+		findActiveRunForPlayer,
 	}
 }
 

@@ -103,6 +103,31 @@ export function leaveAllQueues(playerId: string): void {
 	}
 }
 
+// Ranked queueing is always solo (see matchmaking.service.ts::joinQueue's
+// own group+ranked rejection), so a player has at most one Ranked entry
+// across whichever keys they're currently queued under - used by
+// matchmaking.service.ts's ranked_readiness failure handler to find which
+// queue to actually cancel, since that challenge is issued per-player, not
+// per-queue-entry.
+export function findActiveRankedQueueEntry(
+	playerId: string,
+): { modId: string; gameMode: string } | null {
+	const keys = playerQueues.get(playerId)
+	if (!keys) return null
+
+	for (const key of keys) {
+		const queue = queues.get(key)
+		if (!queue) continue
+		const entry = queue.find((e) =>
+			e.type === 'solo' ? e.playerId === playerId : e.playerIds.includes(playerId),
+		)
+		if (entry && isRanked(entry.gameMode)) {
+			return { modId: entry.modId, gameMode: entry.gameMode }
+		}
+	}
+	return null
+}
+
 export function getQueueStatus(playerId: string): QueueEntry[] {
 	const keys = playerQueues.get(playerId)
 	if (!keys || keys.size === 0) return []

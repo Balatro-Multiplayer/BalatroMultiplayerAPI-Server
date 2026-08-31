@@ -63,6 +63,7 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		await messageBus.publishPlayerInfo(lobby.code, player.playerId, {
 			displayName: session.getDisplayName(),
 			preferredJoker: session.preferredJoker,
+			mods: session.installedMods,
 		})
 
 		const token = signJwt({
@@ -80,6 +81,9 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 
 		const lobby = getLobby(code)
 		if (!lobby) throw new AppError('Lobby not found', 404)
+		if (lobby.kickedPlayerIds.has(player.playerId)) {
+			throw new AppError('You have been kicked from this lobby', 403)
+		}
 
 		if (lobby.type === 'public' && lobby.hasPlayer(player.playerId)) {
 			const token = signJwt({
@@ -101,6 +105,7 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		await messageBus.publishPlayerInfo(lobby.code, player.playerId, {
 			displayName: session.getDisplayName(),
 			preferredJoker: session.preferredJoker,
+			mods: session.installedMods,
 		})
 
 		if (lobby.type === 'private') {
@@ -219,6 +224,149 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		return { token }
 	}
 
+	// Shared by the host-initiated kick and the admin-initiated kick/close
+	// actions below. Removes targetPlayerId from lobby and does all the
+	// bookkeeping a removal needs regardless of who initiated it or why:
+	// grace-period cancel, kickedPlayerIds tracking (so a fast rejoin can't
+	// race past joinLobby's guard), match forfeiture, and the player_kicked
+	// broadcast. Does NOT handle host reassignment or lobby teardown -- kickPlayer
+	// never needs to (the host can't kick themselves, so the lobby can't end up
+	// empty or host-less through that path), but the admin paths can target
+	// anyone including the host, so they handle those cases themselves.
+	async function removePlayerFromLobby(
+		lobby: Lobby,
+		targetPlayerId: string,
+		kickedBy: string,
+	): Promise<void> {
+		gracePeriodService.cancelGracePeriodSilently(targetPlayerId)
+
+		const targetSession = getSession(targetPlayerId)
+
+		lobby.kickedPlayerIds.add(targetPlayerId)
+		lobby.removePlayer(targetPlayerId)
+
+		const remainingConnected = [...lobby.players.keys()].filter(
+			(id) => !gracePeriodService.isInGracePeriod(id),
+		)
+		await matchmakingCoordinator.forfeitMatchForLeave(
+			lobby.code,
+			targetPlayerId,
+			remainingConnected,
+		)
+
+		// Published before the cleanup calls below so the kicked client still has
+		// a live topic subscription when the event lands.
+		await messageBus.publishEvent(lobby.code, {
+			type: 'player_kicked',
+			lobbyCode: lobby.code,
+			playerId: targetPlayerId,
+			displayName: targetSession?.getDisplayName(),
+			data: { kickedBy },
+			timestamp: new Date().toISOString(),
+		})
+
+		await messageBus.clearPlayerInfo(lobby.code, targetPlayerId)
+		await messageBus.cleanupPlayerState(lobby.code, targetPlayerId)
+	}
+
+	// Mirrors leaveLobby's empty-lobby teardown (lobby_closed broadcast, topic
+	// cleanup, map removal, run finalization) for the admin paths, which can
+	// empty a lobby by kicking its last member or by closing it outright --
+	// neither goes through leaveLobby itself. No player exclusion on
+	// cleanupLobbyTopics (unlike leaveLobby's), since these removals aren't
+	// initiated by the player themselves and their client hasn't already
+	// unsubscribed on its own.
+	async function closeEmptiedLobby(lobby: Lobby): Promise<void> {
+		await messageBus.publishEvent(lobby.code, {
+			type: 'lobby_closed',
+			lobbyCode: lobby.code,
+			timestamp: new Date().toISOString(),
+		})
+		await messageBus.cleanupLobbyTopics(lobby.code)
+		lobbies.delete(lobby.code)
+		await replayLogService.finalizeRun(lobby.code, 'terminated')
+	}
+
+	// Host-initiated removal of another player. Mirrors leaveLobby's cleanup for
+	// the target, but the actor (host) is not leaving -- no host-transfer or
+	// lobby-close branch applies here.
+	async function kickPlayer(
+		player: JwtPayload,
+		code: string,
+		targetPlayerId: string,
+	) {
+		const lobby = getLobby(code)
+		if (!lobby) throw new AppError('Lobby not found', 404)
+		if (lobby.hostId !== player.playerId) {
+			throw new AppError('Only the host can kick players', 403)
+		}
+		if (targetPlayerId === player.playerId) {
+			throw new AppError('Cannot kick yourself', 400)
+		}
+		if (!lobby.hasPlayer(targetPlayerId)) {
+			throw new AppError('Player not in this lobby', 400)
+		}
+
+		await removePlayerFromLobby(lobby, targetPlayerId, player.playerId)
+	}
+
+	// Admin/moderator-initiated removal from the webadmin lobby-management panel.
+	// Unlike kickPlayer, the target can be the host -- the acting admin isn't a
+	// lobby member, so there's no self-kick restriction, and no membership check
+	// on who's allowed to act (the webadmin route already gates on privilege).
+	async function adminKickPlayer(
+		code: string,
+		targetPlayerId: string,
+		actingAdminId: string,
+	) {
+		const lobby = getLobby(code)
+		if (!lobby) throw new AppError('Lobby not found', 404)
+		if (!lobby.hasPlayer(targetPlayerId)) {
+			throw new AppError('Player not in this lobby', 400)
+		}
+
+		const wasHost = lobby.hostId === targetPlayerId
+		await removePlayerFromLobby(lobby, targetPlayerId, `admin:${actingAdminId}`)
+
+		if (lobby.isEmpty) {
+			await closeEmptiedLobby(lobby)
+			return
+		}
+
+		if (wasHost) {
+			const newHostId = lobby.players.keys().next().value!
+			lobby.hostId = newHostId
+			await messageBus.publishEvent(lobby.code, {
+				type: 'host_changed',
+				lobbyCode: lobby.code,
+				playerId: newHostId,
+				timestamp: new Date().toISOString(),
+			})
+		}
+	}
+
+	// Force-closes a lobby regardless of membership -- e.g. an abandoned lobby
+	// whose owner's session went stale (see clearStaleLobbyReference above) with
+	// no way to self-resolve. Removes every current member (forfeiting any
+	// active match, same as each of them leaving individually would) and then
+	// tears the lobby down.
+	async function adminCloseLobby(code: string, actingAdminId: string) {
+		const lobby = getLobby(code)
+		if (!lobby) throw new AppError('Lobby not found', 404)
+
+		for (const targetPlayerId of [...lobby.players.keys()]) {
+			await removePlayerFromLobby(
+				lobby,
+				targetPlayerId,
+				`admin:${actingAdminId}`,
+			)
+		}
+
+		if (lobby.isEmpty) {
+			await closeEmptiedLobby(lobby)
+		}
+	}
+
 	function getLobbyInfo(code: string) {
 		const lobby = getLobby(code)
 		if (!lobby) throw new AppError('Lobby not found', 404)
@@ -269,6 +417,9 @@ export function createLobbyService(deps: LobbyServiceDeps) {
 		createLobby,
 		joinLobby,
 		leaveLobby,
+		kickPlayer,
+		adminKickPlayer,
+		adminCloseLobby,
 		getLobbyInfo,
 		getLobbyPlayers,
 		setMetadata,

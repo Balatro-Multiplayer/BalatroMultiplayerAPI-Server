@@ -21,7 +21,7 @@ import { recomputeLeaderboard } from '../gateways/matchmaking.gateway.js'
 import { PLACEMENT_GAMES } from '../../features/matchmaking/elo.service.js'
 
 const PLAYER_COUNT = 200
-const MOD_ID = 'MultiplayerSpeedrunning'
+const MOD_ID = 'MultiplayerSPDRN'
 
 interface Board {
 	gameMode: string

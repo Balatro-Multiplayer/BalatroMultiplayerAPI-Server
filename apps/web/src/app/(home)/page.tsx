@@ -43,13 +43,10 @@ export default function Home() {
                 size='lg'
                 className='w-full bg-red-600 text-white hover:bg-red-700 sm:w-auto'
               >
-                <Link href='/docs/getting-started/installation'>
+                <Link href='/download'>
                   Get Started
                   <ChevronRight className='ml-2 h-4 w-4' />
                 </Link>
-              </Button>
-              <Button variant='outline' size='lg' asChild>
-                <Link href='/docs'>Learn More</Link>
               </Button>
             </div>
             <div className='mt-8 w-full max-w-5xl rounded-lg border bg-card p-4 shadow-xl'>
@@ -334,7 +331,7 @@ export default function Home() {
                       <h3 className='font-bold text-xl'>Install the Mod</h3>
                       <p className='text-muted-foreground'>
                         Download and install the multiplayer mod by following
-                        the instructions on our documentation.
+                        the instructions on our download page.
                       </p>
                     </div>
                   </li>
@@ -369,9 +366,7 @@ export default function Home() {
                     className='w-full bg-red-600 text-white hover:bg-red-700 sm:w-auto'
                     asChild
                   >
-                    <Link href='/docs/getting-started/installation'>
-                      Install Now
-                    </Link>
+                    <Link href='/download'>Install Now</Link>
                   </Button>
                 </div>
               </div>
@@ -400,9 +395,7 @@ export default function Home() {
               className='mt-4 w-full bg-red-600 text-white hover:bg-red-700 sm:w-auto'
               asChild
             >
-              <Link href='/docs/getting-started/installation'>
-                Get Started Now
-              </Link>
+              <Link href='/download'>Get Started Now</Link>
             </Button>
           </div>
         </section>

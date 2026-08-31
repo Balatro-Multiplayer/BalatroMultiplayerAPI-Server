@@ -44,13 +44,20 @@ services:
     networks:
       - bmp
 
-  api:
+  # api-blue/api-green: the blue-green pair (scripts/deploy-color-swap.sh).
+  # Neither publishes a host port or is reachable as plain "api" on the bmp
+  # network -- the `nginx` service below is the only stable address, for
+  # both external traffic (published 80/443 in prod, 127.0.0.1:8788 for
+  # local dev -- see docker-compose.local.yml) and EMQX's own webhook/authn
+  # calls (which are hardcoded to "http://api:8788" in
+  # cluster.hocon/emqx-provision.service.ts and were never changed -- nginx
+  # just took over that identity via a network alias, so EMQX never needs to
+  # know a swap happened at all).
+  api-blue: &api-color
     build:
       context: .
       dockerfile: apps/server/Dockerfile
-    container_name: bmp-api
-    ports:
-      - "127.0.0.1:8788:8788"
+    container_name: bmp-api-blue
     env_file: ./apps/server/.env
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/bmp
@@ -63,47 +70,181 @@ services:
       # unmoderated. To turn the bridge off instead, run with
       #   MODERATION_SERVICE_URL= docker compose up
       # and chat falls back to the local obscenity filter.
-      MODERATION_SERVICE_URL: ${MODERATION_SERVICE_URL-http://moderation:8001}
+      MODERATION_SERVICE_URL: ${MODERATION_SERVICE_URL-http://moderation-lb:8001}
     depends_on:
       emqx:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      moderation:
+      moderation-lb:
         condition: service_started
+    healthcheck:
+      # node's global fetch (no curl/wget in node:22-alpine) against the
+      # existing /health endpoint (main.ts) -- previously unused by anything,
+      # including this service's own depends_on/restart-readiness.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8788/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
     networks:
       - bmp
 
-  moderation:
+  api-green:
+    <<: *api-color
+    container_name: bmp-api-green
+
+  # Five independent moderation-service processes behind moderation-lb below,
+  # rather than one instance with more threads: the classifier
+  # (guard/rankEngine.ts) has no in-process concurrency of its own -- one
+  # process gets one node-llama-cpp RankingContext, and JudgeLane only sheds
+  # requests it can't meet the deadline for, it doesn't queue/parallelize
+  # them. Benchmarked live (EPYC 9645, 12 vCPU): 5x GUARD_THREADS=2 measured
+  # 6.50 msg/sec aggregate vs. 4.15 msg/sec for one GUARD_THREADS=10
+  # instance. See apps/moderation/README.md for the full writeup.
+  moderation-1: &moderation-replica
     build:
       context: .
       dockerfile: apps/moderation/Dockerfile
-    container_name: bmp-moderation
-    # No host port: only the api talks to it, over the compose network.
+    container_name: bmp-moderation-1
+    # No host port: only moderation-lb talks to these, over the compose network.
     environment:
       # Logs what it WOULD block without blocking. Set 0 to enforce.
       SHADOW_MODE: ${SHADOW_MODE:-1}
+      GUARD_THREADS: ${MODERATION_GUARD_THREADS:-2}
+      GUARD_LOW_THRESHOLD: ${MODERATION_GUARD_LOW_THRESHOLD:-0.35}
+      GUARD_HIGH_THRESHOLD: ${MODERATION_GUARD_HIGH_THRESHOLD:-0.8}
+      MODERATION_BEARER_TOKEN: ${MODERATION_BEARER_TOKEN:-}
     volumes:
-      # The GGUF is not in the image. Drop it here and the service finds it at
-      # the path baked into the Dockerfile.
+      # The GGUF is not in the image. Drop it here (once -- shared by all 5
+      # replicas) and each service finds it at the path baked into the
+      # Dockerfile. See apps/moderation/README.md for the quantize-then-stage
+      # steps and why 5 processes safely mmap the same file without 5x RAM.
       - moderation-model-cache:/model-cache
     restart: unless-stopped
     networks:
       - bmp
+
+  moderation-2:
+    <<: *moderation-replica
+    container_name: bmp-moderation-2
+
+  moderation-3:
+    <<: *moderation-replica
+    container_name: bmp-moderation-3
+
+  moderation-4:
+    <<: *moderation-replica
+    container_name: bmp-moderation-4
+
+  moderation-5:
+    <<: *moderation-replica
+    container_name: bmp-moderation-5
+
+  # Round-robins across the 5 replicas above (nginx/moderation-upstream.conf),
+  # with passive failover (max_fails/fail_timeout) if one goes unhealthy.
+  # Internal-only, no TLS, no host port -- api-blue/api-green are the only
+  # callers, via MODERATION_SERVICE_URL above.
+  moderation-lb:
+    image: nginx:1.27-alpine
+    container_name: bmp-moderation-lb
+    volumes:
+      - ./nginx/moderation-upstream.conf:/etc/nginx/conf.d/moderation-upstream.conf:ro
+    depends_on:
+      - moderation-1
+      - moderation-2
+      - moderation-3
+      - moderation-4
+      - moderation-5
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - bmp
+
+  # The ONLY reverse proxy for this whole stack -- replaces what used to be
+  # a separately hand-maintained host-level nginx install on bmpserver
+  # (/etc/nginx/sites-available/bmp), so all server config, TLS included,
+  # lives in this repo/compose file instead of split across two places.
+  # nginx/prod/server.conf is the prod-realistic default (TLS, Cloudflare,
+  # web/api routing, matching the old host config exactly);
+  # docker-compose.local.yml swaps in nginx/local/server.conf (plain HTTP,
+  # no domain) for local dev. nginx/upstream.conf is the one file
+  # scripts/deploy-color-swap.sh ever rewrites, in either environment.
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: bmp-nginx
+    networks:
+      bmp:
+        aliases:
+          - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/prod/server.conf:/etc/nginx/conf.d/server.conf:ro
+      - ./nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+      # Self-signed, 10-year cert for new.balatromp.com (confirmed via
+      # `openssl x509` - issuer == subject) - NOT a Cloudflare Origin CA
+      # cert despite what an earlier version of this comment claimed. Works
+      # today because the Cloudflare zone's SSL/TLS mode is "Full", not
+      # "Full (strict)" (which would reject an untrusted origin cert
+      # outright) - if that mode is ever tightened, this needs a real
+      # Origin CA cert first. Long-lived either way, no certbot/renewal
+      # hook needed (unlike EMQX's mqtt.balatromp.com cert below, which is
+      # real Let's Encrypt and does renew - see the certbot mount below).
+      - /etc/nginx/ssl/bmp.crt:/etc/nginx/ssl/bmp.crt:ro
+      - /etc/nginx/ssl/bmp.key:/etc/nginx/ssl/bmp.key:ro
+      # certbot's webroot HTTP-01 authenticator for mqtt.balatromp.com
+      # drops its challenge file here; nginx/prod/server.conf's
+      # mqtt.balatromp.com server block serves it back. Read-only - only
+      # certbot itself (running on the host, outside this container) ever
+      # writes here.
+      - /var/www/certbot:/var/www/certbot:ro
+    depends_on:
+      api-green:
+        condition: service_started
+    healthcheck:
+      # Generous start_period -- this proxies straight through to whichever
+      # api color is currently starting, so it can't become healthy any
+      # faster than that color's own app boot (mods-sync alone can take
+      # several seconds). Hits the internal :8788 listener (server.conf's
+      # first server block - the same one EMQX/web use via the "api"
+      # network alias), not the public :443 vhost - the public vhost's
+      # bare "/health" (no /api/ prefix) falls through to location / (the
+      # web app, which has no such route -> 404), and only ever answers
+      # "/api/health" for API concerns anyway, which the app itself
+      # doesn't register (its real /health route is unprefixed - see
+      # main.ts). Plain http, not https - :8788 is internal-only, no TLS.
+      # 127.0.0.1 explicitly, not "localhost" - this image resolves
+      # localhost to ::1 first and there's no [::]:8788 listener (the
+      # :8788 server block, unlike the others, has no "listen [::]:8788;"
+      # line), so wget's IPv6 attempt would just hang/refuse and never
+      # fall back to IPv4 on its own.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8788/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+      start_period: 45s
+    restart: unless-stopped
 
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
     container_name: bmp-web
-    ports:
-      - "127.0.0.1:3000:3000"
     environment:
       NODE_ENV: production
-      API_SERVER_URL: http://bmp-api:8788
+      API_SERVER_URL: http://api:8788
     depends_on:
-      - api
+      nginx:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - bmp

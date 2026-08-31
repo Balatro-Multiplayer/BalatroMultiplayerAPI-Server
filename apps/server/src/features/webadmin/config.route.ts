@@ -14,11 +14,12 @@ import { AppError } from '../../shared/utils/errors.js'
 // precedent), not the router-level admin-or-moderator webAdmin gate, since
 // platform config has the same self-inflicted-blast-radius shape.
 //
-// chatEnabled/testingMode are NOT exposed here: both are sourced from env
-// vars (env.CHAT_ENABLED/env.TESTING_MODE) at loadConfigFromDb() time, not
-// from any DB column -- there is no persistence path for a value written
-// here to survive the next reload/restart. Surfaced read-only instead of
-// building a control that would silently stop working on the next refresh.
+// chatEnabled/testingMode/rankedEnabled are NOT exposed here: all three are
+// sourced from env vars (env.CHAT_ENABLED/env.TESTING_MODE/env.RANKED_ENABLED)
+// at loadConfigFromDb() time, not from any DB column -- there is no
+// persistence path for a value written here to survive the next
+// reload/restart. Surfaced read-only instead of building a control that
+// would silently stop working on the next refresh.
 const router = Router()
 
 async function requireAdmin(req: import('express').Request) {
@@ -37,6 +38,7 @@ router.get('/config', async (_req, res, next) => {
 			chatAllowlist: [...config.chatAllowlist],
 			chatEnabled: config.chatEnabled ?? false,
 			testingMode: config.testingMode ?? false,
+			rankedEnabled: config.rankedEnabled ?? true,
 		})
 	} catch (err) {
 		next(err)

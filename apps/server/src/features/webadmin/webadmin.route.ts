@@ -1,16 +1,19 @@
 import { Router } from 'express'
-import type { Request, Response, NextFunction } from 'express'
-import { authenticate } from '../../middleware/authenticate.js'
+import type { NextFunction, Request, Response } from 'express'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
-import playersRouter from './players.route.js'
+import { authenticate } from '../../middleware/authenticate.js'
+import blogRouter from './blog.route.js'
 import chatLogsRouter from './chat-logs.route.js'
+import configRouter from './config.route.js'
+import forfeitReconciliationRouter from './forfeit-reconciliation.route.js'
+import launcherReleasesRouter from './launcher-releases.route.js'
+import lobbiesRouter from './lobbies.route.js'
+import matchConflictsRouter from './match-conflicts.route.js'
+import matchesRouter from './matches.route.js'
+import modsRouter from './mods.route.js'
+import playersRouter from './players.route.js'
 import reportsRouter from './reports.route.js'
 import seasonsRouter from './seasons.route.js'
-import matchesRouter from './matches.route.js'
-import matchConflictsRouter from './match-conflicts.route.js'
-import releasesRouter from './releases.route.js'
-import configRouter from './config.route.js'
-import modsRouter from './mods.route.js'
 
 const router = Router()
 
@@ -38,9 +41,12 @@ router.use(chatLogsRouter)
 router.use(reportsRouter)
 router.use(seasonsRouter)
 router.use(matchesRouter)
+router.use(lobbiesRouter)
 router.use(matchConflictsRouter)
-router.use(releasesRouter)
+router.use(forfeitReconciliationRouter)
+router.use(launcherReleasesRouter)
 router.use(configRouter)
 router.use(modsRouter)
+router.use(blogRouter)
 
 export default router

@@ -7,10 +7,14 @@ const app = createTestApp()
 
 // Mirrors runs.test.ts's drizzle chain-mocking pattern -- mods.gateway.ts
 // isn't otherwise injectable at the route layer, it's called directly.
+// listPublicMods chains .where() (the includeHidden filter) before
+// .orderBy(), even when the public route calls it with no args.
 function mockSelectOrderByChain(rows: unknown[]) {
 	return vi.fn().mockReturnValue({
 		from: vi.fn().mockReturnValue({
-			orderBy: vi.fn().mockResolvedValue(rows),
+			where: vi.fn().mockReturnValue({
+				orderBy: vi.fn().mockResolvedValue(rows),
+			}),
 		}),
 	})
 }
@@ -30,9 +34,12 @@ describe('mods routes', () => {
 				{
 					id: 'Author@Mod',
 					name: 'Mod',
-					allowedInRanked: true,
-					latestVersion: '1.0.0',
+					rankedVersion: '1.2.3',
+					latestVersion: '1.3.0',
+					latestDownloadUrl:
+						'https://github.com/author/mod/releases/download/v1.3.0/mod.zip',
 					thumbnailUrl: null,
+					isCustom: false,
 				},
 			]
 			;(db as any).select = mockSelectOrderByChain(rows)
@@ -40,7 +47,14 @@ describe('mods routes', () => {
 			const res = await request(app).get('/api/mods')
 
 			expect(res.status).toBe(200)
-			expect(res.body).toEqual(rows)
+			// latestDownloadUrl must stay in the compact response (not just get
+			// consumed to derive sourceType and discarded) -- it's what
+			// ModIndexManager::onModListFetched() on the launcher side diffs
+			// against its cache to decide whether a mod needs a detail refetch.
+			// Stripping it here once meant an admin editing ONLY a mod's URL
+			// (version/rankedVersion/featured unchanged) was invisible to every
+			// launcher instance, forever.
+			expect(res.body).toEqual([{ ...rows[0], sourceType: 'release' }])
 		})
 	})
 
@@ -56,14 +70,16 @@ describe('mods routes', () => {
 			expect(res.status).toBe(404)
 		})
 
-		it('returns the full record including versions when found', async () => {
+		it('returns the full record including versions and a computed sourceType when found', async () => {
 			const mod = {
 				id: 'Author@Mod',
 				title: 'Mod',
 				author: 'Author',
-				allowedInRanked: true,
+				rankedVersion: null,
 				latestVersion: '1.0.0',
+				latestDownloadUrl: 'https://example.com/mod.zip',
 				latestSha256: 'deadbeef',
+				isCustom: false,
 			}
 			;(db as any).query = {
 				...(db as any).query,
@@ -84,8 +100,88 @@ describe('mods routes', () => {
 			expect(res.body).toMatchObject({
 				id: 'Author@Mod',
 				latestSha256: 'deadbeef',
+				// example.com isn't a recognized GitHub release/branch pattern.
+				sourceType: 'custom',
 			})
 			expect(res.body.versions).toEqual(versions)
+		})
+	})
+
+	describe('GET /api/mods/profiles', () => {
+		it('returns profiles with their entries attached, no auth required', async () => {
+			const profile = {
+				id: 'profile-1',
+				name: 'Ranked Core',
+				slug: 'ranked-core',
+				description: null,
+				createdBy: null,
+			}
+			const entry = {
+				id: 1,
+				profileId: 'profile-1',
+				modId: 'Author@Mod',
+				versionMode: 'latestRanked',
+				pinnedVersion: null,
+				allowed: true,
+			}
+			;(db as any).select = vi
+				.fn()
+				.mockReturnValueOnce({
+					from: vi.fn().mockReturnValue({
+						orderBy: vi.fn().mockResolvedValue([profile]),
+					}),
+				})
+				.mockReturnValueOnce({
+					from: vi.fn().mockResolvedValue([entry]),
+				})
+
+			const res = await request(app).get('/api/mods/profiles')
+
+			expect(res.status).toBe(200)
+			expect(res.body).toEqual([{ ...profile, entries: [entry] }])
+		})
+	})
+
+	describe('GET /api/mods/profiles/:slug', () => {
+		it('returns 404 when the profile does not exist', async () => {
+			;(db as any).query = {
+				...(db as any).query,
+				modProfiles: { findFirst: vi.fn().mockResolvedValue(undefined) },
+			}
+
+			const res = await request(app).get('/api/mods/profiles/nonexistent')
+
+			expect(res.status).toBe(404)
+		})
+
+		it('returns the profile with its entries when found', async () => {
+			const profile = {
+				id: 'profile-1',
+				name: 'Ranked Core',
+				slug: 'ranked-core',
+				description: null,
+				createdBy: null,
+			}
+			;(db as any).query = {
+				...(db as any).query,
+				modProfiles: { findFirst: vi.fn().mockResolvedValue(profile) },
+			}
+			const entries = [
+				{
+					id: 1,
+					profileId: 'profile-1',
+					modId: 'Author@Mod',
+					versionMode: 'exact',
+					pinnedVersion: '1.0.0',
+					allowed: true,
+				},
+			]
+			;(db as any).select = mockSelectWhereChain(entries)
+
+			const res = await request(app).get('/api/mods/profiles/ranked-core')
+
+			expect(res.status).toBe(200)
+			expect(res.body).toEqual({ ...profile, entries })
 		})
 	})
 })

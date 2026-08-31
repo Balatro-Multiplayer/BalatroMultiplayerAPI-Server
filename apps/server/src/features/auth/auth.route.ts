@@ -29,6 +29,7 @@ function lobbyPayload(session: PlayerSession) {
 		hostId: lobby.hostId,
 		maxPlayers: lobby.maxPlayers,
 		metadata: lobby.metadata,
+		type: lobby.type,
 		isHost: lobby.hostId === session.playerId,
 		players: Array.from(lobby.players.values()).map((p) => ({
 			id: p.playerId,
@@ -519,6 +520,33 @@ h1{color:#5865f2;margin-bottom:0.5rem}p{color:#a0a0b0}</style>
 				token,
 				player: playerPayload(session),
 			})
+		} catch (err) {
+			next(err)
+		}
+	})
+
+	// Session-only (see PlayerSession.installedMods) -- pushed once by the
+	// client right after connecting, powers MPAPI's Lobby Info overlay's Mods
+	// tab for lobby peers. Only republishes to lobby peers when the caller is
+	// currently in a lobby, mirroring the joker-preference route above.
+	router.post('/preferences/mods', authenticate, async (req, res, next) => {
+		try {
+			const { mods } = req.body as { mods?: unknown }
+			if (!Array.isArray(mods) || mods.some((m) => typeof m !== 'string')) {
+				throw new AppError('Missing or invalid mods (array of strings)', 400)
+			}
+
+			const { session, token } = await service.setInstalledMods(req.player!.playerId, mods)
+
+			if (session.lobbyCode) {
+				await mqttService.publishPlayerInfo(session.lobbyCode, session.playerId, {
+					displayName: session.getDisplayName(),
+					preferredJoker: session.preferredJoker,
+					mods: session.installedMods,
+				})
+			}
+
+			res.json({ token, mods: session.installedMods })
 		} catch (err) {
 			next(err)
 		}

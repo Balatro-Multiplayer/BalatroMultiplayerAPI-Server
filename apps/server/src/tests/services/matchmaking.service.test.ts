@@ -1535,3 +1535,47 @@ describe('checkSeasonRollover', () => {
 		expect(insertCount).toBe(1)
 	})
 })
+
+describe('restoreMatchesFromDb / getActiveMatchPlayerIds', () => {
+	it('restores active matches from the DB and exposes the union of their player IDs', async () => {
+		const matchRepository = makeMockMatchRepository()
+		vi.mocked(matchRepository.loadActiveMatches).mockResolvedValue([
+			{
+				matchId: 'm1',
+				lobbyCode: 'REST1',
+				modId: 'mod1',
+				gameMode: 'mode1',
+				players: ['p1', 'p2'],
+				lobbyState: { hostId: 'p1', maxPlayers: 2, playerInfos: {} },
+				createdAt: new Date(),
+			},
+			{
+				matchId: 'm2',
+				lobbyCode: 'REST2',
+				modId: 'mod1',
+				gameMode: 'mode1',
+				// p2 also appears here -- the union should still dedupe them.
+				players: ['p2', 'p3'],
+				lobbyState: { hostId: 'p2', maxPlayers: 2, playerInfos: {} },
+				createdAt: new Date(),
+			},
+		])
+		const { service } = makeService({ matchRepository })
+
+		await service.restoreMatchesFromDb()
+
+		expect(matches.has('m1')).toBe(true)
+		expect(matches.has('m2')).toBe(true)
+		expect(matchByLobby.has('REST1')).toBe(true)
+		expect(matchByLobby.has('REST2')).toBe(true)
+
+		const playerIds = service.getActiveMatchPlayerIds()
+		expect(new Set(playerIds)).toEqual(new Set(['p1', 'p2', 'p3']))
+		expect(playerIds.length).toBe(3)
+	})
+
+	it('returns an empty array when nothing is active', () => {
+		const { service } = makeService()
+		expect(service.getActiveMatchPlayerIds()).toEqual([])
+	})
+})

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
 
 // The ranked-forfeit branch dynamically imports routes/index.js (the
@@ -17,10 +17,12 @@ vi.mock('../../routes/index.js', () => ({
 import {
 	cancelGracePeriod,
 	cancelGracePeriodSilently,
+	checkForWrongfulForfeit,
 	clearAllGracePeriods,
 	expireGracePeriod,
 	gracePeriods,
 	isInGracePeriod,
+	restoreGracePeriodsFromDb,
 	startGracePeriod,
 } from '../../infrastructure/mqtt/grace-period.service.js'
 import { replayLogService } from '../../features/replay-log/replay-log.service.js'
@@ -489,6 +491,186 @@ describe('grace-period.service', () => {
 		it('does nothing if not in grace period', () => {
 			cancelGracePeriodSilently('nobody')
 			// Should not throw
+		})
+	})
+
+	describe('restoreGracePeriodsFromDb', () => {
+		function mockGracePeriodSelectChain(rows: unknown[]) {
+			const chain: any = {}
+			chain.from = vi.fn().mockResolvedValue(rows)
+			return chain
+		}
+
+		beforeEach(() => {
+			vi.useFakeTimers()
+		})
+
+		afterEach(() => {
+			vi.useRealTimers()
+			vi.mocked(db.select).mockReset()
+		})
+
+		it('re-arms a future-expiry row for the remaining duration, not inline', async () => {
+			setupLobbyWithPlayers(
+				{ id: 'host1', steamName: 'Alice' },
+				{ id: 'player1', steamName: 'Bob' },
+			)
+			const now = Date.now()
+			vi.mocked(db.select).mockReturnValueOnce(
+				mockGracePeriodSelectChain([
+					{
+						id: 'row1',
+						playerId: 'player1',
+						lobbyCode: 'TESTLB',
+						displayName: 'Bob',
+						disconnectedAt: new Date(now - 10_000),
+						expiresAt: new Date(now + 90_000), // 90s still remaining
+						createdAt: new Date(now - 10_000),
+					},
+				]),
+			)
+
+			await restoreGracePeriodsFromDb()
+
+			expect(isInGracePeriod('player1')).toBe(true)
+			expect(matchmakingService.autoForfeitMatch).not.toHaveBeenCalled()
+
+			// Not yet at the remaining duration -- still armed, not fired.
+			await vi.advanceTimersByTimeAsync(89_000)
+			expect(isInGracePeriod('player1')).toBe(true)
+
+			// Past the remaining duration -- fires now.
+			await vi.advanceTimersByTimeAsync(2_000)
+			expect(isInGracePeriod('player1')).toBe(false)
+		})
+
+		it('waits at least the minimum re-arm buffer for an already-elapsed row instead of firing inline', async () => {
+			setupLobbyWithPlayers(
+				{ id: 'host1', steamName: 'Alice' },
+				{ id: 'player1', steamName: 'Bob' },
+			)
+			const now = Date.now()
+			vi.mocked(db.select).mockReturnValueOnce(
+				mockGracePeriodSelectChain([
+					{
+						id: 'row1',
+						playerId: 'player1',
+						lobbyCode: 'TESTLB',
+						displayName: 'Bob',
+						disconnectedAt: new Date(now - 200_000),
+						expiresAt: new Date(now - 80_000), // already well past due
+						createdAt: new Date(now - 200_000),
+					},
+				]),
+			)
+
+			await restoreGracePeriodsFromDb()
+
+			// Never fires synchronously/inline within restoreGracePeriodsFromDb
+			// itself -- lobby.players is still empty at boot until a real
+			// reconnect lands (see MIN_REARM_BUFFER_MS's doc comment).
+			expect(isInGracePeriod('player1')).toBe(true)
+			expect(matchmakingService.autoForfeitMatch).not.toHaveBeenCalled()
+
+			// Still within the minimum buffer -- not fired yet.
+			await vi.advanceTimersByTimeAsync(9_000)
+			expect(isInGracePeriod('player1')).toBe(true)
+
+			// Past the minimum buffer -- fires now.
+			await vi.advanceTimersByTimeAsync(2_000)
+			expect(isInGracePeriod('player1')).toBe(false)
+		})
+
+		it('skips a row for a player already in an active in-memory grace period', async () => {
+			setupLobbyWithPlayers(
+				{ id: 'host1', steamName: 'Alice' },
+				{ id: 'player1', steamName: 'Bob' },
+			)
+			await startGracePeriod('player1')
+			const liveEntry = gracePeriods.get('player1')
+
+			vi.mocked(db.select).mockReturnValueOnce(
+				mockGracePeriodSelectChain([
+					{
+						id: 'row1',
+						playerId: 'player1',
+						lobbyCode: 'TESTLB',
+						displayName: 'Bob',
+						disconnectedAt: new Date(),
+						expiresAt: new Date(Date.now() + 60_000),
+						createdAt: new Date(),
+					},
+				]),
+			)
+
+			await restoreGracePeriodsFromDb()
+
+			expect(gracePeriods.get('player1')).toBe(liveEntry)
+		})
+	})
+
+	describe('checkForWrongfulForfeit', () => {
+		function mockSelectChain(rows: unknown[]) {
+			const chain: any = {}
+			for (const method of ['from', 'where', 'orderBy', 'limit', 'offset']) {
+				chain[method] = vi.fn(() => chain)
+			}
+			chain.then = (resolve: (r: unknown[]) => void) => resolve(rows)
+			return chain
+		}
+
+		afterEach(() => {
+			vi.mocked(db.select).mockReset()
+			vi.mocked(db.insert).mockClear()
+		})
+
+		it('flags a match that resolved via system forfeit shortly before this reconnect', async () => {
+			const forfeitedAt = new Date()
+			vi.mocked(db.select)
+				// 1st call: candidate system-forfeited matches for this player
+				.mockReturnValueOnce(
+					mockSelectChain([
+						{ matchId: 'm-wrongful', lobbyCode: 'KVV3A', resultReportedAt: forfeitedAt },
+					]) as any,
+				)
+				// 2nd call: hasOpenForfeitReconciliationFlag's dedup check -- none yet
+				.mockReturnValueOnce(mockSelectChain([]) as any)
+			;(db as any).insert = mockInsertReturningChain({ id: 'flag-1' })
+
+			await checkForWrongfulForfeit('mchatlak1')
+
+			expect(db.insert).toHaveBeenCalledTimes(1)
+			const insertedValues = vi.mocked(db.insert).mock.results[0].value.values.mock.calls[0][0]
+			expect(insertedValues).toMatchObject({
+				matchId: 'm-wrongful',
+				lobbyCode: 'KVV3A',
+				playerId: 'mchatlak1',
+				forfeitedAt,
+			})
+		})
+
+		it('does not flag anything when no recent system forfeit matches this player', async () => {
+			vi.mocked(db.select).mockReturnValue(mockSelectChain([]) as any)
+
+			await checkForWrongfulForfeit('someone-else')
+
+			expect(db.insert).not.toHaveBeenCalled()
+		})
+
+		it('does not double-flag an already-open flag for the same match', async () => {
+			const forfeitedAt = new Date()
+			vi.mocked(db.select)
+				.mockReturnValueOnce(
+					mockSelectChain([
+						{ matchId: 'm-wrongful', lobbyCode: 'KVV3A', resultReportedAt: forfeitedAt },
+					]) as any,
+				)
+				// hasOpenForfeitReconciliationFlag finds an existing open row
+				.mockReturnValueOnce(mockSelectChain([{ id: 1 }]) as any)
+
+			await checkForWrongfulForfeit('mchatlak1')
+
+			expect(db.insert).not.toHaveBeenCalled()
 		})
 	})
 

@@ -117,6 +117,7 @@ describe('POST /api/auth/steam', () => {
 		expect(res.body.lobby.modId).toBe('test-mod')
 		expect(res.body.lobby.hostId).toBe(playerId)
 		expect(res.body.lobby.isHost).toBe(true)
+		expect(res.body.lobby.type).toBe('private')
 
 		// Cleanup
 		lobby.removePlayer(playerId)
@@ -574,5 +575,91 @@ describe('Reactivation of a soft-deleted account on Steam re-signin', () => {
 			.send({ ticket: 'valid-hex', steamName: 'Alice' })
 
 		expect(vi.mocked(playerGateway.reactivateIfDeleted)).not.toHaveBeenCalled()
+	})
+})
+
+describe('POST /api/auth/preferences/mods', () => {
+	function authHeader(playerId: string, steamName: string) {
+		createSession(steamName, { id: playerId })
+		return `Bearer ${signJwt({ playerId, steamName })}`
+	}
+
+	it('returns 401 without auth', async () => {
+		const res = await request(app)
+			.post('/api/auth/preferences/mods')
+			.send({ mods: ['Steamodded-1.0.0'] })
+		expect(res.status).toBe(401)
+	})
+
+	it('returns 400 when mods is missing', async () => {
+		const res = await request(app)
+			.post('/api/auth/preferences/mods')
+			.set('Authorization', authHeader('mods-p1', 'Alice'))
+			.send({})
+		expect(res.status).toBe(400)
+	})
+
+	it('returns 400 when mods is not an array of strings', async () => {
+		const res = await request(app)
+			.post('/api/auth/preferences/mods')
+			.set('Authorization', authHeader('mods-p2', 'Bob'))
+			.send({ mods: ['Steamodded-1.0.0', 42] })
+		expect(res.status).toBe(400)
+	})
+
+	it('accepts a valid mods array and echoes it back', async () => {
+		const res = await request(app)
+			.post('/api/auth/preferences/mods')
+			.set('Authorization', authHeader('mods-p3', 'Carol'))
+			.send({ mods: ['Steamodded-1.0.0', 'MultiplayerAPI-2.3.0'] })
+		expect(res.status).toBe(200)
+		expect(res.body.mods).toEqual(['Steamodded-1.0.0', 'MultiplayerAPI-2.3.0'])
+		expect(res.body.token).toBeDefined()
+	})
+
+	it("republishes player info to the caller's lobby when currently in one", async () => {
+		const playerId = 'mods-p4'
+		createSession('Dave', { id: playerId })
+		const lobby = new Lobby('MODLST', 'test-mod', playerId)
+		const session = sessions.get(playerId)!
+		lobby.addPlayer(session)
+		lobbies.set('MODLST', lobby)
+
+		const publishSpy = vi.spyOn(
+			await import('../../infrastructure/mqtt/mqtt.service.js').then((m) => m.mqttService),
+			'publishPlayerInfo',
+		)
+
+		const res = await request(app)
+			.post('/api/auth/preferences/mods')
+			.set('Authorization', `Bearer ${signJwt({ playerId, steamName: 'Dave', lobbyCode: 'MODLST' })}`)
+			.send({ mods: ['Lovely-0.1.0'] })
+
+		expect(res.status).toBe(200)
+		expect(publishSpy).toHaveBeenCalledWith(
+			'MODLST',
+			playerId,
+			expect.objectContaining({ mods: ['Lovely-0.1.0'] }),
+		)
+
+		publishSpy.mockRestore()
+		lobby.removePlayer(playerId)
+		lobbies.delete('MODLST')
+	})
+
+	it('does not attempt to publish when the caller is not in a lobby', async () => {
+		const publishSpy = vi.spyOn(
+			await import('../../infrastructure/mqtt/mqtt.service.js').then((m) => m.mqttService),
+			'publishPlayerInfo',
+		)
+
+		const res = await request(app)
+			.post('/api/auth/preferences/mods')
+			.set('Authorization', authHeader('mods-p5', 'Eve'))
+			.send({ mods: [] })
+
+		expect(res.status).toBe(200)
+		expect(publishSpy).not.toHaveBeenCalled()
+		publishSpy.mockRestore()
 	})
 })

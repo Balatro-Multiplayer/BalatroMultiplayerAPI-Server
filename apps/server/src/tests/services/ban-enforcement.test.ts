@@ -77,7 +77,7 @@ describe('ban enforcement', () => {
 
 			await expect(
 				joinQueue(session, {
-					modId: 'MultiplayerSpeedrunning',
+					modId: 'MultiplayerSPDRN',
 					gameMode: 'ranked:spdrn_gold_stake_single',
 					minPlayers: 2,
 					maxPlayers: 2,

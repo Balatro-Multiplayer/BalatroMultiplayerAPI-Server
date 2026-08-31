@@ -30,6 +30,7 @@ export async function loadConfigFromDb(): Promise<AppConfig> {
 		chatAllowlist: chatAllowlistSet,
 		chatEnabled: env.CHAT_ENABLED,
 		testingMode: env.TESTING_MODE,
+		rankedEnabled: env.RANKED_ENABLED,
 	}
 	setConfig(config)
 	return config

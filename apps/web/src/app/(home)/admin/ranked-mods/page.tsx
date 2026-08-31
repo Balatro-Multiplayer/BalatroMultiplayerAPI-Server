@@ -14,27 +14,42 @@ import {
 } from '@/components/ui/card'
 import { ApiError, apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { DeleteModDialog } from './components/delete-mod-dialog'
 import { DeleteProfileDialog } from './components/delete-profile-dialog'
+import { ModFormDialog } from './components/mod-form-dialog'
 import { ModsTable } from './components/mods-table'
 import { ProfileEntriesDialog } from './components/profile-entries-dialog'
 import { ProfileFormDialog } from './components/profile-form-dialog'
 import { ProfilesTable } from './components/profiles-table'
 import type {
+  ModDetail,
+  ModForm,
   ModProfile,
   ModProfileDetail,
+  ModProfileVersionMode,
   ModSummary,
   ProfileForm,
 } from './components/ranked-mods-types'
-import { EMPTY_PROFILE_FORM } from './components/ranked-mods-types'
+import {
+  EMPTY_MOD_FORM,
+  EMPTY_PROFILE_FORM,
+  extractBranchName,
+} from './components/ranked-mods-types'
 
-// The ranked mod catalog (synced hourly from BETModIndex — see
-// BalatroMultiplayerAPI-Server's features/mods/mods-sync.service.ts) and
-// admin-authored ranked mod profiles. Deliberately distinct from
-// /admin/config's "Official Mods" section above (the pre-existing launcher
-// self-update channel, mod_versions/mod_releases) — this is a separate
-// system (mod_registry/mod_profiles) for ranked-eligibility data. Info-only
-// for now: nothing cross-checks a client's actual installed mods against a
-// profile at queue time yet.
+// The ranked mod catalog -- base mod data synced hourly straight from
+// skyline69/balatro-mod-index (see BalatroMultiplayerServer's
+// features/mods/mods-sync.service.ts), with ranked eligibility, a pinned
+// ranked version, a featured flag, and fully custom (non-index) mod entries
+// all editable here instead of requiring a commit/PR/CI round trip through
+// that repo -- plus admin-authored ranked mod profiles. Edits to a
+// synced (non-custom) mod's own fields are recorded as per-field overrides
+// (see mods.gateway.ts's updateModFields/upsertModFromIndex doc comments) so
+// the next hourly sync doesn't clobber them.
+// Deliberately distinct from /admin/config's "Official Mods" section above
+// (the pre-existing launcher self-update channel, mod_versions/mod_releases)
+// -- this is a separate system (mod_registry/mod_profiles). Info-only for
+// now: nothing cross-checks a client's actual installed mods against this at
+// queue time yet.
 export default function RankedModsPage() {
   const { isAdmin, isModerator, pending } = useAuth()
   const router = useRouter()
@@ -57,26 +72,35 @@ export default function RankedModsPage() {
 
   // --- Mods ---
 
+  // Reads from /webadmin/mods rather than the public /mods -- the public
+  // route (and its gateway default) excludes hidden mods, and this table
+  // needs to keep showing/managing them (see mods.gateway.ts's
+  // listPublicMods includeHidden doc comment).
   const { data: mods, isLoading: modsLoading } = useQuery<ModSummary[]>({
     queryKey: ['ranked-mods'],
-    queryFn: () => apiFetch('/mods'),
+    queryFn: () => apiFetch('/webadmin/mods'),
     enabled: canView,
   })
 
   const [pendingModId, setPendingModId] = useState<string | null>(null)
 
-  const toggleMut = useMutation({
-    mutationFn: async ({
-      modId,
-      allowed,
-    }: {
+  // rankedVersion is the sole ranked-eligibility signal now -- null un-ranks
+  // a mod, any other value ranks it and pins it to exactly that version
+  // (validated server-side against sourceType, see webadmin mods.route.ts's
+  // PUT handler doc comment). Setting it to null goes through the same PUT
+  // as any other value rather than the separate DELETE .../ranked endpoint
+  // -- both work, but ModsTable's dropdown always has a concrete next value
+  // (including "None"), so there's never a reason to hit the DELETE path
+  // from this page.
+  const setRankedVersionMut = useMutation({
+    mutationFn: async (input: {
       modId: string
-      allowed: boolean
+      rankedVersion: string | null
     }) => {
-      setPendingModId(modId)
-      return apiFetch(`/webadmin/mods/${encodeURIComponent(modId)}`, {
+      setPendingModId(input.modId)
+      return apiFetch(`/webadmin/mods/${encodeURIComponent(input.modId)}`, {
         method: 'PUT',
-        body: JSON.stringify({ allowedInRanked: allowed }),
+        body: JSON.stringify({ rankedVersion: input.rankedVersion }),
       })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ranked-mods'] }),
@@ -84,20 +108,233 @@ export default function RankedModsPage() {
     onSettled: () => setPendingModId(null),
   })
 
-  const resetOverrideMut = useMutation({
-    mutationFn: async (modId: string) => {
-      setPendingModId(modId)
-      return apiFetch(
-        `/webadmin/mods/${encodeURIComponent(modId)}/manual-override`,
-        { method: 'DELETE' }
-      )
+  const setFeaturedMut = useMutation({
+    mutationFn: async (input: { modId: string; featured: boolean }) => {
+      setPendingModId(input.modId)
+      return apiFetch(`/webadmin/mods/${encodeURIComponent(input.modId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ featured: input.featured }),
+      })
     },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ranked-mods'] }),
+    onError: onErr,
+    onSettled: () => setPendingModId(null),
+  })
+
+  const setHiddenMut = useMutation({
+    mutationFn: async (input: { modId: string; hidden: boolean }) => {
+      setPendingModId(input.modId)
+      return apiFetch(`/webadmin/mods/${encodeURIComponent(input.modId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ hidden: input.hidden }),
+      })
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ranked-mods'] }),
+    onError: onErr,
+    onSettled: () => setPendingModId(null),
+  })
+
+  // --- Mod create/edit dialog (custom mods + field overrides on any mod) ---
+
+  // Turns a form into the PATCH/POST field payload -- shared by create and
+  // edit so both stay in sync about what "empty" means per field (empty
+  // string -> null for optional text fields, comma-split for categories).
+  // Branch/Release mode sends a structured sourceInput instead of a raw
+  // latestDownloadUrl - the server resolves the real URL (+ latestVersion)
+  // itself (see custom-mod-version-check.service.ts's resolveSourceInput),
+  // rather than asking the admin to hand-type one of mod-source-classifier.ts's
+  // regex-shaped URL conventions.
+  function modFormToFields(form: ModForm) {
+    const base = {
+      title: form.title,
+      author: form.author,
+      categories: form.categories
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean),
+      requiresSteamodded: form.requiresSteamodded,
+      requiresTalisman: form.requiresTalisman,
+      repoUrl: form.repoUrl || null,
+      thumbnailUrl: form.thumbnailUrl || null,
+      description: form.description || null,
+      automaticVersionCheck: form.automaticVersionCheck,
+    }
+    if (form.sourceType === 'branch') {
+      return {
+        ...base,
+        sourceInput: {
+          sourceType: 'branch' as const,
+          repoUrl: form.repoUrl,
+          branch: form.branch || 'main',
+        },
+      }
+    }
+    if (form.sourceType === 'release') {
+      return {
+        ...base,
+        sourceInput: { sourceType: 'release' as const, repoUrl: form.repoUrl },
+      }
+    }
+    return {
+      ...base,
+      latestVersion: form.latestVersion || null,
+      latestDownloadUrl: form.latestDownloadUrl || null,
+    }
+  }
+
+  // Only the fields that actually changed from what was loaded -- editing
+  // just the description shouldn't also pin title/author/etc as overrides
+  // (see mods.gateway.ts's updateModFields: every key present in the PATCH
+  // body gets folded into overriddenFields). sourceInput is a plain object,
+  // not a primitive, so it needs the same JSON-stringify comparison as
+  // categories -- otherwise a same-content-but-freshly-built object would
+  // always look "changed" (different reference every render) and every
+  // save of a Branch/Release mod would re-resolve from GitHub even when
+  // nothing actually changed.
+  function diffModFields(original: ModForm, current: ModForm) {
+    const o = modFormToFields(original)
+    const c = modFormToFields(current)
+    const out: Partial<typeof c> = {}
+    for (const key of Object.keys(c) as (keyof typeof c)[]) {
+      const ov = o[key]
+      const cv = c[key]
+      const changed =
+        typeof cv === 'object' && cv !== null
+          ? JSON.stringify(cv) !== JSON.stringify(ov)
+          : cv !== ov
+      if (changed) (out as Record<string, unknown>)[key] = cv
+    }
+    return out
+  }
+
+  const [modDialog, setModDialog] = useState<
+    { mode: 'create' } | { mode: 'edit'; id: string } | null
+  >(null)
+  const [modForm, setModForm] = useState<ModForm>(EMPTY_MOD_FORM)
+  const [originalModForm, setOriginalModForm] =
+    useState<ModForm>(EMPTY_MOD_FORM)
+
+  const { data: editModDetail } = useQuery<ModDetail>({
+    queryKey: ['mod-detail', modDialog?.mode === 'edit' ? modDialog.id : null],
+    queryFn: () =>
+      apiFetch(
+        `/webadmin/mods/${encodeURIComponent(modDialog?.mode === 'edit' ? modDialog.id : '')}`
+      ),
+    enabled: modDialog?.mode === 'edit',
+  })
+
+  useEffect(() => {
+    if (!editModDetail) return
+    const loaded: ModForm = {
+      id: editModDetail.id,
+      title: editModDetail.title,
+      author: editModDetail.author,
+      categories: editModDetail.categories.join(', '),
+      requiresSteamodded: editModDetail.requiresSteamodded,
+      requiresTalisman: editModDetail.requiresTalisman,
+      repoUrl: editModDetail.repoUrl ?? '',
+      thumbnailUrl: editModDetail.thumbnailUrl ?? '',
+      description: editModDetail.description ?? '',
+      // sourceType comes straight from the server (already computed from
+      // the mod's current latestDownloadUrl) rather than reclassifying it
+      // client-side - see extractBranchName's own comment on why the
+      // branch name still needs pulling out separately.
+      sourceType: editModDetail.sourceType,
+      branch: extractBranchName(editModDetail.latestDownloadUrl),
+      latestVersion: editModDetail.latestVersion ?? '',
+      latestDownloadUrl: editModDetail.latestDownloadUrl ?? '',
+      automaticVersionCheck: editModDetail.automaticVersionCheck,
+    }
+    setModForm(loaded)
+    setOriginalModForm(loaded)
+  }, [editModDetail])
+
+  const createModMut = useMutation({
+    mutationFn: (form: ModForm) =>
+      apiFetch('/webadmin/mods', {
+        method: 'POST',
+        body: JSON.stringify({ id: form.id, ...modFormToFields(form) }),
+      }),
     onSuccess: () => {
-      toast.success('Reset to BETModIndex value — next sync will apply')
+      toast.success('Custom mod created')
+      setModDialog(null)
       qc.invalidateQueries({ queryKey: ['ranked-mods'] })
     },
     onError: onErr,
-    onSettled: () => setPendingModId(null),
+  })
+
+  const updateModFieldsMut = useMutation({
+    mutationFn: ({ modId, fields }: { modId: string; fields: object }) =>
+      apiFetch(`/webadmin/mods/${encodeURIComponent(modId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+      }),
+    onSuccess: (_data, { modId }) => {
+      toast.success('Mod updated')
+      setModDialog(null)
+      qc.invalidateQueries({ queryKey: ['ranked-mods'] })
+      qc.invalidateQueries({ queryKey: ['mod-detail', modId] })
+    },
+    onError: onErr,
+  })
+
+  const resetOverridesMut = useMutation({
+    mutationFn: (modId: string) =>
+      apiFetch(`/webadmin/mods/${encodeURIComponent(modId)}/reset-overrides`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      }),
+    onSuccess: (_data, modId) => {
+      toast.success('Overrides reset — next sync restores upstream values')
+      qc.invalidateQueries({ queryKey: ['ranked-mods'] })
+      qc.invalidateQueries({ queryKey: ['mod-detail', modId] })
+    },
+    onError: onErr,
+  })
+
+  const [deleteModTarget, setDeleteModTarget] = useState<ModSummary | null>(
+    null
+  )
+  const deleteModMut = useMutation({
+    mutationFn: (modId: string) =>
+      apiFetch(`/webadmin/mods/${encodeURIComponent(modId)}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      toast.success('Mod deleted')
+      setDeleteModTarget(null)
+      qc.invalidateQueries({ queryKey: ['ranked-mods'] })
+    },
+    onError: onErr,
+  })
+
+  // Manually kicks off the same upstream sync + hash-check pass that
+  // otherwise only runs at server startup and hourly (see mods-sync.service.ts
+  // server-side) — e.g. to confirm a mod's hash updated right after a new
+  // release, without waiting for the next tick.
+  const syncMut = useMutation({
+    mutationFn: () =>
+      apiFetch<{
+        ok: true
+        modsSynced: number
+        hashed: number
+        pruned: number
+        skipped: number
+        idCollisions: number
+        versionsChecked: number
+      }>('/webadmin/mods/sync', { method: 'POST' }),
+    onSuccess: (result) => {
+      toast.success(
+        `Synced ${result.modsSynced} mods` +
+          (result.hashed ? ` (${result.hashed} newly hashed)` : '') +
+          (result.pruned ? ` (${result.pruned} pruned)` : '') +
+          (result.versionsChecked
+            ? ` (${result.versionsChecked} custom mod versions updated)`
+            : '')
+      )
+      qc.invalidateQueries({ queryKey: ['ranked-mods'] })
+    },
+    onError: onErr,
   })
 
   // --- Profiles ---
@@ -171,19 +408,21 @@ export default function RankedModsPage() {
     mutationFn: ({
       profileId,
       modId,
-      versionConstraint,
+      versionMode,
+      pinnedVersion,
       allowed,
     }: {
       profileId: string
       modId: string
-      versionConstraint: string
+      versionMode: ModProfileVersionMode
+      pinnedVersion: string | null
       allowed: boolean
     }) =>
       apiFetch(
         `/webadmin/mods/profiles/${profileId}/entries/${encodeURIComponent(modId)}`,
         {
           method: 'PUT',
-          body: JSON.stringify({ versionConstraint, allowed }),
+          body: JSON.stringify({ versionMode, pinnedVersion, allowed }),
         }
       ),
     onSuccess: () =>
@@ -213,17 +452,44 @@ export default function RankedModsPage() {
       <div className='space-y-1'>
         <h1 className='font-bold text-2xl tracking-tight'>Ranked Mods</h1>
         <p className='text-muted-foreground'>
-          Mod catalog synced from BETModIndex, plus admin-authored ranked mod
-          profiles. Info-only for now — no queue-time enforcement yet.
+          Mod catalog synced hourly from skyline69/balatro-mod-index, plus
+          admin-authored ranked mod profiles. Info-only for now — no queue-time
+          enforcement yet.
         </p>
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Mod catalog</CardTitle>
-          <CardDescription>
-            "Allowed in ranked" toggled here overrides BETModIndex until reset.
-          </CardDescription>
+        <CardHeader className='flex flex-row items-center justify-between'>
+          <div>
+            <CardTitle>Mod catalog</CardTitle>
+            <CardDescription>
+              Ranked eligibility, an optional pinned ranked version, and every
+              other field are set here directly — edits to a synced mod's field
+              are pinned against future syncs until reset.
+            </CardDescription>
+          </div>
+          {isAdmin && (
+            <div className='flex gap-2'>
+              <Button
+                size='sm'
+                variant='outline'
+                onClick={() => {
+                  setModForm(EMPTY_MOD_FORM)
+                  setOriginalModForm(EMPTY_MOD_FORM)
+                  setModDialog({ mode: 'create' })
+                }}
+              >
+                New mod
+              </Button>
+              <Button
+                size='sm'
+                onClick={() => syncMut.mutate()}
+                disabled={syncMut.isPending}
+              >
+                {syncMut.isPending ? 'Syncing…' : 'Sync now'}
+              </Button>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {modsLoading || !mods ? (
@@ -233,10 +499,23 @@ export default function RankedModsPage() {
               mods={mods}
               isAdmin={isAdmin}
               pendingModId={pendingModId}
-              onToggle={(mod, allowed) =>
-                toggleMut.mutate({ modId: mod.id, allowed })
+              onSetRankedVersion={(mod, version) =>
+                setRankedVersionMut.mutate({
+                  modId: mod.id,
+                  rankedVersion: version,
+                })
               }
-              onResetOverride={(modId) => resetOverrideMut.mutate(modId)}
+              onSetFeatured={(mod, featured) =>
+                setFeaturedMut.mutate({ modId: mod.id, featured })
+              }
+              onSetHidden={(mod, hidden) =>
+                setHiddenMut.mutate({ modId: mod.id, hidden })
+              }
+              onEdit={(mod) => setModDialog({ mode: 'edit', id: mod.id })}
+              onDelete={(modId) => {
+                const mod = mods.find((m) => m.id === modId)
+                if (mod) setDeleteModTarget(mod)
+              }}
             />
           )}
         </CardContent>
@@ -280,6 +559,41 @@ export default function RankedModsPage() {
         </CardContent>
       </Card>
 
+      <ModFormDialog
+        open={modDialog !== null}
+        mode={modDialog?.mode ?? 'create'}
+        form={modForm}
+        overriddenFields={editModDetail?.overriddenFields ?? []}
+        isPending={createModMut.isPending || updateModFieldsMut.isPending}
+        isResetPending={resetOverridesMut.isPending}
+        onFormChange={setModForm}
+        onSave={() => {
+          if (modDialog?.mode === 'edit') {
+            const fields = diffModFields(originalModForm, modForm)
+            if (Object.keys(fields).length === 0) {
+              setModDialog(null)
+              return
+            }
+            updateModFieldsMut.mutate({ modId: modDialog.id, fields })
+          } else {
+            createModMut.mutate(modForm)
+          }
+        }}
+        onReset={() =>
+          modDialog?.mode === 'edit' && resetOverridesMut.mutate(modDialog.id)
+        }
+        onClose={() => setModDialog(null)}
+      />
+
+      <DeleteModDialog
+        target={deleteModTarget}
+        isPending={deleteModMut.isPending}
+        onConfirm={() =>
+          deleteModTarget && deleteModMut.mutate(deleteModTarget.id)
+        }
+        onClose={() => setDeleteModTarget(null)}
+      />
+
       <ProfileFormDialog
         open={profileDialog !== null}
         mode={profileDialog?.mode ?? 'create'}
@@ -309,12 +623,13 @@ export default function RankedModsPage() {
         profile={entriesProfile ?? null}
         mods={mods ?? []}
         isPending={entryMut.isPending || removeEntryMut.isPending}
-        onUpsertEntry={(modId, versionConstraint, allowed) =>
+        onUpsertEntry={(modId, versionMode, pinnedVersion, allowed) =>
           entriesProfileId &&
           entryMut.mutate({
             profileId: entriesProfileId,
             modId,
-            versionConstraint,
+            versionMode,
+            pinnedVersion,
             allowed,
           })
         }

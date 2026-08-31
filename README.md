@@ -31,6 +31,7 @@ Flags:
 |----------|---------|
 | `CHAT_ENABLED` | Disable or enable text chat from a server level |
 | `TESTING_MODE` | Require accounts to have a `tester` privilige to queue or create a lobby |
+| `RANKED_ENABLED` | Disable or enable ranked matchmaking from a server level |
 
 ### Running
 
@@ -44,6 +45,15 @@ docker compose up -d --build      # build + start everything in the background
 docker compose logs -f api        # follow the API server logs
 docker compose down               # stop (add -v to also wipe the db/broker volumes)
 ```
+
+If this machine doesn't have real TLS certs mounted at `/root/emqx-certs/<domain>`
+(docker-compose.yml's default expects them, matching production), EMQX's stock
+`wss:default` listener will hard-crash the whole node on cold boot. Layer
+[docker-compose.local.yml](docker-compose.local.yml) on top to disable that
+unused listener for local/test use — either pass it explicitly
+(`docker compose -f docker-compose.yml -f docker-compose.local.yml up -d`) or set
+`COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml` in your local `.env`
+so plain `docker compose ...` picks it up automatically.
 
 ### Seeding test data
 

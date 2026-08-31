@@ -56,7 +56,7 @@ Also: `drizzle/*.sql` migrations, `emqx/cluster.hocon` (EMQX static config), `.e
 - Web (`apps/web`): standard Next.js `dev`/`build`/`start`; `typecheck`; Biome `check`.
 - `docker-compose.yml` (root) brings up the full stack: `emqx` (5.8), `postgres` (16-alpine), `api`, `web`.
 - No root-level CI; `apps/web/.github/workflows/pr-checks.yml` covers only the web app.
-- `.env.example` (in `apps/server`) documents required vars: `JWT_SECRET`, `EMQX_SYSTEM_PASSWORD`, `PLAYER_ID_SALT`, `ADMIN_SECRET`, `DATABASE_URL`, Steam/Discord OAuth vars, `CHAT_ENABLED`, `TESTING_MODE`, `BET_MOD_INDEX_URL`, `LAUNCHER_INTEGRITY_SECRET`.
+- `.env.example` (in `apps/server`) documents required vars: `JWT_SECRET`, `EMQX_SYSTEM_PASSWORD`, `PLAYER_ID_SALT`, `ADMIN_SECRET`, `DATABASE_URL`, Steam/Discord OAuth vars, `CHAT_ENABLED`, `TESTING_MODE`, `MOD_INDEX_SYNC_ENABLED`, `GITHUB_TOKEN`, `LAUNCHER_INTEGRITY_SECRET`.
 
 ## Domain model (live state is in-memory, not DB)
 

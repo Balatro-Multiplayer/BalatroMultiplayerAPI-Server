@@ -19,7 +19,7 @@ describe('metrics.config', () => {
 			// §11.7/§16.8: client-reported, not server-measured -- a match can
 			// contain multiple runs, so only the client knows each individual
 			// run's fastest time; the server's one gameStartedAt timestamp can't.
-			expect(getMetricConfig('MultiplayerSpeedrunning')).toEqual({
+			expect(getMetricConfig('MultiplayerSPDRN')).toEqual({
 				kind: 'time_ms',
 				direction: 'asc',
 				serverMeasured: false,

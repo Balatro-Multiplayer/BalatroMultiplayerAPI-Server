@@ -6,85 +6,127 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { ApiError, apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { Input } from '@/components/ui/input'
 import { AddReleaseForm } from './components/add-release-form'
-import { BranchManagementDialog } from './components/branch-management-dialog'
 import { DeleteReleaseDialog } from './components/delete-release-dialog'
-import { EditReleaseDialog } from './components/edit-release-dialog'
-import { ReleasesTable } from './components/releases-table'
-import { EMPTY_FORM } from './components/releases-types'
-import type { Branch, Release, ReleaseForm } from './components/releases-types'
+import { LauncherReleasesTable } from './components/launcher-releases-table'
+import type {
+  GithubReleaseOption,
+  LauncherPlatform,
+  LauncherRelease,
+} from './components/launcher-releases-types'
 
 interface ReleasesResponse {
-  data: Release[]
-  page: number
-  pageSize: number
-  total: number
-  totalPages: number
+  releases: LauncherRelease[]
 }
 
+interface GithubReleasesResponse {
+  releases: GithubReleaseOption[]
+}
+
+// Admin surface for the new (private) launcher's releases -- see this
+// server's features/launcher/launcher.route.ts for the public
+// GET /api/launcher/latest + download endpoints these imports feed. The
+// launcher's repo is private for anti-cheat reasons, so end users can't be
+// pointed at its GitHub Releases directly, but its own CI already builds
+// and uploads every platform binary there - this page just imports a
+// chosen release's asset metadata (not the binaries themselves, which stay
+// on GitHub and get proxied on download) rather than re-uploading them here.
 export default function AdminReleasesPage() {
   const { isAdmin, isModerator, pending } = useAuth()
   const router = useRouter()
   const qc = useQueryClient()
   const canAccess = isAdmin || isModerator
 
-  const [search, setSearch] = useState('')
-  const [addForm, setAddForm] = useState<ReleaseForm>(EMPTY_FORM)
-  const [editForm, setEditForm] = useState<ReleaseForm>(EMPTY_FORM)
-  const [editOpen, setEditOpen] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<Release | null>(null)
-  const [branchOpen, setBranchOpen] = useState(false)
-  const [newBranch, setNewBranch] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<LauncherRelease | null>(null)
+  const [pendingReleaseId, setPendingReleaseId] = useState<number | null>(null)
 
   useEffect(() => {
     if (!pending && !canAccess) router.replace('/')
   }, [pending, canAccess, router])
 
   const releasesQ = useQuery<ReleasesResponse>({
-    queryKey: ['admin-releases', search],
-    queryFn: () =>
-      apiFetch(
-        `/webadmin/releases?pageSize=100${search ? `&search=${encodeURIComponent(search)}` : ''}`,
-      ),
+    queryKey: ['admin-launcher-releases'],
+    queryFn: () => apiFetch('/webadmin/launcher-releases'),
     enabled: canAccess,
   })
-  const branchesQ = useQuery<{ branches: Branch[] }>({
-    queryKey: ['admin-branches'],
-    queryFn: () => apiFetch('/webadmin/branches'),
-    enabled: canAccess,
-  })
+  const releases = releasesQ.data?.releases ?? []
 
-  const branches = branchesQ.data?.branches ?? []
-  const releases = releasesQ.data?.data ?? []
+  const githubReleasesQ = useQuery<GithubReleasesResponse>({
+    queryKey: ['admin-launcher-releases-github'],
+    queryFn: () => apiFetch('/webadmin/launcher-releases/github-releases'),
+    enabled: canAccess,
+  })
+  const githubReleases = githubReleasesQ.data?.releases ?? []
 
   const onErr = (e: unknown) =>
-    toast.error(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Request failed')
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['admin-releases'] })
+    toast.error(
+      e instanceof ApiError
+        ? e.message
+        : e instanceof Error
+          ? e.message
+          : 'Request failed'
+    )
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['admin-launcher-releases'] })
+    qc.invalidateQueries({ queryKey: ['admin-launcher-releases-github'] })
+  }
 
-  const addMut = useMutation({
-    mutationFn: (body: ReleaseForm) =>
-      apiFetch('/webadmin/releases', { method: 'POST', body: JSON.stringify(body) }),
+  const importMut = useMutation({
+    mutationFn: (tag: string) =>
+      apiFetch('/webadmin/launcher-releases/from-github', {
+        method: 'POST',
+        body: JSON.stringify({ tag }),
+      }),
     onSuccess: () => {
-      toast.success('Release added')
-      setAddForm(EMPTY_FORM)
+      toast.success('Release imported')
       invalidate()
     },
     onError: onErr,
   })
-  const updateMut = useMutation({
-    mutationFn: (body: ReleaseForm) =>
-      apiFetch(`/webadmin/releases/${body.id}`, { method: 'PUT', body: JSON.stringify(body) }),
+
+  // Re-runs the same import against a release's already-stored tag - all
+  // platforms come from one GitHub release together, so there's no more
+  // "just replace Mac" - this just re-pulls current metadata for all of them.
+  const resyncMut = useMutation({
+    mutationFn: (release: LauncherRelease) => {
+      setPendingReleaseId(release.id)
+      return apiFetch('/webadmin/launcher-releases/from-github', {
+        method: 'POST',
+        body: JSON.stringify({ tag: release.githubReleaseTag }),
+      })
+    },
     onSuccess: () => {
-      toast.success('Release updated')
-      setEditOpen(false)
+      toast.success('Release re-synced from GitHub')
       invalidate()
     },
     onError: onErr,
+    onSettled: () => setPendingReleaseId(null),
   })
-  const deleteMut = useMutation({
+
+  const deletePlatformMut = useMutation({
+    mutationFn: ({
+      release,
+      platform,
+    }: {
+      release: LauncherRelease
+      platform: LauncherPlatform
+    }) => {
+      setPendingReleaseId(release.id)
+      return apiFetch(`/webadmin/launcher-releases/${release.id}/${platform}`, {
+        method: 'DELETE',
+      })
+    },
+    onSuccess: () => {
+      toast.success('Binary removed')
+      invalidate()
+    },
+    onError: onErr,
+    onSettled: () => setPendingReleaseId(null),
+  })
+
+  const deleteReleaseMut = useMutation({
     mutationFn: (id: number) =>
-      apiFetch(`/webadmin/releases/${id}`, { method: 'DELETE' }),
+      apiFetch(`/webadmin/launcher-releases/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       toast.success('Release deleted')
       setDeleteTarget(null)
@@ -92,39 +134,6 @@ export default function AdminReleasesPage() {
     },
     onError: onErr,
   })
-  const addBranchMut = useMutation({
-    mutationFn: (name: string) =>
-      apiFetch('/webadmin/branches', { method: 'POST', body: JSON.stringify({ name }) }),
-    onSuccess: () => {
-      toast.success('Branch added')
-      setNewBranch('')
-      qc.invalidateQueries({ queryKey: ['admin-branches'] })
-    },
-    onError: onErr,
-  })
-  const deleteBranchMut = useMutation({
-    mutationFn: (id: number) =>
-      apiFetch(`/webadmin/branches/${id}`, { method: 'DELETE' }),
-    onSuccess: () => {
-      toast.success('Branch deleted')
-      qc.invalidateQueries({ queryKey: ['admin-branches'] })
-    },
-    onError: onErr,
-  })
-
-  function openEdit(r: Release) {
-    setEditForm({
-      id: r.id,
-      name: r.name,
-      version: r.version,
-      description: r.description ?? '',
-      url: r.url,
-      smods_version: r.smods_version ?? 'latest',
-      lovely_version: r.lovely_version ?? 'latest',
-      branchId: r.branchId,
-    })
-    setEditOpen(true)
-  }
 
   if (pending) {
     return <div className='container py-8 text-muted-foreground'>Loading…</div>
@@ -132,65 +141,40 @@ export default function AdminReleasesPage() {
   if (!canAccess) return null
 
   return (
-    <div className='container max-w-6xl py-8 space-y-8'>
-      <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
-        <div>
-          <h1 className='text-2xl font-bold tracking-tight'>Releases</h1>
-          <p className='text-sm text-muted-foreground'>
-            Launcher releases served at <code>/api/releases</code>.
-          </p>
-        </div>
-        <Input
-          placeholder='Search releases…'
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className='w-full sm:max-w-xs'
-        />
+    <div className='container max-w-6xl space-y-8 py-8'>
+      <div>
+        <h1 className='font-bold text-2xl tracking-tight'>Launcher Releases</h1>
+        <p className='text-muted-foreground text-sm'>
+          Binaries served at <code>/api/launcher/latest</code> and{' '}
+          <code>/api/launcher/download/:version/:platform</code>.
+        </p>
       </div>
 
-      <ReleasesTable
+      <LauncherReleasesTable
         releases={releases}
         isLoading={releasesQ.isLoading}
-        onEdit={openEdit}
-        onDelete={setDeleteTarget}
+        pendingReleaseId={pendingReleaseId}
+        onResync={(release) => resyncMut.mutate(release)}
+        onDeletePlatform={(release, platform) =>
+          deletePlatformMut.mutate({ release, platform })
+        }
+        onDeleteRelease={setDeleteTarget}
       />
 
       <AddReleaseForm
-        form={addForm}
-        branches={branches}
-        isPending={addMut.isPending}
-        onFormChange={setAddForm}
-        onSubmit={(f) => addMut.mutate(f)}
-        onManageBranches={() => setBranchOpen(true)}
-      />
-
-      <EditReleaseDialog
-        open={editOpen}
-        form={editForm}
-        branches={branches}
-        isPending={updateMut.isPending}
-        onFormChange={setEditForm}
-        onSave={() => updateMut.mutate(editForm)}
-        onClose={() => setEditOpen(false)}
+        githubReleases={githubReleases}
+        isLoadingGithubReleases={githubReleasesQ.isLoading}
+        isPending={importMut.isPending}
+        onSubmit={(tag) => importMut.mutate(tag)}
       />
 
       <DeleteReleaseDialog
         target={deleteTarget}
-        isPending={deleteMut.isPending}
-        onConfirm={() => deleteTarget && deleteMut.mutate(deleteTarget.id)}
+        isPending={deleteReleaseMut.isPending}
+        onConfirm={() =>
+          deleteTarget && deleteReleaseMut.mutate(deleteTarget.id)
+        }
         onClose={() => setDeleteTarget(null)}
-      />
-
-      <BranchManagementDialog
-        open={branchOpen}
-        branches={branches}
-        newBranch={newBranch}
-        addPending={addBranchMut.isPending}
-        deletePending={deleteBranchMut.isPending}
-        onNewBranchChange={setNewBranch}
-        onAdd={() => newBranch.trim() && addBranchMut.mutate(newBranch.trim())}
-        onDelete={(id) => deleteBranchMut.mutate(id)}
-        onClose={() => setBranchOpen(false)}
       />
     </div>
   )

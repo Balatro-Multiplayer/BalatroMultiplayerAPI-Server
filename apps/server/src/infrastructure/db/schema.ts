@@ -5,6 +5,7 @@ import {
 	index,
 	integer,
 	jsonb,
+	pgEnum,
 	pgTable,
 	primaryKey,
 	serial,
@@ -233,6 +234,46 @@ export const matchResultConflicts = pgTable('match_result_conflicts', {
 		.defaultNow(),
 })
 
+// A candidate "wrongful auto-forfeit" -- a player reconnected (MQTT or a
+// fresh HTTP re-auth) shortly after a match involving them resolved via the
+// grace-period auto-forfeit path (matchmaking_matches.result_reported_by =
+// 'system'), which is exactly the race that let a legitimately-reconnected
+// player still get forfeited (see grace-period.service.ts's GRACE_PERIOD_MS).
+// Purely a flag for a moderator to review and, if it really was wrongful,
+// void via void-match.ts's voidMatch() -- never an automatic rating change,
+// since the reconnect timing alone isn't proof the forfeit was wrong (see
+// RECONCILIATION_WINDOW_MS in matchmaking.service.ts).
+export const forfeitReconciliationFlags = pgTable('forfeit_reconciliation_flags', {
+	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+	matchId: varchar('match_id', { length: 36 }).notNull(),
+	lobbyCode: varchar('lobby_code', { length: 6 }).notNull(),
+	playerId: uuid('player_id').notNull(),
+	forfeitedAt: timestamp('forfeited_at', { withTimezone: true }).notNull(),
+	reconnectedAt: timestamp('reconnected_at', { withTimezone: true }).notNull(),
+	status: varchar('status', { length: 16 }).notNull().default('open'), // open | voided | dismissed
+	resolutionNotes: text('resolution_notes'),
+	createdAt: timestamp('created_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+})
+
+// Persisted mirror of grace-period.service.ts's in-memory `gracePeriods` Map
+// -- a disconnected player's 2-minute countdown before auto-forfeit,
+// durable across a bmp-api restart. No FK on playerId, same precedent as
+// forfeitReconciliationFlags above: a grace period can involve a temp/dev
+// account never written to `players` (see authenticateAsTemp).
+export const gracePeriods = pgTable('grace_periods', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	playerId: uuid('player_id').notNull(),
+	lobbyCode: varchar('lobby_code', { length: 6 }).notNull(),
+	displayName: text('display_name').notNull(),
+	disconnectedAt: timestamp('disconnected_at', { withTimezone: true }).notNull(),
+	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+	createdAt: timestamp('created_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+})
+
 export const matchmakingRatings = pgTable(
 	'matchmaking_ratings',
 	{
@@ -297,29 +338,118 @@ export const seasons = pgTable('seasons', {
 	endedAt: timestamp('ended_at', { withTimezone: true }),
 })
 
-// Launcher release management (copied from the old site; serves the Balatro
-// Multiplayer Launcher via the public GET /api/releases endpoint).
-export const modBranches = pgTable('mod_branches', {
+// Launcher release hosting -- the new-launcher repo (github.com/Balatro-Multiplayer/new-launcher)
+// is private for anti-cheat reasons, so end users can't be pointed at its
+// GitHub Releases page directly (no auth, and the repo itself must stay
+// hidden). Its CI still builds and uploads every platform binary to a real
+// (private) GitHub Release though, so this table stores a *reference* to
+// that release's assets (see features/launcher-releases/launcher-github-releases.service.ts
+// for the authenticated GitHub calls that resolve/proxy them) rather than
+// hosting the bytes itself -- an earlier version of this table stored a
+// local disk path per asset and required uploading every binary through
+// this server's own admin UI, which hit Cloudflare's request-size cap when
+// uploading multiple platforms together. Serves update-checks/downloads via
+// the public GET /api/launcher/latest + /api/launcher/download/:version/:platform
+// endpoints, unchanged by this switch. Replaces the old modReleases/modBranches
+// ("mod_release"/"mod_branches") tables, which pointed at external GitHub-asset
+// URLs directly (no per-asset id/hash tracking) -- dropped in the same
+// migration that originally added these.
+export const launcherPlatformEnum = pgEnum('launcher_platform', [
+	'windows',
+	'mac',
+	'linux',
+])
+export type LauncherPlatform = (typeof launcherPlatformEnum.enumValues)[number]
+
+// "Latest" is derived (highest id/createdAt), not an explicit flag -- there's
+// no release-channel concept here (see launcherReleaseAssets below), just one
+// linear version history.
+export const launcherReleases = pgTable('launcher_release', {
 	id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
-	name: text('name').notNull().unique(),
-	description: text('description'),
+	version: varchar('version', { length: 64 }).notNull().unique(),
+	// The GitHub release tag this row was resolved from (e.g. "v0.2.0",
+	// version above has the leading "v" stripped) -- needed to re-resolve
+	// this release's assets later (the admin UI's "re-sync" action) without
+	// the admin having to remember/retype which tag it came from.
+	githubReleaseTag: varchar('github_release_tag', { length: 128 }).notNull(),
+	notes: text('notes'),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true })
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
 })
 
-export const modReleases = pgTable('mod_release', {
+// One row per (release, platform) -- a GitHub release can be missing a
+// platform (e.g. the Mac build failed that run), so this is a child table
+// rather than three nullable column groups on launcherReleases, same as
+// before. githubAssetId is GitHub's own numeric release-asset id, used to
+// resolve a download via GET /repos/{owner}/{repo}/releases/assets/{id}
+// (see launcher-github-releases.service.ts) -- no bytes live in this
+// database or on this server's disk. sha256 comes from GitHub's own asset
+// digest field and still lets a launcher verify its download before
+// self-replacing, unchanged from before.
+export const launcherReleaseAssets = pgTable(
+	'launcher_release_asset',
+	{
+		id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
+		releaseId: integer('release_id')
+			.notNull()
+			.references(() => launcherReleases.id, { onDelete: 'cascade' }),
+		platform: launcherPlatformEnum('platform').notNull(),
+		githubAssetId: integer('github_asset_id').notNull(),
+		originalFilename: text('original_filename').notNull(),
+		fileSize: integer('file_size').notNull(),
+		sha256: varchar('sha256', { length: 64 }).notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [
+		uniqueIndex('launcher_release_asset_release_platform_idx').on(
+			t.releaseId,
+			t.platform,
+		),
+	],
+)
+
+export const blogPostKindEnum = pgEnum('blog_post_kind', ['patch_notes', 'news'])
+export type BlogPostKind = (typeof blogPostKindEnum.enumValues)[number]
+
+export const blogPostStatusEnum = pgEnum('blog_post_status', [
+	'draft',
+	'published',
+])
+export type BlogPostStatus = (typeof blogPostStatusEnum.enumValues)[number]
+
+// Patch notes / news posts, authored via the admin Blog page (Tiptap editor
+// in apps/web, HTML sanitized server-side in features/webadmin/blog.route.ts
+// before it ever reaches this table) and pulled by the launcher's
+// GET /api/blog/latest (features/blog/blog.route.ts). "Latest per category"
+// is derived (highest publishedAt among status='published' rows for that
+// kind), not an explicit flag -- same "latest = most recent" precedent as
+// launcherReleases above.
+//
+// status/publishedAt is a deliberate two-column draft/publish model rather
+// than a single nullable timestamp: publishing always bumps publishedAt to
+// now (so an unpublish-then-republish can become "latest" again), while
+// unpublishing only flips status back to 'draft' and leaves publishedAt
+// alone, so the admin UI can still show when a post was last live even
+// while it's pulled back to draft.
+export const blogPosts = pgTable('blog_post', {
 	id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
-	name: text('name').notNull(),
-	description: text('description'),
-	version: text('version').notNull(),
-	url: text('url').notNull(),
-	smodsVersion: text('smods_version').default('latest'),
-	lovelyVersion: text('lovely_version').default('latest'),
-	branchId: integer('branch_id')
-		.notNull()
-		.default(1)
-		.references(() => modBranches.id),
+	kind: blogPostKindEnum('kind').notNull(),
+	title: varchar('title', { length: 200 }).notNull(),
+	// Sanitized HTML only -- see blog.route.ts's allowlist, chosen to match
+	// exactly what the launcher's QLabel rich-text engine can render.
+	bodyHtml: text('body_html').notNull(),
+	status: blogPostStatusEnum('status').notNull().default('draft'),
+	publishedAt: timestamp('published_at', { withTimezone: true }),
+	// Not a FK -- same pattern as actionLogs.playerId, so a deleted/altered
+	// player row never blocks or cascade-deletes a historical post.
+	authorPlayerId: text('author_player_id').notNull(),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -434,16 +564,15 @@ export const matchRunLogs = pgTable(
 	(t) => [primaryKey({ columns: [t.runId, t.playerId] })],
 )
 
-// One row per mod known to the platform -- populated by the hourly BETModIndex
-// sync (features/mods/mods-sync.service.ts) and/or a direct admin edit via
-// PUT /api/webadmin/mods/:modId. `allowedInRankedSource` decides who wins on
-// the next sync: 'index' rows are freely overwritten from the fork, 'manual'
-// rows (an admin toggled this directly) are left alone until explicitly reset
-// back to 'index'. This is the launcher-facing catalog (GET /api/mods,
-// /api/mods/:id) -- distinct from modReleases/modBranches above, which is the
-// unrelated, pre-existing BMP launcher self-update channel.
+// One row per mod known to the platform -- populated by the hourly sync
+// against skyline69/balatro-mod-index directly (features/mods/mods-sync.service.ts,
+// upstream-mod-index.service.ts) and/or a direct admin edit via
+// PUT /api/webadmin/mods/:modId. This is the launcher-facing catalog
+// (GET /api/mods, /api/mods/:id) -- distinct from launcherReleases/
+// launcherReleaseAssets above, which is the unrelated launcher binary/update
+// channel (a different piece of software from the mods this table tracks).
 export const modRegistry = pgTable('mod_registry', {
-	// Slug form "Author@ModName", matching BETModIndex's folder-name convention.
+	// Slug form "Author@ModName", matching upstream's folder-name convention.
 	id: varchar('id', { length: 128 }).primaryKey(),
 	title: varchar('title', { length: 128 }).notNull(),
 	author: varchar('author', { length: 128 }).notNull(),
@@ -456,10 +585,66 @@ export const modRegistry = pgTable('mod_registry', {
 	latestVersion: varchar('latest_version', { length: 64 }),
 	latestDownloadUrl: text('latest_download_url'),
 	latestSha256: varchar('latest_sha256', { length: 64 }),
-	allowedInRanked: boolean('allowed_in_ranked').notNull().default(false),
-	allowedInRankedSource: varchar('allowed_in_ranked_source', { length: 16 })
+	// Admin-owned, not synced from the index -- the upstream index carries no
+	// ranked-eligibility concept of its own. The sole source of ranked
+	// eligibility: null means this mod is not ranked-allowed; a set value
+	// means it's ranked-allowed and pinned to exactly that version -- there
+	// is no "any version is fine" state. Enforced at write time (see
+	// setRankedVersion/webadmin mods.route.ts's PUT handler), not via a DB
+	// CHECK: a custom-sourced mod (see mod-source-classifier.ts's
+	// ModSourceType) can never be set here at all; a branch-sourced mod can
+	// only be pinned to its current latestVersion (a branch archive URL
+	// always re-resolves to current HEAD, so an old value is unfetchable);
+	// only a release-sourced mod can be pinned to any of its historical
+	// mod_registry_versions entries, since those stay individually
+	// fetchable forever. Consumed by modProfileEntries' 'latestRanked'
+	// versionMode below.
+	rankedVersion: varchar('ranked_version', { length: 64 }),
+	// Admin-owned highlight flag, same "never synced from the index" shape as
+	// rankedVersion above -- the index carries no concept of this at all.
+	featured: boolean('featured').notNull().default(false),
+	// Admin-owned, same "never synced from the index" shape as featured above
+	// -- excludes this mod from the public GET /api/mods catalog (launcher/
+	// website) while keeping it manageable on /admin/ranked-mods. For a mod
+	// an admin wants out of players' hands without deleting it outright (e.g.
+	// a dead-repo mod that can no longer be verified).
+	hidden: boolean('hidden').notNull().default(false),
+	// True for a mod created directly by an admin (e.g. via the "New mod"
+	// button on /admin/ranked-mods) with no base-index counterpart at all --
+	// pruneModsMissingFrom must never delete these just because they aren't
+	// in the freshly-fetched index.
+	isCustom: boolean('is_custom').notNull().default(false),
+	// Opt-in per custom mod (isCustom rows only -- ignored otherwise, since a
+	// synced mod's version tracking is entirely upstream's own concern).
+	// custom-mod-version-check.service.ts's source-resolution logic against
+	// latestDownloadUrl/fixedReleaseTagUpdates, a TS port of upstream's own
+	// update_mod_versions.py. Both default false so every custom mod that
+	// existed before this feature shipped keeps its current fully-manual
+	// behavior until an admin explicitly opts in.
+	automaticVersionCheck: boolean('automatic_version_check')
 		.notNull()
-		.default('index'), // 'index' | 'manual'
+		.default(false),
+	// Mirrors upstream meta.json's fixed-release-tag-updates: track the tag of
+	// the specific release asset referenced by latestDownloadUrl, rather than
+	// the repo's overall latest release. Only meaningful alongside
+	// automaticVersionCheck=true and a /releases/download/ latestDownloadUrl;
+	// otherwise ignored (falls back to "no update found", not an error).
+	fixedReleaseTagUpdates: boolean('fixed_release_tag_updates')
+		.notNull()
+		.default(false),
+	// Names of this row's own fields (title, description, thumbnailUrl, etc.
+	// -- the syncable fields upsertModFromIndex would otherwise overwrite)
+	// that an admin has directly edited via PATCH /api/webadmin/mods/:modId.
+	// A field named here is skipped on every future sync until an admin
+	// explicitly reverts it (POST .../reset-overrides) -- unlike
+	// rankedVersion/featured/hidden, these fields *do* have an
+	// upstream value and should keep tracking it right up until the point an
+	// admin overrides one. Meaningless for isCustom rows (never touched by
+	// sync in the first place).
+	overriddenFields: text('overridden_fields')
+		.array()
+		.notNull()
+		.default(sql`'{}'::text[]`),
 	sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()
@@ -506,6 +691,20 @@ export const modProfiles = pgTable('mod_profiles', {
 		.defaultNow(),
 })
 
+// The three ways a profile entry can pin a mod's version: an exact string
+// (pairs with pinnedVersion below), always resolve to whatever's newest, or
+// always resolve to modRegistry.rankedVersion (the admin-pinned "known good
+// for ranked" build). Replaces the old free-text versionConstraint
+// ('any'/exact/'min:<version>') -- that scheme required app-level parsing
+// with no fixed vocabulary; this is a closed set the launcher can switch on.
+export const modProfileVersionModeEnum = pgEnum('mod_profile_version_mode', [
+	'exact',
+	'latest',
+	'latestRanked',
+])
+export type ModProfileVersionMode =
+	(typeof modProfileVersionModeEnum.enumValues)[number]
+
 export const modProfileEntries = pgTable(
 	'mod_profile_entries',
 	{
@@ -516,11 +715,11 @@ export const modProfileEntries = pgTable(
 		modId: varchar('mod_id', { length: 128 })
 			.notNull()
 			.references(() => modRegistry.id, { onDelete: 'cascade' }),
-		// 'any' | an exact version string | a "min:<version>" string -- interpreted
-		// app-level only, matching playerBans.banType's precedent (no DB CHECK).
-		versionConstraint: varchar('version_constraint', { length: 64 })
+		versionMode: modProfileVersionModeEnum('version_mode')
 			.notNull()
-			.default('any'),
+			.default('latest'),
+		// Only meaningful when versionMode is 'exact' -- ignored otherwise.
+		pinnedVersion: varchar('pinned_version', { length: 64 }),
 		// Lets a profile explicitly blocklist a mod rather than only allowlist.
 		allowed: boolean('allowed').notNull().default(true),
 	},
@@ -548,4 +747,45 @@ export const launcherIntegrityEvents = pgTable(
 			.defaultNow(),
 	},
 	(t) => [index('launcher_integrity_events_player_idx').on(t.playerId)],
+)
+
+// One row per (player, hardware component) the launcher has ever attested to,
+// submitted only alongside a launcher-integrity LOGIN challenge (never
+// periodic -- see launcher-integrity.service.ts's handleChallengeResponse)
+// and only once that challenge's signature has already verified. Each
+// componentHash is itself an HMAC-SHA256 the launcher computed locally
+// (hardwarefingerprint.cpp) -- the raw hardware identifier never leaves the
+// player's machine, this table only ever sees the hash. Storage only for
+// now: no cross-player fuzzy-match/ban-evasion query is built on top of this
+// yet, but componentName+componentHash is indexed so that join is cheap to
+// add later ("N of M components match a previously-banned player").
+export const playerHardwareFingerprints = pgTable(
+	'player_hardware_fingerprints',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		playerId: uuid('player_id')
+			.notNull()
+			.references(() => players.id),
+		platform: varchar('platform', { length: 16 }).notNull(), // 'windows' | 'macos' | 'linux'
+		componentName: varchar('component_name', { length: 32 }).notNull(), // e.g. 'steam_id', 'disk_serial'
+		componentHash: varchar('component_hash', { length: 64 }).notNull(), // hex HMAC-SHA256
+		firstSeenAt: timestamp('first_seen_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+		lastSeenAt: timestamp('last_seen_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [
+		// Re-submission (every Ranked Run re-collects and re-sends) updates the
+		// same row rather than growing unboundedly -- see upsertHardwareComponents.
+		uniqueIndex('player_hardware_fingerprints_player_component_idx').on(
+			t.playerId,
+			t.componentName,
+		),
+		index('player_hardware_fingerprints_component_idx').on(
+			t.componentName,
+			t.componentHash,
+		),
+	],
 )

@@ -1,0 +1,55 @@
+# Opt-in overlay for local/test environments that don't have real TLS certs
+# (docker-compose.yml's default expects them at /root/emqx-certs/<domain> and
+# /etc/nginx/ssl/, matching production). Not auto-applied -- docker-compose.yml
+# is the base file; layer this on top explicitly:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+#
+# or export COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml once per
+# shell/CI job to make plain `docker compose ...` pick it up automatically.
+#
+# Without real certs, EMQX's stock wss:default listener (port 8084) hard-fails
+# with no_cert on cold boot and crashes the whole node -- unlike
+# listeners.ssl.default (8883, configured in apps/server/emqx/cluster.hocon),
+# which tolerates missing certs at boot. wss:default isn't published in
+# docker-compose.yml's ports: and isn't used by this project at all -- MQTT
+# clients connect over plain tcp:1883 for local/insecure dev (see that file's
+# own comment on the 1883 port) or ssl:8883 when real certs are present.
+# Disabling it here is a no-op for anything that actually uses this stack.
+services:
+  emqx:
+    environment:
+      EMQX_LISTENERS__WSS__DEFAULT__ENABLE: "false"
+
+  # No real domain/TLS cert locally -- swap in the plain-HTTP local server
+  # block (nginx/local/server.conf) in place of the prod one, and publish
+  # the same 127.0.0.1:8788 game clients have always talked to, in addition
+  # to 80/443 (harmless to still publish; nothing local listens there
+  # meaningfully, and Compose merges ports/volumes by target across -f
+  # files rather than fully replacing the list -- there's no way to *drop*
+  # an inherited entry, only to override one at the same target). Same
+  # reason the two TLS cert mounts below point at a placeholder file
+  # instead of being omitted: their host source paths only exist on
+  # bmpserver, and local/server.conf never actually reads them (no
+  # ssl_certificate directives), so the placeholder's content is irrelevant
+  # -- the mount just needs a real file to point at.
+  nginx:
+    ports:
+      - "127.0.0.1:8788:8788"
+    volumes:
+      - ./nginx/local/server.conf:/etc/nginx/conf.d/server.conf:ro
+      - ./nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf
+      - ./nginx/local/dummy-tls-placeholder.pem:/etc/nginx/ssl/bmp.crt:ro
+      - ./nginx/local/dummy-tls-placeholder.pem:/etc/nginx/ssl/bmp.key:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8788/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+      start_period: 45s
+
+  # Convenience direct access for local dev -- prod deliberately has no
+  # host-published port for web, nginx is its only entry point there.
+  web:
+    ports:
+      - "127.0.0.1:3000:3000"

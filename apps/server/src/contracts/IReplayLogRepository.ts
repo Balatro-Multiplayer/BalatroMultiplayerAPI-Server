@@ -56,4 +56,5 @@ export interface IReplayLogRepository {
 	purgeExpiredRunLogs(): Promise<number>
 	getRunWithLogs(runId: string): Promise<RunWithLogs | undefined>
 	getRunsForPlayer(playerId: string, page: number, pageSize: number): Promise<PaginatedRuns>
+	getRunIdsForMatchIds(matchIds: string[]): Promise<Map<string, string>>
 }

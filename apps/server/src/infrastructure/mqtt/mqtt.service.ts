@@ -122,7 +122,7 @@ class MqttService {
 	async publishPlayerInfo(
 		lobbyCode: string,
 		playerId: string,
-		info: { displayName: string; preferredJoker: string },
+		info: { displayName: string; preferredJoker: string; mods?: string[] },
 	): Promise<void> {
 		const topic = `lobby/${lobbyCode}/players/${playerId}/info`
 		await this.publish(topic, JSON.stringify(info), {

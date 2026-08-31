@@ -74,13 +74,42 @@ export const env = {
 	// queue for matches. Everyone else is rejected. Off by default.
 	TESTING_MODE: optionalBool('TESTING_MODE', false),
 
-	// Raw-HTTPS URL to BETModIndex's built dist/mods-index.json (the fork's
-	// build-index.yml output, combining upstream skyline69/balatro-mod-index
-	// with our bet-overrides/ overlay -- see that repo's README). Left blank
-	// until the fork exists; mods-sync.service.ts logs and no-ops rather than
-	// failing when unset, matching the "missing optional integration disables
-	// the feature, not the server" pattern used elsewhere in this file.
-	BET_MOD_INDEX_URL: optional('BET_MOD_INDEX_URL', ''),
+	// When false, the server rejects queue requests for ranked game modes (gameMode
+	// strings prefixed 'ranked:', see matchmaking/queue.ts's isRanked) with an error;
+	// casual queueing is unaffected. On by default.
+	RANKED_ENABLED: optionalBool('RANKED_ENABLED', true),
+
+	// Dev-only escape hatch for local Ranked testing without a real BET launcher
+	// (e.g. ClaudeControl-driven clients, which can never answer the launcher-
+	// integrity HMAC challenge -- see launcher-integrity.service.ts). When true,
+	// every player is marked launcher-verified on connect and never issued a
+	// challenge at all, rather than needing to actually pass one. Forced off
+	// outside development regardless of the raw env value, so a stray .env
+	// setting can never enable this in production.
+	DEV_AUTO_VERIFY_LAUNCHER:
+		!IS_PRODUCTION && optionalBool('DEV_AUTO_VERIFY_LAUNCHER', false),
+
+	// On/off switch for the hourly mod-registry sync (features/mods/mods-sync.service.ts,
+	// which fetches skyline69/balatro-mod-index directly -- see
+	// upstream-mod-index.service.ts). Off by default so local dev/tests don't
+	// need network access to GitHub just to boot; mods-sync.service.ts logs
+	// and no-ops rather than failing when this is false, matching the
+	// "missing optional integration disables the feature, not the server"
+	// pattern used elsewhere in this file.
+	MOD_INDEX_SYNC_ENABLED: optionalBool('MOD_INDEX_SYNC_ENABLED', false),
+
+	// Optional for custom-mod-version-check.service.ts's calls against the
+	// *public* skyline69/balatro-mod-index repo (rate-limit headroom only,
+	// unauthenticated GitHub REST already allows 60 req/hr) -- but
+	// effectively REQUIRED for features/launcher-releases/launcher-github-releases.service.ts,
+	// which reads Releases from the *private* Balatro-Multiplayer/new-launcher
+	// repo and needs a token with repo (classic) or Contents:Read
+	// (fine-grained) access to that specific repo, or every launcher-release
+	// admin action and every public download fails with a clear 500. Kept as
+	// one shared optional() rather than two separately-required vars since
+	// the mods feature must keep working even before this token exists.
+	GITHUB_TOKEN: optional('GITHUB_TOKEN', ''),
+
 	// Chat moderation bridge. Unset (default) means dormant — chat keeps using the
 	// local obscenity filter, unchanged. Set MODERATION_SERVICE_URL to route chat
 	// through an external moderation service instead.

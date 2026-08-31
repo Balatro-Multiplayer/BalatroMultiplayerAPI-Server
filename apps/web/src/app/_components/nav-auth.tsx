@@ -29,6 +29,9 @@ export function NavAuth() {
           <DropdownMenuItem asChild>
             <Link href='/profile'>My Account</Link>
           </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href='/matches'>My Matches</Link>
+          </DropdownMenuItem>
           {(isAdmin || isModerator) && (
             <>
               <DropdownMenuSeparator />
@@ -40,13 +43,19 @@ export function NavAuth() {
                 <Link href='/admin/users'>Users &amp; Bans</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
+                <Link href='/admin/lobbies'>Lobbies</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
                 <Link href='/admin/logs'>Chat Logs</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href='/admin/seasons'>Seasons</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href='/admin/releases'>Releases</Link>
+                <Link href='/admin/releases'>BET Releases</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href='/admin/blog'>Blog</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href='/admin/games'>Match History</Link>
