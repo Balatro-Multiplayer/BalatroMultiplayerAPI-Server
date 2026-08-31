@@ -1,4 +1,4 @@
-# Moderation service (verdict API). Node + in-process Qwen3Guard via
+# Moderation service (verdict API). Node + in-process rank-based guard via
 # node-llama-cpp — the guard is the only model and it judges inside /moderate.
 #
 # debian-slim, NOT alpine (unlike apps/server): node-llama-cpp's prebuilt

@@ -78,11 +78,13 @@ Roughly 4 GiB of free RAM is needed to load it.
 
 ### CPU
 
-Leave the container uncapped, and llama.cpp matches its thread count to the
-cores it can see. Capping CPUs **without** also setting `GUARD_THREADS` to the
-same number is the one configuration that fails badly rather than gracefully:
-llama.cpp threads spin-wait, so oversubscription collapses throughput (a ~2s
-judgement becomes 20–40s). Change both together or neither.
+The rank-based guard (one forward pass, no autoregressive decode) defaults
+`GUARD_THREADS` to 2 rather than matching all visible cores — a holdover from
+the old text-generating guard's sizing, not yet re-benchmarked for the
+much-cheaper rank model. Capping CPUs below `GUARD_THREADS` is the one
+configuration that fails badly rather than gracefully: llama.cpp threads
+spin-wait, so oversubscription collapses throughput. Change both together or
+neither.
 
 ## Configuration
 
@@ -90,7 +92,7 @@ judgement becomes 20–40s). Change both together or neither.
 |---|---|---|
 | `GUARD_MODEL` | `/model-cache` | Model file, or a directory holding exactly one `.gguf`. |
 | `SHADOW_MODE` | `1` in compose | `1` = log what the guard *would* block without blocking. `0` = enforce. |
-| `GUARD_THREADS` | all visible cores | Only set this alongside a CPU cap — see above. |
+| `GUARD_THREADS` | `2` | Only set this alongside a CPU cap — see above. |
 | `MODERATION_BEARER_TOKEN` | unset | Optional `Authorization: Bearer`. The service publishes no host port, so a network boundary already protects it; set one before exposing it. |
 | `PORT` | `8001` | |
 | `ALLOWLIST_PATH` / `REWRITES_PATH` / `APPROVED_DOMAINS_PATH` | bundled copies | Override the shipped word lists. |

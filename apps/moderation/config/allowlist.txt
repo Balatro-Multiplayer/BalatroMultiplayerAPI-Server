@@ -2,7 +2,8 @@
 # export, most frequent first. 5091 entries.
 # One NORMALIZED message per line (see normalizeForAllowlist). Lines starting
 # with # are ignored. Every entry was deterministic-clean AND judged Safe by
-# Qwen3Guard — review before shipping; delete any line you dislike.
+# the generative guard model in use at generation time (since retired in favor
+# of the rank-based guard) — review before shipping; delete any line you dislike.
 gg
 glhf
 ggs

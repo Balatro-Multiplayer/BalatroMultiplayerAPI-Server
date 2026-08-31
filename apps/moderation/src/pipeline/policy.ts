@@ -1,8 +1,8 @@
 import type { ModerationPolicy } from './types.js'
 
 /**
- * Default policy (ADR-5, revised: Qwen3Guard is the only model — toxic-bert
- * and its per-label thresholds are gone). The guard's three-way verdict maps
+ * Default policy (ADR-5, revised: the rank-based guard is the only model —
+ * toxic-bert and its per-label thresholds are gone). The guard's three-way verdict maps
  * directly: Unsafe blocks, Controversial/unparseable goes to review, Safe
  * publishes. Deterministic tiers (allowlist, blocklist/denylist, PII) decide
  * before the guard ever runs and are unaffected by shadow mode.

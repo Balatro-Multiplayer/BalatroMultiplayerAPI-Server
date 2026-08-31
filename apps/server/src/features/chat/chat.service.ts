@@ -54,10 +54,21 @@ export async function processAndPublishMessage(
 		if (isModerationBridgeEnabled()) {
 			// No displayName: the service has no use for it, and a name is
 			// needless identity to hand a component that only judges text.
+			// Prior turns come straight from the lobby's own FIFO buffer — buffering
+			// only happens AFTER this call (below), so it holds exactly the messages
+			// that preceded this one, correctly excluding it. Capped to 8, oldest
+			// first, matching the guard's training convention.
+			const context = lobby.messageBuffer.slice(-8).map((entry) => ({
+				who: (entry.playerId === playerId ? 'sender' : 'other') as
+					| 'sender'
+					| 'other',
+				text: entry.message,
+			}))
 			const attempt = await callModerationService({
 				playerId,
 				lobbyCode: lobby.code,
 				message,
+				context,
 			})
 			const outcome = decideModerationOutcome(attempt)
 			if (!outcome.allowed) {

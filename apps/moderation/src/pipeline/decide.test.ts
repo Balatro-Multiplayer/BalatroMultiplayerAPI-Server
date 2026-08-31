@@ -13,11 +13,8 @@ import type {
 
 const ENFORCE: ModerationPolicy = { ...DEFAULT_POLICY, shadowMode: false }
 
-function guard(
-	safety: GuardSafetyLevel,
-	categories: string[] = [],
-): GuardInput {
-	return { safety, categories }
+function guard(safety: GuardSafetyLevel, score?: number): GuardInput {
+	return score === undefined ? { safety } : { safety, score }
 }
 
 function input(over: Partial<DecisionInput> = {}): DecisionInput {
@@ -56,7 +53,7 @@ describe('decideModeration — precedence', () => {
 			input({
 				isAllowlisted: true,
 				obscenityMatches: [{ word: 'x', startIndex: 0, endIndex: 1 }],
-				guard: guard('Unsafe', ['Violent']),
+				guard: guard('Unsafe'),
 			}),
 		)
 		expect(d.band).toBe('preset')
@@ -76,12 +73,12 @@ describe('decideModeration — precedence', () => {
 
 describe('decideModeration — guard bands', () => {
 	it('Unsafe blocks in enforce mode (ADR-6: no auto-strike, a human/queue decides)', () => {
-		const d = decideModeration(input({ guard: guard('Unsafe', ['Violent']) }))
+		const d = decideModeration(input({ guard: guard('Unsafe') }))
 		expect(d.band).toBe('guard_block')
 		expect(d.decision).toBe('reject')
 	})
 
-	it('Unsafe with no categories still blocks', () => {
+	it('Unsafe with no score still blocks', () => {
 		const d = decideModeration(input({ guard: guard('Unsafe') }))
 		expect(d.band).toBe('guard_block')
 		expect(d.decision).toBe('reject')
@@ -89,7 +86,7 @@ describe('decideModeration — guard bands', () => {
 
 	it('Controversial publishes with review', () => {
 		const d = decideModeration(
-			input({ guard: guard('Controversial', ['Unethical Acts']) }),
+			input({ guard: guard('Controversial') }),
 		)
 		expect(d.band).toBe('review')
 		expect(d.decision).toBe('allow')
@@ -111,7 +108,7 @@ describe('decideModeration — guard bands', () => {
 		const d = decideModeration(
 			input({
 				policy: DEFAULT_POLICY,
-				guard: guard('Unsafe', ['Violent']),
+				guard: guard('Unsafe'),
 			}),
 		)
 		expect(d.decision).toBe('allow')
@@ -121,10 +118,10 @@ describe('decideModeration — guard bands', () => {
 
 	it('records the guard verdict in the verdict json', () => {
 		const d = decideModeration(
-			input({ guard: guard('Controversial', ['PII']) }),
+			input({ guard: guard('Controversial', 0.5) }),
 		)
 		expect(d.verdict.guardSafety).toBe('Controversial')
-		expect(d.verdict.guardCategories).toEqual(['PII'])
+		expect(d.verdict.guardScore).toBe(0.5)
 	})
 })
 
@@ -201,7 +198,7 @@ describe('decideModeration — safety tier (ADR-8)', () => {
 		const d = decideModeration(
 			input({
 				safetySignals: [{ severity: 'orange', kind: 'intent_phrase' }],
-				guard: guard('Unsafe', ['Violent']),
+				guard: guard('Unsafe'),
 			}),
 		)
 		expect(d.band).toBe('guard_block')
@@ -390,22 +387,22 @@ describe('decideModeration — real-traffic scenarios', () => {
 	}> = [
 		{
 			name: 'did you die to a blind? (game vocab — guard says Safe)',
-			guard: { safety: 'Safe', categories: [] },
+			guard: { safety: 'Safe' },
 			expectReject: false,
 		},
 		{
 			name: 'you suck lol (banter — guard says Controversial)',
-			guard: { safety: 'Controversial', categories: ['Unethical Acts'] },
+			guard: { safety: 'Controversial' },
 			expectReject: false,
 		},
 		{
 			name: 'im gonna kill myself (self-harm — Unsafe, must not publish silently)',
-			guard: { safety: 'Unsafe', categories: ['Suicide & Self-Harm'] },
+			guard: { safety: 'Unsafe' },
 			expectReject: true,
 		},
 		{
 			name: 'targeted slur (Unsafe)',
-			guard: { safety: 'Unsafe', categories: ['Unethical Acts'] },
+			guard: { safety: 'Unsafe' },
 			expectReject: true,
 		},
 	]

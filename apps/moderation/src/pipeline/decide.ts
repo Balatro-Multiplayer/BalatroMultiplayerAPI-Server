@@ -26,13 +26,13 @@ function isObject(value: unknown): value is Record<string, unknown> {
  */
 function isGuardVerdict(
 	guard: GuardInput | undefined,
-): guard is { safety: GuardSafetyLevel; categories: string[] } {
+): guard is { safety: GuardSafetyLevel; score?: number; contextUsed?: boolean } {
 	if (!isObject(guard)) return false
-	const { safety, categories } = guard as Record<string, unknown>
+	const { safety, score, contextUsed } = guard as Record<string, unknown>
 	return (
 		GUARD_SAFETY_LEVELS.includes(safety as GuardSafetyLevel) &&
-		Array.isArray(categories) &&
-		categories.every((c) => typeof c === 'string')
+		(score === undefined || typeof score === 'number') &&
+		(contextUsed === undefined || typeof contextUsed === 'boolean')
 	)
 }
 
@@ -115,7 +115,10 @@ export function decideModeration(input: DecisionInput): Decision {
 	if (isGuardVerdict(guard)) {
 		const guardExtra = {
 			guardSafety: guard.safety,
-			guardCategories: guard.categories,
+			...(guard.score !== undefined ? { guardScore: guard.score } : {}),
+			...(guard.contextUsed !== undefined
+				? { guardContextUsed: guard.contextUsed }
+				: {}),
 		}
 		if (guard.safety === 'Unsafe') {
 			if (policy.shadowMode) {

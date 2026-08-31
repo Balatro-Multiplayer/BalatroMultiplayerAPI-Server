@@ -48,7 +48,7 @@ export type ModerationPolicy = {
 // --- Guard input ---
 
 /**
- * Qwen3Guard's assessment of the message, as plain data (the engine lives in
+ * The rank-based guard's assessment of the message, as plain data (the engine lives in
  * the shell; the decision core never sees the model). `unknown` = the model
  * answered with something unparseable — treated like `Controversial`
  * (publish + human review), never like `Safe`.
@@ -63,9 +63,16 @@ export type GuardSafetyLevel = 'Safe' | 'Unsafe' | 'Controversial' | 'unknown'
  * deliberately no bare `null` variant: every caller that skips judging must
  * say why, so `decideModeration`'s fail-closed branch always sees a
  * `{skipped}` marker instead of silently falling through to `allow`.
+ *
+ * `categories` was dropped (Track B, single-score classifier): confirmed no
+ * enforcement logic anywhere branches on the specific harm category, only on
+ * `safety` — categorization is now a human task during admin review of
+ * blocked messages, not a model output. `score`/`contextUsed` are optional
+ * pass-through audit fields from the score-based guard (the older
+ * text-generating guard doesn't populate them) for that future admin surface.
  */
 export type GuardInput =
-	| { safety: GuardSafetyLevel; categories: string[] }
+	| { safety: GuardSafetyLevel; score?: number; contextUsed?: boolean }
 	| { skipped: string }
 
 // --- Safety input (PII / contact-exchange tier, ws08) ---
@@ -111,7 +118,8 @@ export type VerdictJson = {
 	obscenityMatches?: MatchRecord[]
 	safetySignals?: SafetySignal[]
 	guardSafety?: GuardSafetyLevel
-	guardCategories?: string[]
+	guardScore?: number
+	guardContextUsed?: boolean
 	guardSkipped?: string
 	wouldHaveBlocked?: boolean
 }

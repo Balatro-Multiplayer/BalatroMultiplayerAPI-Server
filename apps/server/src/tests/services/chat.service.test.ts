@@ -134,6 +134,7 @@ describe('chat.service.processAndPublishMessage', () => {
 				playerId: 'p1',
 				lobbyCode: 'ABC123',
 				message: 'hello there',
+				context: [],
 			})
 			expect(mqttService.publishChatMessage).toHaveBeenCalledWith(
 				'ABC123',
@@ -223,6 +224,61 @@ describe('chat.service.processAndPublishMessage', () => {
 
 			expect(result).toEqual({ ok: false, reason: 'moderated' })
 			expect(mqttService.publishChatMessage).not.toHaveBeenCalled()
+		})
+
+		describe('context passed to the moderation service', () => {
+			it('sends the lobby buffer as context, oldest-first, mapping sender vs. other', async () => {
+				mockAttempt({ status: 200, body: { verdict: 'allow' } })
+				const lobby = makeLobby()
+				const sentAt = new Date()
+				lobby.bufferMessage({
+					playerId: 'p2',
+					displayName: 'Bob',
+					message: 'gg',
+					sentAt,
+				})
+				lobby.bufferMessage({
+					playerId: 'p1',
+					displayName: 'Alice',
+					message: 'ready?',
+					sentAt,
+				})
+
+				await processAndPublishMessage(lobby, 'p1', 'Alice', 'hello there')
+
+				expect(mockCallModerationService).toHaveBeenCalledWith({
+					playerId: 'p1',
+					lobbyCode: 'ABC123',
+					message: 'hello there',
+					context: [
+						{ who: 'other', text: 'gg' },
+						{ who: 'sender', text: 'ready?' },
+					],
+				})
+			})
+
+			it('caps context to the last 8 buffered messages', async () => {
+				mockAttempt({ status: 200, body: { verdict: 'allow' } })
+				const lobby = makeLobby()
+				for (let i = 0; i < 12; i++) {
+					lobby.bufferMessage({
+						playerId: 'p2',
+						displayName: 'Bob',
+						message: `msg ${i}`,
+						sentAt: new Date(),
+					})
+				}
+
+				await processAndPublishMessage(lobby, 'p1', 'Alice', 'hello there')
+
+				const call = mockCallModerationService.mock.calls.at(-1)?.[0]
+				expect(call?.context).toHaveLength(8)
+				expect(call?.context?.[0]).toEqual({ who: 'other', text: 'msg 4' })
+				expect(call?.context?.at(-1)).toEqual({
+					who: 'other',
+					text: 'msg 11',
+				})
+			})
 		})
 
 		// The remote service logs no message content by design, so this is the

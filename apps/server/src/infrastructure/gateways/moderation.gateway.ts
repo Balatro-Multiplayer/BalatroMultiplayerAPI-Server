@@ -5,6 +5,8 @@ export type ModerationRequest = {
 	playerId: string
 	lobbyCode: string
 	message: string
+	/** Prior same-lobby turns, oldest-first, for the guard's context-escalation pass. */
+	context?: { who: 'sender' | 'other'; text: string }[]
 }
 
 export type ModerationServiceConfig = {

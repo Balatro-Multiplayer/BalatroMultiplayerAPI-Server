@@ -54,17 +54,34 @@ function tokenMatches(header: string | undefined, tokens: string[]): boolean {
 	})
 }
 
+function isGuardTurn(v: unknown): v is { who: 'sender' | 'other'; text: string } {
+	if (typeof v !== 'object' || v === null) return false
+	const t = v as Record<string, unknown>
+	return (
+		(t.who === 'sender' || t.who === 'other') && typeof t.text === 'string'
+	)
+}
+
 function isModerateRequest(body: unknown): body is ModerateRequest {
 	if (typeof body !== 'object' || body === null) return false
 	const b = body as Record<string, unknown>
-	return (
-		typeof b.playerId === 'string' &&
-		b.playerId.length > 0 &&
-		typeof b.lobbyCode === 'string' &&
-		typeof b.message === 'string' &&
-		b.message.length > 0 &&
-		b.message.length <= 2000
-	)
+	if (
+		!(
+			typeof b.playerId === 'string' &&
+			b.playerId.length > 0 &&
+			typeof b.lobbyCode === 'string' &&
+			typeof b.message === 'string' &&
+			b.message.length > 0 &&
+			b.message.length <= 2000
+		)
+	) {
+		return false
+	}
+	// context is optional; if present it must be a well-shaped array — reject
+	// malformed context rather than silently dropping it, but stay permissive
+	// about unrecognized adjacent structure elsewhere in the body.
+	if (b.context === undefined) return true
+	return Array.isArray(b.context) && b.context.every(isGuardTurn)
 }
 
 export function createModerationServer(opts: ServerOptions): Server {

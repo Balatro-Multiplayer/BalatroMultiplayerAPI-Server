@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { GuardEngine } from '../guard/engine.js'
+import type { RankEngine } from '../guard/rankEngine.js'
 import { DEFAULT_POLICY } from '../pipeline/policy.js'
 import {
 	canMeetDeadline,
@@ -8,110 +8,143 @@ import {
 } from './service.js'
 
 /** A guard that answers Safe for everything, instantly. */
-function safeGuard(): GuardEngine {
+function safeGuard(): RankEngine {
 	return {
 		ready: () => true,
 		judge: async () => ({
 			safety: 'Safe',
-			categories: [],
+			score: 0.1,
+			contextUsed: false,
 			latencyMs: 0,
-			raw: '',
 		}),
 	}
 }
 
 /** Unsafe on 'hurt you', Safe otherwise — the guard-tier stand-in. */
-function threatGuard(): GuardEngine {
+function threatGuard(): RankEngine {
 	return {
 		ready: () => true,
-		judge: async (turns) => {
-			const text = turns[turns.length - 1]?.text ?? ''
-			const unsafe = text.includes('hurt you')
+		judge: async (target) => {
+			const unsafe = target.includes('hurt you')
 			return {
 				safety: unsafe ? 'Unsafe' : 'Safe',
-				categories: unsafe ? ['Violent'] : [],
+				score: unsafe ? 0.9 : 0.1,
+				contextUsed: false,
 				latencyMs: 0,
-				raw: '',
 			}
 		},
 	}
 }
 
 /** A guard that records every text it was asked to judge. */
-function recordingGuard(): { guard: GuardEngine; judged: string[] } {
+function recordingGuard(): { guard: RankEngine; judged: string[] } {
 	const judged: string[] = []
 	return {
 		judged,
 		guard: {
 			ready: () => true,
-			judge: async (turns) => {
-				judged.push(turns[turns.length - 1]?.text ?? '')
-				return { safety: 'Safe', categories: [], latencyMs: 0, raw: '' }
+			judge: async (target) => {
+				judged.push(target)
+				return {
+					safety: 'Safe',
+					score: 0.1,
+					contextUsed: false,
+					latencyMs: 0,
+				}
 			},
 		},
 	}
 }
 
-const req = (message: string, playerId = 'p1') => ({
+const req = (
+	message: string,
+	playerId = 'p1',
+	context?: { who: 'sender' | 'other'; text: string }[],
+) => ({
 	playerId,
 	lobbyCode: 'ABCD',
 	message,
+	...(context !== undefined ? { context } : {}),
 })
+
+/** A guard that records the context it was asked to judge with. */
+function contextRecordingGuard(): {
+	guard: RankEngine
+	contexts: { who: 'sender' | 'other'; text: string }[][]
+} {
+	const contexts: { who: 'sender' | 'other'; text: string }[][] = []
+	return {
+		contexts,
+		guard: {
+			ready: () => true,
+			judge: async (_target, context) => {
+				contexts.push(context)
+				return {
+					safety: 'Safe',
+					score: 0.1,
+					contextUsed: false,
+					latencyMs: 0,
+				}
+			},
+		},
+	}
+}
 
 describe('createJudgeLane', () => {
 	it('returns the judgement when it lands inside the deadline', async () => {
 		const lane = createJudgeLane(threatGuard())
-		const g = await lane.judge('i will hurt you', 1000)
-		expect(g).toEqual({ safety: 'Unsafe', categories: ['Violent'] })
+		const g = await lane.judge('i will hurt you', [], 1000)
+		expect(g).toEqual({ safety: 'Unsafe', score: 0.9, contextUsed: false })
 	})
 
 	it('fails closed with skipped:deadline when the judgement is too slow', async () => {
-		const slow: GuardEngine = {
+		const slow: RankEngine = {
 			ready: () => true,
 			judge: () => new Promise(() => {}), // never resolves
 		}
 		const lane = createJudgeLane(slow)
-		const g = await lane.judge('hello', 10)
+		const g = await lane.judge('hello', [], 10)
 		expect(g).toEqual({ skipped: 'deadline' })
 		expect(lane.depth()).toBe(1) // abandoned judgement still occupies the lane
 	})
 
 	it('fails closed when the engine is not loaded', async () => {
-		const dead: GuardEngine = {
+		const dead: RankEngine = {
 			ready: () => false,
 			judge: async () => {
 				throw new Error('not loaded')
 			},
 		}
-		expect(await createJudgeLane(dead).judge('hello', 1000)).toEqual({
+		expect(await createJudgeLane(dead).judge('hello', [], 1000)).toEqual({
 			skipped: 'engine_not_ready',
 		})
 	})
 
 	it('fails closed when the engine throws', async () => {
-		const broken: GuardEngine = {
+		const broken: RankEngine = {
 			ready: () => true,
 			judge: async () => {
 				throw new Error('boom')
 			},
 		}
-		expect(await createJudgeLane(broken).judge('hello', 1000)).toEqual({
+		expect(await createJudgeLane(broken).judge('hello', [], 1000)).toEqual({
 			skipped: 'engine_error',
 		})
 	})
 
 	it('waits indefinitely when deadline is 0', async () => {
 		const lane = createJudgeLane(safeGuard())
-		expect(await lane.judge('hello', 0)).toEqual({
+		expect(await lane.judge('hello', [], 0)).toEqual({
 			safety: 'Safe',
-			categories: [],
+			score: 0.1,
+			contextUsed: false,
 		})
 	})
 
 	it('avgJudgeMs is null before any judgement lands, then reflects completed ones (for /health)', async () => {
 		const lane = createJudgeLane(safeGuard())
 		expect(lane.avgJudgeMs()).toBeNull()
-		await lane.judge('hello', 1000)
+		await lane.judge('hello', [], 1000)
 		expect(lane.avgJudgeMs()).not.toBeNull()
 	})
 
@@ -121,21 +154,26 @@ describe('createJudgeLane', () => {
 		// judge call arriving while another occupies the lane must be rejected
 		// immediately, not after the deadline.
 		let release: (() => void) | undefined
-		const engine: GuardEngine = {
+		const engine: RankEngine = {
 			ready: () => true,
 			judge: () =>
 				new Promise((resolve) => {
 					release = () =>
-						resolve({ safety: 'Safe', categories: [], latencyMs: 0, raw: '' })
+						resolve({
+							safety: 'Safe',
+							score: 0.1,
+							contextUsed: false,
+							latencyMs: 0,
+						})
 					setTimeout(release, 40)
 				}),
 		}
 		const lane = createJudgeLane(engine)
-		await lane.judge('warm up the EMA', 1000) // avg ≈ 40ms
+		await lane.judge('warm up the EMA', [], 1000) // avg ≈ 40ms
 
-		const first = lane.judge('occupies the lane', 1000)
+		const first = lane.judge('occupies the lane', [], 1000)
 		const started = performance.now()
-		const second = await lane.judge('cannot make a 50ms deadline', 50)
+		const second = await lane.judge('cannot make a 50ms deadline', [], 50)
 		const took = performance.now() - started
 		expect(second).toEqual({ skipped: 'backlog' })
 		expect(took).toBeLessThan(25) // immediate, did not wait out the deadline
@@ -149,7 +187,7 @@ describe('createJudgeLane', () => {
 		// empty lane must always attempt (the deadline race bounds the wait),
 		// so the EMA can recover as the engine warms up.
 		let judgeMs = 60 // cold: slower than the 30ms deadline
-		const engine: GuardEngine = {
+		const engine: RankEngine = {
 			ready: () => true,
 			judge: () =>
 				new Promise((resolve) =>
@@ -157,23 +195,26 @@ describe('createJudgeLane', () => {
 						() =>
 							resolve({
 								safety: 'Safe',
-								categories: [],
+								score: 0.1,
+								contextUsed: false,
 								latencyMs: 0,
-								raw: '',
 							}),
 						judgeMs,
 					),
 				),
 		}
 		const lane = createJudgeLane(engine)
-		expect(await lane.judge('cold start', 30)).toEqual({ skipped: 'deadline' })
+		expect(await lane.judge('cold start', [], 30)).toEqual({
+			skipped: 'deadline',
+		})
 		await new Promise((r) => setTimeout(r, 60)) // let the abandoned judgement finish (EMA ≈ 60ms)
 
 		// lane idle, EMA pessimistic — must still ATTEMPT, not backlog-reject
 		judgeMs = 5 // engine has warmed up
-		expect(await lane.judge('after warmup', 30)).toEqual({
+		expect(await lane.judge('after warmup', [], 30)).toEqual({
 			safety: 'Safe',
-			categories: [],
+			score: 0.1,
+			contextUsed: false,
 		})
 	})
 })
@@ -267,7 +308,7 @@ describe('createModerationService', () => {
 	})
 
 	it('a deadline-slow guard fails CLOSED: rejects with guard_unavailable + retry hint', async () => {
-		const slow: GuardEngine = {
+		const slow: RankEngine = {
 			ready: () => true,
 			judge: () => new Promise(() => {}),
 		}
@@ -375,7 +416,7 @@ describe('createModerationService', () => {
 			band: 'review',
 			wouldHaveBlocked: true,
 			guardSafety: 'Unsafe',
-			guardCategories: ['Violent'],
+			guardScore: 0.9,
 		})
 	})
 
@@ -447,6 +488,38 @@ describe('createModerationService', () => {
 			const s = createModerationService({ guard: safeGuard(), clock })
 			const r = await s.moderate(req('hello there'))
 			expect(r).toEqual({ verdict: 'allow', band: 'clean', latency_ms: 0 })
+		})
+	})
+
+	describe('context passing', () => {
+		it('forwards no context (empty array) when the request omits it', async () => {
+			const { guard, contexts } = contextRecordingGuard()
+			const s = createModerationService({ guard })
+			await s.moderate(req('hello there'))
+			expect(contexts).toEqual([[]])
+		})
+
+		it('forwards the request context through to the guard unchanged', async () => {
+			const { guard, contexts } = contextRecordingGuard()
+			const s = createModerationService({ guard })
+			const context = [
+				{ who: 'other' as const, text: 'gg' },
+				{ who: 'sender' as const, text: 'ready?' },
+			]
+			await s.moderate(req('hello there', 'p1', context))
+			expect(contexts).toEqual([context])
+		})
+
+		it('re-caps context to the last 8 turns defensively, even if the caller sent more', async () => {
+			const { guard, contexts } = contextRecordingGuard()
+			const s = createModerationService({ guard })
+			const context = Array.from({ length: 12 }, (_, i) => ({
+				who: 'other' as const,
+				text: `turn ${i}`,
+			}))
+			await s.moderate(req('hello there', 'p1', context))
+			expect(contexts[0]).toHaveLength(8)
+			expect(contexts[0]).toEqual(context.slice(-8))
 		})
 	})
 

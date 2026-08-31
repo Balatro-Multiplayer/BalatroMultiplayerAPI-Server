@@ -1,8 +1,7 @@
 import { existsSync, readdirSync, statSync } from 'node:fs'
-import { availableParallelism } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createLlamaGuardEngine } from './guard/engine.js'
+import { createRankGuardEngine } from './guard/rankEngine.js'
 import { GUARD_JUDGED_PROFANITY } from './pipeline/analyze.js'
 import { postureBannerLines } from './service/posture.js'
 import type { ServicePosture } from './service/posture.js'
@@ -12,12 +11,14 @@ import type { ListStatus } from './service/server.js'
 import { createModerationServer } from './service/server.js'
 import { createModerationService } from './service/service.js'
 
-// Entrypoint: load the guard, then serve. Qwen3Guard is the only model — it
-// judges INSIDE /moderate (real-time gate, deadline-valved). Verdicts stream
-// to stdout as JSONL — that line is the only record this service produces.
-// /moderate is stateless: no database, no admin API, no review queue. See
-// docs/13 for the fuller design (Standing/the sanctions ladder is a separate
-// deployable, not part of this branch).
+// Entrypoint: load the guard, then serve. The rank guard (a fine-tuned,
+// single-forward-pass classifier — no autoregressive decode, ~7x faster than
+// the generative model it replaced) is the only model — it judges INSIDE
+// /moderate (real-time gate, deadline-valved). Verdicts stream to stdout as
+// JSONL — that line is the only record this service produces. /moderate is
+// stateless: no database, no admin API, no review queue. See docs/13 for the
+// fuller design (Standing/the sanctions ladder is a separate deployable, not
+// part of this branch).
 
 // The word lists ship with the service. An explicit *_PATH still wins, so a
 // deployment can point at its own copies, but the common case needs no
@@ -115,10 +116,26 @@ function failIfListsRequired(envVar: string, err: unknown): void {
 }
 
 // Explicit thread override for cpu-quota'd containers, where the host core
-// count (the engine's default) exceeds the quota and ggml's spin-wait threads
-// would thrash (see CreateLlamaGuardEngineOptions.threads).
+// count exceeds the quota and ggml's spin-wait threads would thrash (see
+// CreateRankGuardEngineOptions.threads). Defaults to 2 inside rankEngine.ts —
+// a lane-sizing benchmark for this specific model's cost profile (much
+// cheaper per call than the generative model it replaced) is a worthwhile
+// follow-up, not yet done.
 const GUARD_THREADS = process.env.GUARD_THREADS
 	? Number(process.env.GUARD_THREADS)
+	: undefined
+
+// Routing thresholds against the guard's 0-1 score (see rankEngine.ts):
+// score < low -> confidently Safe, score > high -> confidently Unsafe,
+// otherwise ambiguous (escalate to a real-context rescore). 0.35/0.8 were
+// chosen via a threshold sweep against real validation + held-out test data
+// (see threshold_sweep_summary.py) — exposed as env vars, like GUARD_THREADS,
+// so they can be retuned without a redeploy of code.
+const GUARD_LOW_THRESHOLD = process.env.GUARD_LOW_THRESHOLD
+	? Number(process.env.GUARD_LOW_THRESHOLD)
+	: undefined
+const GUARD_HIGH_THRESHOLD = process.env.GUARD_HIGH_THRESHOLD
+	? Number(process.env.GUARD_HIGH_THRESHOLD)
 	: undefined
 
 // Deterministic community-vocabulary rewrites (REWRITES_PATH): applied before
@@ -179,14 +196,21 @@ if (APPROVED_DOMAINS_PATH) {
 }
 
 console.error(`[moderation] loading guard ${GUARD_MODEL ?? '(unset)'}...`)
-const guard = await createLlamaGuardEngine({
+const guard = await createRankGuardEngine({
 	modelPath: GUARD_MODEL ?? '/nonexistent',
 	...(GUARD_THREADS !== undefined ? { threads: GUARD_THREADS } : {}),
+	...(GUARD_LOW_THRESHOLD !== undefined
+		? { lowThreshold: GUARD_LOW_THRESHOLD }
+		: {}),
+	...(GUARD_HIGH_THRESHOLD !== undefined
+		? { highThreshold: GUARD_HIGH_THRESHOLD }
+		: {}),
 })
 if (guard.ready()) {
-	console.error(
-		`[moderation] guard ready (threads=${GUARD_THREADS ?? availableParallelism()})`,
-	)
+	// rankEngine.ts defaults threads to 2 (not availableParallelism() — that
+	// was the old generative engine's default, tuned for a much more
+	// expensive per-call cost profile).
+	console.error(`[moderation] guard ready (threads=${GUARD_THREADS ?? 2})`)
 } else {
 	// A bare "guard failed to load" is an hour of guessing (missing GGUF? wrong
 	// path? OOM? missing native binary? corrupt file?); the resolved path plus
@@ -280,7 +304,7 @@ const server = createModerationServer({
 	// Comma-separated to support zero-downtime rotation: run old+new together
 	// while the relay swaps, then drop the old token.
 	bearerTokens,
-	modelId: GUARD_MODEL ?? 'qwen3guard (unconfigured)',
+	modelId: GUARD_MODEL ?? 'rank-guard (unconfigured)',
 	posture,
 	gitSha: process.env.GIT_SHA,
 	lists: {

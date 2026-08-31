@@ -1,19 +1,19 @@
 import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { GuardEngine } from '../guard/engine.js'
+import type { RankEngine } from '../guard/rankEngine.js'
 import type { ServicePosture } from './posture.js'
 import { createModerationServer } from './server.js'
 import { createModerationService } from './service.js'
 
 /** A guard that answers Safe for everything, instantly. */
-function safeGuard(): GuardEngine {
+function safeGuard(): RankEngine {
 	return {
 		ready: () => true,
 		judge: async () => ({
 			safety: 'Safe',
-			categories: [],
+			score: 0.1,
+			contextUsed: false,
 			latencyMs: 0,
-			raw: '',
 		}),
 	}
 }
@@ -129,6 +129,30 @@ describe('moderation HTTP server', () => {
 		expect(bad.status).toBe(400)
 		expect((await moderate({ playerId: 'p1' })).status).toBe(400)
 		expect((await moderate({ ...valid, message: '' })).status).toBe(400)
+	})
+
+	it('accepts a request with a well-shaped context array', async () => {
+		const res = await moderate({
+			...valid,
+			context: [
+				{ who: 'other', text: 'gg' },
+				{ who: 'sender', text: 'ready?' },
+			],
+		})
+		expect(res.status).toBe(200)
+	})
+
+	it('400s on a malformed context field', async () => {
+		expect(
+			(await moderate({ ...valid, context: 'not an array' })).status,
+		).toBe(400)
+		expect(
+			(await moderate({ ...valid, context: [{ who: 'bogus', text: 'x' }] }))
+				.status,
+		).toBe(400)
+		expect(
+			(await moderate({ ...valid, context: [{ who: 'sender' }] })).status,
+		).toBe(400)
 	})
 
 	it('413s a payload over the size cap', async () => {

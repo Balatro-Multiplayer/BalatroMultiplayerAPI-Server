@@ -1,4 +1,5 @@
-import type { GuardEngine } from '../guard/engine.js'
+import type { RankEngine } from '../guard/rankEngine.js'
+import type { GuardTurn } from '../guard/types.js'
 import { createDeterministicAnalyzer } from '../pipeline/analyze.js'
 import { decideModeration } from '../pipeline/decide.js'
 import { stripLinks } from '../pipeline/links.js'
@@ -18,11 +19,12 @@ import {
 
 // The moderation service core: composes the analyzer, the guard engine,
 // per-player rate-limit state, and the pure decision core behind one
-// `moderate()` call. Qwen3Guard is the ONLY model — its judgement runs INSIDE
-// /moderate (real-time gate) under a deadline; a judgement that can't land in
-// time fails open on the guard's own answer but CLOSED on the decision (band
-// `guard_unavailable`, nothing published). Transport (HTTP) lives in
-// server.ts; this module is testable without sockets.
+// `moderate()` call. The rank-based guard (Track B) is the ONLY model — its
+// judgement runs INSIDE /moderate (real-time gate) under a deadline; a
+// judgement that can't land in time fails open on the guard's own answer but
+// CLOSED on the decision (band `guard_unavailable`, nothing published).
+// Transport (HTTP) lives in server.ts; this module is testable without
+// sockets.
 //
 // STATELESS AND VERDICT-ONLY: message in, verdict out. There is no database on
 // this path, no audit trail, no admin surface — see docs/13 for what else this
@@ -33,6 +35,13 @@ export type ModerateRequest = {
 	playerId: string
 	lobbyCode: string
 	message: string
+	/**
+	 * Prior same-lobby turns, oldest-first, for the guard's context-escalation
+	 * pass (see rankEngine.ts's cascade). Absent/empty = no-context judging
+	 * only. Re-capped to 8 turns defensively even though the caller (the game
+	 * relay) already caps client-side.
+	 */
+	context?: GuardTurn[]
 }
 
 export type ModerateResponse = {
@@ -51,7 +60,7 @@ export type ModerateResponse = {
 
 export type ModerationServiceOptions = {
 	/** The judge. Real llama.cpp engine in production, fake in tests. */
-	guard: GuardEngine
+	guard: RankEngine
 	policy?: ModerationPolicy
 	allowlist?: Set<string>
 	/**
@@ -103,7 +112,11 @@ export function canMeetDeadline(
 
 export type JudgeLane = {
 	/** Judge `text` as plain data — never throws, `{skipped}` on any miss. */
-	judge(text: string, deadlineMs: number): Promise<GuardInput>
+	judge(
+		text: string,
+		context: GuardTurn[],
+		deadlineMs: number,
+	): Promise<GuardInput>
 	/** Judgements currently occupying the lane (running or abandoned-but-running). */
 	depth(): number
 	/** EMA of completed judgement latency in ms, `null` before the first one lands. */
@@ -120,7 +133,7 @@ export type JudgeLane = {
  * outlives its deadline still completes inside the engine (its llama sequence
  * stays busy), so it keeps counting toward depth until it truly finishes.
  */
-export function createJudgeLane(engine: GuardEngine): JudgeLane {
+export function createJudgeLane(engine: RankEngine): JudgeLane {
 	let inflight = 0
 	let avgJudgeMs: number | null = null
 	const EMA_ALPHA = 0.3
@@ -129,7 +142,11 @@ export function createJudgeLane(engine: GuardEngine): JudgeLane {
 		depth: () => inflight,
 		avgJudgeMs: () => avgJudgeMs,
 
-		async judge(text: string, deadlineMs: number): Promise<GuardInput> {
+		async judge(
+			text: string,
+			context: GuardTurn[],
+			deadlineMs: number,
+		): Promise<GuardInput> {
 			if (!engine.ready()) return { skipped: 'engine_not_ready' }
 			// Backlog short-circuit ONLY when queued behind someone. An empty lane
 			// always attempts: the deadline race bounds the wait regardless, and
@@ -143,14 +160,18 @@ export function createJudgeLane(engine: GuardEngine): JudgeLane {
 			inflight++
 			const started = performance.now()
 			const judgement = engine
-				.judge([{ who: 'sender', text }])
+				.judge(text, context)
 				.then((j): GuardInput => {
 					const took = performance.now() - started
 					avgJudgeMs =
 						avgJudgeMs === null
 							? took
 							: avgJudgeMs + EMA_ALPHA * (took - avgJudgeMs)
-					return { safety: j.safety, categories: j.categories }
+					return {
+						safety: j.safety,
+						score: j.score,
+						contextUsed: j.contextUsed,
+					}
 				})
 				.catch((): GuardInput => ({ skipped: 'engine_error' }))
 				.finally(() => {
@@ -250,9 +271,10 @@ export function createModerationService(
 			// An explicit skip marker, never a bare null: decideModeration's
 			// fail-closed branch keys off `{skipped}`, so anything other than a
 			// real verdict rejects instead of silently allowing.
+			const context = (req.context ?? []).slice(-8)
 			const guard: GuardInput = deterministicOutcome
 				? { skipped: 'deterministic' }
-				: await lane.judge(guardText(text), policy.guardDeadlineMs)
+				: await lane.judge(guardText(text), context, policy.guardDeadlineMs)
 
 			const decision = decideModeration({
 				message: text,
@@ -285,7 +307,8 @@ export function createModerationService(
 				allowlisted: v.allowlisted,
 				wouldHaveBlocked: v.wouldHaveBlocked ?? false,
 				guardSafety: v.guardSafety,
-				guardCategories: v.guardCategories,
+				guardScore: v.guardScore,
+				guardContextUsed: v.guardContextUsed,
 				guardSkipped: v.guardSkipped,
 				threatMatchCount: v.threatMatches?.length ?? 0,
 				obscenityMatchCount: v.obscenityMatches?.length ?? 0,
