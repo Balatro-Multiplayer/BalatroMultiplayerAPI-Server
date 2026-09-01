@@ -271,6 +271,15 @@ router.patch('/mods/:modId', async (req, res, next) => {
 			}
 			input.categories = body.categories as string[]
 		}
+		if (body.searchTerms !== undefined) {
+			if (
+				!Array.isArray(body.searchTerms) ||
+				!body.searchTerms.every((t) => typeof t === 'string')
+			) {
+				throw new AppError('searchTerms must be a string array', 400)
+			}
+			input.searchTerms = body.searchTerms as string[]
+		}
 		if (body.requiresSteamodded !== undefined) {
 			if (typeof body.requiresSteamodded !== 'boolean')
 				throw new AppError('requiresSteamodded must be a boolean', 400)
@@ -406,6 +415,9 @@ router.post('/mods', async (req, res, next) => {
 			categories: Array.isArray(body.categories)
 				? (body.categories as string[])
 				: undefined,
+			searchTerms: Array.isArray(body.searchTerms)
+				? (body.searchTerms as string[])
+				: undefined,
 			requiresSteamodded:
 				typeof body.requiresSteamodded === 'boolean'
 					? body.requiresSteamodded
@@ -480,6 +492,9 @@ router.put('/mods/:modId/custom', async (req, res, next) => {
 			author: str('author'),
 			categories: Array.isArray(body.categories)
 				? (body.categories as string[])
+				: undefined,
+			searchTerms: Array.isArray(body.searchTerms)
+				? (body.searchTerms as string[])
 				: undefined,
 			requiresSteamodded: bool('requiresSteamodded'),
 			requiresTalisman: bool('requiresTalisman'),

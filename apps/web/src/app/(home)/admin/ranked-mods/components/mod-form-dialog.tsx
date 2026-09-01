@@ -128,6 +128,25 @@ export function ModFormDialog({
             />
           </div>
           <div className='space-y-2'>
+            <Label htmlFor='mod-search-terms'>
+              Alternative search terms (comma-separated)
+            </Label>
+            <Input
+              id='mod-search-terms'
+              value={form.searchTerms}
+              placeholder='e.g. wimf'
+              onChange={(e) =>
+                onFormChange({ ...form, searchTerms: e.target.value })
+              }
+            />
+            <p className='text-muted-foreground text-xs'>
+              Aliases players actually search by that don't appear in the
+              title - e.g. "wimf" for "What's in my Fool". Matched alongside
+              the title/id in the catalog search box above; never synced from
+              or overwritten by the upstream index.
+            </p>
+          </div>
+          <div className='space-y-2'>
             <Label htmlFor='mod-repo-url'>
               Repo URL
               <PinnedBadge shown={pinned('repoUrl')} />
