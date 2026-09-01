@@ -577,6 +577,18 @@ export const modRegistry = pgTable('mod_registry', {
 	title: varchar('title', { length: 128 }).notNull(),
 	author: varchar('author', { length: 128 }).notNull(),
 	categories: text('categories').array().notNull().default(sql`'{}'::text[]`),
+	// Admin-owned aliases a mod is commonly known/searched by but that don't
+	// appear in its title -- e.g. "wimf" for "What's in my Fool". Unlike
+	// categories, this has no upstream-index counterpart at all (the base
+	// index carries no such concept), so it's never touched by
+	// upsertModFromIndex/SYNCABLE_MOD_FIELDS and never participates in
+	// overriddenFields -- same "permanently admin-owned" shape as featured/
+	// hidden/rankedVersion above, just editable through the general PATCH
+	// .../mods/:modId field-edit endpoint alongside categories rather than
+	// its own dedicated PUT (see updateModFields()'s own comment). Matched
+	// case-insensitively as a substring, same as title, by whatever reads
+	// this for search (currently /admin/ranked-mods' filter box).
+	searchTerms: text('search_terms').array().notNull().default(sql`'{}'::text[]`),
 	requiresSteamodded: boolean('requires_steamodded').notNull().default(true),
 	requiresTalisman: boolean('requires_talisman').notNull().default(false),
 	repoUrl: text('repo_url'),
