@@ -40,6 +40,7 @@ export const PRIVILEGE_JOKERS: ReadonlyMap<string, string> = new Map([
 	['vagabond', 'j_vagabond'],
 	['sizaak', 'j_dusk'],
 	['lava', 'j_burnt'],
+	['twelve', 'j_stone'],
 ])
 
 export function isValidJoker(id: string, privileges: Privilege[] = []): boolean {
