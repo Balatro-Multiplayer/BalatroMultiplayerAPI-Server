@@ -111,6 +111,7 @@ export function ModsTable({
   mods,
   isAdmin,
   pendingModId,
+  emptyMessage,
   onSetRankedVersion,
   onSetFeatured,
   onSetHidden,
@@ -120,6 +121,12 @@ export function ModsTable({
   mods: ModSummary[]
   isAdmin: boolean
   pendingModId: string | null
+  // Distinguishes "no mods synced at all" from "a search filtered every mod
+  // out" - both render as an empty `mods` array, but mean very different
+  // things to an admin looking at a blank table (see page.tsx's
+  // filteredMods). Defaults to the original "nothing synced" message so
+  // every other/future caller doesn't need to pass one.
+  emptyMessage?: string
   onSetRankedVersion: (mod: ModSummary, version: string | null) => void
   onSetFeatured: (mod: ModSummary, featured: boolean) => void
   onSetHidden: (mod: ModSummary, hidden: boolean) => void
@@ -213,8 +220,8 @@ export function ModsTable({
               colSpan={6}
               className='text-center text-muted-foreground'
             >
-              No mods synced yet — MOD_INDEX_SYNC_ENABLED may not be set, or the
-              hourly sync hasn't run.
+              {emptyMessage ??
+                "No mods synced yet — MOD_INDEX_SYNC_ENABLED may not be set, or the hourly sync hasn't run."}
             </TableCell>
           </TableRow>
         )}

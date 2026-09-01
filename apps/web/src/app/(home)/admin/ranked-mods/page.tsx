@@ -12,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { ApiError, apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { DeleteModDialog } from './components/delete-mod-dialog'
@@ -84,6 +85,23 @@ export default function RankedModsPage() {
 
   const [pendingModId, setPendingModId] = useState<string | null>(null)
 
+  // Client-side filter over the already-loaded catalog (this page fetches
+  // every mod up front already, see the `mods` query above) - matches
+  // against name/id and each mod's admin-set searchTerms (e.g. "wimf" for
+  // "What's in my Fool"), case-insensitive substring on each. No server
+  // round trip per keystroke; the catalog is small enough (admin-authored +
+  // one hourly sync's worth of mods) that this stays instant.
+  const [modSearch, setModSearch] = useState('')
+  const filteredMods = (mods ?? []).filter((mod) => {
+    const q = modSearch.trim().toLowerCase()
+    if (!q) return true
+    return (
+      mod.name.toLowerCase().includes(q) ||
+      mod.id.toLowerCase().includes(q) ||
+      mod.searchTerms.some((term) => term.toLowerCase().includes(q))
+    )
+  })
+
   // rankedVersion is the sole ranked-eligibility signal now -- null un-ranks
   // a mod, any other value ranks it and pins it to exactly that version
   // (validated server-side against sourceType, see webadmin mods.route.ts's
@@ -151,6 +169,10 @@ export default function RankedModsPage() {
       categories: form.categories
         .split(',')
         .map((c) => c.trim())
+        .filter(Boolean),
+      searchTerms: form.searchTerms
+        .split(',')
+        .map((t) => t.trim())
         .filter(Boolean),
       requiresSteamodded: form.requiresSteamodded,
       requiresTalisman: form.requiresTalisman,
@@ -230,6 +252,7 @@ export default function RankedModsPage() {
       title: editModDetail.title,
       author: editModDetail.author,
       categories: editModDetail.categories.join(', '),
+      searchTerms: editModDetail.searchTerms.join(', '),
       requiresSteamodded: editModDetail.requiresSteamodded,
       requiresTalisman: editModDetail.requiresTalisman,
       repoUrl: editModDetail.repoUrl ?? '',
@@ -491,14 +514,25 @@ export default function RankedModsPage() {
             </div>
           )}
         </CardHeader>
-        <CardContent>
+        <CardContent className='space-y-4'>
+          <Input
+            value={modSearch}
+            onChange={(e) => setModSearch(e.target.value)}
+            placeholder='Search by name, id, or alternative search term (e.g. wimf)…'
+            className='max-w-sm'
+          />
           {modsLoading || !mods ? (
             <p className='text-muted-foreground text-sm'>Loading…</p>
           ) : (
             <ModsTable
-              mods={mods}
+              mods={filteredMods}
               isAdmin={isAdmin}
               pendingModId={pendingModId}
+              emptyMessage={
+                modSearch.trim() && mods.length > 0
+                  ? `No mods match "${modSearch.trim()}"`
+                  : undefined
+              }
               onSetRankedVersion={(mod, version) =>
                 setRankedVersionMut.mutate({
                   modId: mod.id,

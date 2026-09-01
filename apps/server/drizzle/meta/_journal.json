@@ -281,6 +281,13 @@
       "when": 1791500000000,
       "tag": "0039_mod_registry_versions_pin_failed_at",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791600000000,
+      "tag": "0040_mod_search_terms",
+      "breakpoints": true
     }
   ]
 }

@@ -17,6 +17,9 @@ export interface ModSummary {
   thumbnailUrl: string | null
   isCustom: boolean
   overriddenFields: string[]
+  // Admin-set aliases (e.g. "wimf" for "What's in my Fool") matched by the
+  // catalog search box alongside name/id - see page.tsx's search filtering.
+  searchTerms: string[]
 }
 
 export interface ModVersion {
@@ -28,6 +31,7 @@ export interface ModDetail {
   title: string
   author: string
   categories: string[]
+  searchTerms: string[]
   requiresSteamodded: boolean
   requiresTalisman: boolean
   repoUrl: string | null
@@ -49,6 +53,9 @@ export interface ModForm {
   title: string
   author: string
   categories: string
+  // Comma-separated, same shape as categories - see mod-form-dialog.tsx's
+  // field and page.tsx's modFormToFields() for the split/trim.
+  searchTerms: string
   requiresSteamodded: boolean
   requiresTalisman: boolean
   repoUrl: string
@@ -74,6 +81,7 @@ export const EMPTY_MOD_FORM: ModForm = {
   title: '',
   author: '',
   categories: '',
+  searchTerms: '',
   requiresSteamodded: true,
   requiresTalisman: false,
   repoUrl: '',
