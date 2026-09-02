@@ -6,12 +6,13 @@ import { resolveReport } from '../../infrastructure/gateways/report.gateway.js'
 
 const router = Router()
 
-type ReportRow = typeof reports.$inferSelect
+export type ReportRow = typeof reports.$inferSelect
 
-// Shared by the list and detail routes so per-row enrichment (reporter/
-// reported display names + this lobby's flushed chat history) can't drift
-// between them.
-async function enrichReport(r: ReportRow, messageLimit: number) {
+// Shared by the list and detail routes (and the Service Queue's report
+// detail view -- see service-queue.gateway.ts) so per-row enrichment
+// (reporter/reported display names + this lobby's flushed chat history)
+// can't drift between them.
+export async function enrichReport(r: ReportRow, messageLimit: number) {
 	const messages = await db
 		.select()
 		.from(reportedLobbyMessages)

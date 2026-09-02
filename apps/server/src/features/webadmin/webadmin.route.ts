@@ -15,6 +15,7 @@ import modsRouter from './mods.route.js'
 import playersRouter from './players.route.js'
 import reportsRouter from './reports.route.js'
 import seasonsRouter from './seasons.route.js'
+import serviceQueueRouter from './service-queue.route.js'
 
 const router = Router()
 
@@ -50,5 +51,6 @@ router.use(configRouter)
 router.use(modsRouter)
 router.use(blogRouter)
 router.use(archivesRouter)
+router.use(serviceQueueRouter)
 
 export default router

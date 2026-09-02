@@ -5,9 +5,21 @@ import { signJwt } from '../../features/auth/jwt.js'
 import { createSession } from '../../state/index.js'
 import { getLobby } from '../../state/index.js'
 import { db } from '../../infrastructure/db/index.js'
+import { reports } from '../../infrastructure/db/schema.js'
 import * as lobbyService from '../../features/lobby/lobby.service.js'
 
 const app = createTestApp()
+
+// Every db.insert().values() chain resolves this shape -- a bare-awaitable
+// Promise that ALSO exposes .returning() (submitReport's own insert) and
+// .onConflictDoNothing() -> another such promise (service-queue.gateway.ts's
+// enqueueServiceQueueItem, now called at the end of every submitReport()).
+function chainableInsertValues(): any {
+	const p: any = Promise.resolve(undefined)
+	p.returning = vi.fn().mockResolvedValue([{ id: 1 }])
+	p.onConflictDoNothing = vi.fn().mockReturnValue(p)
+	return p
+}
 
 // submitReport() now does a db.select (getMostRecentRunForLobbyCode) before its
 // db.insert(...).returning(...) -- the base mock in tests/setup.ts has no
@@ -25,11 +37,7 @@ function installReportDbMocks(runRows: unknown[] = []) {
 		}),
 	})
 	;(db as any).insert = vi.fn().mockReturnValue({
-		values: vi.fn().mockImplementation(() => {
-			const p: any = Promise.resolve(undefined)
-			p.returning = vi.fn().mockResolvedValue([{ id: 1 }])
-			return p
-		}),
+		values: vi.fn().mockImplementation(() => chainableInsertValues()),
 	})
 }
 
@@ -175,8 +183,9 @@ describe('POST /api/lobbies/:code/report', () => {
 			.set('Authorization', authHeader('host1', 'Alice', code))
 			.send({ reportedPlayerId: 'guest1', type: 'cheating' })
 
-		// Should have called insert twice: once for the report, once for the buffer flush
-		expect(vi.mocked(db.insert)).toHaveBeenCalledTimes(2)
+		// Should have called insert 3 times: the report, the buffer flush, and
+		// the service-queue index row (enqueueServiceQueueItem).
+		expect(vi.mocked(db.insert)).toHaveBeenCalledTimes(3)
 	})
 
 	it('does not flush buffer again on subsequent reports', async () => {
@@ -200,20 +209,20 @@ describe('POST /api/lobbies/:code/report', () => {
 			.set('Authorization', authHeader('host1', 'Alice', code))
 			.send({ reportedPlayerId: 'guest2', type: 'cheating' })
 
-		expect(vi.mocked(db.insert)).toHaveBeenCalledTimes(1)
+		// The report insert + the service-queue index row -- no buffer flush
+		// since the lobby was already marked reported by the first report.
+		expect(vi.mocked(db.insert)).toHaveBeenCalledTimes(2)
 	})
 
 	it('resolves and stores runId from the most recent lobbyRuns row for the lobby code', async () => {
 		installReportDbMocks([{ id: 'run-42' }])
 		let insertedValues: any = null
-		;(db as any).insert = vi.fn().mockReturnValue({
+		;(db as any).insert = vi.fn().mockImplementation((table: unknown) => ({
 			values: vi.fn().mockImplementation((values: any) => {
-				insertedValues = values
-				const p: any = Promise.resolve(undefined)
-				p.returning = vi.fn().mockResolvedValue([{ id: 1 }])
-				return p
+				if (table === reports) insertedValues = values
+				return chainableInsertValues()
 			}),
-		})
+		}))
 
 		const code = await createLobby('host1', 'Alice')
 		const res = await request(app)
@@ -228,14 +237,12 @@ describe('POST /api/lobbies/:code/report', () => {
 	it('stores runId as null when no run exists for the lobby code', async () => {
 		installReportDbMocks([]) // no lobbyRuns row for this code
 		let insertedValues: any = null
-		;(db as any).insert = vi.fn().mockReturnValue({
+		;(db as any).insert = vi.fn().mockImplementation((table: unknown) => ({
 			values: vi.fn().mockImplementation((values: any) => {
-				insertedValues = values
-				const p: any = Promise.resolve(undefined)
-				p.returning = vi.fn().mockResolvedValue([{ id: 1 }])
-				return p
+				if (table === reports) insertedValues = values
+				return chainableInsertValues()
 			}),
-		})
+		}))
 
 		const code = await createLobby('host1', 'Alice')
 		const res = await request(app)

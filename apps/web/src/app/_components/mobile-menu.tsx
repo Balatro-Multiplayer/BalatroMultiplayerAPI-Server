@@ -8,6 +8,7 @@ import {
   Gamepad2,
   History,
   Layers,
+  ListChecks,
   LogIn,
   LogOut,
   Menu as MenuIcon,
@@ -174,6 +175,13 @@ function MobileAdminSection({ onClose }: { onClose: () => void }) {
           onClick={onClose}
         >
           Users &amp; Bans
+        </MobileMenuLink>
+        <MobileMenuLink
+          href='/admin/service-queue'
+          icon={<ListChecks className='size-4' />}
+          onClick={onClose}
+        >
+          Service Queue
         </MobileMenuLink>
         <MobileMenuLink
           href='/admin/lobbies'

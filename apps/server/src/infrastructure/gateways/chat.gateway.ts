@@ -1,5 +1,6 @@
 import { db } from '../db/index.js'
 import { flaggedMessages, reportedLobbyMessages } from '../db/schema.js'
+import { enqueueServiceQueueItem } from './service-queue.gateway.js'
 
 type MatchRecord = {
 	word: string
@@ -13,11 +14,21 @@ export async function insertFlaggedMessage(
 	matches: MatchRecord[],
 ): Promise<void> {
 	const threeMonths = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
-	await db.insert(flaggedMessages).values({
-		playerId,
-		message,
-		matches,
-		expiresAt: threeMonths,
+	const [row] = await db
+		.insert(flaggedMessages)
+		.values({
+			playerId,
+			message,
+			matches,
+			expiresAt: threeMonths,
+		})
+		.returning({ id: flaggedMessages.id })
+
+	await enqueueServiceQueueItem({
+		itemType: 'flagged_chat',
+		sourceId: String(row!.id),
+		subjectPlayerId: playerId,
+		summary: `Flagged chat — ${matches.length} match${matches.length === 1 ? '' : 'es'}`,
 	})
 }
 

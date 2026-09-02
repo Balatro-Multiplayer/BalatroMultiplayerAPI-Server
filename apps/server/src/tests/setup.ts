@@ -24,6 +24,8 @@ vi.mock('../infrastructure/mqtt/mqtt.service.js', () => ({
 		publishPlayerInfo: vi.fn().mockResolvedValue(undefined),
 		publishChatMessage: vi.fn().mockResolvedValue(undefined),
 		publishToPlayer: vi.fn().mockResolvedValue(undefined),
+		publishModUpdate: vi.fn().mockResolvedValue(undefined),
+		publishAdminQueueEvent: vi.fn().mockResolvedValue(undefined),
 		clearPlayerInfo: vi.fn().mockResolvedValue(undefined),
 		cleanupLobbyTopics: vi.fn().mockResolvedValue(undefined),
 		cleanupPlayerState: vi.fn().mockResolvedValue(undefined),
@@ -60,12 +62,27 @@ function createSelectChain(): any {
 	return chain
 }
 
+// Awaitable-and-chainable: resolves to undefined for a bare `await
+// db.insert(...).values(...)`, but also exposes .returning()/
+// .onConflictDoNothing()/.onConflictDoUpdate() for code that chains further
+// (e.g. service-queue.gateway.ts's enqueueServiceQueueItem, now called from
+// several creation-site gateways). Resolves an empty array by default --
+// tests that care about the actual inserted row already override db.insert
+// locally (see e.g. report.test.ts's installReportDbMocks).
+function createInsertValuesChain(): any {
+	const p: any = Promise.resolve(undefined)
+	p.returning = vi.fn().mockResolvedValue([])
+	p.onConflictDoNothing = vi.fn().mockReturnValue(p)
+	p.onConflictDoUpdate = vi.fn().mockReturnValue(p)
+	return p
+}
+
 // Mock the database — no real PostgreSQL in tests
 vi.mock('../infrastructure/db/index.js', () => ({
 	db: {
 		select: vi.fn(() => createSelectChain()),
 		insert: vi.fn().mockReturnValue({
-			values: vi.fn().mockResolvedValue(undefined),
+			values: vi.fn().mockImplementation(() => createInsertValuesChain()),
 		}),
 		update: vi.fn().mockReturnValue({
 			set: vi.fn().mockReturnValue({
@@ -211,7 +228,7 @@ beforeEach(async () => {
 	// silently breaks depending on test order.
 	const { db } = await import('../infrastructure/db/index.js')
 	vi.mocked(db.insert).mockReturnValue({
-		values: vi.fn().mockResolvedValue(undefined),
+		values: vi.fn().mockImplementation(() => createInsertValuesChain()),
 	} as unknown as ReturnType<typeof db.insert>)
 	vi.mocked(db.update).mockReturnValue({
 		set: vi.fn().mockReturnValue({

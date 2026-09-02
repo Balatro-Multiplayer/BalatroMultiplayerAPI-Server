@@ -1,3 +1,4 @@
+import { desc, eq } from 'drizzle-orm'
 import type {
 	ChallengeKind,
 	LauncherIntegrityFailureReason,
@@ -7,6 +8,9 @@ import {
 	launcherIntegrityEvents,
 	playerHardwareFingerprints,
 } from '../db/schema.js'
+
+export type LauncherIntegrityEventRecord = typeof launcherIntegrityEvents.$inferSelect
+export type PlayerHardwareFingerprintRecord = typeof playerHardwareFingerprints.$inferSelect
 
 export async function insertEvent(
 	playerId: string,
@@ -53,4 +57,30 @@ export async function upsertHardwareComponents(
 				},
 			})
 	}
+}
+
+// Read side for the admin Service Queue's anti-cheat detail view
+// (service-queue.gateway.ts) -- these two tables were write-only until now
+// (see schema.ts's comment: "an audit trail, not itself a ban").
+
+export async function getIntegrityEventsForPlayer(
+	playerId: string,
+	limit = 20,
+): Promise<LauncherIntegrityEventRecord[]> {
+	return db
+		.select()
+		.from(launcherIntegrityEvents)
+		.where(eq(launcherIntegrityEvents.playerId, playerId))
+		.orderBy(desc(launcherIntegrityEvents.occurredAt))
+		.limit(limit)
+}
+
+export async function getHardwareFingerprintsForPlayer(
+	playerId: string,
+): Promise<PlayerHardwareFingerprintRecord[]> {
+	return db
+		.select()
+		.from(playerHardwareFingerprints)
+		.where(eq(playerHardwareFingerprints.playerId, playerId))
+		.orderBy(desc(playerHardwareFingerprints.lastSeenAt))
 }

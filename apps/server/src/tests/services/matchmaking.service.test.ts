@@ -732,13 +732,25 @@ describe('matchmaking.service', () => {
 			const { service } = makeService({ matchRepository })
 			const guest = makeSession('guest1', 'Bob')
 
-			vi.mocked(db.insert).mockClear()
+			// insertMatchConflict's own .returning({id}) needs a real row -- the
+			// global default mock resolves .returning() to [], which insertMatchConflict
+			// (correctly, for real Postgres) assumes never happens.
+			;(db as any).insert = vi.fn().mockReturnValue({
+				values: vi.fn().mockReturnValue({
+					returning: vi.fn().mockResolvedValue([{ id: 1 }]),
+					onConflictDoNothing: vi.fn().mockReturnValue({
+						returning: vi.fn().mockResolvedValue([{ id: 1 }]),
+					}),
+				}),
+			})
 			await service.reportResult(guest, 'match-5', [
 				{ playerId: 'host1', place: 2 },
 				{ playerId: 'guest1', place: 1 },
 			])
 
-			expect(vi.mocked(db.insert)).toHaveBeenCalledTimes(1)
+			// The conflict row insert, plus the service-queue index row insert
+			// (enqueueServiceQueueItem, called from insertMatchConflict).
+			expect(vi.mocked(db.insert)).toHaveBeenCalledTimes(2)
 		})
 
 		it('§21.5: a differing report from a non-participant is rejected, not flagged', async () => {

@@ -7,6 +7,7 @@ import type {
 	RunWithLogs,
 } from '../../contracts/IReplayLogRepository.js'
 import * as replayLogGateway from '../../infrastructure/gateways/replay-log.gateway.js'
+import { enqueueServiceQueueItem } from '../../infrastructure/gateways/service-queue.gateway.js'
 import { compressToBase64 } from '../../shared/utils/compression.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { getLobby } from '../../state/index.js'
@@ -248,6 +249,15 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 				flagReason,
 				expiresAt,
 			})
+
+			if (flagReason !== null) {
+				await enqueueServiceQueueItem({
+					itemType: 'anti_cheat',
+					sourceId: run.runId,
+					subjectPlayerId: playerId,
+					summary: `Anti-cheat flag (${flagReason})`,
+				})
+			}
 		}
 
 		await repository.updateRunStatus(run.runId, status)

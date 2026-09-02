@@ -3,12 +3,10 @@ import { and, count, desc, eq, gt, ilike, isNull, or, sql } from 'drizzle-orm'
 import { db } from '../../infrastructure/db/index.js'
 import { playerBans, players } from '../../infrastructure/db/schema.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
-import { insertBan, isBanType, liftBan, listBans } from '../../infrastructure/gateways/ban.gateway.js'
-import { kickClient } from '../../infrastructure/emqx/emqx-admin.service.js'
-import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
-import { getSession } from '../../state/index.js'
+import { isBanType, liftBan, listBans } from '../../infrastructure/gateways/ban.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { parseExpiresAt } from '../../shared/utils/parse-expires-at.js'
+import { issueBan } from './ban.service.js'
 
 // Privilege names are free-form identifiers (a lowercase letter followed by
 // lowercase letters/digits/underscores). Validated by format rather than a fixed
@@ -117,38 +115,13 @@ router.post('/players/:id/bans', async (req, res, next) => {
 		const player = await findPlayerById(playerId)
 		if (!player) throw new AppError('Player not found', 404)
 
-		const issuedBy = `admin:${req.player!.playerId}`
-		const ban = await insertBan({
+		const ban = await issueBan({
 			playerId,
 			banType: type,
 			expiresAt: parseExpiresAt(expiresAt),
-			issuedBy,
+			issuedBy: `admin:${req.player!.playerId}`,
 			reason: typeof reason === 'string' ? reason : '',
 		})
-
-		// §21.3: account and queue bans take effect immediately. Account bans
-		// force-disconnect the player from the platform entirely (offline
-		// players are caught by the EMQX auth webhook on their next CONNECT);
-		// queue bans leave them connected but pull them out of matchmaking.
-		// Either way, if they're currently inside an active match, that's an
-		// instant forfeit -- not the normal 2-minute disconnect grace period --
-		// dynamically imported from the composition root the same way
-		// grace-period.service.ts does, to avoid a static import cycle back
-		// through webadmin.route.ts.
-		if (type === 'account' || type === 'queue') {
-			if (getSession(playerId)) {
-				await mqttService.publishToPlayer(playerId, 'notifications', {
-					type: 'banned', banType: type, reason: ban.reason,
-				}).catch((e) => console.error('[webadmin] ban notify failed:', e))
-			}
-
-			const { matchmakingService } = await import('../../routes/index.js')
-			await matchmakingService.forfeitMatchForBan(playerId, type)
-
-			if (type === 'account' && getSession(playerId)) {
-				await kickClient(playerId)
-			}
-		}
 
 		console.log(`[webadmin] ${req.player!.playerId} issued ${type} ban on ${playerId}`)
 		res.status(201).json({ ban })

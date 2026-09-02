@@ -2,6 +2,7 @@ import { and, count, desc, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { forfeitReconciliationFlags } from '../db/schema.js'
 import { voidMatch } from '../db/void-match.js'
+import { enqueueServiceQueueItem } from './service-queue.gateway.js'
 
 export type ForfeitReconciliationFlag = typeof forfeitReconciliationFlags.$inferSelect
 
@@ -15,7 +16,17 @@ export async function insertForfeitReconciliationFlag(data: {
 	forfeitedAt: Date
 	reconnectedAt: Date
 }): Promise<void> {
-	await db.insert(forfeitReconciliationFlags).values(data)
+	const [row] = await db
+		.insert(forfeitReconciliationFlags)
+		.values(data)
+		.returning({ id: forfeitReconciliationFlags.id })
+
+	await enqueueServiceQueueItem({
+		itemType: 'forfeit_reconciliation',
+		sourceId: String(row!.id),
+		subjectPlayerId: data.playerId,
+		summary: `Possible wrongful forfeit — lobby ${data.lobbyCode}`,
+	})
 }
 
 export async function hasOpenForfeitReconciliationFlag(matchId: string, playerId: string): Promise<boolean> {

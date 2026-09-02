@@ -33,11 +33,17 @@ import { Lobby } from '../../state/lobby.js'
 import { matchByLobby } from '../../state/matchmaking.js'
 import type { Match } from '../../shared/types/index.js'
 
+// Also supports .onConflictDoNothing() (chained by service-queue.gateway.ts's
+// enqueueServiceQueueItem, now called at the end of
+// insertForfeitReconciliationFlag) -- returns the same chain so .returning()
+// still resolves afterward.
 function mockInsertReturningChain(row: { id: string }) {
-	return vi.fn().mockReturnValue({
-		values: vi.fn().mockReturnValue({
+	return vi.fn().mockImplementation(() => {
+		const chain: any = {
 			returning: vi.fn().mockResolvedValue([row]),
-		}),
+		}
+		chain.onConflictDoNothing = vi.fn().mockReturnValue(chain)
+		return { values: vi.fn().mockReturnValue(chain) }
 	})
 }
 
@@ -639,7 +645,10 @@ describe('grace-period.service', () => {
 
 			await checkForWrongfulForfeit('mchatlak1')
 
-			expect(db.insert).toHaveBeenCalledTimes(1)
+			// The forfeit-reconciliation flag insert, plus the service-queue index
+			// row insert (enqueueServiceQueueItem, called from
+			// insertForfeitReconciliationFlag).
+			expect(db.insert).toHaveBeenCalledTimes(2)
 			const insertedValues = vi.mocked(db.insert).mock.results[0].value.values.mock.calls[0][0]
 			expect(insertedValues).toMatchObject({
 				matchId: 'm-wrongful',

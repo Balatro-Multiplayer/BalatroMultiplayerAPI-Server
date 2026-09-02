@@ -101,6 +101,34 @@ class MqttService {
 		)
 	}
 
+	// The seam a future Discord bot integration would subscribe to: one
+	// message per admin Service Queue item created (see
+	// service-queue.gateway.ts's enqueueServiceQueueItem, the sole caller).
+	// retain: false deliberately -- unlike publishModUpdate, this is an event
+	// STREAM (one message per item), not a single current-state value;
+	// retaining would only ever deliver the single most recent item to a
+	// late-joining subscriber, which is actively misleading. Consequence: a
+	// not-yet-connected/offline subscriber misses events with no replay --
+	// no outbox/delivery-tracking exists for this, a known gap deferred until
+	// an actual consumer needs at-least-once delivery.
+	async publishAdminQueueEvent(
+		eventType: 'queue_item_created',
+		payload: {
+			id: number
+			itemType: string
+			sourceId: string
+			subjectPlayerId: string | null
+			summary: string
+			createdAt: Date
+		},
+	): Promise<void> {
+		await this.publish(
+			'bmp/admin/queue-events',
+			JSON.stringify({ eventType, ...payload, timestamp: new Date().toISOString() }),
+			{ qos: 1, retain: false },
+		)
+	}
+
 	async cleanupLobbyTopics(
 		lobbyCode: string,
 		playerIds?: string[],

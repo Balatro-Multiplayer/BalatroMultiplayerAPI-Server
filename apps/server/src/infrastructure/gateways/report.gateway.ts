@@ -4,6 +4,7 @@ import { reports, reportedLobbyMessages } from '../db/schema.js'
 import type { Lobby } from '../../state/lobby.js'
 import type { ReportType } from '../../shared/types/index.js'
 import { getMostRecentRunForLobbyCode } from './replay-log.gateway.js'
+import { enqueueServiceQueueItem } from './service-queue.gateway.js'
 
 export type { ReportType } from '../../shared/types/index.js'
 
@@ -65,6 +66,13 @@ export async function submitReport(
 			)
 		}
 	}
+
+	await enqueueServiceQueueItem({
+		itemType: 'report',
+		sourceId: String(row!.id),
+		subjectPlayerId: reportedId,
+		summary: `${type} report — lobby ${lobby.code}`,
+	})
 
 	return row!.id
 }

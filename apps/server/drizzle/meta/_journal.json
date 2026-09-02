@@ -260,6 +260,13 @@
       "when": 1791200000000,
       "tag": "0036_server_config_feature_flags",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791300000000,
+      "tag": "0037_service_queue_items",
+      "breakpoints": true
     }
   ]
 }

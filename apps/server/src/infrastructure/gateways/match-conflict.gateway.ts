@@ -2,6 +2,7 @@ import { count, desc, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { matchResultConflicts } from '../db/schema.js'
 import type { PlacementEntry } from '../../shared/types/index.js'
+import { enqueueServiceQueueItem } from './service-queue.gateway.js'
 
 export type MatchResultConflictRecord = typeof matchResultConflicts.$inferSelect
 
@@ -15,7 +16,14 @@ export async function insertMatchConflict(data: {
 	conflictingReporterId: string
 	conflictingPlacements: PlacementEntry[]
 }): Promise<void> {
-	await db.insert(matchResultConflicts).values(data)
+	const [row] = await db.insert(matchResultConflicts).values(data).returning({ id: matchResultConflicts.id })
+
+	await enqueueServiceQueueItem({
+		itemType: 'match_conflict',
+		sourceId: String(row!.id),
+		subjectPlayerId: null,
+		summary: `Match result conflict — lobby ${data.lobbyCode}`,
+	})
 }
 
 export async function listMatchConflicts(

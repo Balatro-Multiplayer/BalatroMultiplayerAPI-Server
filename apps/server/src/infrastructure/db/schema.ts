@@ -265,6 +265,91 @@ export const forfeitReconciliationFlags = pgTable('forfeit_reconciliation_flags'
 		.defaultNow(),
 })
 
+// Single lightweight pointer/index row per moderation item needing human
+// review, across all 5 source types (see service-queue.gateway.ts). Every
+// item-creation site inserts here via the shared enqueueServiceQueueItem
+// helper -- this table is the ONLY thing the admin Service Queue list page
+// reads (no join across the 5 source tables), and the single call site that
+// fires the future-Discord-bot MQTT seam (mqttService.publishAdminQueueEvent).
+//
+// status is a deliberately simplified 'open'|'resolved' vocabulary --
+// collapsed from whichever richer vocabulary the source table (if any) uses
+// (e.g. forfeit_reconciliation_flags.status is 'open'|'voided'|'dismissed').
+// resolutionAction records which specific verb actually closed it (e.g.
+// 'resolve', 'dismiss', 'void', 'ban_chat', 'ban_queue', 'ban_account').
+// This table is NOT the sole source of truth for the 3 mature types
+// (reports, match_result_conflicts, forfeit_reconciliation_flags): reports.status
+// has a real independent reader today (the player-scoped GET /api/reports/:id
+// status page) so it must stay accurate -- resolving one of those 3 types
+// writes BOTH the source table's own status column (via the existing
+// resolveReport/resolveMatchConflict/dismissForfeitReconciliationFlag/
+// voidForfeitReconciliationFlag gateway functions, unchanged) and this row's
+// status, in one transaction. For the 2 gap types (flagged_chat, anti_cheat)
+// -- confirmed via grep to have zero other readers of any status-like
+// concept -- this table alone is authoritative; no status column was added
+// to flagged_messages or match_run_logs for this.
+export const serviceQueueItems = pgTable(
+	'service_queue_items',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		// Fixed taxonomy, app-level validated only (see SERVICE_QUEUE_ITEM_TYPES
+		// in service-queue.gateway.ts) -- same no-DB-CHECK precedent as
+		// reports.type/playerBans.banType. 'report' | 'flagged_chat' |
+		// 'match_conflict' | 'forfeit_reconciliation' | 'anti_cheat'.
+		itemType: varchar('item_type', { length: 32 }).notNull(),
+		// Stringified PK of the source row: reports.id / flagged_messages.id /
+		// match_result_conflicts.id / forfeit_reconciliation_flags.id (all
+		// integers, stored as text) -- EXCEPT anti_cheat, where match_run_logs
+		// has no single-column id (composite PK runId+playerId), so sourceId is
+		// lobby_runs.id (the run's uuid) and subjectPlayerId (below) supplies the
+		// other half of the composite key. No separate sourceTable column: the
+		// mapping itemType -> table/query-fn is a fixed 1:1 the action/detail
+		// dispatch registries already encode, so a redundant column would only
+		// invite drift.
+		sourceId: varchar('source_id', { length: 64 }).notNull(),
+		// The player this item is "about", for a future cross-type "all open
+		// items about this player" query. text, not uuid -- matches this
+		// schema's existing precedent of playerId columns being `text` where a
+		// temp/dev account must still be representable (reports.reportedId,
+		// flaggedMessages.playerId, matchRunLogs.playerId are all text; only
+		// forfeitReconciliationFlags.playerId is uuid). Null for match_conflict
+		// -- a result conflict implicates a MATCH, not a single accused player
+		// (two reporters disagree; neither is "the subject").
+		subjectPlayerId: text('subject_player_id'),
+		status: varchar('status', { length: 16 }).notNull().default('open'), // open | resolved
+		// Nullable, unpopulated by every v1 creation site -- schema-ready for a
+		// future priority-scoring pass without another migration.
+		priority: integer('priority'),
+		// Pre-rendered one-line list-row description, computed at insert time by
+		// the type-specific caller -- this is what makes the list page joinless.
+		summary: text('summary').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+		resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+		// 'admin:<playerId>' | 'moderator:<playerId>' -- same convention as
+		// playerBans.issuedBy / playerBans.liftedBy.
+		resolvedBy: text('resolved_by'),
+		resolutionAction: varchar('resolution_action', { length: 32 }),
+	},
+	(t) => [
+		// Defensive dedupe: the same source row should never enqueue twice.
+		// Also lets enqueueServiceQueueItem be an onConflictDoNothing upsert
+		// instead of needing its own pre-check.
+		uniqueIndex('service_queue_items_type_source_idx').on(t.itemType, t.sourceId),
+		// Backs the list page's default query: filter by status/itemType, sort
+		// by createdAt desc.
+		index('service_queue_items_status_type_created_idx').on(
+			t.status,
+			t.itemType,
+			t.createdAt,
+		),
+		index('service_queue_items_subject_player_idx')
+			.on(t.subjectPlayerId)
+			.where(sql`subject_player_id IS NOT NULL`),
+	],
+)
+
 // Persisted mirror of grace-period.service.ts's in-memory `gracePeriods` Map
 // -- a disconnected player's 2-minute countdown before auto-forfeit,
 // durable across a bmp-api restart. No FK on playerId, same precedent as

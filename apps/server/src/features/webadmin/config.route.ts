@@ -4,8 +4,8 @@ import { db } from '../../infrastructure/db/index.js'
 import { chatAllowlist, modVersions, serverConfig } from '../../infrastructure/db/schema.js'
 import { getConfig } from '../../state/config.js'
 import { loadConfigFromDb } from '../../infrastructure/gateways/config.gateway.js'
-import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
+import { requireAdmin } from '../../shared/utils/require-admin.js'
 
 // §6.4: AppConfig was only ever editable via a direct DB write plus
 // /admin/refresh-config (the ops-secret-gated reload, admin.route.ts) picking
@@ -19,13 +19,6 @@ import { AppError } from '../../shared/utils/errors.js'
 // PATCH /config/feature-flags below. testingMode remains env-var-only
 // (env.TESTING_MODE), surfaced read-only.
 const router = Router()
-
-async function requireAdmin(req: import('express').Request) {
-	const actingPlayer = await findPlayerById(req.player!.playerId)
-	if (!actingPlayer?.privileges.includes('admin')) {
-		throw new AppError('Only admins can edit platform configuration', 403)
-	}
-}
 
 router.get('/config', async (_req, res, next) => {
 	try {
