@@ -2,6 +2,7 @@ import { Router } from 'express'
 import type { NextFunction, Request, Response } from 'express'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { authenticate } from '../../middleware/authenticate.js'
+import archivesRouter from './archives.route.js'
 import blogRouter from './blog.route.js'
 import chatLogsRouter from './chat-logs.route.js'
 import configRouter from './config.route.js'
@@ -48,5 +49,6 @@ router.use(launcherReleasesRouter)
 router.use(configRouter)
 router.use(modsRouter)
 router.use(blogRouter)
+router.use(archivesRouter)
 
 export default router

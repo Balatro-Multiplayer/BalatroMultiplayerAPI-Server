@@ -35,3 +35,19 @@ export async function apiFetch<T>(
   }
   return res.json() as Promise<T>
 }
+
+// Auth here is a Bearer header, not a cookie -- a plain <img>/<video> src
+// can't attach one, so authenticated binary content (e.g. archived channel
+// attachments) has to be fetched as a Blob and turned into an object URL
+// instead, the same pattern already used for replay downloads
+// (admin/moderation/[reportId]/page.tsx's downloadReplay).
+export async function apiFetchBlob(path: string): Promise<Blob> {
+  const token = getToken()
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) {
+    throw new ApiError(res.status, `API error ${res.status}`)
+  }
+  return res.blob()
+}

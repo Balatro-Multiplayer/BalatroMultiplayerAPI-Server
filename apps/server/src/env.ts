@@ -100,4 +100,12 @@ export const env = {
 	// one shared optional() rather than two separately-required vars since
 	// the mods feature must keep working even before this token exists.
 	GITHUB_TOKEN: optional('GITHUB_TOKEN', ''),
+
+	// Directory containing archived Discord channel bundles (features/webadmin/
+	// archives.route.ts), each produced externally by the discord-channel-archiver
+	// bot and manually copied onto the server -- this app never writes here, only
+	// reads. Defaults to a relative path for local dev; the deployed container
+	// mounts a real host directory here read-only (see docker-compose.yml's
+	// api-blue volumes:).
+	ARCHIVE_DIR: optional('ARCHIVE_DIR', './archives'),
 } as const

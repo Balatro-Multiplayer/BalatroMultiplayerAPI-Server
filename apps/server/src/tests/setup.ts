@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { beforeEach, vi } from 'vitest'
 import { setConfig } from '../state/config.js'
 
@@ -8,6 +9,11 @@ process.env.STEAM_WEB_API_KEY = 'test-steam-key'
 process.env.EMQX_SYSTEM_PASSWORD = 'test-emqx-password'
 process.env.PLAYER_ID_SALT = 'test-player-id-salt'
 process.env.ADMIN_SECRET = 'test-admin-secret'
+// features/webadmin/archives.service.ts resolves ARCHIVE_DIR into an
+// absolute root once, at module load time -- must be set here (setupFiles
+// run before any test file's own imports) rather than in an individual test
+// file, where it would be too late.
+process.env.ARCHIVE_DIR = path.join(import.meta.dirname, 'fixtures', 'archives')
 
 // Mock the MQTT service globally — no real broker in tests
 vi.mock('../infrastructure/mqtt/mqtt.service.js', () => ({
@@ -40,7 +46,14 @@ vi.mock('../infrastructure/gateways/refresh-token.gateway.js', () => ({
 // specific call with vi.mocked(db.select).mockReturnValueOnce(...).
 function createSelectChain(): any {
 	const chain: any = {}
-	for (const method of ['from', 'where', 'orderBy', 'limit', 'offset', 'groupBy']) {
+	for (const method of [
+		'from',
+		'where',
+		'orderBy',
+		'limit',
+		'offset',
+		'groupBy',
+	]) {
 		chain[method] = vi.fn(() => chain)
 	}
 	chain.then = (resolve: (rows: unknown[]) => void) => resolve([])

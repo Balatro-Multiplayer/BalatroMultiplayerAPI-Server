@@ -1,0 +1,161 @@
+/* Styles for HTML strings built by lib/render-content.ts (same class names as
+   the discord-channel-archiver bot's static viewer). Everything is scoped
+   under .archive-content so these generic names (e.g. "mention", "content")
+   can never collide with the rest of the site's Tailwind-driven styles. */
+
+.archive-content .content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.4;
+}
+.archive-content .emoji {
+  width: 1.375em;
+  height: 1.375em;
+  vertical-align: -0.35em;
+  object-fit: contain;
+  display: inline;
+}
+.archive-content .mention {
+  color: var(--bal-blue, #5b9dd9);
+  background: rgba(91, 157, 217, 0.12);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+.archive-content .timestamp-tag {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 0.9em;
+}
+.archive-content .md-codeblock {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 4px 0;
+}
+.archive-content .md-codeblock code {
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 0.85em;
+  white-space: pre;
+}
+.archive-content .md-inline-code {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 0.85em;
+}
+.archive-content .md-quote {
+  border-left: 4px solid rgba(255, 255, 255, 0.2);
+  margin: 4px 0;
+  padding: 2px 0 2px 10px;
+}
+.archive-content .md-h1 {
+  font-size: 1.3em;
+  font-weight: 700;
+  margin: 6px 0 2px;
+}
+.archive-content .md-h2 {
+  font-size: 1.15em;
+  font-weight: 700;
+  margin: 6px 0 2px;
+}
+.archive-content .md-h3 {
+  font-size: 1.05em;
+  font-weight: 700;
+  margin: 4px 0 2px;
+}
+.archive-content .md-spoiler {
+  background: rgba(0, 0, 0, 0.4);
+  color: transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.archive-content .md-spoiler:hover,
+.archive-content .md-spoiler:active {
+  background: transparent;
+  color: inherit;
+}
+
+.archive-content .embeds {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  max-width: 520px;
+}
+.archive-content .embed {
+  background: rgba(0, 0, 0, 0.2);
+  border-left: 4px solid #4f545c;
+  border-radius: 4px;
+  padding: 12px 16px;
+  font-size: 0.9em;
+}
+.archive-content .embed-author {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.85em;
+  margin-bottom: 6px;
+}
+.archive-content .embed-author-icon,
+.archive-content .embed-footer-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+.archive-content .embed-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.archive-content .embed-description {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.4;
+}
+.archive-content .embed-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 8px;
+}
+.archive-content .embed-field {
+  flex: 1 1 100%;
+}
+.archive-content .embed-field.inline {
+  flex: 1 1 30%;
+  min-width: 120px;
+}
+.archive-content .embed-field-name {
+  font-weight: 600;
+  font-size: 0.85em;
+  margin-bottom: 2px;
+}
+.archive-content .embed-field-value {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85em;
+}
+.archive-content .embed-thumbnail {
+  max-width: 80px;
+  max-height: 80px;
+  border-radius: 4px;
+  float: right;
+  margin-left: 12px;
+}
+.archive-content .embed-image {
+  max-width: 100%;
+  border-radius: 4px;
+  margin-top: 8px;
+  display: block;
+}
+.archive-content .embed-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 0.8em;
+  opacity: 0.7;
+}
