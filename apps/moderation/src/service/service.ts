@@ -125,18 +125,35 @@ export type JudgeLane = {
 
 /**
  * Wraps the guard engine in a single stateful "lane": it knows how many
- * judgements are in flight and how long they take (EMA), so a message that
- * mathematically cannot make its deadline is rejected IMMEDIATELY
+ * judgements are in flight/queued and how long they take (EMA), so a message
+ * that mathematically cannot make its deadline is rejected IMMEDIATELY
  * (`{skipped: 'backlog'}`) instead of burning the full deadline first —
  * fail-closed overload feels instant, not slow. Deadline hit / engine failure
  * / engine not loaded all come back as `{skipped}` too. A judgement that
  * outlives its deadline still completes inside the engine (its llama sequence
  * stays busy), so it keeps counting toward depth until it truly finishes.
+ *
+ * Admitted judgements run through the engine ONE AT A TIME (`tail`, a
+ * promise-chain mutex), never concurrently. `engine.judge()` shares one
+ * node-llama-cpp `RankingContext` per process — live-measured, firing
+ * several `judge()` calls at it concurrently doesn't parallelize, it
+ * degrades: average latency ballooned 5-8x under concurrent load versus
+ * serial (750ms -> 3.4-6.4s), which also poisoned the EMA `canMeetDeadline`
+ * depends on (contention made completed judgements look slow, so the lane
+ * shed even more aggressively than the real bottleneck required). Locking
+ * makes both honest: each judgement runs at its clean, uncontended
+ * duration, so `avgJudgeMs` reflects true per-judgement cost and
+ * `(laneDepth + 1) * avgJudgeMs` becomes an accurate, additive queue-wait
+ * estimate instead of an optimistic one that reality kept beating.
  */
 export function createJudgeLane(engine: RankEngine): JudgeLane {
 	let inflight = 0
 	let avgJudgeMs: number | null = null
 	const EMA_ALPHA = 0.3
+	// The mutex: chains each admitted judgement's actual engine call after
+	// the previous one settles. Always resolves (never rejects), so one
+	// judgement erroring never wedges everything queued behind it.
+	let tail: Promise<void> = Promise.resolve()
 
 	return {
 		depth: () => inflight,
@@ -158,21 +175,32 @@ export function createJudgeLane(engine: RankEngine): JudgeLane {
 			}
 
 			inflight++
-			const started = performance.now()
-			const judgement = engine
-				.judge(text, context)
-				.then((j): GuardInput => {
+			const runOnLock = tail.then(() => {
+				const started = performance.now()
+				return engine.judge(text, context).then((j) => {
+					// Measured only across the actual engine call (not queue wait),
+					// so this stays a clean per-judgement cost the deadline math
+					// can add linearly across lane depth.
 					const took = performance.now() - started
 					avgJudgeMs =
 						avgJudgeMs === null
 							? took
 							: avgJudgeMs + EMA_ALPHA * (took - avgJudgeMs)
-					return {
+					return j
+				})
+			})
+			tail = runOnLock.then(
+				() => undefined,
+				() => undefined,
+			)
+			const judgement = runOnLock
+				.then(
+					(j): GuardInput => ({
 						safety: j.safety,
 						score: j.score,
 						contextUsed: j.contextUsed,
-					}
-				})
+					}),
+				)
 				.catch((): GuardInput => ({ skipped: 'engine_error' }))
 				.finally(() => {
 					inflight--
