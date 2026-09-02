@@ -3,7 +3,7 @@ import { authenticate } from '../../middleware/authenticate.js'
 import { getSession } from '../../state/index.js'
 import type { PlacementEntry } from '../../shared/types/index.js'
 import { AppError } from '../../shared/utils/errors.js'
-import { assertCanPlay, assertRankedEnabled } from '../../shared/utils/access.js'
+import { assertCanPlay, assertCasualQueueEnabled, assertRankedEnabled } from '../../shared/utils/access.js'
 import {
 	getLeaderboard,
 	getOwnRating,
@@ -45,6 +45,7 @@ export function createMatchmakingRouter(service: MatchmakingService): Router {
 			if (!Number.isInteger(maxPlayers) || maxPlayers < minPlayers)
 				throw new AppError('maxPlayers must be an integer >= minPlayers', 400)
 			assertRankedEnabled(isRanked(gameMode))
+			assertCasualQueueEnabled(isRanked(gameMode))
 
 			const result = await service.joinQueue(session, { modId, gameMode, minPlayers, maxPlayers })
 			res.status(200).json(result)

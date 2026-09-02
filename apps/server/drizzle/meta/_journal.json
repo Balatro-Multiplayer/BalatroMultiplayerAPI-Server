@@ -253,6 +253,13 @@
       "when": 1791100000000,
       "tag": "0035_blog_posts",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791200000000,
+      "tag": "0036_server_config_feature_flags",
+      "breakpoints": true
     }
   ]
 }

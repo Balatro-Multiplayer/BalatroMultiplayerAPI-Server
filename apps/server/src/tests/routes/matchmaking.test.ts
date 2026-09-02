@@ -229,6 +229,44 @@ describe('matchmaking routes', () => {
 				setConfig(original)
 			}
 		})
+
+		it('returns 403 for a casual gameMode when casual queueing is disabled server-side', async () => {
+			const original = getConfig()
+			setConfig({ ...original, casualQueueEnabled: false })
+			try {
+				const res = await request(app)
+					.post('/api/matchmaking/queue')
+					.set('Authorization', authHeader('p1', 'Alice'))
+					.send({
+						modId: 'mod1',
+						gameMode: 'mode1',
+						minPlayers: 2,
+						maxPlayers: 4,
+					})
+				expect(res.status).toBe(403)
+			} finally {
+				setConfig(original)
+			}
+		})
+
+		it('still allows a ranked gameMode when casual queueing is disabled server-side', async () => {
+			const original = getConfig()
+			setConfig({ ...original, casualQueueEnabled: false })
+			try {
+				const res = await request(app)
+					.post('/api/matchmaking/queue')
+					.set('Authorization', authHeader('p1', 'Alice'))
+					.send({
+						modId: 'mod1',
+						gameMode: 'ranked:mode1',
+						minPlayers: 2,
+						maxPlayers: 4,
+					})
+				expect(res.status).toBe(200)
+			} finally {
+				setConfig(original)
+			}
+		})
 	})
 
 	describe('DELETE /api/matchmaking/queue', () => {

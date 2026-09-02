@@ -9,12 +9,23 @@ export interface AppConfig {
 	tosVersion: number
 	mods: ModConfig[]
 	chatAllowlist: Set<string>
-	// Global chat kill-switch. When falsy, the server rejects all chat sends.
-	chatEnabled?: boolean
-	// When truthy, only 'tester'-privileged players may create lobbies / queue.
+	// DB-backed (server_config.chat_enabled). Global chat kill-switch. When
+	// falsy, the server rejects all chat sends.
+	chatEnabled: boolean
+	// Env-var only (env.TESTING_MODE), not admin-editable. When truthy, only
+	// 'tester'-privileged players may create lobbies / queue.
 	testingMode?: boolean
-	// When falsy, ranked queue requests are rejected; casual is unaffected.
-	rankedEnabled?: boolean
+	// DB-backed (server_config.ranked_enabled). When falsy, ranked queue
+	// requests are rejected; casual is unaffected.
+	rankedEnabled: boolean
+	// DB-backed (server_config.casual_queue_enabled). When falsy, non-ranked
+	// queue requests are rejected; ranked is unaffected.
+	casualQueueEnabled: boolean
+	// DB-backed (server_config.lobby_creation_enabled). When falsy, manual
+	// lobby creation (POST /lobbies) is rejected. Does NOT gate lobbies the
+	// matchmaking system auto-creates on match found -- see rankedEnabled/
+	// casualQueueEnabled for that.
+	lobbyCreationEnabled: boolean
 }
 
 let _config: AppConfig = {
@@ -24,6 +35,8 @@ let _config: AppConfig = {
 	chatEnabled: false,
 	testingMode: false,
 	rankedEnabled: true,
+	casualQueueEnabled: true,
+	lobbyCreationEnabled: true,
 }
 
 export function getConfig(): AppConfig {

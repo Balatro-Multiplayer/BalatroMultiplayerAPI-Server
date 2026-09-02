@@ -113,6 +113,14 @@ export const actionLogs = pgTable('action_logs', {
 export const serverConfig = pgTable('server_config', {
 	id: integer('id').primaryKey().default(1),
 	tosVersion: integer('tos_version').notNull().default(1),
+	// Runtime-toggleable feature flags, admin-editable via
+	// webadmin/config.route.ts's PATCH /config/feature-flags. Previously
+	// chatEnabled/rankedEnabled were env-var-only (no persistence path); see
+	// migration 0036 for the rollout note on matching production env values.
+	chatEnabled: boolean('chat_enabled').notNull().default(false),
+	rankedEnabled: boolean('ranked_enabled').notNull().default(true),
+	casualQueueEnabled: boolean('casual_queue_enabled').notNull().default(true),
+	lobbyCreationEnabled: boolean('lobby_creation_enabled').notNull().default(true),
 	updatedAt: timestamp('updated_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),

@@ -58,17 +58,9 @@ export const env = {
 
 	WEB_BASE_URL: optional('WEB_BASE_URL', 'https://new.balatromp.com'),
 
-	// When false, the server rejects all chat sends with an error. Off for now.
-	CHAT_ENABLED: optionalBool('CHAT_ENABLED', false),
-
 	// When true, only players holding the 'tester' privilege may create lobbies or
 	// queue for matches. Everyone else is rejected. Off by default.
 	TESTING_MODE: optionalBool('TESTING_MODE', false),
-
-	// When false, the server rejects queue requests for ranked game modes (gameMode
-	// strings prefixed 'ranked:', see matchmaking/queue.ts's isRanked) with an error;
-	// casual queueing is unaffected. On by default.
-	RANKED_ENABLED: optionalBool('RANKED_ENABLED', true),
 
 	// Dev-only escape hatch for local Ranked testing without a real BET launcher
 	// (e.g. ClaudeControl-driven clients, which can never answer the launcher-

@@ -14,12 +14,10 @@ import { AppError } from '../../shared/utils/errors.js'
 // precedent), not the router-level admin-or-moderator webAdmin gate, since
 // platform config has the same self-inflicted-blast-radius shape.
 //
-// chatEnabled/testingMode/rankedEnabled are NOT exposed here: all three are
-// sourced from env vars (env.CHAT_ENABLED/env.TESTING_MODE/env.RANKED_ENABLED)
-// at loadConfigFromDb() time, not from any DB column -- there is no
-// persistence path for a value written here to survive the next
-// reload/restart. Surfaced read-only instead of building a control that
-// would silently stop working on the next refresh.
+// chatEnabled/rankedEnabled/casualQueueEnabled/lobbyCreationEnabled are now
+// DB-backed columns on server_config (migration 0036) and writable via
+// PATCH /config/feature-flags below. testingMode remains env-var-only
+// (env.TESTING_MODE), surfaced read-only.
 const router = Router()
 
 async function requireAdmin(req: import('express').Request) {
@@ -36,9 +34,60 @@ router.get('/config', async (_req, res, next) => {
 			tosVersion: config.tosVersion,
 			mods: config.mods,
 			chatAllowlist: [...config.chatAllowlist],
-			chatEnabled: config.chatEnabled ?? false,
+			chatEnabled: config.chatEnabled,
 			testingMode: config.testingMode ?? false,
-			rankedEnabled: config.rankedEnabled ?? true,
+			rankedEnabled: config.rankedEnabled,
+			casualQueueEnabled: config.casualQueueEnabled,
+			lobbyCreationEnabled: config.lobbyCreationEnabled,
+		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.patch('/config/feature-flags', async (req, res, next) => {
+	try {
+		await requireAdmin(req)
+		const { chatEnabled, rankedEnabled, casualQueueEnabled, lobbyCreationEnabled } = req.body as {
+			chatEnabled?: unknown
+			rankedEnabled?: unknown
+			casualQueueEnabled?: unknown
+			lobbyCreationEnabled?: unknown
+		}
+
+		const patch: Partial<{
+			chatEnabled: boolean
+			rankedEnabled: boolean
+			casualQueueEnabled: boolean
+			lobbyCreationEnabled: boolean
+		}> = {}
+		for (const [key, value] of Object.entries({
+			chatEnabled,
+			rankedEnabled,
+			casualQueueEnabled,
+			lobbyCreationEnabled,
+		})) {
+			if (value === undefined) continue
+			if (typeof value !== 'boolean') {
+				throw new AppError(`${key} must be a boolean`, 400)
+			}
+			;(patch as Record<string, boolean>)[key] = value
+		}
+		if (Object.keys(patch).length === 0) {
+			throw new AppError('At least one flag must be provided', 400)
+		}
+
+		await db
+			.update(serverConfig)
+			.set({ ...patch, updatedAt: new Date() })
+			.where(eq(serverConfig.id, 1))
+
+		const config = await loadConfigFromDb()
+		res.json({
+			chatEnabled: config.chatEnabled,
+			rankedEnabled: config.rankedEnabled,
+			casualQueueEnabled: config.casualQueueEnabled,
+			lobbyCreationEnabled: config.lobbyCreationEnabled,
 		})
 	} catch (err) {
 		next(err)

@@ -39,6 +39,9 @@ describe('GET /api/webadmin/config', () => {
 			chatAllowlist: new Set(['gg', 'nice']),
 			chatEnabled: true,
 			testingMode: false,
+			rankedEnabled: false,
+			casualQueueEnabled: true,
+			lobbyCreationEnabled: true,
 		})
 
 		const token = authAsModerator('mod-cfg-1', 'Mod')
@@ -52,6 +55,9 @@ describe('GET /api/webadmin/config', () => {
 		expect(res.body.chatAllowlist.sort()).toEqual(['gg', 'nice'])
 		expect(res.body.chatEnabled).toBe(true)
 		expect(res.body.testingMode).toBe(false)
+		expect(res.body.rankedEnabled).toBe(false)
+		expect(res.body.casualQueueEnabled).toBe(true)
+		expect(res.body.lobbyCreationEnabled).toBe(true)
 
 		setConfig(original)
 	})
@@ -98,6 +104,69 @@ describe('PATCH /api/webadmin/config/tos-version', () => {
 
 		expect(res.status).toBe(200)
 		expect(res.body.tosVersion).toBe(5)
+	})
+})
+
+describe('PATCH /api/webadmin/config/feature-flags', () => {
+	it('returns 403 for a moderator', async () => {
+		const token = authAsModerator('mod-cfg-flags-1', 'ModFlags')
+		const res = await request(app)
+			.patch('/api/webadmin/config/feature-flags')
+			.set('Authorization', token)
+			.send({ rankedEnabled: false })
+
+		expect(res.status).toBe(403)
+	})
+
+	it('returns 400 when a provided flag is not a boolean', async () => {
+		const token = authAsAdmin('admin-cfg-flags-1', 'AdminFlags')
+		const res = await request(app)
+			.patch('/api/webadmin/config/feature-flags')
+			.set('Authorization', token)
+			.send({ chatEnabled: 'yes' })
+
+		expect(res.status).toBe(400)
+	})
+
+	it('returns 400 for an empty body', async () => {
+		const token = authAsAdmin('admin-cfg-flags-2', 'AdminFlags2')
+		const res = await request(app)
+			.patch('/api/webadmin/config/feature-flags')
+			.set('Authorization', token)
+			.send({})
+
+		expect(res.status).toBe(400)
+	})
+
+	it('writes only the provided flags (partial update) and reloads config for an admin', async () => {
+		const token = authAsAdmin('admin-cfg-flags-3', 'AdminFlags3')
+		const setMock = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) })
+		;(db as any).update = vi.fn().mockReturnValue({ set: setMock })
+		vi.mocked(configGateway.loadConfigFromDb).mockResolvedValue({
+			tosVersion: 1,
+			mods: [],
+			chatAllowlist: new Set(),
+			chatEnabled: false,
+			testingMode: false,
+			rankedEnabled: false,
+			casualQueueEnabled: true,
+			lobbyCreationEnabled: true,
+		} as any)
+
+		const res = await request(app)
+			.patch('/api/webadmin/config/feature-flags')
+			.set('Authorization', token)
+			.send({ rankedEnabled: false })
+
+		expect(res.status).toBe(200)
+		expect(res.body.rankedEnabled).toBe(false)
+		expect(setMock).toHaveBeenCalledTimes(1)
+		const patch = setMock.mock.calls[0][0]
+		expect(patch.rankedEnabled).toBe(false)
+		expect(patch).not.toHaveProperty('chatEnabled')
+		expect(patch).not.toHaveProperty('casualQueueEnabled')
+		expect(patch).not.toHaveProperty('lobbyCreationEnabled')
+		expect(patch.updatedAt).toBeInstanceOf(Date)
 	})
 })
 

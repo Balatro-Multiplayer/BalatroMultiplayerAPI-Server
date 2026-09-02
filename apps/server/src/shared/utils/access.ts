@@ -25,3 +25,36 @@ export function assertRankedEnabled(isRankedGameMode: boolean): void {
 		throw new AppError('Ranked matchmaking is currently disabled.', 403)
 	}
 }
+
+/**
+ * Gate for joining the casual (non-ranked) queue. A no-op for ranked game
+ * modes (see assertRankedEnabled for that gate) and a no-op when casual play
+ * is enabled (the default); rejects casual queue requests otherwise.
+ */
+export function assertCasualQueueEnabled(isRankedGameMode: boolean): void {
+	if (!isRankedGameMode && getConfig().casualQueueEnabled === false) {
+		throw new AppError('Casual matchmaking is currently disabled.', 403)
+	}
+}
+
+/**
+ * Gate for manually creating a lobby (POST /lobbies). Does not affect lobbies
+ * the matchmaking system auto-creates on match found -- see
+ * assertRankedEnabled/assertCasualQueueEnabled for that.
+ */
+export function assertLobbyCreationEnabled(): void {
+	if (getConfig().lobbyCreationEnabled === false) {
+		throw new AppError('Lobby creation is currently disabled.', 403)
+	}
+}
+
+/**
+ * Gate for sending a chat message. A no-op when chat is enabled; rejects
+ * otherwise. Per-account chatEnabled/chatBlocked and active bans are checked
+ * separately by the caller.
+ */
+export function assertChatEnabled(): void {
+	if (!getConfig().chatEnabled) {
+		throw new AppError('Chat is not enabled', 403)
+	}
+}

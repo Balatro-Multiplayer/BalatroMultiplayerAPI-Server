@@ -28,9 +28,11 @@ export async function loadConfigFromDb(): Promise<AppConfig> {
 		tosVersion,
 		mods,
 		chatAllowlist: chatAllowlistSet,
-		chatEnabled: env.CHAT_ENABLED,
+		chatEnabled: configRow?.chatEnabled ?? false,
 		testingMode: env.TESTING_MODE,
-		rankedEnabled: env.RANKED_ENABLED,
+		rankedEnabled: configRow?.rankedEnabled ?? true,
+		casualQueueEnabled: configRow?.casualQueueEnabled ?? true,
+		lobbyCreationEnabled: configRow?.lobbyCreationEnabled ?? true,
 	}
 	setConfig(config)
 	return config

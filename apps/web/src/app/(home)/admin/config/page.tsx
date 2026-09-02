@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 
 interface ModEntry {
   modId: string
@@ -24,7 +25,19 @@ interface ConfigResponse {
   chatAllowlist: string[]
   chatEnabled: boolean
   testingMode: boolean
+  rankedEnabled: boolean
+  casualQueueEnabled: boolean
+  lobbyCreationEnabled: boolean
 }
+
+type FeatureFlag = 'chatEnabled' | 'rankedEnabled' | 'casualQueueEnabled' | 'lobbyCreationEnabled'
+
+const FEATURE_FLAGS: { key: FeatureFlag; label: string; description: string }[] = [
+  { key: 'chatEnabled', label: 'Text Chat', description: 'Lobby chat sends are rejected when off.' },
+  { key: 'rankedEnabled', label: 'Ranked Queue', description: 'Ranked matchmaking requests are rejected when off.' },
+  { key: 'casualQueueEnabled', label: 'Casual Queue', description: 'Casual matchmaking requests are rejected when off.' },
+  { key: 'lobbyCreationEnabled', label: 'Lobby Creation', description: 'Manual lobby creation is rejected when off.' },
+]
 
 export default function AdminConfigPage() {
   const { isAdmin, isModerator, pending } = useAuth()
@@ -46,6 +59,16 @@ export default function AdminConfigPage() {
   const invalidate = () => qc.invalidateQueries({ queryKey: ['admin-config'] })
   const onErr = (e: unknown) =>
     toast.error(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Request failed')
+
+  const flagsMut = useMutation({
+    mutationFn: (patch: Partial<Pick<ConfigResponse, FeatureFlag>>) =>
+      apiFetch('/webadmin/config/feature-flags', { method: 'PATCH', body: JSON.stringify(patch) }),
+    onSuccess: () => {
+      toast.success('Feature flag updated')
+      invalidate()
+    },
+    onError: onErr,
+  })
 
   const [tosVersion, setTosVersion] = useState('')
   useEffect(() => {
@@ -228,12 +251,27 @@ export default function AdminConfigPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Chat / Testing Mode</CardTitle>
-              <CardDescription>Set via environment variable at deploy time — not editable here.</CardDescription>
+              <CardTitle>Feature Flags</CardTitle>
+              <CardDescription>Take effect immediately, no redeploy needed.</CardDescription>
             </CardHeader>
-            <CardContent className='space-y-2 text-sm'>
-              <p>Chat enabled: <span className='font-semibold'>{data.chatEnabled ? 'Yes' : 'No'}</span></p>
-              <p>Testing mode: <span className='font-semibold'>{data.testingMode ? 'Yes' : 'No'}</span></p>
+            <CardContent className='space-y-4'>
+              {FEATURE_FLAGS.map((flag) => (
+                <div key={flag.key} className='flex items-center justify-between gap-3'>
+                  <div className='space-y-0.5'>
+                    <Label htmlFor={flag.key}>{flag.label}</Label>
+                    <p className='text-sm text-muted-foreground'>{flag.description}</p>
+                  </div>
+                  <Switch
+                    id={flag.key}
+                    checked={data[flag.key]}
+                    disabled={!isAdmin || flagsMut.isPending}
+                    onCheckedChange={(checked) => flagsMut.mutate({ [flag.key]: checked })}
+                  />
+                </div>
+              ))}
+              <div className='border-t border-border pt-3 text-sm text-muted-foreground'>
+                Testing mode: <span className='font-semibold'>{data.testingMode ? 'Yes' : 'No'}</span> (set via environment variable at deploy time — not editable here)
+              </div>
             </CardContent>
           </Card>
         </>

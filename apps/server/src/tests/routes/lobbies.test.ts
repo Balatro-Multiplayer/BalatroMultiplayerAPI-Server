@@ -2,6 +2,7 @@ import request from 'supertest'
 import { afterEach, describe, expect, it } from 'vitest'
 import { signJwt } from '../../features/auth/jwt.js'
 import { clearAllSpectatorGrants } from '../../infrastructure/mqtt/spectator-registry.js'
+import { getConfig, setConfig } from '../../state/config.js'
 import { createSession, lobbies } from '../../state/index.js'
 import { Lobby } from '../../state/lobby.js'
 import { createTestApp } from './app.js'
@@ -82,6 +83,20 @@ describe('lobby routes', () => {
 				.send({ modId: 'cool_mod', maxPlayers: 200 })
 
 			expect(res.status).toBe(400)
+		})
+
+		it('returns 403 when lobby creation is disabled server-side', async () => {
+			const original = getConfig()
+			setConfig({ ...original, lobbyCreationEnabled: false })
+			try {
+				const res = await request(app)
+					.post('/api/lobbies')
+					.set('Authorization', authHeader('host1', 'Alice'))
+					.send({ modId: 'cool_mod' })
+				expect(res.status).toBe(403)
+			} finally {
+				setConfig(original)
+			}
 		})
 	})
 

@@ -4,10 +4,9 @@ import { hasActiveBan } from '../../infrastructure/gateways/ban.gateway.js'
 import { isReportType, submitReport } from '../../infrastructure/gateways/report.gateway.js'
 import { grantSpectator } from '../../infrastructure/mqtt/spectator-registry.js'
 import { authenticate } from '../../middleware/authenticate.js'
-import { assertCanPlay } from '../../shared/utils/access.js'
+import { assertCanPlay, assertChatEnabled, assertLobbyCreationEnabled } from '../../shared/utils/access.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { env } from '../../env.js'
-import { getConfig } from '../../state/config.js'
 import { getLobby, getSession, lobbies } from '../../state/index.js'
 import { signJwt } from '../auth/jwt.js'
 import { processAndPublishMessage } from '../chat/chat.service.js'
@@ -63,6 +62,7 @@ export function createLobbyRouter(service: LobbyService): Router {
 			const session = getSession(req.player!.playerId)
 			if (!session) throw new AppError('Session not found', 401)
 			assertCanPlay(session)
+			assertLobbyCreationEnabled()
 
 			const { modId, maxPlayers } = req.body
 			if (!modId || typeof modId !== 'string') {
@@ -225,9 +225,7 @@ export function createLobbyRouter(service: LobbyService): Router {
 			const session = getSession(req.player!.playerId)
 			if (!session) throw new AppError('Session not found', 401)
 
-			if (!getConfig().chatEnabled) {
-				throw new AppError('Chat is not enabled', 403)
-			}
+			assertChatEnabled()
 
 			if (!session.chatEnabled || session.chatBlocked) {
 				throw new AppError('Chat is not enabled for this account', 403)
