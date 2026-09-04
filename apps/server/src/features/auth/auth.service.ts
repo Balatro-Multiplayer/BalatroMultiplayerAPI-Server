@@ -57,7 +57,7 @@ function sessionAndToken(session: PlayerSession): SessionAndToken {
 	return { session, token: signSessionJwt(session) }
 }
 
-function dbPlayerToSessionInit(
+export function dbPlayerToSessionInit(
 	dbPlayer: PlayerRecord,
 	overrides: Partial<SessionInit> = {},
 ): SessionInit {
