@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import {
 	findBanEvasionMatches,
-	getHardwareFingerprintStats,
+	getHardwareIdCoverage,
 } from '../../infrastructure/gateways/launcher-integrity.gateway.js'
 
 // Mounted under webadmin.route.ts's router, which already gates every route
@@ -19,14 +19,15 @@ router.get('/ban-evasion', async (_req, res, next) => {
 	}
 })
 
-// "Total IDs Captured" summary on the same page - a separate call rather
-// than folding into the response above, since it's conceptually distinct
-// (global collection coverage vs. specific suspected-alt matches) and only
-// needs recomputing on page load, not on every match-list refresh.
-router.get('/hardware-fingerprint-stats', async (_req, res, next) => {
+// "ID types captured, per platform" summary on the same page - a separate
+// call rather than folding into the response above, since it's
+// conceptually distinct (global collection coverage vs. specific
+// suspected-alt matches) and only needs recomputing on page load, not on
+// every match-list refresh.
+router.get('/hardware-id-coverage', async (_req, res, next) => {
 	try {
-		const stats = await getHardwareFingerprintStats()
-		res.json(stats)
+		const coverage = await getHardwareIdCoverage()
+		res.json(coverage)
 	} catch (err) {
 		next(err)
 	}

@@ -752,13 +752,16 @@ export const launcherIntegrityEvents = pgTable(
 // One row per (player, hardware component) the launcher has ever attested to,
 // submitted only alongside a launcher-integrity LOGIN challenge (never
 // periodic -- see launcher-integrity.service.ts's handleChallengeResponse)
-// and only once that challenge's signature has already verified. Each
-// componentHash is itself an HMAC-SHA256 the launcher computed locally
+// and only once that challenge's signature has already verified. Almost
+// every componentHash is an HMAC-SHA256 the launcher computed locally
 // (hardwarefingerprint.cpp) -- the raw hardware identifier never leaves the
-// player's machine, this table only ever sees the hash. Storage only for
-// now: no cross-player fuzzy-match/ban-evasion query is built on top of this
-// yet, but componentName+componentHash is indexed so that join is cheap to
-// add later ("N of M components match a previously-banned player").
+// player's machine, this table only ever sees the hash -- except
+// 'serverside_connection_id', a deliberate exception: it reproduces the old
+// BalatroMultiplayer mod's own unkeyed hash byte-for-byte so it can be
+// cross-referenced against that legacy system's own ban data (see
+// hardwarefingerprint.cpp's legacyEncryptString() comment for why). Indexed
+// on componentName+componentHash for the cross-player fuzzy-match/ban-
+// evasion query this backs (findBanEvasionMatches()).
 export const playerHardwareFingerprints = pgTable(
 	'player_hardware_fingerprints',
 	{
@@ -768,7 +771,7 @@ export const playerHardwareFingerprints = pgTable(
 			.references(() => players.id),
 		platform: varchar('platform', { length: 16 }).notNull(), // 'windows' | 'macos' | 'linux'
 		componentName: varchar('component_name', { length: 32 }).notNull(), // e.g. 'steam_id', 'disk_serial'
-		componentHash: varchar('component_hash', { length: 64 }).notNull(), // hex HMAC-SHA256
+		componentHash: varchar('component_hash', { length: 64 }).notNull(), // hex HMAC-SHA256 (unkeyed FNV-1a for 'serverside_connection_id' - see table comment)
 		firstSeenAt: timestamp('first_seen_at', { withTimezone: true })
 			.notNull()
 			.defaultNow(),

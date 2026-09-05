@@ -217,56 +217,48 @@ export async function getPlayerHardwareFingerprints(
 		.orderBy(playerHardwareFingerprints.componentName)
 }
 
-export interface HardwareFingerprintStats {
-	totalRows: number
+export interface HardwareIdCoverage {
 	byPlatform: {
 		platform: string
-		rowCount: number
-		playerCount: number
 		components: string[]
 	}[]
 }
 
-// "Total IDs Captured" summary on the Ban Evasion page - what's actually
-// being collected, in aggregate, right now. Aggregated in application code
-// rather than a grouped SQL query: this table is small admin-tooling data
-// (same reasoning findBanEvasionMatches() already relies on), and a plain
-// per-row scan is simpler to get right than three separate GROUP BY shapes
-// (row count, distinct player count, distinct component names) for what's
-// still a cheap one-time read.
-export async function getHardwareFingerprintStats(): Promise<HardwareFingerprintStats> {
+// "ID types captured, per platform" on the Ban Evasion page - a coverage
+// listing (which component types this platform's launcher actually
+// produces), not a count. Deliberately not "N IDs captured" - a row/player
+// count reads as a meaningful metric but isn't really one here (it's just
+// "how many players have connected", restated), where a plain admin/
+// moderator question this answers directly is "does macOS actually give us
+// anything besides hardware_serial." Aggregated in application code rather
+// than a grouped SQL query - same reasoning findBanEvasionMatches() already
+// relies on: this table is small admin-tooling data, and a plain per-row
+// scan is simpler to get right than a GROUP BY + array_agg for what's still
+// a cheap one-time read.
+export async function getHardwareIdCoverage(): Promise<HardwareIdCoverage> {
 	const rows = await db
-		.select({
+		.selectDistinct({
 			platform: playerHardwareFingerprints.platform,
 			componentName: playerHardwareFingerprints.componentName,
-			playerId: playerHardwareFingerprints.playerId,
 		})
 		.from(playerHardwareFingerprints)
 
-	const byPlatform = new Map<
-		string,
-		{ rowCount: number; playerIds: Set<string>; components: Set<string> }
-	>()
+	const byPlatform = new Map<string, Set<string>>()
 	for (const row of rows) {
-		let entry = byPlatform.get(row.platform)
-		if (!entry) {
-			entry = { rowCount: 0, playerIds: new Set(), components: new Set() }
-			byPlatform.set(row.platform, entry)
+		let components = byPlatform.get(row.platform)
+		if (!components) {
+			components = new Set()
+			byPlatform.set(row.platform, components)
 		}
-		entry.rowCount++
-		entry.playerIds.add(row.playerId)
-		entry.components.add(row.componentName)
+		components.add(row.componentName)
 	}
 
 	return {
-		totalRows: rows.length,
 		byPlatform: [...byPlatform.entries()]
-			.map(([platform, entry]) => ({
+			.map(([platform, components]) => ({
 				platform,
-				rowCount: entry.rowCount,
-				playerCount: entry.playerIds.size,
-				components: [...entry.components].sort(),
+				components: [...components].sort(),
 			}))
-			.sort((a, b) => b.rowCount - a.rowCount),
+			.sort((a, b) => a.platform.localeCompare(b.platform)),
 	}
 }

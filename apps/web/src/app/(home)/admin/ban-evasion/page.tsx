@@ -35,16 +35,13 @@ interface BanEvasionResponse {
 	matches: BanEvasionMatch[]
 }
 
-interface PlatformStats {
+interface PlatformCoverage {
 	platform: string
-	rowCount: number
-	playerCount: number
 	components: string[]
 }
 
-interface HardwareFingerprintStatsResponse {
-	totalRows: number
-	byPlatform: PlatformStats[]
+interface HardwareIdCoverageResponse {
+	byPlatform: PlatformCoverage[]
 }
 
 // Component reliability legend, kept next to the table rather than only in
@@ -71,6 +68,11 @@ const COMPONENT_RELIABILITY: { label: string; components: string[] }[] = [
 			'Not spoofable, but also not distinguishing (common CPU model) or not a hardware signal at all (a new account, by definition)',
 		components: ['cpu_id', 'steam_id'],
 	},
+	{
+		label:
+			"Legacy bridge to the old BalatroMultiplayer mod's own connection ID - trivial to fake AND, unlike every other component above, not HMAC-keyed either (matching the old system's value exactly required reproducing its original unkeyed hash)",
+		components: ['serverside_connection_id'],
+	},
 ]
 
 export default function BanEvasionPage() {
@@ -89,13 +91,13 @@ export default function BanEvasionPage() {
 	})
 
 	// Separate call from the matches above - this is a different question
-	// (what's actually being collected, in aggregate, right now) than
+	// (which ID types this platform's launcher actually produces) than
 	// specific suspected-alt pairs, and only needs to load once per visit,
 	// not whenever the match list itself would refresh.
-	const { data: stats, isLoading: statsLoading } =
-		useQuery<HardwareFingerprintStatsResponse>({
-			queryKey: ['admin-hardware-fingerprint-stats'],
-			queryFn: () => apiFetch('/webadmin/hardware-fingerprint-stats'),
+	const { data: coverage, isLoading: coverageLoading } =
+		useQuery<HardwareIdCoverageResponse>({
+			queryKey: ['admin-hardware-id-coverage'],
+			queryFn: () => apiFetch('/webadmin/hardware-id-coverage'),
 			enabled: canAccess,
 		})
 
@@ -119,56 +121,37 @@ export default function BanEvasionPage() {
 
 			<Card>
 				<CardHeader>
-					<CardTitle className="text-base">Total IDs Captured</CardTitle>
+					<CardTitle className="text-base">
+						ID Types Captured, by Platform
+					</CardTitle>
 				</CardHeader>
 				<CardContent className="space-y-3 text-sm">
-					{statsLoading ? (
+					{coverageLoading ? (
 						<p className="text-muted-foreground">Loading…</p>
+					) : (coverage?.byPlatform ?? []).length === 0 ? (
+						<p className="text-muted-foreground">Nothing captured yet.</p>
 					) : (
-						<>
-							<p>
-								<span className="font-bold text-lg">
-									{stats?.totalRows ?? 0}
-								</span>{' '}
-								<span className="text-muted-foreground">
-									hardware/device IDs captured across every player, all
-									platforms.
-								</span>
-							</p>
-							{(stats?.byPlatform ?? []).length === 0 ? (
-								<p className="text-muted-foreground">Nothing captured yet.</p>
-							) : (
-								<div className="space-y-2">
-									{stats?.byPlatform.map((p) => (
-										<div
-											key={p.platform}
-											className="rounded-md border border-border p-3"
-										>
-											<div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-												<span className="font-semibold capitalize">
-													{p.platform}
-												</span>
-												<span className="text-muted-foreground text-xs">
-													{p.rowCount} ID{p.rowCount === 1 ? '' : 's'} across{' '}
-													{p.playerCount} player{p.playerCount === 1 ? '' : 's'}
-												</span>
-											</div>
-											<div className="mt-1.5 flex flex-wrap gap-1">
-												{p.components.map((c) => (
-													<Badge
-														key={c}
-														variant="outline"
-														className="font-mono text-[10px]"
-													>
-														{c}
-													</Badge>
-												))}
-											</div>
-										</div>
-									))}
+						<div className="space-y-2">
+							{coverage?.byPlatform.map((p) => (
+								<div
+									key={p.platform}
+									className="rounded-md border border-border p-3"
+								>
+									<span className="font-semibold capitalize">{p.platform}</span>
+									<div className="mt-1.5 flex flex-wrap gap-1">
+										{p.components.map((c) => (
+											<Badge
+												key={c}
+												variant="outline"
+												className="font-mono text-[10px]"
+											>
+												{c}
+											</Badge>
+										))}
+									</div>
 								</div>
-							)}
-						</>
+							))}
+						</div>
 					)}
 				</CardContent>
 			</Card>
