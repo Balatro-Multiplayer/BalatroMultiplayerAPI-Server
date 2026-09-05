@@ -85,13 +85,18 @@ export async function deletePlayerHardwareFingerprints(
 		.where(eq(playerHardwareFingerprints.playerId, playerId))
 }
 
+export interface MatchedComponent {
+	componentName: string
+	componentHash: string
+}
+
 export interface BanEvasionMatch {
 	bannedPlayerId: string
 	bannedPlayerName: string
 	matchedPlayerId: string
 	matchedPlayerName: string
 	matchedPlayerHasActiveBan: boolean
-	matchedComponents: string[]
+	matchedComponents: MatchedComponent[]
 }
 
 // Every player sharing >=1 hardware component with a currently-banned
@@ -133,6 +138,12 @@ export async function findBanEvasionMatches(): Promise<BanEvasionMatch[]> {
 			matchedPlayerId: other.playerId,
 			matchedPlayerName: matchedPlayer.steamName,
 			componentName: mine.componentName,
+			// The hash itself, not just which component matched - an admin
+			// comparing two suspected-alt accounts wants to see the actual
+			// value that lined up, not just take "disk_serial matched" on
+			// faith. Both sides are identical by construction (that's what
+			// the join condition below requires), so either row's hash works.
+			componentHash: mine.componentHash,
 		})
 		.from(mine)
 		.innerJoin(
@@ -150,9 +161,13 @@ export async function findBanEvasionMatches(): Promise<BanEvasionMatch[]> {
 	const byPair = new Map<string, BanEvasionMatch>()
 	for (const row of rows) {
 		const key = `${row.bannedPlayerId}:${row.matchedPlayerId}`
+		const component = {
+			componentName: row.componentName,
+			componentHash: row.componentHash,
+		}
 		const existing = byPair.get(key)
 		if (existing) {
-			existing.matchedComponents.push(row.componentName)
+			existing.matchedComponents.push(component)
 			continue
 		}
 		byPair.set(key, {
@@ -161,11 +176,97 @@ export async function findBanEvasionMatches(): Promise<BanEvasionMatch[]> {
 			matchedPlayerId: row.matchedPlayerId,
 			matchedPlayerName: row.matchedPlayerName,
 			matchedPlayerHasActiveBan: bannedIdSet.has(row.matchedPlayerId),
-			matchedComponents: [row.componentName],
+			matchedComponents: [component],
 		})
 	}
 
 	return [...byPair.values()].sort(
 		(a, b) => b.matchedComponents.length - a.matchedComponents.length,
 	)
+}
+
+export interface PlayerHardwareFingerprint {
+	componentName: string
+	componentHash: string
+	platform: string
+	firstSeenAt: Date
+	lastSeenAt: Date
+}
+
+// Backs the "Hardware Fingerprint" card on the per-player admin detail view -
+// see admin/users/page.tsx. Raw hash values, not just component names -
+// deliberate: this is one-way HMAC-SHA256 output, not a raw hardware
+// identifier (see hardwarefingerprint.cpp - the server never receives
+// anything else), so showing it to admin/moderator staff investigating a
+// specific player isn't exposing PII, just a stable correlation value they
+// already have the access level to cross-reference via the Ban Evasion page
+// anyway.
+export async function getPlayerHardwareFingerprints(
+	playerId: string,
+): Promise<PlayerHardwareFingerprint[]> {
+	return db
+		.select({
+			componentName: playerHardwareFingerprints.componentName,
+			componentHash: playerHardwareFingerprints.componentHash,
+			platform: playerHardwareFingerprints.platform,
+			firstSeenAt: playerHardwareFingerprints.firstSeenAt,
+			lastSeenAt: playerHardwareFingerprints.lastSeenAt,
+		})
+		.from(playerHardwareFingerprints)
+		.where(eq(playerHardwareFingerprints.playerId, playerId))
+		.orderBy(playerHardwareFingerprints.componentName)
+}
+
+export interface HardwareFingerprintStats {
+	totalRows: number
+	byPlatform: {
+		platform: string
+		rowCount: number
+		playerCount: number
+		components: string[]
+	}[]
+}
+
+// "Total IDs Captured" summary on the Ban Evasion page - what's actually
+// being collected, in aggregate, right now. Aggregated in application code
+// rather than a grouped SQL query: this table is small admin-tooling data
+// (same reasoning findBanEvasionMatches() already relies on), and a plain
+// per-row scan is simpler to get right than three separate GROUP BY shapes
+// (row count, distinct player count, distinct component names) for what's
+// still a cheap one-time read.
+export async function getHardwareFingerprintStats(): Promise<HardwareFingerprintStats> {
+	const rows = await db
+		.select({
+			platform: playerHardwareFingerprints.platform,
+			componentName: playerHardwareFingerprints.componentName,
+			playerId: playerHardwareFingerprints.playerId,
+		})
+		.from(playerHardwareFingerprints)
+
+	const byPlatform = new Map<
+		string,
+		{ rowCount: number; playerIds: Set<string>; components: Set<string> }
+	>()
+	for (const row of rows) {
+		let entry = byPlatform.get(row.platform)
+		if (!entry) {
+			entry = { rowCount: 0, playerIds: new Set(), components: new Set() }
+			byPlatform.set(row.platform, entry)
+		}
+		entry.rowCount++
+		entry.playerIds.add(row.playerId)
+		entry.components.add(row.componentName)
+	}
+
+	return {
+		totalRows: rows.length,
+		byPlatform: [...byPlatform.entries()]
+			.map(([platform, entry]) => ({
+				platform,
+				rowCount: entry.rowCount,
+				playerCount: entry.playerIds.size,
+				components: [...entry.components].sort(),
+			}))
+			.sort((a, b) => b.rowCount - a.rowCount),
+	}
 }

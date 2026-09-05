@@ -4,6 +4,7 @@ import { db } from '../../infrastructure/db/index.js'
 import { playerBans, players } from '../../infrastructure/db/schema.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { insertBan, isBanType, liftBan, listBans } from '../../infrastructure/gateways/ban.gateway.js'
+import { getPlayerHardwareFingerprints } from '../../infrastructure/gateways/launcher-integrity.gateway.js'
 import { kickClient } from '../../infrastructure/emqx/emqx-admin.service.js'
 import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
 import { getSession } from '../../state/index.js'
@@ -67,7 +68,8 @@ router.get('/players/:id', async (req, res, next) => {
 		const player = await findPlayerById(req.params.id)
 		if (!player) throw new AppError('Player not found', 404)
 		const bans = await listBans(req.params.id)
-		res.json({ player, bans })
+		const hardwareFingerprints = await getPlayerHardwareFingerprints(req.params.id)
+		res.json({ player, bans, hardwareFingerprints })
 	} catch (err) {
 		next(err)
 	}

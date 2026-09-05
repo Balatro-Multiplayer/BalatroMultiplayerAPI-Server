@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/auth'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { BanList } from './components/ban-list'
+import { HardwareFingerprintCard, type HardwareFingerprint } from './components/hardware-fingerprint-card'
 import { IssueBanForm } from './components/issue-ban-form'
 import { PlayerList } from './components/player-list'
 import { PrivilegeManager } from './components/privilege-manager'
@@ -46,6 +47,7 @@ interface Ban {
 interface PlayerDetailResponse {
   player: AdminPlayer
   bans: Ban[]
+  hardwareFingerprints: HardwareFingerprint[]
 }
 
 // useSearchParams() (below, for the Ban Evasion page's ?playerId= deep link)
@@ -94,7 +96,9 @@ function AdminUsersPageInner() {
     queryFn: () => apiFetch(`/webadmin/players/${selectedId}`),
     enabled: !!selectedId,
   })
-  const detail = detailResp ? { ...detailResp.player, bans: detailResp.bans } : null
+  const detail = detailResp
+    ? { ...detailResp.player, bans: detailResp.bans, hardwareFingerprints: detailResp.hardwareFingerprints }
+    : null
 
   // Lightweight pointer to the Ban Evasion page rather than a duplicate
   // match-list UI here - see that page's own component for the real list.
@@ -257,6 +261,8 @@ function AdminUsersPageInner() {
                   </CardContent>
                 </Card>
               )}
+
+              <HardwareFingerprintCard fingerprints={detail.hardwareFingerprints} />
             </div>
           )}
         </div>

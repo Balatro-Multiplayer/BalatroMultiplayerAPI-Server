@@ -40,7 +40,7 @@ describe('findBanEvasionMatches', () => {
 		expect(joinSpy).not.toHaveBeenCalled()
 	})
 
-	it('groups rows by (bannedPlayerId, matchedPlayerId), collecting every shared component', async () => {
+	it('groups rows by (bannedPlayerId, matchedPlayerId), collecting every shared component with its hash', async () => {
 		mockBannedIds(['p1'])
 		mockJoinRows([
 			{
@@ -49,6 +49,7 @@ describe('findBanEvasionMatches', () => {
 				matchedPlayerId: 'p2',
 				matchedPlayerName: 'Matched',
 				componentName: 'machine_guid',
+				componentHash: 'hash-guid',
 			},
 			{
 				bannedPlayerId: 'p1',
@@ -56,6 +57,7 @@ describe('findBanEvasionMatches', () => {
 				matchedPlayerId: 'p2',
 				matchedPlayerName: 'Matched',
 				componentName: 'disk_serial',
+				componentHash: 'hash-disk',
 			},
 		])
 
@@ -67,9 +69,13 @@ describe('findBanEvasionMatches', () => {
 			matchedPlayerId: 'p2',
 			matchedPlayerHasActiveBan: false,
 		})
-		expect(matches[0].matchedComponents.sort()).toEqual([
-			'disk_serial',
-			'machine_guid',
+		expect(
+			[...matches[0].matchedComponents].sort((a, b) =>
+				a.componentName.localeCompare(b.componentName),
+			),
+		).toEqual([
+			{ componentName: 'disk_serial', componentHash: 'hash-disk' },
+			{ componentName: 'machine_guid', componentHash: 'hash-guid' },
 		])
 	})
 
@@ -82,6 +88,7 @@ describe('findBanEvasionMatches', () => {
 				matchedPlayerId: 'p2',
 				matchedPlayerName: 'AlsoBanned',
 				componentName: 'mac_address',
+				componentHash: 'hash-mac',
 			},
 		])
 
@@ -99,6 +106,7 @@ describe('findBanEvasionMatches', () => {
 				matchedPlayerId: 'weak',
 				matchedPlayerName: 'Weak',
 				componentName: 'mac_address',
+				componentHash: 'hash-mac',
 			},
 			{
 				bannedPlayerId: 'p1',
@@ -106,6 +114,7 @@ describe('findBanEvasionMatches', () => {
 				matchedPlayerId: 'strong',
 				matchedPlayerName: 'Strong',
 				componentName: 'machine_guid',
+				componentHash: 'hash-guid',
 			},
 			{
 				bannedPlayerId: 'p1',
@@ -113,6 +122,7 @@ describe('findBanEvasionMatches', () => {
 				matchedPlayerId: 'strong',
 				matchedPlayerName: 'Strong',
 				componentName: 'disk_serial',
+				componentHash: 'hash-disk',
 			},
 		])
 

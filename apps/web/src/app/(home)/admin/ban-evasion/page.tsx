@@ -17,17 +17,34 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 
+interface MatchedComponent {
+	componentName: string
+	componentHash: string
+}
+
 interface BanEvasionMatch {
 	bannedPlayerId: string
 	bannedPlayerName: string
 	matchedPlayerId: string
 	matchedPlayerName: string
 	matchedPlayerHasActiveBan: boolean
-	matchedComponents: string[]
+	matchedComponents: MatchedComponent[]
 }
 
 interface BanEvasionResponse {
 	matches: BanEvasionMatch[]
+}
+
+interface PlatformStats {
+	platform: string
+	rowCount: number
+	playerCount: number
+	components: string[]
+}
+
+interface HardwareFingerprintStatsResponse {
+	totalRows: number
+	byPlatform: PlatformStats[]
 }
 
 // Component reliability legend, kept next to the table rather than only in
@@ -71,6 +88,17 @@ export default function BanEvasionPage() {
 		enabled: canAccess,
 	})
 
+	// Separate call from the matches above - this is a different question
+	// (what's actually being collected, in aggregate, right now) than
+	// specific suspected-alt pairs, and only needs to load once per visit,
+	// not whenever the match list itself would refresh.
+	const { data: stats, isLoading: statsLoading } =
+		useQuery<HardwareFingerprintStatsResponse>({
+			queryKey: ['admin-hardware-fingerprint-stats'],
+			queryFn: () => apiFetch('/webadmin/hardware-fingerprint-stats'),
+			enabled: canAccess,
+		})
+
 	if (pending) {
 		return <div className="container py-8 text-muted-foreground">Loading…</div>
 	}
@@ -88,6 +116,62 @@ export default function BanEvasionPage() {
 					reliability notes below before acting on a match.
 				</p>
 			</div>
+
+			<Card>
+				<CardHeader>
+					<CardTitle className="text-base">Total IDs Captured</CardTitle>
+				</CardHeader>
+				<CardContent className="space-y-3 text-sm">
+					{statsLoading ? (
+						<p className="text-muted-foreground">Loading…</p>
+					) : (
+						<>
+							<p>
+								<span className="font-bold text-lg">
+									{stats?.totalRows ?? 0}
+								</span>{' '}
+								<span className="text-muted-foreground">
+									hardware/device IDs captured across every player, all
+									platforms.
+								</span>
+							</p>
+							{(stats?.byPlatform ?? []).length === 0 ? (
+								<p className="text-muted-foreground">Nothing captured yet.</p>
+							) : (
+								<div className="space-y-2">
+									{stats?.byPlatform.map((p) => (
+										<div
+											key={p.platform}
+											className="rounded-md border border-border p-3"
+										>
+											<div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+												<span className="font-semibold capitalize">
+													{p.platform}
+												</span>
+												<span className="text-muted-foreground text-xs">
+													{p.rowCount} ID{p.rowCount === 1 ? '' : 's'} across{' '}
+													{p.playerCount} player{p.playerCount === 1 ? '' : 's'}
+												</span>
+											</div>
+											<div className="mt-1.5 flex flex-wrap gap-1">
+												{p.components.map((c) => (
+													<Badge
+														key={c}
+														variant="outline"
+														className="font-mono text-[10px]"
+													>
+														{c}
+													</Badge>
+												))}
+											</div>
+										</div>
+									))}
+								</div>
+							)}
+						</>
+					)}
+				</CardContent>
+			</Card>
 
 			<Card>
 				<CardHeader>
@@ -129,7 +213,7 @@ export default function BanEvasionPage() {
 								<TableRow>
 									<TableHead>Banned player</TableHead>
 									<TableHead>Matched account</TableHead>
-									<TableHead>Shared components</TableHead>
+									<TableHead>Shared components (hashed value)</TableHead>
 									<TableHead>Count</TableHead>
 								</TableRow>
 							</TableHeader>
@@ -160,16 +244,25 @@ export default function BanEvasionPage() {
 												</Badge>
 											)}
 										</TableCell>
-										<TableCell className="space-x-1">
-											{m.matchedComponents.map((c) => (
-												<Badge
-													key={c}
-													variant="outline"
-													className="font-mono text-[10px]"
-												>
-													{c}
-												</Badge>
-											))}
+										<TableCell>
+											<div className="space-y-1">
+												{m.matchedComponents.map((c) => (
+													<div
+														key={c.componentName}
+														className="flex flex-wrap items-baseline gap-1.5"
+													>
+														<Badge
+															variant="outline"
+															className="font-mono text-[10px]"
+														>
+															{c.componentName}
+														</Badge>
+														<span className="break-all font-mono text-[10px] text-muted-foreground">
+															{c.componentHash}
+														</span>
+													</div>
+												))}
+											</div>
 										</TableCell>
 										<TableCell>{m.matchedComponents.length}</TableCell>
 									</TableRow>
