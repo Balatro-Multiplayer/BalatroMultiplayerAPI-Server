@@ -18,6 +18,7 @@ import {
   Puzzle,
   Settings,
   Shield,
+  ShieldAlert,
   Trophy,
   User,
 } from 'lucide-react'
@@ -174,6 +175,13 @@ function MobileAdminSection({ onClose }: { onClose: () => void }) {
           onClick={onClose}
         >
           Users &amp; Bans
+        </MobileMenuLink>
+        <MobileMenuLink
+          href='/admin/ban-evasion'
+          icon={<ShieldAlert className='size-4' />}
+          onClick={onClose}
+        >
+          Ban Evasion
         </MobileMenuLink>
         <MobileMenuLink
           href='/admin/lobbies'

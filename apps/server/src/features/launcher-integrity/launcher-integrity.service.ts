@@ -343,6 +343,25 @@ export function createLauncherIntegrityService(
 		)
 			return
 
+		// Rate-limiting note (investigated while adding safe hwid storage
+		// elsewhere in this pass): this line, and everything above it in this
+		// function, must stay synchronous - no `await` before this point.
+		// mqtt.service.ts's subscribeToPlayerChallengeResponses() dispatches
+		// each incoming message via a plain (non-async) EventEmitter
+		// 'message' handler that calls this function without awaiting it, so
+		// a burst of rapid-fire responses against the same challenge arrives
+		// as consecutive synchronous invocations, not genuinely concurrent
+		// ones. Because activeChallenge is cleared here before this
+		// function's first `await` (currently strategy.verify() below),
+		// each invocation's synchronous prefix runs to completion - clearing
+		// activeChallenge - before the next queued invocation's own prefix
+		// begins, so only the first response in a burst ever reaches
+		// strategy.verify()/failIntegrity(); every subsequent one hits the
+		// `!active` check above and returns immediately, with no DB write.
+		// This already closes the "spam wrong guesses against one issued
+		// challenge" gap structurally - moving the `session.activeChallenge
+		// = undefined` line below any future `await` added above it (e.g.
+		// a lookup before this point) would silently reopen it.
 		clearTimeout(active.timeoutTimer)
 		session.activeChallenge = undefined
 

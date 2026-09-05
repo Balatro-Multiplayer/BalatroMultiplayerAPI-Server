@@ -1,13 +1,16 @@
 'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
 import type { BanType, Privilege } from '@bmp/types'
 import { apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { BanList } from './components/ban-list'
+import { HardwareFingerprintCard, type HardwareFingerprint } from './components/hardware-fingerprint-card'
 import { IssueBanForm } from './components/issue-ban-form'
 import { PlayerList } from './components/player-list'
 import { PrivilegeManager } from './components/privilege-manager'
@@ -44,16 +47,32 @@ interface Ban {
 interface PlayerDetailResponse {
   player: AdminPlayer
   bans: Ban[]
+  hardwareFingerprints: HardwareFingerprint[]
 }
 
+// useSearchParams() (below, for the Ban Evasion page's ?playerId= deep link)
+// requires a Suspense boundary for Next's static export of this page - the
+// default export just provides that; all the real page logic stays in this
+// inner component, unchanged otherwise.
 export default function AdminUsersPage() {
+  return (
+    <Suspense fallback={<div className='container py-8 text-muted-foreground'>Loading…</div>}>
+      <AdminUsersPageInner />
+    </Suspense>
+  )
+}
+
+function AdminUsersPageInner() {
   const { isAdmin, isModerator, pending } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const qc = useQueryClient()
   const canAccess = isAdmin || isModerator
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Seeded from ?playerId=... (the Ban Evasion page links here this way)
+  // rather than requiring a manual search - see admin/ban-evasion/page.tsx.
+  const [selectedId, setSelectedId] = useState<string | null>(() => searchParams.get('playerId'))
   const [banReason, setBanReason] = useState('')
   const [banType, setBanType] = useState<BanType>('chat')
   const [banExpiry, setBanExpiry] = useState('')
@@ -77,7 +96,25 @@ export default function AdminUsersPage() {
     queryFn: () => apiFetch(`/webadmin/players/${selectedId}`),
     enabled: !!selectedId,
   })
-  const detail = detailResp ? { ...detailResp.player, bans: detailResp.bans } : null
+  const detail = detailResp
+    ? { ...detailResp.player, bans: detailResp.bans, hardwareFingerprints: detailResp.hardwareFingerprints }
+    : null
+
+  // Lightweight pointer to the Ban Evasion page rather than a duplicate
+  // match-list UI here - see that page's own component for the real list.
+  // The dataset (currently-banned players and their matches) is small
+  // admin-tooling data, so filtering this client-side rather than adding a
+  // per-player query param to the endpoint is fine.
+  const { data: banEvasionResp } = useQuery<{
+    matches: { bannedPlayerId: string; matchedPlayerId: string }[]
+  }>({
+    queryKey: ['admin-ban-evasion'],
+    queryFn: () => apiFetch('/webadmin/ban-evasion'),
+    enabled: !!selectedId,
+  })
+  const banEvasionMatchCount = (banEvasionResp?.matches ?? []).filter(
+    (m) => m.bannedPlayerId === selectedId || m.matchedPlayerId === selectedId,
+  ).length
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['admin-player-detail', selectedId] })
@@ -151,6 +188,14 @@ export default function AdminUsersPage() {
                 <p className='font-mono text-xs text-muted-foreground'>{detail.id}</p>
               </div>
 
+              {banEvasionMatchCount > 0 && (
+                <Link href={`/admin/ban-evasion`} className='block'>
+                  <Badge variant='destructive' className='text-xs'>
+                    {banEvasionMatchCount} possible hardware match{banEvasionMatchCount === 1 ? '' : 'es'} - view in Ban Evasion
+                  </Badge>
+                </Link>
+              )}
+
               <Card>
                 <CardHeader>
                   <CardTitle className='text-base'>Bans</CardTitle>
@@ -216,6 +261,8 @@ export default function AdminUsersPage() {
                   </CardContent>
                 </Card>
               )}
+
+              <HardwareFingerprintCard fingerprints={detail.hardwareFingerprints} />
             </div>
           )}
         </div>
