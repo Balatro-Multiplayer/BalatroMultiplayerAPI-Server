@@ -2,6 +2,7 @@ import { Router } from 'express'
 import type { NextFunction, Request, Response } from 'express'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { authenticate } from '../../middleware/authenticate.js'
+import banEvasionRouter from './ban-evasion.route.js'
 import blogRouter from './blog.route.js'
 import chatLogsRouter from './chat-logs.route.js'
 import configRouter from './config.route.js'
@@ -37,6 +38,7 @@ function webAdmin(req: Request, res: Response, next: NextFunction) {
 
 router.use(webAdmin)
 router.use(playersRouter)
+router.use(banEvasionRouter)
 router.use(chatLogsRouter)
 router.use(reportsRouter)
 router.use(seasonsRouter)

@@ -45,6 +45,9 @@ export default function NoticePage() {
           <p><strong className='text-foreground'>Gameplay logs:</strong></p>
           <p>We record game action logs during matches. These contain in-game actions and your account identifier, no additional personal data. They are used for moderation, replay, and spectating features.</p>
 
+          <p><strong className='text-foreground'>Hardware/device fingerprint (Ranked mode only):</strong></p>
+          <p>If you play Ranked, our companion launcher (BET) collects a set of hardware and device identifiers from your machine — things like a disk/board serial, network adapter address, and a randomly-generated identifier the launcher creates and stores locally on first run. Each one is one-way hashed (HMAC-SHA256, with a secret pepper) on your own machine before it is ever sent anywhere; we never receive or store a raw, reversible identifier, only the hash. This is used solely to detect ban evasion (the same banned person creating a new account on the same machine) — never for advertising, fingerprinting across other services, or any purpose beyond Ranked anti-cheat. It is not collected for Casual play.</p>
+
           <p><strong className='text-foreground'>Cookies:</strong></p>
           <p>We use a session cookie for Steam OAuth authentication. This cookie is strictly necessary for the service to function. We do not use tracking, analytics, or advertising cookies.</p>
 
@@ -54,7 +57,7 @@ export default function NoticePage() {
           <p>We process your data under the following legal bases (per GDPR Article 6(1)):</p>
           <ul className='pl-6 space-y-1.5 list-disc'>
             <li><strong className='text-foreground'>Contractual necessity (Art. 6(1)(b)):</strong> Account data and gameplay logs are necessary to provide the service you signed up for.</li>
-            <li><strong className='text-foreground'>Legitimate interest (Art. 6(1)(f)):</strong> Hashed IP addresses, hashed Steam IDs, and moderation records are processed to maintain the security and integrity of the service, prevent abuse, and enforce bans. You may object to processing under this basis (see Your Rights).</li>
+            <li><strong className='text-foreground'>Legitimate interest (Art. 6(1)(f)):</strong> Hashed IP addresses, hashed Steam IDs, hashed hardware/device identifiers (Ranked only), and moderation records are processed to maintain the security and integrity of the service, prevent abuse, and enforce bans. You may object to processing under this basis (see Your Rights).</li>
             <li><strong className='text-foreground'>Legal obligation (Art. 6(1)(c)):</strong> We may process and retain data where required by law, including child safety reporting obligations.</li>
             <li><strong className='text-foreground'>Consent (Art. 6(1)(a)):</strong> Optional features such as Discord account linking are based on your consent, which you can withdraw at any time by unlinking.</li>
           </ul>
@@ -65,7 +68,7 @@ export default function NoticePage() {
           <ul className='pl-6 space-y-1.5 list-disc'>
             <li>Operate the service and manage your account.</li>
             <li>Moderate behavior using gameplay logs and chat records.</li>
-            <li>Enforce bans and prevent evasion using hashed identifiers.</li>
+            <li>Enforce bans and prevent evasion using hashed identifiers, including hashed hardware/device identifiers for Ranked play.</li>
             <li>Provide replay and spectating features using gameplay logs.</li>
             <li>Comply with legal obligations, including child safety reporting.</li>
           </ul>
@@ -93,6 +96,7 @@ export default function NoticePage() {
           <ul className='pl-6 space-y-1.5 list-disc'>
             <li><strong className='text-foreground'>Account data</strong> (Steam display name, Discord display name, hashed IP, Discord link, age flag): retained for the life of your account. Deleted within 30 days of account deletion.</li>
             <li><strong className='text-foreground'>Peppered Steam ID hash:</strong> Retained after account deletion for the sole purpose of enforcing bans and preventing ban evasion. Reviewed and purged if no associated ban exists after 12 months post-deletion.</li>
+            <li><strong className='text-foreground'>Hashed hardware/device identifiers</strong> (Ranked only): Same policy as the Steam ID hash above — retained only for as long as needed to enforce a ban or detect evasion, and deleted (not just anonymized) if no associated ban exists 12 months after account deletion.</li>
             <li><strong className='text-foreground'>Chat message logs:</strong> 90 days from the date sent, then permanently deleted.</li>
             <li><strong className='text-foreground'>Gameplay logs:</strong> 180 days from the date of the match, then permanently deleted.</li>
             <li><strong className='text-foreground'>Moderation records</strong> (bans, flags, evidence): Duration of the ban plus 12 months. For permanent bans: retained indefinitely.</li>

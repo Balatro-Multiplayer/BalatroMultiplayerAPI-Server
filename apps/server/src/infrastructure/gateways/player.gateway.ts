@@ -2,6 +2,7 @@ import { and, eq, isNotNull, lt } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { players } from '../db/schema.js'
 import { getActiveBans } from './ban.gateway.js'
+import { deletePlayerHardwareFingerprints } from './launcher-integrity.gateway.js'
 
 const DELETED_HASH_RETENTION_MS = 365 * 24 * 60 * 60 * 1000
 
@@ -226,6 +227,11 @@ export async function purgeExpiredDeletedPlayerHashes(): Promise<number> {
 			.update(players)
 			.set({ steamIdHash: null, discordIdHash: null, updatedAt: new Date() })
 			.where(eq(players.id, candidate.id))
+		// Same retention window/ban condition as the hash-clearing above -
+		// a hardware fingerprint is exactly the kind of stable per-machine
+		// identifier the rest of this function already exists to stop
+		// retaining once it's no longer needed for enforcing an active ban.
+		await deletePlayerHardwareFingerprints(candidate.id)
 		purged++
 	}
 	return purged
