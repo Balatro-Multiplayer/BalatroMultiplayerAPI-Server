@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import type { BanType, Privilege } from '@bmp/types'
 import { apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
@@ -48,7 +48,19 @@ interface PlayerDetailResponse {
   bans: Ban[]
 }
 
+// useSearchParams() (below, for the Ban Evasion page's ?playerId= deep link)
+// requires a Suspense boundary for Next's static export of this page - the
+// default export just provides that; all the real page logic stays in this
+// inner component, unchanged otherwise.
 export default function AdminUsersPage() {
+  return (
+    <Suspense fallback={<div className='container py-8 text-muted-foreground'>Loading…</div>}>
+      <AdminUsersPageInner />
+    </Suspense>
+  )
+}
+
+function AdminUsersPageInner() {
   const { isAdmin, isModerator, pending } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
