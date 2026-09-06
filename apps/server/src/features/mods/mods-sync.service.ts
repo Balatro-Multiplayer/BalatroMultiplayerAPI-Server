@@ -13,7 +13,10 @@ import {
 	upsertModFromIndex,
 	upsertVersionRow,
 } from '../../infrastructure/gateways/mods.gateway.js'
-import { checkCustomModVersion } from './custom-mod-version-check.service.js'
+import {
+	checkCustomModVersion,
+	resolveCommitPinnedDownloadUrl,
+} from './custom-mod-version-check.service.js'
 import { relocateModRoot } from './mod-archive-flatten.js'
 import { computeModFolderHash } from './mod-folder-hash.js'
 import { resolveReliableDownloadUrl } from './mod-source-classifier.js'
@@ -100,6 +103,27 @@ async function computeModFolderHashForRelease(
 			await fs.rm(tmpRoot, { recursive: true, force: true })
 		}
 	}
+}
+
+// Applies resolveCommitPinnedDownloadUrl() (see that function's doc comment
+// in custom-mod-version-check.service.ts for the underlying problem) at the
+// one point in this sync where it matters: right before a (modId, version)
+// pair is about to be hashed and stored for the very first time. A version
+// that's already been hashed is left alone unconditionally -- its
+// downloadUrl (pinned or not) is already whatever was hashed for it, and
+// re-resolving would just spend a GitHub API call to confirm what's already
+// true. Falls back to returning downloadUrl unchanged whenever pinning
+// isn't applicable or the GitHub lookup fails -- never blocks the sync.
+async function pinBranchVersionIfNew(
+	modId: string,
+	version: string,
+	downloadUrl: string,
+): Promise<string> {
+	const alreadyHashed = await getStoredHash(modId, version)
+	if (alreadyHashed) return downloadUrl
+
+	const pinned = await resolveCommitPinnedDownloadUrl(downloadUrl, version)
+	return pinned ?? downloadUrl
 }
 
 interface HashCandidate {
@@ -311,6 +335,25 @@ async function runSync(): Promise<ModRegistrySyncSummary> {
 
 	const hashCandidates: HashCandidate[] = []
 	for (const entry of entries) {
+		if (entry.latestVersion && entry.latestDownloadUrl) {
+			entry.latestDownloadUrl = await pinBranchVersionIfNew(
+				entry.id,
+				entry.latestVersion,
+				entry.latestDownloadUrl,
+			)
+			// entries[].versions is this same (version, downloadUrl) pair
+			// wrapped for mod_registry_versions -- see
+			// upstream-mod-index.service.ts's buildEntry(). Keep it in sync
+			// with the pin above so the stored version row and
+			// mod_registry.latestDownloadUrl never disagree.
+			if (entry.versions[0]?.version === entry.latestVersion) {
+				entry.versions[0] = {
+					...entry.versions[0],
+					downloadUrl: entry.latestDownloadUrl,
+				}
+			}
+		}
+
 		await upsertModFromIndex(entry)
 
 		if (entry.latestVersion && entry.latestDownloadUrl) {
@@ -338,12 +381,33 @@ async function runSync(): Promise<ModRegistrySyncSummary> {
 				fixedReleaseTagUpdates: mod.fixedReleaseTagUpdates,
 			})
 			if (detected) {
+				// detected.newDownloadUrl is null for the HEAD case (see
+				// checkCustomModVersion's own doc comment) -- that's exactly
+				// the branch-tracked shape pinBranchVersionIfNew() exists
+				// for, so resolve against whatever URL is actually in effect
+				// (the freshly detected one, or the mod's existing one) and
+				// only pass a non-null downloadUrl through to
+				// applyDetectedVersion when pinning actually produced one.
+				const effectiveDownloadUrl =
+					detected.newDownloadUrl ?? mod.latestDownloadUrl
+				let downloadUrlToApply = detected.newDownloadUrl
+				if (effectiveDownloadUrl) {
+					const pinned = await pinBranchVersionIfNew(
+						mod.id,
+						detected.newVersion,
+						effectiveDownloadUrl,
+					)
+					if (pinned !== effectiveDownloadUrl) {
+						downloadUrlToApply = pinned
+					}
+				}
+
 				await applyDetectedVersion(mod.id, {
 					version: detected.newVersion,
-					downloadUrl: detected.newDownloadUrl,
+					downloadUrl: downloadUrlToApply,
 				})
 				latestVersion = detected.newVersion
-				latestDownloadUrl = detected.newDownloadUrl ?? mod.latestDownloadUrl
+				latestDownloadUrl = downloadUrlToApply ?? mod.latestDownloadUrl
 				versionsChecked++
 			}
 		}

@@ -6,7 +6,10 @@ import { classifyDownloadUrl } from './mod-source-classifier.js'
 // custom mods (mod_registry.isCustom rows) that opt into
 // automaticVersionCheck -- upstream mods get this for free from that same
 // script running on the real skyline69/balatro-mod-index repo, but a custom
-// mod has no meta.json anywhere for it to have already run against.
+// mod has no meta.json anywhere for it to have already run against. Also
+// home to resolveCommitPinnedDownloadUrl() below, which both this module's
+// own HEAD-tracking callers and mods-sync.service.ts's upstream-index sync
+// share -- see that function's doc comment.
 export type VersionSource = 'latest_tag' | 'specific_tag' | 'head'
 
 export interface VersionCheckInput {
@@ -105,6 +108,59 @@ async function fetchHeadSha(
 	const data = (await res.json()) as Array<{ sha: string }>
 	if (!Array.isArray(data) || data.length === 0) return null
 	return data[0].sha.slice(0, 7)
+}
+
+// A short (7-char, matching what update_mod_versions.py/fetchHeadSha above
+// both write) or full (40-char) git commit SHA.
+const GIT_SHA_LIKE = /^[0-9a-f]{7,40}$/i
+
+// Branch-tracked mods (no GitHub releases -- downloadUrl classifies as
+// 'branch') get their `version` bumped by update_mod_versions.py to the
+// *whole repo's* latest commit SHA on any commit anywhere in the repo, but
+// that script only ever rewrites `downloadURL` for its tag/release cases --
+// never for the HEAD case (see that script: the `if`/`elif` guarding
+// `meta['downloadURL'] = ...` has no branch for `VersionSource.HEAD` at
+// all). So every version ever recorded for such a mod carries the exact
+// same URL: the branch's own live-HEAD archive link. Downloading it always
+// fetches "whatever's on the branch right now", never the specific commit
+// the version label names -- confirmed live via
+// skyline69/balatro-mod-index's Aikoyori@Aikoyoris-Shenanigans, whose
+// mod_registry_versions history has a dozen distinct commit-hash version
+// labels all sharing one identical downloadUrl and (whenever the branch
+// hadn't actually moved between two of those label bumps) identical sha256.
+// The real cost isn't the duplication itself -- it's that an *older* label
+// becomes permanently unfetchable once the branch advances past it: nothing
+// in this pipeline can ever again produce that label's original bytes,
+// which silently breaks any profile (a Ranked rankedVersion pin, or a user
+// manually pinning an older entry from the version dropdown) sitting on it.
+//
+// This resolves the label to a real, permanently-fetchable commit-pinned
+// codeload URL instead -- one extra GitHub API call, made only the first
+// time a given (modId, version) is about to be hashed and stored (see
+// mods-sync.service.ts's pinBranchVersionIfNew()), never on every sync,
+// since a version already hashed/stored is never re-resolved. Returns null
+// (falls back to the literal branch URL -- exactly today's behavior)
+// whenever resolution isn't possible: the URL isn't a branch-archive shape,
+// the version string doesn't look like a git SHA at all (a custom mod's own
+// hand-typed version string, say), or the GitHub lookup fails/rate-limits --
+// never a hard failure that should abort the sync over one mod.
+export async function resolveCommitPinnedDownloadUrl(
+	downloadUrl: string,
+	version: string,
+): Promise<string | null> {
+	if (classifyDownloadUrl(downloadUrl) !== 'branch') return null
+	if (!GIT_SHA_LIKE.test(version)) return null
+
+	const repoInfo = extractRepoInfo(downloadUrl)
+	if (!repoInfo) return null
+	const { owner, repo } = repoInfo
+
+	const res = await githubGet(`/repos/${owner}/${repo}/commits/${version}`)
+	if (!res || res.status === 404) return null
+	const data = (await res.json()) as { sha?: string }
+	if (!data.sha) return null
+
+	return `https://codeload.github.com/${owner}/${repo}/zip/${data.sha}`
 }
 
 async function fetchSpecificTag(
