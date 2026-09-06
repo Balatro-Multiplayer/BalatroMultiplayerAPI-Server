@@ -253,6 +253,13 @@
       "when": 1791100000000,
       "tag": "0035_blog_posts",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791200000000,
+      "tag": "0036_mod_registry_versions_pin_failed_at",
+      "breakpoints": true
     }
   ]
 }

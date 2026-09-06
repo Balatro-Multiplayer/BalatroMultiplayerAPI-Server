@@ -451,6 +451,85 @@ export async function storeComputedHash(
 		)
 }
 
+// --- Branch-tracked version pinning backfill (backfill-branch-pins.ts) ---
+
+export interface BranchPinCandidate {
+	modId: string
+	version: string
+	downloadUrl: string
+	pinFailedAt: Date | null
+}
+
+// Every mod_registry_versions row that has a downloadUrl -- narrowing down
+// to the ones still pointing at a live branch archive (not yet pinned to a
+// specific commit) is backfill-branch-pins.ts's own job, via
+// mod-source-classifier.ts's classifyDownloadUrl -- same "fetch broad,
+// filter/branch in TS" shape as listAllVersionsWithDownloadUrl above.
+export async function listVersionsWithDownloadUrl(): Promise<
+	BranchPinCandidate[]
+> {
+	const rows = await db
+		.select({
+			modId: modRegistryVersions.modId,
+			version: modRegistryVersions.version,
+			downloadUrl: modRegistryVersions.downloadUrl,
+			pinFailedAt: modRegistryVersions.pinFailedAt,
+		})
+		.from(modRegistryVersions)
+		.where(isNotNull(modRegistryVersions.downloadUrl))
+
+	return rows.filter(
+		(r): r is BranchPinCandidate => r.downloadUrl !== null,
+	)
+}
+
+// Writes a successfully-pinned commit-specific downloadUrl and its
+// freshly-recomputed hash onto a version row, and clears any earlier
+// pinFailedAt -- a retried row that succeeds this time is no longer
+// permanently failed. Mirrors sha256 onto mod_registry.latestSha256 the
+// same way storeComputedHash does, for the same reason (this version can
+// still be the mod's current latest).
+export async function applyBranchPin(
+	modId: string,
+	version: string,
+	downloadUrl: string,
+	sha256: string,
+): Promise<void> {
+	await db
+		.update(modRegistryVersions)
+		.set({ downloadUrl, sha256, pinFailedAt: null })
+		.where(
+			and(
+				eq(modRegistryVersions.modId, modId),
+				eq(modRegistryVersions.version, version),
+			),
+		)
+	await db
+		.update(modRegistry)
+		.set({ latestSha256: sha256 })
+		.where(
+			and(eq(modRegistry.id, modId), eq(modRegistry.latestVersion, version)),
+		)
+}
+
+// Marks a row as permanently unpinnable after backfill-branch-pins.ts
+// exhausts its retries for it within one run -- see
+// mod_registry_versions.pinFailedAt's own doc comment in schema.ts.
+export async function markVersionPinFailed(
+	modId: string,
+	version: string,
+): Promise<void> {
+	await db
+		.update(modRegistryVersions)
+		.set({ pinFailedAt: new Date() })
+		.where(
+			and(
+				eq(modRegistryVersions.modId, modId),
+				eq(modRegistryVersions.version, version),
+			),
+		)
+}
+
 // --- Admin: ranked version (PUT/DELETE /api/webadmin/mods/:modId(/ranked)) ---
 
 // The sole ranked-eligibility write path: null un-ranks the mod, any other

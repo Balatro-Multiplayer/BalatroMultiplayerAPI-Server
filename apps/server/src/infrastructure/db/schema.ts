@@ -667,6 +667,18 @@ export const modRegistryVersions = pgTable(
 		sha256: varchar('sha256', { length: 64 }),
 		downloadUrl: text('download_url'),
 		releasedAt: timestamp('released_at', { withTimezone: true }),
+		// Set once backfill-branch-pins.ts gives up on permanently resolving
+		// this row's downloadUrl to a commit-pinned one (see that script and
+		// mods-sync.service.ts's pinBranchVersionIfNew) after exhausting its
+		// retries within a run -- a genuinely dead repo/branch/commit, not a
+		// transient rate-limit. Null means "never permanently failed" (either
+		// already pinned -- downloadUrl no longer classifies as 'branch' --
+		// or not attempted yet). A later re-run of the backfill script skips
+		// rows where this is set unless told to retry them, so a known-dead
+		// row doesn't keep burning GitHub API calls on every run; an admin
+		// can still force a retry (see that script's --retry-failed flag) if
+		// something later becomes resolvable again (e.g. a renamed repo).
+		pinFailedAt: timestamp('pin_failed_at', { withTimezone: true }),
 	},
 	(t) => [
 		uniqueIndex('mod_registry_versions_mod_version_idx').on(t.modId, t.version),

@@ -4,10 +4,13 @@ import path from 'node:path'
 import AdmZip from 'adm-zip'
 import { env } from '../../env.js'
 import {
+	applyBranchPin,
 	applyDetectedVersion,
 	getStoredHash,
 	listAllVersionsWithDownloadUrl,
 	listCustomMods,
+	listVersionsWithDownloadUrl,
+	markVersionPinFailed,
 	pruneModsMissingFrom,
 	storeComputedHash,
 	upsertModFromIndex,
@@ -19,7 +22,10 @@ import {
 } from './custom-mod-version-check.service.js'
 import { relocateModRoot } from './mod-archive-flatten.js'
 import { computeModFolderHash } from './mod-folder-hash.js'
-import { resolveReliableDownloadUrl } from './mod-source-classifier.js'
+import {
+	classifyDownloadUrl,
+	resolveReliableDownloadUrl,
+} from './mod-source-classifier.js'
 import { fetchUpstreamModIndex } from './upstream-mod-index.service.js'
 
 export interface ModRegistrySyncSummary {
@@ -457,4 +463,127 @@ export function syncModRegistry(): Promise<ModRegistrySyncSummary> {
 		})
 	}
 	return inFlight
+}
+
+// --- One-off backfill: pin every pre-existing branch-tracked version row
+// (see backfill-branch-pins.ts) ---
+//
+// pinBranchVersionIfNew() above only ever pins a version the first time
+// it's synced -- every mod_registry_versions row written before that fix
+// existed is still sitting on its original moving-branch-tip URL (and a
+// sha256 computed against whatever that tip happened to be at hash-time,
+// not necessarily the exact commit its own version label names). This is
+// the one-time catch-up pass for that backlog, run manually via
+// `pnpm backfill-branch-pins`, not part of the regular hourly/startup sync.
+
+const PIN_RETRY_ATTEMPTS = 3
+const PIN_RETRY_DELAY_MS = 2000
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// One full resolve-then-hash cycle for a single stale row, retried up to
+// PIN_RETRY_ATTEMPTS times with a short linear backoff. A transient GitHub
+// rate-limit/5xx is already swallowed to null by
+// resolveCommitPinnedDownloadUrl()'s own best-effort design -- without a
+// retry here, a single blip would look identical to a genuinely dead
+// repo/commit. The regular hourly sync gets this same self-healing for free
+// ("try again next hour"); a one-off backfill run has no next hour to fall
+// back on, hence its own tighter retry loop.
+async function attemptBranchPin(
+	modId: string,
+	version: string,
+	downloadUrl: string,
+): Promise<{ downloadUrl: string; sha256: string } | null> {
+	for (let attempt = 1; attempt <= PIN_RETRY_ATTEMPTS; attempt++) {
+		const pinnedUrl = await resolveCommitPinnedDownloadUrl(downloadUrl, version)
+		if (pinnedUrl) {
+			const hash = await computeModFolderHashForRelease(
+				modId,
+				version,
+				pinnedUrl,
+			)
+			if (hash) return { downloadUrl: pinnedUrl, sha256: hash }
+		}
+		if (attempt < PIN_RETRY_ATTEMPTS) {
+			await sleep(PIN_RETRY_DELAY_MS * attempt)
+		}
+	}
+	return null
+}
+
+export interface BranchPinBackfillOptions {
+	// Also re-attempts rows already marked pinFailedAt by an earlier run,
+	// instead of skipping them (the default) -- use after fixing whatever
+	// made them unresolvable (a renamed repo, an expired rate limit that
+	// outlasted this script's own retries, etc.).
+	retryFailed?: boolean
+}
+
+export interface BranchPinBackfillSummary {
+	pinned: number
+	alreadyPinned: number
+	failed: number
+	skippedFailed: number
+	failedRows: Array<{ modId: string; version: string }>
+}
+
+export async function runBranchPinBackfill(
+	options: BranchPinBackfillOptions = {},
+): Promise<BranchPinBackfillSummary> {
+	const rows = await listVersionsWithDownloadUrl()
+	const targets = rows.filter(
+		(r) => classifyDownloadUrl(r.downloadUrl) === 'branch',
+	)
+
+	const summary: BranchPinBackfillSummary = {
+		pinned: 0,
+		alreadyPinned: rows.length - targets.length,
+		failed: 0,
+		skippedFailed: 0,
+		failedRows: [],
+	}
+
+	// Same bounded-worker-pool shape as runHashPool above (HASH_CONCURRENCY
+	// wide) -- each row here does real work too (a resolve call, then a full
+	// download+extract+hash), so unbounded concurrency has the same
+	// GitHub-connection-reset risk flagged on recomputeAllModHashes.
+	let next = 0
+	async function worker(): Promise<void> {
+		while (true) {
+			const i = next++
+			if (i >= targets.length) return
+			const row = targets[i]
+
+			if (row.pinFailedAt && !options.retryFailed) {
+				summary.skippedFailed++
+				continue
+			}
+
+			const result = await attemptBranchPin(
+				row.modId,
+				row.version,
+				row.downloadUrl,
+			)
+			if (!result) {
+				await markVersionPinFailed(row.modId, row.version)
+				summary.failed++
+				summary.failedRows.push({ modId: row.modId, version: row.version })
+				console.warn(
+					`[backfill-branch-pins] Couldn't pin ${row.modId}@${row.version} after ${PIN_RETRY_ATTEMPTS} attempts - marked pinFailedAt.`,
+				)
+				continue
+			}
+
+			await applyBranchPin(row.modId, row.version, result.downloadUrl, result.sha256)
+			summary.pinned++
+			console.log(
+				`[backfill-branch-pins] Pinned ${row.modId}@${row.version} -> ${result.downloadUrl}`,
+			)
+		}
+	}
+
+	await Promise.all(Array.from({ length: HASH_CONCURRENCY }, () => worker()))
+	return summary
 }
