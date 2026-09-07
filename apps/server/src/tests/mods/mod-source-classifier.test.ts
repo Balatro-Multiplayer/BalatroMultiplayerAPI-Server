@@ -48,6 +48,14 @@ describe('classifyDownloadUrl', () => {
 		).toBe('release')
 	})
 
+	it('classifies a Thunderstore package download URL as release', () => {
+		expect(
+			classifyDownloadUrl(
+				'https://thunderstore.io/package/download/SirMaiquis/TagManager/1.2.0/',
+			),
+		).toBe('release')
+	})
+
 	it('classifies a GitLab archive URL as custom', () => {
 		expect(
 			classifyDownloadUrl(
@@ -98,6 +106,11 @@ describe('resolveReliableDownloadUrl', () => {
 
 	it('leaves an already-normalized codeload tag URL as-is', () => {
 		const url = 'https://codeload.github.com/owner/repo/zip/refs/tags/v1.0.0'
+		expect(resolveReliableDownloadUrl(url)).toBe(url)
+	})
+
+	it('leaves a Thunderstore package download URL as-is', () => {
+		const url = 'https://thunderstore.io/package/download/SirMaiquis/TagManager/1.2.0/'
 		expect(resolveReliableDownloadUrl(url)).toBe(url)
 	})
 

@@ -81,6 +81,18 @@ export const env = {
 	// pattern used elsewhere in this file.
 	MOD_INDEX_SYNC_ENABLED: optionalBool('MOD_INDEX_SYNC_ENABLED', false),
 
+	// Independent on/off switch for the Thunderstore half of the mod-registry
+	// sync (features/mods/thunderstore-mod-index.service.ts, which fetches
+	// https://thunderstore.io/c/balatro/api/v1/package/ directly -- no auth,
+	// no token). Off by default, same "local dev/tests need no network
+	// access" reasoning as MOD_INDEX_SYNC_ENABLED above. Turning this off is
+	// treated as a real, intentional "there are zero Thunderstore mods now"
+	// result (not a fetch failure), so previously-synced Thunderstore-sourced
+	// mod_registry rows ARE pruned on the next sync after disabling it -- see
+	// mod-index-merge.ts's ThunderstoreOutcome.ok vs. this flag's own
+	// early-return shape in mods-sync.service.ts's runSync().
+	THUNDERSTORE_SYNC_ENABLED: optionalBool('THUNDERSTORE_SYNC_ENABLED', false),
+
 	// Optional for custom-mod-version-check.service.ts's calls against the
 	// *public* skyline69/balatro-mod-index repo (rate-limit headroom only,
 	// unauthenticated GitHub REST already allows 60 req/hr) -- but

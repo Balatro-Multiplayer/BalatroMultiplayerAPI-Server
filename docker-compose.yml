@@ -64,6 +64,13 @@ services:
       EMQX_BROKER_URL: mqtt://emqx:1883
       EMQX_API_URL: http://emqx:18083/api/v5
       WEB_BASE_URL: ${WEB_BASE_URL:-https://new.balatromp.com}
+      ARCHIVE_DIR: /app/archives
+    volumes:
+      # Read-only bind mount of manually-populated Discord channel archive
+      # bundles (features/webadmin/archives.route.ts) -- ARCHIVE_DIR on the
+      # host defaults to /opt/bmp/archives; override in the root .env if the
+      # deploy host uses a different path. This app never writes here.
+      - ${ARCHIVE_DIR:-/opt/bmp/archives}:/app/archives:ro
     depends_on:
       emqx:
         condition: service_healthy

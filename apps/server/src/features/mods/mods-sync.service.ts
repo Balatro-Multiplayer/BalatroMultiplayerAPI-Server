@@ -8,6 +8,7 @@ import {
 	getStoredHash,
 	listAllVersionsWithDownloadUrl,
 	listCustomMods,
+	listModIdsBySource,
 	pruneModsMissingFrom,
 	storeComputedHash,
 	upsertModFromIndex,
@@ -16,7 +17,9 @@ import {
 import { checkCustomModVersion } from './custom-mod-version-check.service.js'
 import { relocateModRoot } from './mod-archive-flatten.js'
 import { computeModFolderHash } from './mod-folder-hash.js'
+import { computeMergedIndex, type ThunderstoreOutcome } from './mod-index-merge.js'
 import { resolveReliableDownloadUrl } from './mod-source-classifier.js'
+import { fetchThunderstoreModIndex } from './thunderstore-mod-index.service.js'
 import { fetchUpstreamModIndex } from './upstream-mod-index.service.js'
 
 export interface ModRegistrySyncSummary {
@@ -26,6 +29,14 @@ export interface ModRegistrySyncSummary {
 	skipped: number
 	idCollisions: number
 	versionsChecked: number
+	// Thunderstore side of the sync -- see mod-index-merge.ts. thunderstoreOk
+	// is false only when this run's fetch itself threw (a real outage, not a
+	// legitimate zero-mods result); fetched/matched/new are all 0 when the
+	// feature is disabled (env.THUNDERSTORE_SYNC_ENABLED=false).
+	thunderstoreOk: boolean
+	thunderstoreFetched: number
+	thunderstoreMatched: number
+	thunderstoreNew: number
 }
 
 const HASH_FETCH_TIMEOUT_MS = 30_000
@@ -297,21 +308,62 @@ async function runSync(): Promise<ModRegistrySyncSummary> {
 			skipped: 0,
 			idCollisions: 0,
 			versionsChecked: 0,
+			thunderstoreOk: true,
+			thunderstoreFetched: 0,
+			thunderstoreMatched: 0,
+			thunderstoreNew: 0,
 		}
 	}
 
-	const { entries, skipped, idCollisions } = await fetchUpstreamModIndex()
-	if (entries.length === 0) {
+	const {
+		entries: githubEntries,
+		skipped,
+		idCollisions,
+	} = await fetchUpstreamModIndex()
+	if (githubEntries.length === 0) {
 		// Never legitimate for this index (it always carries hundreds of
 		// entries) -- treating it the same as a fetch failure, not just
 		// skipping the sync, matters because it's also what guards the prune
-		// below from wiping every row in mod_registry.
+		// below from wiping every row in mod_registry. Aborts the entire sync
+		// (Thunderstore included) -- the most conservative option, unchanged
+		// from before Thunderstore existed as a second source.
 		throw new Error('upstream mod index parse produced zero entries')
 	}
 
+	// Disabling THUNDERSTORE_SYNC_ENABLED is modeled as a real, successful
+	// "zero Thunderstore mods" result (ok: true, entries: []) rather than a
+	// failure -- an intentional admin action should correctly prune any
+	// previously-synced Thunderstore rows on the next sync, unlike a
+	// transient fetch failure below, which must not.
+	let thunderstore: ThunderstoreOutcome = { ok: true, entries: [] }
+	let thunderstoreSkipped = 0
+	if (env.THUNDERSTORE_SYNC_ENABLED) {
+		try {
+			const ts = await fetchThunderstoreModIndex()
+			thunderstore = { ok: true, entries: ts.entries }
+			thunderstoreSkipped = ts.skipped
+		} catch (err) {
+			console.error(
+				'[mods-sync] Thunderstore fetch failed -- keeping previously-synced thunderstore mods untouched this run:',
+				err,
+			)
+			thunderstore = { ok: false, entries: [] }
+		}
+	}
+	// Only read when this run's own fetch failed (see above) -- otherwise
+	// unused, so no wasted query on the common/happy path.
+	const previousThunderstoreIds = thunderstore.ok
+		? []
+		: await listModIdsBySource('thunderstore')
+	const merged = computeMergedIndex(
+		githubEntries,
+		thunderstore,
+		previousThunderstoreIds,
+	)
+
 	const hashCandidates: HashCandidate[] = []
-	for (const entry of entries) {
-		await upsertModFromIndex(entry)
+	for (const { entry, source } of merged.toUpsert) {
+		await upsertModFromIndex(entry, source)
 
 		if (entry.latestVersion && entry.latestDownloadUrl) {
 			hashCandidates.push({
@@ -357,21 +409,35 @@ async function runSync(): Promise<ModRegistrySyncSummary> {
 		}
 	}
 
-	const pruned = await pruneModsMissingFrom(entries.map((entry) => entry.id))
+	const pruned = await pruneModsMissingFrom(merged.pruneKeepIds)
 
 	const hashed = await hashAll(hashCandidates)
 
+	const thunderstoreNew = merged.toUpsert.filter(
+		(u) => u.source === 'thunderstore',
+	).length
+
+	const thunderstorePart = !env.THUNDERSTORE_SYNC_ENABLED
+		? ''
+		: thunderstore.ok
+			? `, ${thunderstoreNew} new from thunderstore (${merged.matched} matched to existing github mods${thunderstoreSkipped ? `, ${thunderstoreSkipped} skipped` : ''})`
+			: ', thunderstore fetch FAILED this run -- previously-synced thunderstore mods kept as-is'
+
 	console.log(
-		`[mods-sync] Synced ${entries.length} mods from upstream${hashed ? ` (${hashed} newly hashed)` : ''}${pruned ? ` (${pruned} stale mods pruned)` : ''}${skipped ? ` (${skipped} skipped)` : ''}${idCollisions ? ` (${idCollisions} id collisions)` : ''}${versionsChecked ? ` (${versionsChecked} custom mod versions updated)` : ''}`,
+		`[mods-sync] Synced ${githubEntries.length} mods from github${thunderstorePart}${hashed ? ` (${hashed} newly hashed)` : ''}${pruned ? ` (${pruned} stale mods pruned)` : ''}${skipped ? ` (${skipped} github skipped)` : ''}${idCollisions ? ` (${idCollisions} github id collisions)` : ''}${versionsChecked ? ` (${versionsChecked} custom mod versions updated)` : ''}`,
 	)
 
 	return {
-		modsSynced: entries.length,
+		modsSynced: githubEntries.length + thunderstoreNew,
 		hashed,
 		pruned,
 		skipped,
 		idCollisions,
 		versionsChecked,
+		thunderstoreOk: thunderstore.ok,
+		thunderstoreFetched: thunderstore.entries.length,
+		thunderstoreMatched: merged.matched,
+		thunderstoreNew,
 	}
 }
 

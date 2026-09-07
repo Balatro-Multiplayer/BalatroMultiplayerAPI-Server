@@ -1,6 +1,7 @@
 import request from 'supertest'
 import { describe, expect, it, vi } from 'vitest'
 import { signJwt } from '../../features/auth/jwt.js'
+import * as modsSyncService from '../../features/mods/mods-sync.service.js'
 import * as modsGateway from '../../infrastructure/gateways/mods.gateway.js'
 import * as playerGateway from '../../infrastructure/gateways/player.gateway.js'
 import { createSession } from '../../state/index.js'
@@ -21,6 +22,21 @@ vi.mock('../../infrastructure/gateways/mods.gateway.js', async () => {
 		upsertProfileEntry: vi.fn(),
 		updateModFields: vi.fn(),
 		resetModFieldOverrides: vi.fn(),
+		getStoredHash: vi.fn(),
+	}
+})
+
+// ensureVersionHashed lives in mods-sync.service.js (not mods.gateway.js) --
+// mocked here too so the PUT ranked-version hash-recovery path and the
+// PATCH/POST sourceInput resolution paths below never touch the real
+// (unmocked-in-this-file) db.
+vi.mock('../../features/mods/mods-sync.service.js', async () => {
+	const actual = await vi.importActual<
+		typeof import('../../features/mods/mods-sync.service.js')
+	>('../../features/mods/mods-sync.service.js')
+	return {
+		...actual,
+		ensureVersionHashed: vi.fn(),
 	}
 })
 
@@ -48,7 +64,18 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		latestDownloadUrl:
 			'https://github.com/author/mod/releases/download/v1.2.3/mod.zip',
 		latestVersion: '1.2.3',
-		versions: [{ version: '1.2.3' }, { version: '1.0.0' }],
+		versions: [
+			{
+				version: '1.2.3',
+				downloadUrl: 'https://github.com/author/mod/releases/download/v1.2.3/mod.zip',
+				sha256: 'already-hashed-1-2-3',
+			},
+			{
+				version: '1.0.0',
+				downloadUrl: 'https://github.com/author/mod/releases/download/v1.0.0/mod.zip',
+				sha256: null,
+			},
+		],
 	}
 	const branchMod = {
 		id: 'Author@Mod',
@@ -118,6 +145,48 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 			.put('/api/webadmin/mods/Author@Mod')
 			.set('Authorization', token)
 			.send({ rankedVersion: '9.9.9' })
+
+		expect(res.status).toBe(400)
+		expect(modsGateway.setRankedVersion).not.toHaveBeenCalled()
+		expect(modsSyncService.ensureVersionHashed).not.toHaveBeenCalled()
+	})
+
+	it('hashes a known-but-unhashed historical version on the fly, then pins it (Thunderstore-style version history)', async () => {
+		vi.mocked(modsGateway.getPublicModById).mockResolvedValue(releaseMod as any)
+		vi.mocked(modsSyncService.ensureVersionHashed).mockImplementation(async () => {
+			vi.mocked(modsGateway.getStoredHash).mockResolvedValue('freshly-computed-hash')
+		})
+		vi.mocked(modsGateway.setRankedVersion).mockResolvedValue(true)
+
+		const token = authAsAdmin('admin-ranked-hist-1', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Author@Mod')
+			.set('Authorization', token)
+			// '1.0.0' is a real row in releaseMod.versions, but sha256: null --
+			// unlike '1.2.3' (the mod's own latestVersion, already hashed).
+			.send({ rankedVersion: '1.0.0' })
+
+		expect(res.status).toBe(200)
+		expect(modsSyncService.ensureVersionHashed).toHaveBeenCalledWith(
+			'Author@Mod',
+			'1.0.0',
+			// The historical version's own downloadUrl -- never the mod's
+			// current latestDownloadUrl, which would hash the wrong content.
+			'https://github.com/author/mod/releases/download/v1.0.0/mod.zip',
+		)
+		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith('Author@Mod', '1.0.0')
+	})
+
+	it("rejects a known-but-unhashed historical version when it still can't be hashed", async () => {
+		vi.mocked(modsGateway.getPublicModById).mockResolvedValue(releaseMod as any)
+		vi.mocked(modsSyncService.ensureVersionHashed).mockResolvedValue(undefined)
+		vi.mocked(modsGateway.getStoredHash).mockResolvedValue(null)
+
+		const token = authAsAdmin('admin-ranked-hist-2', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Author@Mod')
+			.set('Authorization', token)
+			.send({ rankedVersion: '1.0.0' })
 
 		expect(res.status).toBe(400)
 		expect(modsGateway.setRankedVersion).not.toHaveBeenCalled()

@@ -30,6 +30,12 @@ const TAG_ARCHIVE = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/archive\/refs\/ta
 // Legacy shape (no "refs/" prefix) -- still present on some older mods.
 const TAG_ARCHIVE_LEGACY = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/archive\/(.+)\.zip$/
 const TAG_ARCHIVE_CODELOAD = /^https:\/\/codeload\.github\.com\/([^/]+)\/([^/]+)\/zip\/refs\/tags\/(.+)$/
+// Thunderstore's own per-version download URL (thunderstore-mod-index.service.ts's
+// latestDownloadUrl/versions[].downloadUrl) -- a static-file CDN keyed by an
+// exact, immutable version number, same "stable, no reconstruction needed"
+// shape as a real GitHub release asset, confirmed live against the Balatro
+// community's package API.
+const THUNDERSTORE_DOWNLOAD = /^https:\/\/thunderstore\.io\/package\/download\/[^/]+\/[^/]+\/[^/]+\/?$/
 
 export function classifyDownloadUrl(url: string): ModSourceType {
 	if (BRANCH_ARCHIVE.test(url)) return 'branch'
@@ -38,7 +44,8 @@ export function classifyDownloadUrl(url: string): ModSourceType {
 		RELEASE_ASSET_TAGGED.test(url) ||
 		TAG_ARCHIVE.test(url) ||
 		TAG_ARCHIVE_LEGACY.test(url) ||
-		TAG_ARCHIVE_CODELOAD.test(url)
+		TAG_ARCHIVE_CODELOAD.test(url) ||
+		THUNDERSTORE_DOWNLOAD.test(url)
 	) {
 		return 'release'
 	}

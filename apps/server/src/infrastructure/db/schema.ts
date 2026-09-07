@@ -657,9 +657,21 @@ export const matchRunLogs = pgTable(
 	(t) => [primaryKey({ columns: [t.runId, t.playerId] })],
 )
 
+// Which base index (if any) last upserted a mod_registry row -- provenance/
+// debugging only (surfaced in the admin UI), never read back by
+// mod-index-merge.ts's own matching or pruning logic, so a stale value here
+// can never itself cause a row to be mismatched or wrongly pruned. Null for
+// isCustom rows, which have no base-index counterpart at all.
+export const modIndexSourceEnum = pgEnum('mod_index_source', [
+	'github',
+	'thunderstore',
+])
+export type ModIndexSource = (typeof modIndexSourceEnum.enumValues)[number]
+
 // One row per mod known to the platform -- populated by the hourly sync
-// against skyline69/balatro-mod-index directly (features/mods/mods-sync.service.ts,
-// upstream-mod-index.service.ts) and/or a direct admin edit via
+// against skyline69/balatro-mod-index and thunderstore.io/c/balatro directly
+// (features/mods/mods-sync.service.ts, upstream-mod-index.service.ts,
+// thunderstore-mod-index.service.ts) and/or a direct admin edit via
 // PUT /api/webadmin/mods/:modId. This is the launcher-facing catalog
 // (GET /api/mods, /api/mods/:id) -- distinct from launcherReleases/
 // launcherReleaseAssets above, which is the unrelated launcher binary/update
@@ -738,6 +750,7 @@ export const modRegistry = pgTable('mod_registry', {
 		.array()
 		.notNull()
 		.default(sql`'{}'::text[]`),
+	indexSource: modIndexSourceEnum('index_source'),
 	sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()

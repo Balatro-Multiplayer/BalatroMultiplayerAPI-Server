@@ -41,12 +41,16 @@ describe('POST /api/webadmin/mods/sync', () => {
 
 	it('runs the sync and returns its summary for an admin', async () => {
 		vi.mocked(modsSyncService.syncModRegistry).mockResolvedValue({
-			modsSynced: 812,
+			modsSynced: 855,
 			hashed: 3,
 			pruned: 1,
 			skipped: 2,
 			idCollisions: 1,
 			versionsChecked: 4,
+			thunderstoreOk: true,
+			thunderstoreFetched: 120,
+			thunderstoreMatched: 12,
+			thunderstoreNew: 43,
 		})
 
 		const token = authAsAdmin('admin-sync-1', 'Admin')
@@ -57,12 +61,16 @@ describe('POST /api/webadmin/mods/sync', () => {
 		expect(res.status).toBe(200)
 		expect(res.body).toEqual({
 			ok: true,
-			modsSynced: 812,
+			modsSynced: 855,
 			hashed: 3,
 			pruned: 1,
 			skipped: 2,
 			idCollisions: 1,
 			versionsChecked: 4,
+			thunderstoreOk: true,
+			thunderstoreFetched: 120,
+			thunderstoreMatched: 12,
+			thunderstoreNew: 43,
 		})
 		expect(modsSyncService.syncModRegistry).toHaveBeenCalledTimes(1)
 	})

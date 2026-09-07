@@ -50,11 +50,12 @@ describe('upsertModFromIndex', () => {
 			captured = set
 		})
 
-		await upsertModFromIndex(entry)
+		await upsertModFromIndex(entry, 'github')
 
 		expect(captured.title).toBe('New Title')
 		expect(captured.description).toBe('New description')
 		expect(captured.latestVersion).toBe('2.0.0')
+		expect(captured.indexSource).toBe('github')
 	})
 
 	it('skips fields present in overriddenFields but still updates the rest', async () => {
@@ -69,12 +70,15 @@ describe('upsertModFromIndex', () => {
 			captured = set
 		})
 
-		await upsertModFromIndex(entry)
+		await upsertModFromIndex(entry, 'github')
 
 		expect(captured.title).toBeUndefined()
 		expect(captured.description).toBeUndefined()
 		expect(captured.latestVersion).toBe('2.0.0')
 		expect(captured.categories).toEqual(['utility'])
+		// indexSource is bookkeeping, not a syncable field -- always written
+		// even when title/description are overridden and skipped above.
+		expect(captured.indexSource).toBe('github')
 	})
 
 	it('overwrites everything for a brand-new mod with no existing row', async () => {
@@ -87,9 +91,10 @@ describe('upsertModFromIndex', () => {
 			captured = set
 		})
 
-		await upsertModFromIndex(entry)
+		await upsertModFromIndex(entry, 'thunderstore')
 
 		expect(captured.title).toBe('New Title')
 		expect(captured.description).toBe('New description')
+		expect(captured.indexSource).toBe('thunderstore')
 	})
 })

@@ -139,7 +139,9 @@ router.post('/mods/sync', async (req, res, next) => {
 //     accepted (a branch archive URL always re-resolves to current HEAD,
 //     so an older value could never actually be re-fetched).
 //   - sourceType 'release' -> any version that actually appears in the
-//     mod's mod_registry_versions history is accepted.
+//     mod's mod_registry_versions history is accepted, and must have (or
+//     be able to get, right now) a computed hash -- see the recovery path
+//     below for why a known version string alone isn't enough.
 router.put('/mods/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
@@ -187,39 +189,48 @@ router.put('/mods/:modId', async (req, res, next) => {
 						400,
 					)
 				}
-				if (
-					sourceType === 'release' &&
-					!mod.versions.some((v) => v.version === rankedVersion)
-				) {
-					// Recovery path, not the normal case: the mod's own current
-					// latestVersion should always be a legal ranked pin, even if
-					// it has no mod_registry_versions row/hash yet. That gap
-					// normally closes itself right after a Branch/Release source
-					// edit (see ensureVersionHashed()'s own comment) - but the
-					// admin UI's PATCH is diff-based, only resending sourceInput
-					// when something in it actually changed, so an admin who
-					// already saved the right source once (and is now just stuck
-					// with an unhashed version - see Blueprint's real-world case)
-					// has no way to re-trigger that from the edit dialog alone.
-					// Retry hashing right now, once, for exactly this one
-					// recoverable case - mod.latestDownloadUrl is already known-
-					// correct for mod.latestVersion, there's nothing to resolve,
-					// only to (re)compute.
-					if (rankedVersion === mod.latestVersion && mod.latestDownloadUrl) {
-						await ensureVersionHashed(
-							req.params.modId,
-							rankedVersion,
-							mod.latestDownloadUrl,
-						)
+				if (sourceType === 'release') {
+					const versionRow = mod.versions.find((v) => v.version === rankedVersion)
+					// No row at all, and it isn't even the mod's current version
+					// (the one legal "recover from having no row yet" case below)
+					// -- nothing to hash from, reject immediately rather than
+					// attempting anything.
+					if (!versionRow && rankedVersion !== mod.latestVersion) {
+						throw new AppError('Not a known version of this mod', 400)
 					}
-					const stillUnknown = !(await getStoredHash(req.params.modId, rankedVersion))
-					if (stillUnknown) {
-						throw new AppError(
-							rankedVersion === mod.latestVersion
-								? "Couldn't compute a hash for this mod's current version - check the server logs (mods-sync) for why the download/extraction failed, then try again"
-								: 'Not a known version of this mod',
-							400,
-						)
+					if (!versionRow?.sha256) {
+						// Recovery path, not the normal case for a version that's
+						// genuinely current: the regular sync only ever hashes
+						// each mod's own latestVersion (see mods-sync.service.ts's
+						// runSync()), so a version can have a real
+						// mod_registry_versions row with no hash yet in two
+						// shapes -- either this mod's own latestVersion, which
+						// just hasn't been synced/hashed yet (the pre-existing
+						// case this recovery path was written for -- see
+						// ensureVersionHashed()'s own comment), or -- far more
+						// commonly now -- one of Thunderstore's own *historical*
+						// versions, all of which arrive with a real row on the
+						// mod's very first sync, long before any of them was
+						// ever this server's own "latest" (confirmed live: every
+						// non-latest Thunderstore version starts out unhashed).
+						// versionRow.downloadUrl is the only correct URL for a
+						// historical version -- mod.latestDownloadUrl only
+						// applies in the no-row-yet case just guarded above,
+						// never as a substitute for a *different* version's own
+						// (possibly still-null) downloadUrl.
+						const downloadUrl = versionRow
+							? versionRow.downloadUrl
+							: mod.latestDownloadUrl
+						if (downloadUrl) {
+							await ensureVersionHashed(req.params.modId, rankedVersion, downloadUrl)
+						}
+						const stillUnknown = !(await getStoredHash(req.params.modId, rankedVersion))
+						if (stillUnknown) {
+							throw new AppError(
+								"Couldn't compute a hash for this version -- check the server logs (mods-sync) for why the download/extraction failed, then try again",
+								400,
+							)
+						}
 					}
 				}
 			}

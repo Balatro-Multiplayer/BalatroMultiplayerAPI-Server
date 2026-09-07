@@ -2,6 +2,7 @@ import { and, asc, eq, isNotNull, notInArray } from 'drizzle-orm'
 import { classifyDownloadUrl } from '../../features/mods/mod-source-classifier.js'
 import { db } from '../db/index.js'
 import {
+	type ModIndexSource,
 	type ModProfileVersionMode,
 	modProfileEntries,
 	modProfiles,
@@ -207,6 +208,7 @@ export type SyncableModField = (typeof SYNCABLE_MOD_FIELDS)[number]
 // fields) until an admin reverts it via POST .../reset-overrides.
 export async function upsertModFromIndex(
 	entry: ModIndexEntryInput,
+	source: ModIndexSource,
 ): Promise<void> {
 	const existing = await db.query.modRegistry.findFirst({
 		where: eq(modRegistry.id, entry.id),
@@ -214,7 +216,10 @@ export async function upsertModFromIndex(
 	})
 	const overridden = new Set(existing?.overriddenFields ?? [])
 
+	// Bookkeeping, not a syncable content field -- always written regardless
+	// of overriddenFields, same as sourceUpdatedAt/updatedAt above it.
 	const set: Partial<typeof modRegistry.$inferInsert> = {
+		indexSource: source,
 		sourceUpdatedAt: new Date(),
 		updatedAt: new Date(),
 	}
@@ -246,6 +251,7 @@ export async function upsertModFromIndex(
 			description: entry.description,
 			latestVersion: entry.latestVersion,
 			latestDownloadUrl: entry.latestDownloadUrl,
+			indexSource: source,
 			sourceUpdatedAt: new Date(),
 		})
 		.onConflictDoUpdate({ target: modRegistry.id, set })
@@ -285,6 +291,22 @@ export async function pruneModsMissingFrom(ids: string[]): Promise<number> {
 		)
 		.returning({ id: modRegistry.id })
 	return rows.length
+}
+
+// Ids currently tagged with the given indexSource -- read by
+// mods-sync.service.ts's runSync() only as a fallback prune-keep set for a
+// source whose fetch failed *this* run, so a transient outage can't prune
+// that source's mods (treated as "assume unchanged since last success", not
+// "assume gone") without also permanently exempting it from ever being
+// pruned again once the source recovers.
+export async function listModIdsBySource(
+	source: ModIndexSource,
+): Promise<string[]> {
+	const rows = await db
+		.select({ id: modRegistry.id })
+		.from(modRegistry)
+		.where(eq(modRegistry.indexSource, source))
+	return rows.map((r) => r.id)
 }
 
 // --- Backfill (mods-sync.service.ts's recomputeAllModHashes) ---
