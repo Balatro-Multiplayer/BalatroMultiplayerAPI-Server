@@ -223,21 +223,26 @@ async function start() {
 			60 * 60 * 1000,
 		).unref()
 
-		// Blocking, not fire-and-forget: the mod catalog (and every mod's
-		// server-computed hash) must be correct before the very first request
-		// is served, not eventually-consistent a few seconds after boot.
-		// syncModRegistryJob() already swallows its own errors (logs and
-		// returns), so a slow/broken BETModIndex fetch delays startup but never
-		// crashes it. Subsequent runs stay on the hourly background interval.
-		await syncModRegistryJob()
-		setInterval(() => void syncModRegistryJob(), 60 * 60 * 1000).unref()
-
 		server = app.listen(env.PORT, () => {
 			console.log(`[server] API server listening on port ${env.PORT}`)
 		})
 
 		process.on('SIGTERM', shutdown)
 		process.on('SIGINT', shutdown)
+
+		// Fire-and-forget, run after the server is already accepting
+		// connections: mod_registry is a persisted table, not rebuilt from
+		// scratch, so a request that lands before this boot's own sync
+		// finishes just sees the previous sync's data (at most one hourly
+		// cycle stale), not an empty catalog. That's a better trade than
+		// blocking app.listen() on it -- a slow/rate-limited BETModIndex or
+		// GitHub hash fetch used to hold the deploy's health check (and thus
+		// the whole port) closed for minutes, which a blue-green swap's own
+		// health-check timeout has no way to distinguish from an actually
+		// broken boot. syncModRegistryJob() already swallows its own errors,
+		// so this can't crash startup either way.
+		void syncModRegistryJob()
+		setInterval(() => void syncModRegistryJob(), 60 * 60 * 1000).unref()
 	} catch (err) {
 		console.error('[server] Failed to start:', err)
 		process.exit(1)
