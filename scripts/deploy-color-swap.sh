@@ -26,6 +26,7 @@ fi
 UPSTREAM_CONF="nginx/upstream.conf"
 HEALTH_TIMEOUT_S=60
 DRAIN_PAUSE_S=2
+CUTOVER_VERIFY_TIMEOUT_S=15
 
 log() { echo "[deploy] $*"; }
 
@@ -81,7 +82,47 @@ upstream bmp_api_active {
 	server api-$INACTIVE:8788;
 }
 EOF
+
+# Docker bind-mounts a single file by inode, not by path: if this file was
+# EVER rewritten on the host via a rename-based tool (sed -i, mv, an editor's
+# atomic save -- anything that doesn't open(O_TRUNC) the existing inode in
+# place), the container's mount silently detaches from the host path and
+# keeps serving whatever it last saw, forever, with no error from anything.
+# `cat >` above is safe (it truncates in place), but nothing stops a human
+# from editing this file some other way later -- so verify the container
+# actually sees this exact rewrite before trusting nginx -s reload to have
+# done anything at all.
+if ! $COMPOSE exec -T nginx cat /etc/nginx/conf.d/upstream.conf | grep -q "server api-$INACTIVE:8788;"; then
+	echo "[deploy] ERROR: nginx container's /etc/nginx/conf.d/upstream.conf still doesn't mention api-$INACTIVE after rewriting $UPSTREAM_CONF on the host." >&2
+	echo "[deploy] The bind mount is stale (likely broken by a prior rename-based edit of this file) -- api-$ACTIVE was NOT stopped." >&2
+	echo "[deploy] Fix: docker compose -f docker-compose.yml up -d --no-deps --force-recreate nginx, then re-run this script." >&2
+	exit 1
+fi
+
 $COMPOSE exec nginx nginx -s reload
+
+# Confirms the reload actually took effect end-to-end (config propagated +
+# reload applied + api-$INACTIVE reachable on the docker network), the same
+# request nginx's own healthcheck makes -- not just that the file matched
+# above. This is what would have caught today's incident: the file check
+# alone can still pass while nginx is serving from a config an old worker
+# cached before a *previous* broken reload, or api-$INACTIVE is up but
+# unreachable for some other reason.
+log "verifying api-$INACTIVE is actually reachable through nginx (up to ${CUTOVER_VERIFY_TIMEOUT_S}s)..."
+elapsed=0
+while true; do
+	if $COMPOSE exec -T nginx wget -q --spider "http://127.0.0.1:8788/health"; then
+		log "cutover verified -- nginx is serving api-$INACTIVE"
+		break
+	fi
+	if [ "$elapsed" -ge "$CUTOVER_VERIFY_TIMEOUT_S" ]; then
+		echo "[deploy] ERROR: nginx is not serving a working upstream ${CUTOVER_VERIFY_TIMEOUT_S}s after cutover -- api-$ACTIVE was NOT stopped." >&2
+		echo "[deploy] Investigate before retrying (check: docker logs bmp-nginx, docker compose exec nginx cat /etc/nginx/conf.d/upstream.conf)." >&2
+		exit 1
+	fi
+	sleep 2
+	elapsed=$((elapsed + 2))
+done
 
 log "draining in-flight requests against api-$ACTIVE (${DRAIN_PAUSE_S}s)..."
 sleep "$DRAIN_PAUSE_S"
