@@ -30,6 +30,11 @@ export async function listPublicMods(opts?: { includeHidden?: boolean }) {
 			thumbnailUrl: modRegistry.thumbnailUrl,
 			isCustom: modRegistry.isCustom,
 			overriddenFields: modRegistry.overriddenFields,
+			// Included here (not just on the single-mod detail fetch) so
+			// /admin/ranked-mods' search box can filter the already-loaded list
+			// client-side without a second round trip per keystroke - see
+			// page.tsx's search filtering.
+			searchTerms: modRegistry.searchTerms,
 		})
 		.from(modRegistry)
 		.where(opts?.includeHidden ? undefined : eq(modRegistry.hidden, false))
@@ -611,6 +616,7 @@ export interface CustomModInput {
 	title: string
 	author: string
 	categories?: string[]
+	searchTerms?: string[]
 	requiresSteamodded?: boolean
 	requiresTalisman?: boolean
 	repoUrl?: string | null
@@ -640,6 +646,7 @@ export async function createCustomMod(
 			title: input.title,
 			author: input.author,
 			categories: input.categories ?? [],
+			searchTerms: input.searchTerms ?? [],
 			requiresSteamodded: input.requiresSteamodded ?? true,
 			requiresTalisman: input.requiresTalisman ?? false,
 			repoUrl: input.repoUrl ?? null,
@@ -673,6 +680,7 @@ export interface UpdateCustomModInput {
 	title?: string
 	author?: string
 	categories?: string[]
+	searchTerms?: string[]
 	requiresSteamodded?: boolean
 	requiresTalisman?: boolean
 	repoUrl?: string | null
@@ -751,6 +759,12 @@ export async function updateModFields(
 	touch('description', input.description)
 	touch('latestVersion', input.latestVersion)
 	touch('latestDownloadUrl', input.latestDownloadUrl)
+
+	// Deliberately bypasses touch()/overriddenFields -- searchTerms has no
+	// upstream value to protect from a future sync (see schema.ts's own
+	// doc comment on mod_registry.searchTerms), so unlike every field
+	// above it's just written directly, on custom and synced mods alike.
+	if (input.searchTerms !== undefined) set.searchTerms = input.searchTerms
 
 	if (!existing.isCustom && edited.length > 0) {
 		set.overriddenFields = [
