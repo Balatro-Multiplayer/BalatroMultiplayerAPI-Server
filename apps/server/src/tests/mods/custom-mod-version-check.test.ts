@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppError } from '../../shared/utils/errors.js'
 import {
 	checkCustomModVersion,
+	resolveCommitPinnedDownloadUrl,
 	resolveSourceInput,
 } from '../../features/mods/custom-mod-version-check.service.js'
 
@@ -179,6 +180,86 @@ describe('checkCustomModVersion', () => {
 				'https://github.com/Alice/Mod/releases/latest/download/mod.zip',
 			fixedReleaseTagUpdates: false,
 		})
+
+		expect(result).toBeNull()
+	})
+})
+
+describe('resolveCommitPinnedDownloadUrl', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals()
+	})
+
+	it('resolves a branch-archive URL + short-SHA version to a commit-pinned codeload URL', async () => {
+		mockFetch((url) => {
+			if (url.endsWith('/repos/Aikoyori/Balatro-Aikoyoris-Shenanigans/commits/55be56c')) {
+				return jsonResponse(200, {
+					sha: '55be56c1234567890abcdef1234567890abcdef',
+				})
+			}
+			throw new Error(`unexpected fetch: ${url}`)
+		})
+
+		const result = await resolveCommitPinnedDownloadUrl(
+			'https://github.com/Aikoyori/Balatro-Aikoyoris-Shenanigans/archive/refs/heads/stable.zip',
+			'55be56c',
+		)
+
+		expect(result).toBe(
+			'https://codeload.github.com/Aikoyori/Balatro-Aikoyoris-Shenanigans/zip/55be56c1234567890abcdef1234567890abcdef',
+		)
+	})
+
+	it('returns null for a non-branch (release/custom) URL - nothing to pin, the literal URL is already stable', async () => {
+		mockFetch(() => {
+			throw new Error('should not fetch')
+		})
+
+		const result = await resolveCommitPinnedDownloadUrl(
+			'https://github.com/Alice/Mod/releases/download/v1.0.0/mod.zip',
+			'v1.0.0',
+		)
+
+		expect(result).toBeNull()
+	})
+
+	it("returns null when the version doesn't look like a git SHA (e.g. a custom mod's own version string)", async () => {
+		mockFetch(() => {
+			throw new Error('should not fetch')
+		})
+
+		const result = await resolveCommitPinnedDownloadUrl(
+			'https://github.com/Alice/Mod/archive/refs/heads/main.zip',
+			'v1.0.0-beta',
+		)
+
+		expect(result).toBeNull()
+	})
+
+	it('returns null (not throw) when GitHub 404s on the commit lookup', async () => {
+		mockFetch(() => jsonResponse(404, {}))
+
+		const result = await resolveCommitPinnedDownloadUrl(
+			'https://github.com/Alice/Mod/archive/refs/heads/main.zip',
+			'0000000',
+		)
+
+		expect(result).toBeNull()
+	})
+
+	it('returns null (not throw) when GitHub responds rate-limited', async () => {
+		mockFetch(
+			() =>
+				new Response('rate limit exceeded', {
+					status: 403,
+					headers: { 'x-ratelimit-remaining': '0' },
+				}),
+		)
+
+		const result = await resolveCommitPinnedDownloadUrl(
+			'https://github.com/Alice/Mod/archive/refs/heads/main.zip',
+			'abcdef1',
+		)
 
 		expect(result).toBeNull()
 	})
