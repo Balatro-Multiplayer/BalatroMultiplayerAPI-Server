@@ -1,42 +1,48 @@
--- Simplifies the mod catalog down to a Thunderstore-only sync: drops the
--- second GitHub-sourced index, admin "custom mods", per-field overrides,
--- per-version hash history, and the unused "ranked mod profiles" concept
--- (confirmed by grep, and by its own code comments, to be completely
--- unenforced anywhere in matchmaking). mod_registry shrinks to
--- id/title/author/ranked_version/ranked_version_sha256 -- id switches from
--- the old GitHub-index slug ("Author@ModName") to the raw Thunderstore
--- full_name ("Author-ModName"), so every existing row is truncated rather
--- than migrated: no automated id-mapping backfill, an admin manually
--- re-pins ranked_version per mod post-deploy via the (now minimal) admin UI
--- once the first Thunderstore-only sync repopulates this table fresh.
+-- Switches the mod catalog to Thunderstore as its only source while keeping
+-- every field the launcher already reads (GET /api/mods, /api/mods/:id,
+-- /api/mods/profiles). Drops the second, GitHub-sourced index and the admin
+-- "custom mod" / per-field-override machinery built around it.
+--
+-- Existing rows are kept, not truncated: the next sync claims each one for
+-- its Thunderstore package (by repo URL, or an explicit alias for the few
+-- ids the launcher hardcodes -- see mod-registry-claims.ts), keeping the
+-- legacy id, title, featured/hidden and ranked pin. Rows no package claims
+-- are pruned by that sync. Carried-over ranked pins are re-hashed against
+-- Thunderstore's archive, or cleared if that version isn't on Thunderstore.
 
-DROP TABLE IF EXISTS "mod_profile_entries";
-DROP TABLE IF EXISTS "mod_profiles";
-DROP TYPE IF EXISTS "mod_profile_version_mode";
+-- Profiles are kept read-only. Dropping the FK means a pruned mod can never
+-- cascade away profile entries.
+ALTER TABLE "mod_profile_entries" DROP CONSTRAINT IF EXISTS "mod_profile_entries_mod_id_fkey";
 
-DROP TABLE IF EXISTS "mod_registry_versions";
+-- Steamodded's GitHub tag "1.0.0-beta-1620a" is published on Thunderstore as
+-- "1.1620.0".
+UPDATE "mod_profile_entries" AS e
+SET "pinned_version" = '1.1620.0'
+FROM "mod_profiles" AS p
+WHERE e."profile_id" = p."id"
+	AND p."slug" = 'mppvp'
+	AND e."mod_id" = 'smods'
+	AND e."version_mode" = 'exact'
+	AND e."pinned_version" = '1.0.0-beta-1620a';
 
-TRUNCATE TABLE "mod_registry";
+-- Every stored version row points at a GitHub URL; the sync repopulates this
+-- table from Thunderstore.
+TRUNCATE TABLE "mod_registry_versions";
+ALTER TABLE "mod_registry_versions" DROP COLUMN "sha256";
+ALTER TABLE "mod_registry_versions" DROP COLUMN "pin_failed_at";
+ALTER TABLE "mod_registry_versions" ADD COLUMN "dependencies" text[] DEFAULT '{}' NOT NULL;
 
-ALTER TABLE "mod_registry" DROP COLUMN "categories";
-ALTER TABLE "mod_registry" DROP COLUMN "requires_steamodded";
-ALTER TABLE "mod_registry" DROP COLUMN "requires_talisman";
-ALTER TABLE "mod_registry" DROP COLUMN "repo_url";
-ALTER TABLE "mod_registry" DROP COLUMN "thumbnail_url";
-ALTER TABLE "mod_registry" DROP COLUMN "description";
-ALTER TABLE "mod_registry" DROP COLUMN "latest_version";
-ALTER TABLE "mod_registry" DROP COLUMN "latest_download_url";
 ALTER TABLE "mod_registry" DROP COLUMN "latest_sha256";
-ALTER TABLE "mod_registry" DROP COLUMN "featured";
-ALTER TABLE "mod_registry" DROP COLUMN "hidden";
 ALTER TABLE "mod_registry" DROP COLUMN "is_custom";
 ALTER TABLE "mod_registry" DROP COLUMN "automatic_version_check";
 ALTER TABLE "mod_registry" DROP COLUMN "fixed_release_tag_updates";
 ALTER TABLE "mod_registry" DROP COLUMN "overridden_fields";
 ALTER TABLE "mod_registry" DROP COLUMN "index_source";
-ALTER TABLE "mod_registry" DROP COLUMN "source_updated_at";
 ALTER TABLE "mod_registry" DROP COLUMN "search_terms";
-
-ALTER TABLE "mod_registry" ADD COLUMN "ranked_version_sha256" varchar(64);
-
 DROP TYPE IF EXISTS "mod_index_source";
+
+ALTER TABLE "mod_registry" ADD COLUMN "thunderstore_full_name" varchar(128);
+ALTER TABLE "mod_registry" ADD CONSTRAINT "mod_registry_thunderstore_full_name_unique" UNIQUE ("thunderstore_full_name");
+ALTER TABLE "mod_registry" ADD COLUMN "package_url" text;
+ALTER TABLE "mod_registry" ADD COLUMN "donation_link" text;
+ALTER TABLE "mod_registry" ADD COLUMN "ranked_version_sha256" varchar(64);

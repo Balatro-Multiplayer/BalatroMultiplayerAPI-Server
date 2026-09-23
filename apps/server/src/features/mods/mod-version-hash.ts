@@ -26,10 +26,10 @@ function extractedFolderName(version: string): string {
 // ModFileHash::hashDirectory()). Hashes *that*, not the raw download,
 // because the raw download is never what actually lands in a player's Mods
 // folder, or what RunController::currentModMatchesServerHash() verifies
-// against. Called on demand from mods.gateway.ts's setRankedVersion, not as
-// part of the regular sync -- the simplified single-hash-per-mod model only
-// ever needs a hash for whatever version an admin just pinned as
-// rankedVersion, not every mod's every version. Best-effort: a slow/dead
+// against. Called from mods.gateway.ts's setRankedVersion when an admin pins a
+// version, and from mods-sync.service.ts for a pin that has no hash yet --
+// only ranked pins are ever hashed, not every mod's every version.
+// Best-effort: a slow/dead
 // download URL or an unreadable archive logs and returns null rather than
 // throwing.
 export async function computeModFolderHashForRelease(

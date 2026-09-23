@@ -1,5 +1,5 @@
 import request from 'supertest'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { signJwt } from '../../features/auth/jwt.js'
 import * as modsGateway from '../../infrastructure/gateways/mods.gateway.js'
 import * as playerGateway from '../../infrastructure/gateways/player.gateway.js'
@@ -13,6 +13,8 @@ vi.mock('../../infrastructure/gateways/mods.gateway.js', async () => {
 	return {
 		...actual,
 		listPublicMods: vi.fn(),
+		findModByIdOrFullName: vi.fn(),
+		setModFlags: vi.fn(),
 		setRankedVersion: vi.fn(),
 	}
 })
@@ -24,6 +26,16 @@ vi.mock('../../features/mods/thunderstore-mod-index.service.js', () => ({
 import { fetchThunderstorePackageVersions } from '../../features/mods/thunderstore-mod-index.service.js'
 
 const app = createTestApp()
+
+// A carried-over row: legacy id, claimed by a Thunderstore package.
+const legacyRow = { id: 'Author@Mod', thunderstoreFullName: 'Author-Mod' }
+
+beforeEach(() => {
+	vi.mocked(modsGateway.findModByIdOrFullName).mockResolvedValue(
+		legacyRow as any,
+	)
+	vi.mocked(modsGateway.setModFlags).mockResolvedValue(true)
+})
 
 function authAsModerator(playerId: string, steamName: string) {
 	createSession(steamName, { id: playerId })
@@ -42,15 +54,22 @@ function authAsAdmin(playerId: string, steamName: string) {
 }
 
 describe('GET /api/webadmin/mods', () => {
-	it('mirrors the public compact list, readable by a moderator', async () => {
-		const rows = [{ id: 'Author-Mod', title: 'Mod', author: 'Author', rankedVersion: null }]
+	it('mirrors the public compact list plus hidden mods, readable by a moderator', async () => {
+		const rows = [
+			{ id: 'Author-Mod', title: 'Mod', author: 'Author', rankedVersion: null },
+		]
 		vi.mocked(modsGateway.listPublicMods).mockResolvedValue(rows as any)
 
 		const token = authAsModerator('mod-list-1', 'Mod')
-		const res = await request(app).get('/api/webadmin/mods').set('Authorization', token)
+		const res = await request(app)
+			.get('/api/webadmin/mods')
+			.set('Authorization', token)
 
 		expect(res.status).toBe(200)
 		expect(res.body).toEqual(rows)
+		expect(modsGateway.listPublicMods).toHaveBeenCalledWith({
+			includeHidden: true,
+		})
 	})
 })
 
@@ -76,7 +95,21 @@ describe('GET /api/webadmin/mods/:id/versions', () => {
 			.set('Authorization', token)
 
 		expect(res.status).toBe(200)
-		expect(res.body).toEqual([{ version: '1.0.0', downloadUrl: 'https://example.com/1.0.0' }])
+		expect(res.body).toEqual([
+			{ version: '1.0.0', downloadUrl: 'https://example.com/1.0.0' },
+		])
+		expect(fetchThunderstorePackageVersions).toHaveBeenCalledWith('Author-Mod')
+	})
+
+	it('returns 404 for an unknown mod', async () => {
+		vi.mocked(modsGateway.findModByIdOrFullName).mockResolvedValue(null)
+
+		const token = authAsAdmin('admin-ver-2', 'Admin')
+		const res = await request(app)
+			.get('/api/webadmin/mods/Nobody-Nothing/versions')
+			.set('Authorization', token)
+
+		expect(res.status).toBe(404)
 	})
 })
 
@@ -128,7 +161,10 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 
 		expect(res.status).toBe(200)
 		expect(fetchThunderstorePackageVersions).not.toHaveBeenCalled()
-		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith('Author-Mod', null)
+		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith(
+			'Author@Mod',
+			null,
+		)
 	})
 
 	it('pins a known version and returns ok on success', async () => {
@@ -145,7 +181,11 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 
 		expect(res.status).toBe(200)
 		expect(res.body).toEqual({ ok: true })
-		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith('Author-Mod', '1.0.0')
+		expect(fetchThunderstorePackageVersions).toHaveBeenCalledWith('Author-Mod')
+		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith(
+			'Author@Mod',
+			'1.0.0',
+		)
 	})
 
 	it('returns 404 when the gateway reports the mod does not exist', async () => {
@@ -182,5 +222,43 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 			.send({ rankedVersion: '1.0.0' })
 
 		expect(res.status).toBe(400)
+	})
+
+	it('returns 404 when the mod does not exist', async () => {
+		vi.mocked(modsGateway.findModByIdOrFullName).mockResolvedValue(null)
+
+		const token = authAsAdmin('admin-put-7', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Nobody-Nothing')
+			.set('Authorization', token)
+			.send({ featured: true })
+
+		expect(res.status).toBe(404)
+	})
+
+	it('sets featured/hidden without touching the ranked pin', async () => {
+		const token = authAsAdmin('admin-put-8', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Author-Mod')
+			.set('Authorization', token)
+			.send({ featured: true, hidden: false })
+
+		expect(res.status).toBe(200)
+		expect(modsGateway.setModFlags).toHaveBeenCalledWith('Author@Mod', {
+			featured: true,
+			hidden: false,
+		})
+		expect(modsGateway.setRankedVersion).not.toHaveBeenCalled()
+	})
+
+	it('returns 400 when featured or hidden is not a boolean', async () => {
+		const token = authAsAdmin('admin-put-9', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Author-Mod')
+			.set('Authorization', token)
+			.send({ hidden: 'yes' })
+
+		expect(res.status).toBe(400)
+		expect(modsGateway.setModFlags).not.toHaveBeenCalled()
 	})
 })

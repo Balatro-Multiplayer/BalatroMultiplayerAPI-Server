@@ -15,13 +15,14 @@ import {
 import { ApiError, apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { ModsTable } from './components/mods-table'
-import type { ModSummary } from './components/ranked-mods-types'
+import type { ModPatch, ModSummary } from './components/ranked-mods-types'
 
 // The ranked mod catalog -- synced hourly straight from Thunderstore (see
-// BalatroMultiplayerServer's features/mods/mods-sync.service.ts). The only
-// thing editable here is rankedVersion: null means not ranked-allowed, any
-// other value pins that mod to exactly that Thunderstore version (hashed at
-// pin time -- see mods.gateway.ts's setRankedVersion doc comment).
+// BalatroMultiplayerServer's features/mods/mods-sync.service.ts). Editable
+// here: rankedVersion (null means not ranked-allowed, any other value pins
+// that mod to exactly that Thunderstore version, hashed at pin time -- see
+// mods.gateway.ts's setRankedVersion doc comment), featured, and hidden
+// (drops the mod from the public catalog).
 // Deliberately distinct from /admin/config's "Official Mods" section above
 // (the pre-existing launcher self-update channel, mod_versions/mod_releases)
 // -- this is a separate system (mod_registry). Info-only for now: nothing
@@ -55,15 +56,12 @@ export default function RankedModsPage() {
 
   const [pendingModId, setPendingModId] = useState<string | null>(null)
 
-  const setRankedVersionMut = useMutation({
-    mutationFn: async (input: {
-      modId: string
-      rankedVersion: string | null
-    }) => {
+  const updateModMut = useMutation({
+    mutationFn: async (input: { modId: string; patch: ModPatch }) => {
       setPendingModId(input.modId)
       return apiFetch(`/webadmin/mods/${encodeURIComponent(input.modId)}`, {
         method: 'PUT',
-        body: JSON.stringify({ rankedVersion: input.rankedVersion }),
+        body: JSON.stringify(input.patch),
       })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ranked-mods'] }),
@@ -76,10 +74,12 @@ export default function RankedModsPage() {
   // e.g. to pull in a newly-published mod without waiting for the next tick.
   const syncMut = useMutation({
     mutationFn: () =>
-      apiFetch<{ ok: true; modsSynced: number; pruned: number; skipped: number }>(
-        '/webadmin/mods/sync',
-        { method: 'POST' }
-      ),
+      apiFetch<{
+        ok: true
+        modsSynced: number
+        pruned: number
+        skipped: number
+      }>('/webadmin/mods/sync', { method: 'POST' }),
     onSuccess: (result) => {
       toast.success(
         `Synced ${result.modsSynced} mods` +
@@ -108,8 +108,7 @@ export default function RankedModsPage() {
           <div>
             <CardTitle>Mod catalog</CardTitle>
             <CardDescription>
-              Ranked eligibility and an optional pinned ranked version are set
-              here directly.
+              Ranked version pins, featured and hidden are set here directly.
             </CardDescription>
           </div>
           {isAdmin && (
@@ -130,11 +129,8 @@ export default function RankedModsPage() {
               mods={mods}
               isAdmin={isAdmin}
               pendingModId={pendingModId}
-              onSetRankedVersion={(mod, version) =>
-                setRankedVersionMut.mutate({
-                  modId: mod.id,
-                  rankedVersion: version,
-                })
+              onUpdate={(mod, patch) =>
+                updateModMut.mutate({ modId: mod.id, patch })
               }
             />
           )}

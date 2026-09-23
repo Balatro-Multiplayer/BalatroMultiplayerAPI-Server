@@ -121,7 +121,9 @@ export const serverConfig = pgTable('server_config', {
 	chatEnabled: boolean('chat_enabled').notNull().default(false),
 	rankedEnabled: boolean('ranked_enabled').notNull().default(true),
 	casualQueueEnabled: boolean('casual_queue_enabled').notNull().default(true),
-	lobbyCreationEnabled: boolean('lobby_creation_enabled').notNull().default(true),
+	lobbyCreationEnabled: boolean('lobby_creation_enabled')
+		.notNull()
+		.default(true),
 	updatedAt: timestamp('updated_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -252,19 +254,24 @@ export const matchResultConflicts = pgTable('match_result_conflicts', {
 // void via void-match.ts's voidMatch() -- never an automatic rating change,
 // since the reconnect timing alone isn't proof the forfeit was wrong (see
 // RECONCILIATION_WINDOW_MS in matchmaking.service.ts).
-export const forfeitReconciliationFlags = pgTable('forfeit_reconciliation_flags', {
-	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-	matchId: varchar('match_id', { length: 36 }).notNull(),
-	lobbyCode: varchar('lobby_code', { length: 6 }).notNull(),
-	playerId: uuid('player_id').notNull(),
-	forfeitedAt: timestamp('forfeited_at', { withTimezone: true }).notNull(),
-	reconnectedAt: timestamp('reconnected_at', { withTimezone: true }).notNull(),
-	status: varchar('status', { length: 16 }).notNull().default('open'), // open | voided | dismissed
-	resolutionNotes: text('resolution_notes'),
-	createdAt: timestamp('created_at', { withTimezone: true })
-		.notNull()
-		.defaultNow(),
-})
+export const forfeitReconciliationFlags = pgTable(
+	'forfeit_reconciliation_flags',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		matchId: varchar('match_id', { length: 36 }).notNull(),
+		lobbyCode: varchar('lobby_code', { length: 6 }).notNull(),
+		playerId: uuid('player_id').notNull(),
+		forfeitedAt: timestamp('forfeited_at', { withTimezone: true }).notNull(),
+		reconnectedAt: timestamp('reconnected_at', {
+			withTimezone: true,
+		}).notNull(),
+		status: varchar('status', { length: 16 }).notNull().default('open'), // open | voided | dismissed
+		resolutionNotes: text('resolution_notes'),
+		createdAt: timestamp('created_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+)
 
 // Single lightweight pointer/index row per moderation item needing human
 // review, across all 5 source types (see service-queue.gateway.ts). Every
@@ -337,7 +344,10 @@ export const serviceQueueItems = pgTable(
 		// Defensive dedupe: the same source row should never enqueue twice.
 		// Also lets enqueueServiceQueueItem be an onConflictDoNothing upsert
 		// instead of needing its own pre-check.
-		uniqueIndex('service_queue_items_type_source_idx').on(t.itemType, t.sourceId),
+		uniqueIndex('service_queue_items_type_source_idx').on(
+			t.itemType,
+			t.sourceId,
+		),
 		// Backs the list page's default query: filter by status/itemType, sort
 		// by createdAt desc.
 		index('service_queue_items_status_type_created_idx').on(
@@ -361,7 +371,9 @@ export const gracePeriods = pgTable('grace_periods', {
 	playerId: uuid('player_id').notNull(),
 	lobbyCode: varchar('lobby_code', { length: 6 }).notNull(),
 	displayName: text('display_name').notNull(),
-	disconnectedAt: timestamp('disconnected_at', { withTimezone: true }).notNull(),
+	disconnectedAt: timestamp('disconnected_at', {
+		withTimezone: true,
+	}).notNull(),
 	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()
@@ -509,7 +521,10 @@ export const launcherReleaseAssets = pgTable(
 	],
 )
 
-export const blogPostKindEnum = pgEnum('blog_post_kind', ['patch_notes', 'news'])
+export const blogPostKindEnum = pgEnum('blog_post_kind', [
+	'patch_notes',
+	'news',
+])
 export type BlogPostKind = (typeof blogPostKindEnum.enumValues)[number]
 
 export const blogPostStatusEnum = pgEnum('blog_post_status', [
@@ -660,24 +675,41 @@ export const matchRunLogs = pgTable(
 
 // One row per mod known to the platform -- populated by the hourly
 // Thunderstore-only sync (features/mods/mods-sync.service.ts,
-// thunderstore-mod-index.service.ts) and/or an admin pinning rankedVersion via
-// PUT /api/webadmin/mods/:modId. This is the launcher-facing catalog
+// thunderstore-mod-index.service.ts). This is the launcher-facing catalog
 // (GET /api/mods, /api/mods/:id) -- distinct from launcherReleases/
 // launcherReleaseAssets above, which is the unrelated launcher binary/update
 // channel (a different piece of software from the mods this table tracks).
-//
-// Simplified from a much richer shape (GitHub-sourced index, admin "custom
-// mods", per-field overrides, per-version hash history, "ranked mod
-// profiles") down to a Thunderstore-only sync -- see drizzle/
-// 0039_mod_registry_thunderstore_only.sql's own comment for the full
-// rationale.
+// See drizzle/0041_mod_registry_thunderstore_only.sql for how rows from the
+// older GitHub-sourced index were carried over.
 export const modRegistry = pgTable('mod_registry', {
-	// Thunderstore's own full_name ("Owner-ModName") -- both halves are
-	// restricted to [a-zA-Z0-9_] by Thunderstore itself, so splitting on the
-	// separating hyphen is always unambiguous.
+	// The public, stable id every client keys on. Rows carried over from the
+	// GitHub-index era keep their legacy id (e.g. "MultiplayerAPI", "smods")
+	// once claimed by a Thunderstore package -- the launcher hardcodes some of
+	// them and names install folders after them. Rows first seen on
+	// Thunderstore get its full_name ("Owner-ModName") as their id.
 	id: varchar('id', { length: 128 }).primaryKey(),
+	// The sync key: Thunderstore's full_name for the package this row tracks.
+	// Null only for a carried-over row no package has claimed yet, which the
+	// next successful sync prunes.
+	thunderstoreFullName: varchar('thunderstore_full_name', {
+		length: 128,
+	}).unique(),
+	// Written on insert only, never by a later sync -- the launcher derives a
+	// mod's install folder from it, so a rename would strand the old folder.
 	title: varchar('title', { length: 128 }).notNull(),
 	author: varchar('author', { length: 128 }).notNull(),
+	categories: text('categories').array().notNull().default(sql`'{}'::text[]`),
+	requiresSteamodded: boolean('requires_steamodded').notNull().default(true),
+	// Talisman has no Thunderstore package to depend on, so sync can only
+	// ever prove this true -- it ORs into the stored value, never clears it.
+	requiresTalisman: boolean('requires_talisman').notNull().default(false),
+	repoUrl: text('repo_url'),
+	thumbnailUrl: text('thumbnail_url'),
+	description: text('description'),
+	packageUrl: text('package_url'),
+	donationLink: text('donation_link'),
+	latestVersion: varchar('latest_version', { length: 64 }),
+	latestDownloadUrl: text('latest_download_url'),
 	// Admin-owned, not synced from Thunderstore -- Thunderstore carries no
 	// ranked-eligibility concept of its own. The sole source of ranked
 	// eligibility: null means this mod is not ranked-allowed; a set value
@@ -685,9 +717,15 @@ export const modRegistry = pgTable('mod_registry', {
 	// is no "any version is fine" state. Set via PUT /api/webadmin/mods/:modId
 	// (see mods.gateway.ts's setRankedVersion), which hashes that exact
 	// version's real downloaded/extracted content at pin time and stores the
-	// result alongside it below.
+	// result alongside it below. Sync clears a pin whose version is no
+	// longer on Thunderstore, and hashes a pin that has no hash yet.
 	rankedVersion: varchar('ranked_version', { length: 64 }),
 	rankedVersionSha256: varchar('ranked_version_sha256', { length: 64 }),
+	// Admin-owned, never synced. featured highlights a mod in the launcher;
+	// hidden drops it from the public catalog entirely.
+	featured: boolean('featured').notNull().default(false),
+	hidden: boolean('hidden').notNull().default(false),
+	sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -695,6 +733,78 @@ export const modRegistry = pgTable('mod_registry', {
 		.notNull()
 		.defaultNow(),
 })
+
+// Every active Thunderstore version of a mod, replaced wholesale on each
+// sync. No per-version hash -- only the ranked pin is ever hashed (see
+// modRegistry.rankedVersionSha256).
+export const modRegistryVersions = pgTable(
+	'mod_registry_versions',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		modId: varchar('mod_id', { length: 128 })
+			.notNull()
+			.references(() => modRegistry.id, { onDelete: 'cascade' }),
+		version: varchar('version', { length: 64 }).notNull(),
+		downloadUrl: text('download_url'),
+		releasedAt: timestamp('released_at', { withTimezone: true }),
+		// Thunderstore dependency strings, "Owner-Name-Version".
+		dependencies: text('dependencies')
+			.array()
+			.notNull()
+			.default(sql`'{}'::text[]`),
+	},
+	(t) => [
+		uniqueIndex('mod_registry_versions_mod_version_idx').on(t.modId, t.version),
+	],
+)
+
+// Named mod presets the launcher offers (GET /api/mods/profiles). Read-only:
+// no admin surface writes these anymore, the existing rows are served as-is.
+export const modProfiles = pgTable('mod_profiles', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	name: varchar('name', { length: 128 }).notNull(),
+	slug: varchar('slug', { length: 128 }).notNull().unique(),
+	description: text('description'),
+	createdBy: uuid('created_by').references(() => players.id),
+	createdAt: timestamp('created_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+})
+
+// How a profile entry pins a mod's version: an exact string (pairs with
+// pinnedVersion), always the newest, or always modRegistry.rankedVersion.
+export const modProfileVersionModeEnum = pgEnum('mod_profile_version_mode', [
+	'exact',
+	'latest',
+	'latestRanked',
+])
+export type ModProfileVersionMode =
+	(typeof modProfileVersionModeEnum.enumValues)[number]
+
+export const modProfileEntries = pgTable(
+	'mod_profile_entries',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		profileId: uuid('profile_id')
+			.notNull()
+			.references(() => modProfiles.id, { onDelete: 'cascade' }),
+		// Deliberately no foreign key to modRegistry: a mod pruned by sync
+		// must not silently delete profile data along with it.
+		modId: varchar('mod_id', { length: 128 }).notNull(),
+		versionMode: modProfileVersionModeEnum('version_mode')
+			.notNull()
+			.default('latest'),
+		// Only meaningful when versionMode is 'exact' -- ignored otherwise.
+		pinnedVersion: varchar('pinned_version', { length: 64 }),
+		allowed: boolean('allowed').notNull().default(true),
+	},
+	(t) => [
+		uniqueIndex('mod_profile_entries_profile_mod_idx').on(t.profileId, t.modId),
+	],
+)
 
 // One row per launcher-integrity challenge that wasn't cleanly answered
 // (wrong response, timed out, or -- login challenges only -- explicitly

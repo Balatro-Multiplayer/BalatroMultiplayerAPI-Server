@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import {
   Table,
   TableBody,
@@ -18,7 +19,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { apiFetch } from '@/lib/api'
-import type { ModSummary, ModVersion } from './ranked-mods-types'
+import type { ModPatch, ModSummary, ModVersion } from './ranked-mods-types'
 
 // Radix Select items can't have an empty string value -- this sentinel
 // stands in for "not ranked" (rankedVersion: null) on the wire in/out of
@@ -86,12 +87,12 @@ export function ModsTable({
   mods,
   isAdmin,
   pendingModId,
-  onSetRankedVersion,
+  onUpdate,
 }: {
   mods: ModSummary[]
   isAdmin: boolean
   pendingModId: string | null
-  onSetRankedVersion: (mod: ModSummary, version: string | null) => void
+  onUpdate: (mod: ModSummary, patch: ModPatch) => void
 }) {
   return (
     <Table>
@@ -100,35 +101,59 @@ export function ModsTable({
           <TableHead>Mod</TableHead>
           <TableHead>Author</TableHead>
           <TableHead>Ranked version</TableHead>
+          <TableHead>Featured</TableHead>
+          <TableHead>Hidden</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {mods.map((mod) => (
-          <TableRow key={mod.id}>
-            <TableCell>
-              <p className='font-medium'>{mod.title}</p>
-              <p className='font-mono text-muted-foreground text-xs'>
-                {mod.id}
-              </p>
-            </TableCell>
-            <TableCell>{mod.author}</TableCell>
-            <TableCell>
-              <RankedVersionSelect
-                mod={mod}
-                disabled={!isAdmin || pendingModId === mod.id}
-                onChange={(version) => onSetRankedVersion(mod, version)}
-              />
-            </TableCell>
-          </TableRow>
-        ))}
+        {mods.map((mod) => {
+          const disabled = !isAdmin || pendingModId === mod.id
+          return (
+            <TableRow key={mod.id}>
+              <TableCell>
+                <p className='font-medium'>{mod.title}</p>
+                <p className='font-mono text-muted-foreground text-xs'>
+                  {mod.id}
+                  {mod.thunderstoreFullName &&
+                    mod.thunderstoreFullName !== mod.id &&
+                    ` · ${mod.thunderstoreFullName}`}
+                </p>
+              </TableCell>
+              <TableCell>{mod.author}</TableCell>
+              <TableCell>
+                <RankedVersionSelect
+                  mod={mod}
+                  disabled={disabled}
+                  onChange={(version) =>
+                    onUpdate(mod, { rankedVersion: version })
+                  }
+                />
+              </TableCell>
+              <TableCell>
+                <Switch
+                  checked={mod.featured}
+                  disabled={disabled}
+                  onCheckedChange={(featured) => onUpdate(mod, { featured })}
+                />
+              </TableCell>
+              <TableCell>
+                <Switch
+                  checked={mod.hidden}
+                  disabled={disabled}
+                  onCheckedChange={(hidden) => onUpdate(mod, { hidden })}
+                />
+              </TableCell>
+            </TableRow>
+          )
+        })}
         {mods.length === 0 && (
           <TableRow>
             <TableCell
-              colSpan={3}
+              colSpan={5}
               className='text-center text-muted-foreground'
             >
-              No mods synced yet — MOD_INDEX_SYNC_ENABLED may not be set, or
-              the hourly sync hasn't run.
+              No mods synced yet — MOD_INDEX_SYNC_ENABLED may not be set, or the
+              hourly sync hasn't run.
             </TableCell>
           </TableRow>
         )}
