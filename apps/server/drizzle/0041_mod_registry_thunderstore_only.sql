@@ -14,8 +14,21 @@
 -- cascade away profile entries.
 ALTER TABLE "mod_profile_entries" DROP CONSTRAINT IF EXISTS "mod_profile_entries_mod_id_fkey";
 
--- Steamodded's GitHub tag "1.0.0-beta-1620a" is published on Thunderstore as
--- "1.1620.0".
+-- Steamodded's GitHub tags "1.0.0-beta-NNNNa" are published on Thunderstore
+-- as "1.NNNN.0". Without these, the next sync clears the smods ranked pin
+-- (which the mpspdrn profile's latestRanked entry resolves through) and the
+-- mppvp exact pin names a version Thunderstore doesn't serve.
+UPDATE "mod_registry"
+SET "ranked_version" = '1.1814.0'
+WHERE "id" = 'smods' AND "ranked_version" = '1.0.0-beta-1814a';
+
+-- GitHub tags are often "v1.2.0"; Thunderstore version numbers are bare
+-- semver. A stripped pin that still isn't on Thunderstore is cleared by the
+-- sync like any other.
+UPDATE "mod_registry"
+SET "ranked_version" = substring("ranked_version" from 2)
+WHERE "ranked_version" ~ '^v[0-9]';
+
 UPDATE "mod_profile_entries" AS e
 SET "pinned_version" = '1.1620.0'
 FROM "mod_profiles" AS p
