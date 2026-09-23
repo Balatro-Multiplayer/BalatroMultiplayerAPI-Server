@@ -34,19 +34,10 @@ interface IntegrityEvent {
   occurredAt: string
 }
 
-interface HardwareFingerprint {
-  id: number
-  platform: string
-  componentName: string
-  componentHash: string
-  lastSeenAt: string
-}
-
 interface AntiCheatDetailShape {
   run: RunRow | null
   playerLog: PlayerLogRow | null
   integrityEvents: IntegrityEvent[]
-  hardware: HardwareFingerprint[]
 }
 
 const FLAG_LABELS: Record<string, string> = {
@@ -183,40 +174,6 @@ export function AntiCheatDetail({ item, detail }: { item: QueueItemEnvelope; det
                     </TableCell>
                     <TableCell>{e.kind}</TableCell>
                     <TableCell>{e.reason}</TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Hardware Fingerprints</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Component</TableHead>
-                <TableHead>Hash</TableHead>
-                <TableHead>Last Seen</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.hardware.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={3} className='text-muted-foreground'>No hardware fingerprints.</TableCell>
-                </TableRow>
-              ) : (
-                data.hardware.map((h) => (
-                  <TableRow key={h.id}>
-                    <TableCell>{h.componentName}</TableCell>
-                    <TableCell className='font-mono text-xs'>{h.componentHash.slice(0, 16)}…</TableCell>
-                    <TableCell className='whitespace-nowrap text-xs text-muted-foreground'>
-                      {new Date(h.lastSeenAt).toLocaleString()}
-                    </TableCell>
                   </TableRow>
                 ))
               )}

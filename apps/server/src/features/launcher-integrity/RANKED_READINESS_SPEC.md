@@ -5,8 +5,7 @@ This document is a handoff spec, not code. It describes exactly what the real
 `bet-launcher-integrity-private` repo, injected via `registerPrivate()` — see
 this feature's `launcher-integrity.service.ts` for the public-repo side of the
 seam) needs to do to support the new `ranked_readiness` challenge kind
-described below. Mirrors `HWID_BINDING_SPEC.md`'s own precedent exactly — a
-contract to implement against, not a diff, written from the launcher/server
+described below. A contract to implement against, not a diff, written from the launcher/server
 public-repo side without access to the private repo.
 
 ## Why this exists
@@ -23,9 +22,8 @@ anything it had cached from earlier in the session).
 
 **Trust model, by design**: the launcher self-reports `launcherCurrent`/
 `modsCurrent` as booleans — the server does *not* independently re-derive
-them from a reported hash list. This exactly mirrors the existing
-hardware-fingerprint binding's trust model (self-reported, HMAC-authenticated,
-not independently re-derived) — secure as long as the shared secret isn't
+them from a reported hash list. Self-reported and HMAC-authenticated, not
+independently re-derived — secure as long as the shared secret isn't
 extracted from the binary, the same security posture as everywhere else in
 this system. Independent server-side re-verification against the mod catalog
 is a real future hardening option, deliberately out of scope here.
@@ -83,8 +81,8 @@ response).
 
 HMAC-SHA256 keyed by the same shared secret (`LAUNCHER_INTEGRITY_SECRET`,
 matching the launcher's build-time `BET_LAUNCHER_INTEGRITY_SECRET_HEX` — see
-the critical key-encoding pitfall in `HWID_BINDING_SPEC.md`, which applies
-identically here):
+the key-encoding pitfall below, which applies to every signature this
+package verifies):
 
 ```
 expected = hex(HMAC-SHA256(secret, `${nonce}:${playerId}:${launcherCurrent}:${modsCurrent}`))
@@ -93,9 +91,29 @@ ok = (response.signature === expected)
 
 `launcherCurrent`/`modsCurrent` are interpolated as the **literal lowercase
 strings `"true"`/`"false"`**, not JSON `true`/`false` — this is a plain
-colon-delimited string being signed, not a JSON serialization, the same
-"no serializer to disagree about" reasoning `HWID_BINDING_SPEC.md`'s
-`hwidCanonical()` already uses for the same class of problem.
+colon-delimited string being signed, not a JSON serialization, so
+there's no serializer (key ordering, whitespace, escaping) for Qt's
+`QJsonDocument` and this package to disagree about.
+
+## ⚠️ The one pitfall that will silently break everything
+
+`LAUNCHER_INTEGRITY_SECRET` (however it's provisioned to this private
+package — env var, secrets manager, etc.) is a **64-character hex string**
+representing 32 raw bytes. The launcher's C++ side decodes it once
+(`QByteArray::fromHex`) and uses the **raw 32 decoded bytes** as the HMAC
+key — never the hex string itself, never a UTF-8 encoding of the hex
+characters.
+
+```
+CORRECT:   HMAC-SHA256(Buffer.from(secretHex, 'hex'), input)
+INCORRECT: HMAC-SHA256(secretHex, input)                 // treats the hex STRING as key material
+INCORRECT: HMAC-SHA256(Buffer.from(secretHex, 'utf8'), input)  // same mistake, explicit
+```
+
+These produce completely different (and completely wrong) results with no
+error thrown anywhere — `verify()` just always returns `false`, and every
+Ranked player fails launcher-integrity forever, with nothing in any log to
+point at why.
 
 **`staleModIds` is deliberately NOT part of the signed material.** It's
 diagnostic detail for server-side logging only (which mod(s) triggered a
@@ -118,14 +136,18 @@ returning `false` or the challenge timing out/being refused outright.
 
 ## Test vectors
 
-Computed independently in Python (`hmac`/`hashlib`, stdlib only) — same
-secret/nonce/playerId as `HWID_BINDING_SPEC.md`'s own vectors, for easy
-cross-reference:
+Computed independently in Python (`hmac`/`hashlib`, stdlib only) with
+`hmac.new(bytes.fromhex(secret_hex), input.encode('utf-8'),
+hashlib.sha256).hexdigest()`:
 
 ```
 secret (hex):  000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e
 nonce:         abc123
 playerId:      11111111-2222-3333-4444-555555555555
+
+--- login / periodic (bare string response) ---
+input:     abc123:11111111-2222-3333-4444-555555555555
+signature: 5e165d61a01dca30e68b37b3800e95223103f9cb9776ad4da81d244ae3e5920b
 
 --- launcherCurrent=true, modsCurrent=true ---
 input:     abc123:11111111-2222-3333-4444-555555555555:true:true
@@ -145,6 +167,4 @@ signature: 23654e57e3064c3985856d2ae9682b366fbb6868d3288c726839ecff7d7d212d
 ```
 
 Use these to sanity-check a fresh implementation before wiring it into the
-real `issue()`/`verify()` flow — same as `HWID_BINDING_SPEC.md`'s own
-vectors, generated the same way (`hmac.new(bytes.fromhex(secret_hex),
-input.encode('utf-8'), hashlib.sha256).hexdigest()`).
+real `issue()`/`verify()` flow.

@@ -26,42 +26,6 @@ interface LauncherIntegrityServiceDeps {
 	repository: ILauncherIntegrityRepository
 }
 
-interface HardwareFingerprintPayload {
-	platform: string
-	components: Record<string, string>
-}
-
-// Defensive runtime extraction, not a cast -- `response` is untrusted network
-// input regardless of whether the base signature already verified (see the
-// call site's comment on the current binding caveat). Non-string component
-// values are dropped rather than accepted as-is.
-function extractHardwareFingerprint(
-	response: unknown,
-): HardwareFingerprintPayload | null {
-	if (!response || typeof response !== 'object') return null
-	const hwid = (response as { hardwareFingerprint?: unknown })
-		.hardwareFingerprint
-	if (!hwid || typeof hwid !== 'object') return null
-
-	const { platform, components } = hwid as {
-		platform?: unknown
-		components?: unknown
-	}
-	if (
-		typeof platform !== 'string' ||
-		!components ||
-		typeof components !== 'object'
-	)
-		return null
-
-	const entries = Object.entries(
-		components as Record<string, unknown>,
-	).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-	if (entries.length === 0) return null
-
-	return { platform, components: Object.fromEntries(entries) }
-}
-
 export type LauncherIntegrityService = ReturnType<
 	typeof createLauncherIntegrityService
 >
@@ -72,8 +36,8 @@ type RankedReadinessFailureHandler = (
 	reason: RankedReadinessFailureReason,
 ) => void
 
-// Defensive runtime extraction, same reasoning as extractHardwareFingerprint
-// above - `response` is untrusted network input. See
+// Defensive runtime extraction, not a cast -- `response` is untrusted
+// network input. See
 // RANKED_READINESS_SPEC.md for the wire contract this expects (the base
 // signature already having verified only proves the response came from a
 // launcher holding the shared secret, not that these two fields are even
@@ -394,44 +358,6 @@ export function createLauncherIntegrityService(
 			})
 			.catch(() => {})
 
-		// Hardware IDs only ever ride along on the login challenge (see
-		// hardwarefingerprint.cpp / RankedSupervisor on the launcher side) --
-		// storing one attached to a periodic response would be unexpected, not
-		// a normal "resubmission", so it's logged and dropped rather than
-		// silently accepted.
-		//
-		// NOTE on trust: `response` here is `unknown` to this repo by design --
-		// the real verify() lives in the private bet-launcher-integrity-private
-		// package (see this file's top comment). Today that package's verify()
-		// only covers nonce+playerId, so a verified `ok` above does not yet
-		// prove `hardwareFingerprint` wasn't altered in transit between the
-		// launcher and here. Binding it into the same signature closes that
-		// gap; see HWID_BINDING_SPEC.md in this feature folder for the exact
-		// contract that private repo needs to implement. Until it does, this
-		// fingerprint is trusted only because the base response already
-		// verified -- a deliberate, documented interim state, not an oversight.
-		if (active.kind === 'login') {
-			const fingerprint = extractHardwareFingerprint(payload.response)
-			if (fingerprint) {
-				await repository
-					.upsertHardwareComponents(
-						playerId,
-						fingerprint.platform,
-						fingerprint.components,
-					)
-					.catch((err) => {
-						console.error(
-							'[launcher-integrity] Failed to store hardware fingerprint:',
-							err,
-						)
-					})
-			}
-		} else if (extractHardwareFingerprint(payload.response)) {
-			console.warn(
-				`[launcher-integrity] Ignoring a hardwareFingerprint attached to a non-login (${active.kind}) challenge response for player ${playerId}.`,
-			)
-		}
-
 		scheduleNextPeriodicChallenge(playerId)
 	}
 
@@ -439,10 +365,10 @@ export function createLauncherIntegrityService(
 	// ever reaches the login/periodic-specific logic below it) since its
 	// outcome handling is entirely different: no launcherVerified mutation
 	// (see the ranked_readiness branch of handleChallengeTimeout above for
-	// why), no 'verified'/'failed' publish on the challenge topic, no
-	// hardware-fingerprint handling. A refusal, a failed base signature
-	// verification, or an unusable response shape all conservatively map to
-	// 'launcher_outdated' - the broader, always-correct-to-suggest fix
+	// why), no 'verified'/'failed' publish on the challenge topic. A refusal,
+	// a failed base signature verification, or an unusable response shape all
+	// conservatively map to 'launcher_outdated' - the broader,
+	// always-correct-to-suggest fix
 	// ("update BET") rather than guessing which specific thing actually
 	// went wrong when there's no real verdict to read.
 	async function handleRankedReadinessResponse(

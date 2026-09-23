@@ -302,6 +302,13 @@
       "when": 1791800000000,
       "tag": "0042_add_players_ip_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791900000000,
+      "tag": "0043_drop_player_hardware_fingerprints",
+      "breakpoints": true
     }
   ]
 }

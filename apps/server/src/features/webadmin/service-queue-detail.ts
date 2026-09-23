@@ -1,19 +1,15 @@
 import { eq } from 'drizzle-orm'
 import { db } from '../../infrastructure/db/index.js'
 import { flaggedMessages, forfeitReconciliationFlags, matchResultConflicts, reports } from '../../infrastructure/db/schema.js'
-import {
-	getHardwareFingerprintsForPlayer,
-	getIntegrityEventsForPlayer,
-} from '../../infrastructure/gateways/launcher-integrity.gateway.js'
+import { getIntegrityEventsForPlayer } from '../../infrastructure/gateways/launcher-integrity.gateway.js'
 import type { ServiceQueueItemRecord, ServiceQueueItemType } from '../../infrastructure/gateways/service-queue.gateway.js'
 import { replayLogService } from '../replay-log/replay-log.service.js'
 import { enrichReport } from './reports.route.js'
 
-// A uuid-shaped string -- launcherIntegrityEvents/playerHardwareFingerprints
-// have real uuid FKs to players.id, while subjectPlayerId is `text` and may
-// hold a non-uuid temp/dev account id (see schema.ts's rationale on
-// serviceQueueItems). Guard before querying rather than letting Postgres
-// reject the query.
+// A uuid-shaped string -- launcherIntegrityEvents has a real uuid FK to
+// players.id, while subjectPlayerId is `text` and may hold a non-uuid
+// temp/dev account id (see schema.ts's rationale on serviceQueueItems).
+// Guard before querying rather than letting Postgres reject the query.
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 async function getReportDetail(item: ServiceQueueItemRecord) {
@@ -51,22 +47,21 @@ async function getForfeitReconciliationDetail(item: ServiceQueueItemRecord) {
 
 /** sourceId = lobbyRuns.id (a uuid), subjectPlayerId = the flagged player --
  *  see schema.ts's comment on why anti_cheat is the one type without a
- *  single-column source PK. Composite of 3 forensic sources: the run/replay
- *  log, launcher-integrity events, and hardware fingerprints -- the latter
- *  two are best-effort (moderator-privileged replay access, matching
- *  getReplay's isModerator=true bypass; empty arrays on a non-uuid player id
- *  or lookup failure rather than a hard error). */
+ *  single-column source PK. Composite of 2 forensic sources: the run/replay
+ *  log and launcher-integrity events -- both best-effort (moderator-privileged
+ *  replay access, matching getReplay's isModerator=true bypass; an empty
+ *  array on a non-uuid player id or lookup failure rather than a hard
+ *  error). */
 async function getAntiCheatDetail(item: ServiceQueueItemRecord, actingPlayerId: string) {
 	const run = await replayLogService.getReplay(item.sourceId, actingPlayerId, true).catch(() => null)
 	const playerLog = run?.logs.find((l) => l.playerId === item.subjectPlayerId) ?? null
 
 	const isUuidPlayer = item.subjectPlayerId !== null && UUID_PATTERN.test(item.subjectPlayerId)
-	const [integrityEvents, hardware] = await Promise.all([
-		isUuidPlayer ? getIntegrityEventsForPlayer(item.subjectPlayerId!).catch(() => []) : Promise.resolve([]),
-		isUuidPlayer ? getHardwareFingerprintsForPlayer(item.subjectPlayerId!).catch(() => []) : Promise.resolve([]),
-	])
+	const integrityEvents = isUuidPlayer
+		? await getIntegrityEventsForPlayer(item.subjectPlayerId!).catch(() => [])
+		: []
 
-	return { run: run?.run ?? null, playerLog, integrityEvents, hardware }
+	return { run: run?.run ?? null, playerLog, integrityEvents }
 }
 
 export async function getServiceQueueItemDetail(
