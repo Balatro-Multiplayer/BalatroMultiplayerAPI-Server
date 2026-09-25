@@ -8,10 +8,15 @@ type MatchRecord = {
 	endIndex: number
 }
 
+// `matches` is an untyped jsonb column. The local obscenity filter records
+// which words matched; the remote moderation bridge has no word list to
+// report, only the band the service rejected on.
+export type FlaggedMatches = MatchRecord[] | { source: 'remote'; band: string }
+
 export async function insertFlaggedMessage(
 	playerId: string,
 	message: string,
-	matches: MatchRecord[],
+	matches: FlaggedMatches,
 ): Promise<void> {
 	const threeMonths = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
 	const [row] = await db
@@ -24,11 +29,15 @@ export async function insertFlaggedMessage(
 		})
 		.returning({ id: flaggedMessages.id })
 
+	const summary = Array.isArray(matches)
+		? `Flagged chat — ${matches.length} match${matches.length === 1 ? '' : 'es'}`
+		: `Flagged chat — remote moderation (band: ${matches.band})`
+
 	await enqueueServiceQueueItem({
 		itemType: 'flagged_chat',
 		sourceId: String(row!.id),
 		subjectPlayerId: playerId,
-		summary: `Flagged chat — ${matches.length} match${matches.length === 1 ? '' : 'es'}`,
+		summary,
 	})
 }
 

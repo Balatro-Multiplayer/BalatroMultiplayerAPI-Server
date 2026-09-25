@@ -1,0 +1,21 @@
+# Community-vocabulary rewrites — applied to every message BEFORE judging;
+# the rewritten text is what gets judged AND published. One rule per line:
+#   source => replacement
+#   source => replacement !! unless-regex
+# Word-boundary, case-insensitive; the replacement is never re-matched.
+# Use for game abbreviations the guard reads as crude no matter the context.
+#
+# The `!! regex` guard SKIPS the rewrite when the original message matches —
+# for frames where the word is clearly anatomical, not the deck. The raw text
+# then reaches the guard, which blocks it (measured Unsafe/Sexual). Without
+# this, "suck my cock" laundered into "suck my cocktail" and judged Safe.
+cock => cocktail !! (my|your|ur|his|her|their)\s+cock|\b(suck|lick|ride|stroke|deepthroat|choke|gag|grab|touch)\w*\b[\s\w]{0,20}\bcock|cock\s+(in|into|inside|up|out|sucker|pic)
+
+# "i will kill your blind" = BMP match taunt (the opponent's blind), but the
+# tuned guard reads the first-person "kill your ..." frame as Unsafe/Violent
+# (context injection can't fix it — tuned-v2 runs bare). "beat your blind"
+# is judged Safe (measured 2026-07-10). Laundering is covered: a family noun
+# after "blind" still threat_blocks post-rewrite ("beat" is in VERBS_B and
+# the FAMILY regex allows two filler words: "beat your blind grandma" blocks).
+kill your blind => beat your blind
+kill ur blind => beat ur blind

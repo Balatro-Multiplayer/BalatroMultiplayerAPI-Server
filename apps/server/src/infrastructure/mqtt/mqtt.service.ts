@@ -1,3 +1,4 @@
+import { hostname } from 'node:os'
 import mqtt from 'mqtt'
 import { env } from '../../env.js'
 import type { LobbyEvent } from '../../shared/types/index.js'
@@ -24,7 +25,19 @@ class MqttService {
 			let initialConnect = true
 
 			this.client = mqtt.connect(env.EMQX_BROKER_URL, {
-				clientId: env.EMQX_SYSTEM_CLIENT_ID,
+				// Suffixed with the container's own hostname (Docker assigns each
+				// container a unique one by default) so that api-blue and api-green
+				// -- which share every other env var, including this base ID --
+				// never collide. Without this, both colors' system clients fight
+				// over the same MQTT session: EMQX enforces unique client IDs, so
+				// each new CONNECT silently kicks the other color's live session,
+				// which reconnects and kicks the first right back -- an
+				// unthrottled ~5s (reconnectPeriod) loop that both colors run
+				// forever whenever both are up (i.e. always, outside a brief
+				// blue-green swap window). `clean: true` below means no
+				// persisted session depends on this ID being stable across
+				// restarts, so varying it per-instance is safe.
+				clientId: `${env.EMQX_SYSTEM_CLIENT_ID}-${hostname()}`,
 				username: env.EMQX_SYSTEM_USERNAME,
 				password: env.EMQX_SYSTEM_PASSWORD,
 				clean: true,
