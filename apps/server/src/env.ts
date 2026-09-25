@@ -82,36 +82,22 @@ export const env = {
 		!IS_PRODUCTION && optionalBool('DEV_AUTO_VERIFY_LAUNCHER', false),
 
 	// On/off switch for the hourly mod-registry sync (features/mods/mods-sync.service.ts,
-	// which fetches skyline69/balatro-mod-index directly -- see
-	// upstream-mod-index.service.ts). Off by default so local dev/tests don't
-	// need network access to GitHub just to boot; mods-sync.service.ts logs
-	// and no-ops rather than failing when this is false, matching the
-	// "missing optional integration disables the feature, not the server"
-	// pattern used elsewhere in this file.
+	// which fetches https://thunderstore.io/c/balatro/api/v1/package/ directly
+	// -- see thunderstore-mod-index.service.ts -- no auth, no token). Off by
+	// default so local dev/tests don't need network access just to boot;
+	// mods-sync.service.ts logs and no-ops rather than failing when this is
+	// false, matching the "missing optional integration disables the
+	// feature, not the server" pattern used elsewhere in this file.
 	MOD_INDEX_SYNC_ENABLED: optionalBool('MOD_INDEX_SYNC_ENABLED', false),
 
-	// Independent on/off switch for the Thunderstore half of the mod-registry
-	// sync (features/mods/thunderstore-mod-index.service.ts, which fetches
-	// https://thunderstore.io/c/balatro/api/v1/package/ directly -- no auth,
-	// no token). Off by default, same "local dev/tests need no network
-	// access" reasoning as MOD_INDEX_SYNC_ENABLED above. Turning this off is
-	// treated as a real, intentional "there are zero Thunderstore mods now"
-	// result (not a fetch failure), so previously-synced Thunderstore-sourced
-	// mod_registry rows ARE pruned on the next sync after disabling it -- see
-	// mod-index-merge.ts's ThunderstoreOutcome.ok vs. this flag's own
-	// early-return shape in mods-sync.service.ts's runSync().
-	THUNDERSTORE_SYNC_ENABLED: optionalBool('THUNDERSTORE_SYNC_ENABLED', false),
-
-	// Optional for custom-mod-version-check.service.ts's calls against the
-	// *public* skyline69/balatro-mod-index repo (rate-limit headroom only,
-	// unauthenticated GitHub REST already allows 60 req/hr) -- but
-	// effectively REQUIRED for features/launcher-releases/launcher-github-releases.service.ts,
-	// which reads Releases from the *private* Balatro-Multiplayer/new-launcher
-	// repo and needs a token with repo (classic) or Contents:Read
-	// (fine-grained) access to that specific repo, or every launcher-release
-	// admin action and every public download fails with a clear 500. Kept as
-	// one shared optional() rather than two separately-required vars since
-	// the mods feature must keep working even before this token exists.
+	// Effectively REQUIRED for features/launcher-releases/launcher-github-releases.service.ts
+	// and features/r2modman-releases/r2modman-github-releases.service.ts, which
+	// read Releases from the *private* Balatro-Multiplayer/new-launcher and
+	// Balatro-Multiplayer/bmp-r2modman repos respectively and need a token with
+	// repo (classic) or Contents:Read (fine-grained) access to those specific
+	// repos, or every release admin action and every public download fails
+	// with a clear 500. Kept optional() rather than required since other
+	// features must keep working even before this token exists.
 	GITHUB_TOKEN: optional('GITHUB_TOKEN', ''),
 
 	// Chat moderation bridge. Unset (default) means dormant — chat keeps using the

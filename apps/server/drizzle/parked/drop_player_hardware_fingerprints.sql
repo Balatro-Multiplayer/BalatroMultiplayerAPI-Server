@@ -1,0 +1,12 @@
+-- PARKED: deliberately not registered in meta/_journal.json. The code still
+-- reads/writes player_hardware_fingerprints (launcher-integrity.gateway.ts,
+-- launcher-integrity.service.ts, service-queue-detail.ts); register this as
+-- the next numbered migration only once that code is removed.
+-- Legal-liability-driven removal of hardware-fingerprint (HWID) collection
+-- for Ranked anti-cheat: the server no longer receives, stores, or reads
+-- per-machine hardware component hashes (see the removal of
+-- upsertHardwareComponents/getHardwareFingerprintsForPlayer in
+-- launcher-integrity.gateway.ts and the hwid-bound verification branch in
+-- challenge-strategy.ts). Drops the table added in
+-- 0025_player_hardware_fingerprints.sql.
+DROP TABLE IF EXISTS "player_hardware_fingerprints";

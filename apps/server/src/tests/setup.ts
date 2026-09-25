@@ -24,7 +24,6 @@ vi.mock('../infrastructure/mqtt/mqtt.service.js', () => ({
 		publishPlayerInfo: vi.fn().mockResolvedValue(undefined),
 		publishChatMessage: vi.fn().mockResolvedValue(undefined),
 		publishToPlayer: vi.fn().mockResolvedValue(undefined),
-		publishModUpdate: vi.fn().mockResolvedValue(undefined),
 		publishAdminQueueEvent: vi.fn().mockResolvedValue(undefined),
 		clearPlayerInfo: vi.fn().mockResolvedValue(undefined),
 		cleanupLobbyTopics: vi.fn().mockResolvedValue(undefined),

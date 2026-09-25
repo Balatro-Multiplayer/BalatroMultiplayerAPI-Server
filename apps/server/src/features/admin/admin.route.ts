@@ -4,7 +4,6 @@ import { env } from '../../env.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { getConfig } from '../../state/config.js'
 import { loadConfigFromDb } from '../../infrastructure/gateways/config.gateway.js'
-import { mqttService } from '../../infrastructure/mqtt/mqtt.service.js'
 import { db } from '../../infrastructure/db/index.js'
 import { seasons } from '../../infrastructure/db/schema.js'
 
@@ -37,9 +36,8 @@ router.post('/refresh-config', async (req, res, next) => {
 		})
 
 		if (changedMods.length > 0) {
-			await mqttService.publishModUpdate(changedMods)
 			console.log(
-				`[admin] Mod update broadcast: ${changedMods.map((m) => `${m.modId}@${m.version}`).join(', ')}`,
+				`[admin] Mod config changed: ${changedMods.map((m) => `${m.modId}@${m.version}`).join(', ')}`,
 			)
 		}
 

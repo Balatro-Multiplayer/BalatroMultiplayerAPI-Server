@@ -22,7 +22,6 @@ function makeMockMessageBus(): IMessageBus {
 		cleanupLobbyTopics: vi.fn().mockResolvedValue(undefined),
 		cleanupPlayerState: vi.fn().mockResolvedValue(undefined),
 		publishChatMessage: vi.fn().mockResolvedValue(undefined),
-		publishModUpdate: vi.fn().mockResolvedValue(undefined),
 	}
 }
 

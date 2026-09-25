@@ -14,6 +14,7 @@ import { createMutesRouter } from '../features/mutes/mutes.route.js'
 import { createReplayLogRouter } from '../features/replay-log/replay-log.route.js'
 import { replayLogService } from '../features/replay-log/replay-log.service.js'
 import { createReportsRouter } from '../features/reports/reports.route.js'
+import r2modmanReleasesRouter from '../features/r2modman-releases/r2modman-releases.route.js'
 import statsRouter from '../features/stats/stats.route.js'
 import webadminRouter from '../features/webadmin/webadmin.route.js'
 import * as banGateway from '../infrastructure/gateways/ban.gateway.js'
@@ -52,6 +53,7 @@ router.use('/api/stats', statsRouter)
 router.use('/api/launcher', launcherRouter)
 router.use('/api/blog', blogRouter)
 router.use('/api/mods', modsRouter)
+router.use('/api/r2modman/updates', r2modmanReleasesRouter)
 router.use('/api/webadmin', webadminRouter)
 router.use('/emqx', emqxRouter)
 router.use('/admin', adminRouter)

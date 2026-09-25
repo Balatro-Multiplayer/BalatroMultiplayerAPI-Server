@@ -1,5 +1,4 @@
 import type { LobbyEvent } from '../shared/types/index.js'
-import type { ModConfig } from '../state/config.js'
 
 export interface IMessageBus {
 	publishEvent(lobbyCode: string, event: LobbyEvent): Promise<void>
@@ -23,5 +22,4 @@ export interface IMessageBus {
 		displayName: string,
 		message: string,
 	): Promise<void>
-	publishModUpdate(mods: ModConfig[]): Promise<void>
 }

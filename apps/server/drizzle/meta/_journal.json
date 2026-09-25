@@ -288,6 +288,20 @@
       "when": 1791600000000,
       "tag": "0040_mod_search_terms",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791700000000,
+      "tag": "0041_mod_registry_thunderstore_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791800000000,
+      "tag": "0042_add_players_ip_hash",
+      "breakpoints": true
     }
   ]
 }

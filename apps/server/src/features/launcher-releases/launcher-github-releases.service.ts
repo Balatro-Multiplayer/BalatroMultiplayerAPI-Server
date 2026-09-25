@@ -6,20 +6,17 @@ import { AppError } from '../../shared/utils/errors.js'
 // new-launcher repo's own GitHub Releases, instead of this server hosting
 // binaries itself (see schema.ts's launcherReleases doc comment for why).
 // Small local copy of the same githubHeaders()/GITHUB_API_BASE pattern
-// features/mods/custom-mod-version-check.service.ts already uses, rather
-// than importing from there -- that module's helpers aren't exported, and
-// keeping this feature self-contained matches this repo's existing
-// per-feature module boundaries.
+// features/r2modman-releases/r2modman-github-releases.service.ts also uses,
+// rather than sharing a module -- keeping each feature self-contained
+// matches this repo's existing per-feature module boundaries.
 
 const GITHUB_API_BASE = 'https://api.github.com'
 const GITHUB_FETCH_TIMEOUT_MS = 15_000
 const REPO_OWNER = 'Balatro-Multiplayer'
 const REPO_NAME = 'new-launcher'
 
-// Unlike custom-mod-version-check.service.ts's best-effort "swallow errors,
-// try again next cycle" pattern, every call here is triggered directly by
-// an admin action -- failures should surface as a clear error in the admin
-// UI, not silently no-op.
+// Every call here is triggered directly by an admin action -- failures
+// should surface as a clear error in the admin UI, not silently no-op.
 function githubHeaders(): HeadersInit {
 	if (!env.GITHUB_TOKEN) {
 		throw new AppError(

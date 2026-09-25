@@ -44,6 +44,7 @@ export const players = pgTable(
 		// Steam identity reactivates this same row instead of creating a fresh one.
 		// Null = active account.
 		deletedAt: timestamp('deleted_at', { withTimezone: true }),
+		ipHash: text('ip_hash'),
 	},
 	(table) => [
 		uniqueIndex('players_steam_id_hash_idx')
@@ -657,113 +658,36 @@ export const matchRunLogs = pgTable(
 	(t) => [primaryKey({ columns: [t.runId, t.playerId] })],
 )
 
-// Which base index (if any) last upserted a mod_registry row -- provenance/
-// debugging only (surfaced in the admin UI), never read back by
-// mod-index-merge.ts's own matching or pruning logic, so a stale value here
-// can never itself cause a row to be mismatched or wrongly pruned. Null for
-// isCustom rows, which have no base-index counterpart at all.
-export const modIndexSourceEnum = pgEnum('mod_index_source', [
-	'github',
-	'thunderstore',
-])
-export type ModIndexSource = (typeof modIndexSourceEnum.enumValues)[number]
-
-// One row per mod known to the platform -- populated by the hourly sync
-// against skyline69/balatro-mod-index and thunderstore.io/c/balatro directly
-// (features/mods/mods-sync.service.ts, upstream-mod-index.service.ts,
-// thunderstore-mod-index.service.ts) and/or a direct admin edit via
+// One row per mod known to the platform -- populated by the hourly
+// Thunderstore-only sync (features/mods/mods-sync.service.ts,
+// thunderstore-mod-index.service.ts) and/or an admin pinning rankedVersion via
 // PUT /api/webadmin/mods/:modId. This is the launcher-facing catalog
 // (GET /api/mods, /api/mods/:id) -- distinct from launcherReleases/
 // launcherReleaseAssets above, which is the unrelated launcher binary/update
 // channel (a different piece of software from the mods this table tracks).
+//
+// Simplified from a much richer shape (GitHub-sourced index, admin "custom
+// mods", per-field overrides, per-version hash history, "ranked mod
+// profiles") down to a Thunderstore-only sync -- see drizzle/
+// 0039_mod_registry_thunderstore_only.sql's own comment for the full
+// rationale.
 export const modRegistry = pgTable('mod_registry', {
-	// Slug form "Author@ModName", matching upstream's folder-name convention.
+	// Thunderstore's own full_name ("Owner-ModName") -- both halves are
+	// restricted to [a-zA-Z0-9_] by Thunderstore itself, so splitting on the
+	// separating hyphen is always unambiguous.
 	id: varchar('id', { length: 128 }).primaryKey(),
 	title: varchar('title', { length: 128 }).notNull(),
 	author: varchar('author', { length: 128 }).notNull(),
-	categories: text('categories').array().notNull().default(sql`'{}'::text[]`),
-	// Admin-owned aliases a mod is commonly known/searched by but that don't
-	// appear in its title -- e.g. "wimf" for "What's in my Fool". Unlike
-	// categories, this has no upstream-index counterpart at all (the base
-	// index carries no such concept), so it's never touched by
-	// upsertModFromIndex/SYNCABLE_MOD_FIELDS and never participates in
-	// overriddenFields -- same "permanently admin-owned" shape as featured/
-	// hidden/rankedVersion above, just editable through the general PATCH
-	// .../mods/:modId field-edit endpoint alongside categories rather than
-	// its own dedicated PUT (see updateModFields()'s own comment). Matched
-	// case-insensitively as a substring, same as title, by whatever reads
-	// this for search (currently /admin/ranked-mods' filter box).
-	searchTerms: text('search_terms').array().notNull().default(sql`'{}'::text[]`),
-	requiresSteamodded: boolean('requires_steamodded').notNull().default(true),
-	requiresTalisman: boolean('requires_talisman').notNull().default(false),
-	repoUrl: text('repo_url'),
-	thumbnailUrl: text('thumbnail_url'),
-	description: text('description'),
-	latestVersion: varchar('latest_version', { length: 64 }),
-	latestDownloadUrl: text('latest_download_url'),
-	latestSha256: varchar('latest_sha256', { length: 64 }),
-	// Admin-owned, not synced from the index -- the upstream index carries no
+	// Admin-owned, not synced from Thunderstore -- Thunderstore carries no
 	// ranked-eligibility concept of its own. The sole source of ranked
 	// eligibility: null means this mod is not ranked-allowed; a set value
 	// means it's ranked-allowed and pinned to exactly that version -- there
-	// is no "any version is fine" state. Enforced at write time (see
-	// setRankedVersion/webadmin mods.route.ts's PUT handler), not via a DB
-	// CHECK: a custom-sourced mod (see mod-source-classifier.ts's
-	// ModSourceType) can never be set here at all; a branch-sourced mod can
-	// only be pinned to its current latestVersion (a branch archive URL
-	// always re-resolves to current HEAD, so an old value is unfetchable);
-	// only a release-sourced mod can be pinned to any of its historical
-	// mod_registry_versions entries, since those stay individually
-	// fetchable forever. Consumed by modProfileEntries' 'latestRanked'
-	// versionMode below.
+	// is no "any version is fine" state. Set via PUT /api/webadmin/mods/:modId
+	// (see mods.gateway.ts's setRankedVersion), which hashes that exact
+	// version's real downloaded/extracted content at pin time and stores the
+	// result alongside it below.
 	rankedVersion: varchar('ranked_version', { length: 64 }),
-	// Admin-owned highlight flag, same "never synced from the index" shape as
-	// rankedVersion above -- the index carries no concept of this at all.
-	featured: boolean('featured').notNull().default(false),
-	// Admin-owned, same "never synced from the index" shape as featured above
-	// -- excludes this mod from the public GET /api/mods catalog (launcher/
-	// website) while keeping it manageable on /admin/ranked-mods. For a mod
-	// an admin wants out of players' hands without deleting it outright (e.g.
-	// a dead-repo mod that can no longer be verified).
-	hidden: boolean('hidden').notNull().default(false),
-	// True for a mod created directly by an admin (e.g. via the "New mod"
-	// button on /admin/ranked-mods) with no base-index counterpart at all --
-	// pruneModsMissingFrom must never delete these just because they aren't
-	// in the freshly-fetched index.
-	isCustom: boolean('is_custom').notNull().default(false),
-	// Opt-in per custom mod (isCustom rows only -- ignored otherwise, since a
-	// synced mod's version tracking is entirely upstream's own concern).
-	// custom-mod-version-check.service.ts's source-resolution logic against
-	// latestDownloadUrl/fixedReleaseTagUpdates, a TS port of upstream's own
-	// update_mod_versions.py. Both default false so every custom mod that
-	// existed before this feature shipped keeps its current fully-manual
-	// behavior until an admin explicitly opts in.
-	automaticVersionCheck: boolean('automatic_version_check')
-		.notNull()
-		.default(false),
-	// Mirrors upstream meta.json's fixed-release-tag-updates: track the tag of
-	// the specific release asset referenced by latestDownloadUrl, rather than
-	// the repo's overall latest release. Only meaningful alongside
-	// automaticVersionCheck=true and a /releases/download/ latestDownloadUrl;
-	// otherwise ignored (falls back to "no update found", not an error).
-	fixedReleaseTagUpdates: boolean('fixed_release_tag_updates')
-		.notNull()
-		.default(false),
-	// Names of this row's own fields (title, description, thumbnailUrl, etc.
-	// -- the syncable fields upsertModFromIndex would otherwise overwrite)
-	// that an admin has directly edited via PATCH /api/webadmin/mods/:modId.
-	// A field named here is skipped on every future sync until an admin
-	// explicitly reverts it (POST .../reset-overrides) -- unlike
-	// rankedVersion/featured/hidden, these fields *do* have an
-	// upstream value and should keep tracking it right up until the point an
-	// admin overrides one. Meaningless for isCustom rows (never touched by
-	// sync in the first place).
-	overriddenFields: text('overridden_fields')
-		.array()
-		.notNull()
-		.default(sql`'{}'::text[]`),
-	indexSource: modIndexSourceEnum('index_source'),
-	sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }),
+	rankedVersionSha256: varchar('ranked_version_sha256', { length: 64 }),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -771,92 +695,6 @@ export const modRegistry = pgTable('mod_registry', {
 		.notNull()
 		.defaultNow(),
 })
-
-// Historical per-version hashes -- a mod_profile_entries row can pin an exact
-// past version (not just "latest"), so latestSha256 above alone isn't enough.
-export const modRegistryVersions = pgTable(
-	'mod_registry_versions',
-	{
-		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-		modId: varchar('mod_id', { length: 128 })
-			.notNull()
-			.references(() => modRegistry.id, { onDelete: 'cascade' }),
-		version: varchar('version', { length: 64 }).notNull(),
-		sha256: varchar('sha256', { length: 64 }),
-		downloadUrl: text('download_url'),
-		releasedAt: timestamp('released_at', { withTimezone: true }),
-		// Set once backfill-branch-pins.ts gives up on permanently resolving
-		// this row's downloadUrl to a commit-pinned one (see that script and
-		// mods-sync.service.ts's pinBranchVersionIfNew) after exhausting its
-		// retries within a run -- a genuinely dead repo/branch/commit, not a
-		// transient rate-limit. Null means "never permanently failed" (either
-		// already pinned -- downloadUrl no longer classifies as 'branch' --
-		// or not attempted yet). A later re-run of the backfill script skips
-		// rows where this is set unless told to retry them, so a known-dead
-		// row doesn't keep burning GitHub API calls on every run; an admin
-		// can still force a retry (see that script's --retry-failed flag) if
-		// something later becomes resolvable again (e.g. a renamed repo).
-		pinFailedAt: timestamp('pin_failed_at', { withTimezone: true }),
-	},
-	(t) => [
-		uniqueIndex('mod_registry_versions_mod_version_idx').on(t.modId, t.version),
-	],
-)
-
-// Admin-authored named allowlists ("ranked mod profiles"). Info-only for now
-// (§ranked-mod-enforcement in the plan) -- nothing cross-checks a client's
-// actual installed mods against a profile at queue time yet; this is the data
-// the launcher/website read to decide what to install/allow client-side.
-export const modProfiles = pgTable('mod_profiles', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	name: varchar('name', { length: 128 }).notNull(),
-	slug: varchar('slug', { length: 128 }).notNull().unique(),
-	description: text('description'),
-	createdBy: uuid('created_by').references(() => players.id),
-	createdAt: timestamp('created_at', { withTimezone: true })
-		.notNull()
-		.defaultNow(),
-	updatedAt: timestamp('updated_at', { withTimezone: true })
-		.notNull()
-		.defaultNow(),
-})
-
-// The three ways a profile entry can pin a mod's version: an exact string
-// (pairs with pinnedVersion below), always resolve to whatever's newest, or
-// always resolve to modRegistry.rankedVersion (the admin-pinned "known good
-// for ranked" build). Replaces the old free-text versionConstraint
-// ('any'/exact/'min:<version>') -- that scheme required app-level parsing
-// with no fixed vocabulary; this is a closed set the launcher can switch on.
-export const modProfileVersionModeEnum = pgEnum('mod_profile_version_mode', [
-	'exact',
-	'latest',
-	'latestRanked',
-])
-export type ModProfileVersionMode =
-	(typeof modProfileVersionModeEnum.enumValues)[number]
-
-export const modProfileEntries = pgTable(
-	'mod_profile_entries',
-	{
-		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-		profileId: uuid('profile_id')
-			.notNull()
-			.references(() => modProfiles.id, { onDelete: 'cascade' }),
-		modId: varchar('mod_id', { length: 128 })
-			.notNull()
-			.references(() => modRegistry.id, { onDelete: 'cascade' }),
-		versionMode: modProfileVersionModeEnum('version_mode')
-			.notNull()
-			.default('latest'),
-		// Only meaningful when versionMode is 'exact' -- ignored otherwise.
-		pinnedVersion: varchar('pinned_version', { length: 64 }),
-		// Lets a profile explicitly blocklist a mod rather than only allowlist.
-		allowed: boolean('allowed').notNull().default(true),
-	},
-	(t) => [
-		uniqueIndex('mod_profile_entries_profile_mod_idx').on(t.profileId, t.modId),
-	],
-)
 
 // One row per launcher-integrity challenge that wasn't cleanly answered
 // (wrong response, timed out, or -- login challenges only -- explicitly
