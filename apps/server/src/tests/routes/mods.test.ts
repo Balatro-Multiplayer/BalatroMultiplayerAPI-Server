@@ -138,6 +138,10 @@ function modRow(overrides: Record<string, unknown> = {}) {
 		rankedVersionSha256: 'a'.repeat(64),
 		featured: true,
 		hidden: false,
+		isCustom: false,
+		automaticVersionCheck: false,
+		fixedReleaseTagUpdates: false,
+		searchTerms: [] as string[],
 		sourceUpdatedAt: now,
 		createdAt: now,
 		updatedAt: now,
@@ -174,6 +178,47 @@ describe('mods routes', () => {
 				rankedVersionSha256: 'a'.repeat(64),
 				sourceType: 'release',
 				thunderstoreFullName: 'BalatroMultiplayer-MultiplayerAPI',
+			})
+		})
+	})
+
+	describe('custom mods', () => {
+		const customRow = () =>
+			modRow({
+				id: 'PartnerMod',
+				thunderstoreFullName: null,
+				isCustom: true,
+				automaticVersionCheck: true,
+				searchTerms: ['partner'],
+				latestVersion: 'abc1234',
+				latestDownloadUrl: 'https://github.com/o/r/archive/refs/heads/main.zip',
+			})
+
+		it('lists a custom mod with its real flags and a url-derived sourceType', async () => {
+			mockSelects([customRow()])
+
+			const res = await request(app).get('/api/mods')
+
+			expectShape(res.body[0], PROD_LIST_KEYS)
+			expect(res.body[0]).toMatchObject({
+				isCustom: true,
+				searchTerms: ['partner'],
+				sourceType: 'branch',
+				thunderstoreFullName: null,
+			})
+		})
+
+		it('serves a custom mod detail with its version-check flags', async () => {
+			mockSelects([customRow()], [])
+
+			const res = await request(app).get('/api/mods/PartnerMod')
+
+			expectShape(res.body, PROD_DETAIL_KEYS)
+			expect(res.body).toMatchObject({
+				isCustom: true,
+				automaticVersionCheck: true,
+				indexSource: 'custom',
+				sourceType: 'branch',
 			})
 		})
 	})

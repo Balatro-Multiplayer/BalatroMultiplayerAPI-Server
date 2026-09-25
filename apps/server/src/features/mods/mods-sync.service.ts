@@ -1,12 +1,16 @@
 import { env } from '../../env.js'
 import {
+	applyDetectedVersion,
 	clearRankedPin,
+	getCustomPinDownloadUrl,
+	listCustomModsForVersionCheck,
 	listModRowsForClaims,
 	listRankedPins,
 	pruneModsNotIn,
 	storeRankedPinHash,
 	writeModFromIndex,
 } from '../../infrastructure/gateways/mods.gateway.js'
+import { checkCustomModVersion } from './custom-mod-version-check.service.js'
 import { planModRowClaims } from './mod-registry-claims.js'
 import { computeModFolderHashForRelease } from './mod-version-hash.js'
 import {
@@ -21,6 +25,7 @@ export interface ModRegistrySyncSummary {
 	skipped: number
 	pinsCleared: number
 	pinsHashed: number
+	customVersionsDetected: number
 }
 
 const EMPTY_SUMMARY: ModRegistrySyncSummary = {
@@ -30,14 +35,53 @@ const EMPTY_SUMMARY: ModRegistrySyncSummary = {
 	skipped: 0,
 	pinsCleared: 0,
 	pinsHashed: 0,
+	customVersionsDetected: 0,
 }
 
-// Keeps every ranked pin consistent with Thunderstore: a pin whose version
-// Thunderstore no longer serves is cleared (it can't be installed, so it
-// can't be verified), and a pin with no hash yet -- carried over from the
-// GitHub-index era, or whose hash failed at pin time -- is hashed now. A
-// failed hash leaves the pin unhashed for the next sync to retry; an
-// unhashed pin fails the launcher's Ranked check rather than passing it.
+// Custom mods that opted into automaticVersionCheck: asks GitHub whether the
+// source moved, and records the new version (dropping a ranked pin the new
+// state can no longer back -- see applyDetectedVersion). Best-effort per
+// mod: checkCustomModVersion returns null on any GitHub failure, and one
+// mod's failure never stops the rest.
+async function checkCustomModVersions(): Promise<{
+	detected: number
+	pinsCleared: number
+}> {
+	let detected = 0
+	let pinsCleared = 0
+	for (const mod of await listCustomModsForVersionCheck()) {
+		try {
+			const result = await checkCustomModVersion(mod)
+			if (!result) continue
+			const { pinCleared } = await applyDetectedVersion(mod.id, {
+				version: result.newVersion,
+				downloadUrl: result.newDownloadUrl,
+			})
+			detected++
+			if (pinCleared) {
+				pinsCleared++
+				console.warn(
+					`[mods-sync] Cleared ranked pin on custom mod ${mod.id}: version moved to ${result.newVersion}`,
+				)
+			}
+		} catch (err) {
+			console.error(`[mods-sync] Version check failed for ${mod.id}:`, err)
+		}
+	}
+	return { detected, pinsCleared }
+}
+
+// Keeps every ranked pin consistent with its source: a Thunderstore pin
+// whose version Thunderstore no longer serves is cleared (it can't be
+// installed, so it can't be verified), and a pin with no hash yet -- carried
+// over from the GitHub-index era, or whose hash failed at pin time -- is
+// hashed now. A custom mod's pin is judged against its own stored version
+// rows instead (custom mods never appear in the Thunderstore list); its
+// staleness is handled when its version moves (applyDetectedVersion /
+// updateCustomMod), so here it is only ever hashed, never cleared for being
+// "not on Thunderstore". A failed hash leaves the pin unhashed for the next
+// sync to retry; an unhashed pin fails the launcher's Ranked check rather
+// than passing it.
 async function reconcileRankedPins(
 	entries: ModIndexEntryInput[],
 ): Promise<{ cleared: number; hashed: number }> {
@@ -47,6 +91,28 @@ async function reconcileRankedPins(
 
 	for (const pin of await listRankedPins()) {
 		const version = pin.rankedVersion!
+		if (pin.isCustom) {
+			if (pin.rankedVersionSha256) continue
+			const downloadUrl = await getCustomPinDownloadUrl(pin.id, version)
+			if (!downloadUrl) {
+				await clearRankedPin(pin.id, version)
+				cleared++
+				console.warn(
+					`[mods-sync] Cleared ranked pin ${pin.id}@${version}: no downloadable version row`,
+				)
+				continue
+			}
+			const hash = await computeModFolderHashForRelease(
+				pin.id,
+				version,
+				downloadUrl,
+			)
+			if (hash) {
+				await storeRankedPinHash(pin.id, version, hash)
+				hashed++
+			}
+			continue
+		}
 		const entry = pin.thunderstoreFullName
 			? byFullName.get(pin.thunderstoreFullName)
 			: undefined
@@ -87,15 +153,29 @@ async function runSync(): Promise<ModRegistrySyncSummary> {
 		return EMPTY_SUMMARY
 	}
 
-	const { entries, skipped } = await fetchThunderstoreModIndex()
+	// Custom-mod checks run first and independently: a Thunderstore outage
+	// throws below, and must not also stall a custom mod's own source.
+	const custom = await checkCustomModVersions()
+
+	const { entries, skipped: skippedByFilter } =
+		await fetchThunderstoreModIndex()
 
 	const claims = planModRowClaims(entries, await listModRowsForClaims())
 	let claimed = 0
+	let skippedByCustomId = 0
 	for (const entry of entries) {
 		const claim = claims.get(entry.fullName)!
+		if (claim.kind === 'skip') {
+			skippedByCustomId++
+			console.warn(
+				`[mods-sync] Skipping Thunderstore package ${entry.fullName}: its id is an admin-created custom mod`,
+			)
+			continue
+		}
 		if (claim.kind === 'claimed') claimed++
 		await writeModFromIndex(claim, entry)
 	}
+	const skipped = skippedByFilter + skippedByCustomId
 
 	const pruned = await pruneModsNotIn(entries.map((e) => e.fullName))
 	const pins = await reconcileRankedPins(entries)
@@ -105,8 +185,13 @@ async function runSync(): Promise<ModRegistrySyncSummary> {
 			(claimed ? ` (${claimed} carried-over rows claimed)` : '') +
 			(pruned ? ` (${pruned} stale mods pruned)` : '') +
 			(skipped ? ` (${skipped} skipped)` : '') +
-			(pins.cleared ? ` (${pins.cleared} ranked pins cleared)` : '') +
-			(pins.hashed ? ` (${pins.hashed} ranked pins hashed)` : ''),
+			(pins.cleared + custom.pinsCleared
+				? ` (${pins.cleared + custom.pinsCleared} ranked pins cleared)`
+				: '') +
+			(pins.hashed ? ` (${pins.hashed} ranked pins hashed)` : '') +
+			(custom.detected
+				? ` (${custom.detected} custom mod versions detected)`
+				: ''),
 	)
 
 	return {
@@ -114,8 +199,9 @@ async function runSync(): Promise<ModRegistrySyncSummary> {
 		claimed,
 		pruned,
 		skipped,
-		pinsCleared: pins.cleared,
+		pinsCleared: pins.cleared + custom.pinsCleared,
 		pinsHashed: pins.hashed,
+		customVersionsDetected: custom.detected,
 	}
 }
 

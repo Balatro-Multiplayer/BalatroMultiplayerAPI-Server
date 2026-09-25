@@ -8,8 +8,9 @@ function row(
 	id: string,
 	repoUrl: string | null = null,
 	thunderstoreFullName: string | null = null,
+	isCustom = false,
 ) {
-	return { id, repoUrl, thunderstoreFullName }
+	return { id, repoUrl, thunderstoreFullName, isCustom }
 }
 
 function pkg(fullName: string, repoUrl: string | null = null) {
@@ -137,5 +138,29 @@ describe('planModRowClaims', () => {
 			[row('Alice@Mod', 'https://github.com/Alice/Mod')],
 		)
 		expect(claims.get('Carol-New')).toEqual({ kind: 'new', id: 'Carol-New' })
+	})
+
+	describe('custom rows', () => {
+		it('never claims a custom row, even on a matching repo URL or alias id', () => {
+			const claims = planModRowClaims(
+				[pkg('Alice-Mod', 'https://github.com/o/r')],
+				[row('Alice-Mod-old', 'https://github.com/o/r', null, true)],
+			)
+			expect(claims.get('Alice-Mod')).toEqual({
+				kind: 'new',
+				id: 'Alice-Mod',
+			})
+		})
+
+		it('skips a package whose id is taken by a custom mod', () => {
+			const claims = planModRowClaims(
+				[pkg('Alice-Mod')],
+				[row('Alice-Mod', null, null, true)],
+			)
+			expect(claims.get('Alice-Mod')).toEqual({
+				kind: 'skip',
+				id: 'Alice-Mod',
+			})
+		})
 	})
 })

@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../env.js', () => ({ env: { MOD_INDEX_SYNC_ENABLED: true } }))
 vi.mock('../../infrastructure/gateways/mods.gateway.js', () => ({
+	applyDetectedVersion: vi.fn(),
 	clearRankedPin: vi.fn(),
+	getCustomPinDownloadUrl: vi.fn(),
+	listCustomModsForVersionCheck: vi.fn(),
 	listModRowsForClaims: vi.fn(),
 	listRankedPins: vi.fn(),
 	pruneModsNotIn: vi.fn(),
@@ -12,10 +15,14 @@ vi.mock('../../infrastructure/gateways/mods.gateway.js', () => ({
 vi.mock('../../features/mods/thunderstore-mod-index.service.js', () => ({
 	fetchThunderstoreModIndex: vi.fn(),
 }))
+vi.mock('../../features/mods/custom-mod-version-check.service.js', () => ({
+	checkCustomModVersion: vi.fn(),
+}))
 vi.mock('../../features/mods/mod-version-hash.js', () => ({
 	computeModFolderHashForRelease: vi.fn(),
 }))
 
+import { checkCustomModVersion } from '../../features/mods/custom-mod-version-check.service.js'
 import { computeModFolderHashForRelease } from '../../features/mods/mod-version-hash.js'
 import { syncModRegistry } from '../../features/mods/mods-sync.service.js'
 import { fetchThunderstoreModIndex } from '../../features/mods/thunderstore-mod-index.service.js'
@@ -54,6 +61,10 @@ beforeEach(() => {
 	vi.mocked(gateway.listModRowsForClaims).mockResolvedValue([])
 	vi.mocked(gateway.listRankedPins).mockResolvedValue([])
 	vi.mocked(gateway.pruneModsNotIn).mockResolvedValue(0)
+	vi.mocked(gateway.listCustomModsForVersionCheck).mockResolvedValue([])
+	vi.mocked(gateway.applyDetectedVersion).mockResolvedValue({
+		pinCleared: false,
+	})
 })
 
 describe('syncModRegistry', () => {
@@ -107,6 +118,7 @@ describe('syncModRegistry', () => {
 		vi.mocked(gateway.listRankedPins).mockResolvedValue([
 			{
 				id: 'smods',
+				isCustom: false,
 				thunderstoreFullName: 'Steamodded-Steamodded',
 				rankedVersion: '1.0.0-beta-1620a',
 				rankedVersionSha256: 'old',
@@ -134,12 +146,14 @@ describe('syncModRegistry', () => {
 		vi.mocked(gateway.listRankedPins).mockResolvedValue([
 			{
 				id: 'smods',
+				isCustom: false,
 				thunderstoreFullName: 'Steamodded-Steamodded',
 				rankedVersion: '1.1620.0',
 				rankedVersionSha256: null,
 			},
 			{
 				id: 'Alice-Mod',
+				isCustom: false,
 				thunderstoreFullName: 'Alice-Mod',
 				rankedVersion: '2.0.0',
 				rankedVersionSha256: 'b'.repeat(64),
@@ -172,6 +186,7 @@ describe('syncModRegistry', () => {
 		vi.mocked(gateway.listRankedPins).mockResolvedValue([
 			{
 				id: 'Alice-Mod',
+				isCustom: false,
 				thunderstoreFullName: 'Alice-Mod',
 				rankedVersion: '2.0.0',
 				rankedVersionSha256: null,
@@ -184,5 +199,130 @@ describe('syncModRegistry', () => {
 		expect(gateway.storeRankedPinHash).not.toHaveBeenCalled()
 		expect(gateway.clearRankedPin).not.toHaveBeenCalled()
 		expect(summary.pinsHashed).toBe(0)
+	})
+
+	describe('custom mods', () => {
+		beforeEach(() => {
+			vi.mocked(fetchThunderstoreModIndex).mockResolvedValue({
+				entries: [entry('Alice-Mod', ['2.0.0'])],
+				skipped: 0,
+			})
+		})
+
+		it('skips a package whose id is an admin-created custom mod', async () => {
+			vi.mocked(gateway.listModRowsForClaims).mockResolvedValue([
+				{
+					id: 'Alice-Mod',
+					thunderstoreFullName: null,
+					repoUrl: null,
+					isCustom: true,
+				},
+			])
+
+			const summary = await syncModRegistry()
+
+			expect(gateway.writeModFromIndex).not.toHaveBeenCalled()
+			expect(summary.skipped).toBe(1)
+		})
+
+		it('records a detected custom version and counts a cleared pin', async () => {
+			vi.mocked(gateway.listCustomModsForVersionCheck).mockResolvedValue([
+				{
+					id: 'Partner',
+					repoUrl: 'https://github.com/o/r',
+					latestVersion: 'aaa1111',
+					latestDownloadUrl:
+						'https://github.com/o/r/archive/refs/heads/main.zip',
+					fixedReleaseTagUpdates: false,
+				},
+			])
+			vi.mocked(checkCustomModVersion).mockResolvedValue({
+				newVersion: 'bbb2222',
+				newDownloadUrl: null,
+				source: 'head',
+			})
+			vi.mocked(gateway.applyDetectedVersion).mockResolvedValue({
+				pinCleared: true,
+			})
+
+			const summary = await syncModRegistry()
+
+			expect(gateway.applyDetectedVersion).toHaveBeenCalledWith('Partner', {
+				version: 'bbb2222',
+				downloadUrl: null,
+			})
+			expect(summary).toMatchObject({
+				customVersionsDetected: 1,
+				pinsCleared: 1,
+			})
+		})
+
+		it('still syncs Thunderstore when one custom mod check throws', async () => {
+			vi.mocked(gateway.listCustomModsForVersionCheck).mockResolvedValue([
+				{
+					id: 'Partner',
+					repoUrl: null,
+					latestVersion: null,
+					latestDownloadUrl: null,
+					fixedReleaseTagUpdates: false,
+				},
+			])
+			vi.mocked(checkCustomModVersion).mockRejectedValue(new Error('boom'))
+
+			const summary = await syncModRegistry()
+
+			expect(summary.customVersionsDetected).toBe(0)
+			expect(gateway.writeModFromIndex).toHaveBeenCalledTimes(1)
+		})
+
+		it('hashes a custom pin from its own version row, never clearing it for not being on Thunderstore', async () => {
+			vi.mocked(gateway.listRankedPins).mockResolvedValue([
+				{
+					id: 'Partner',
+					isCustom: true,
+					thunderstoreFullName: null,
+					rankedVersion: 'v1',
+					rankedVersionSha256: null,
+				},
+			])
+			vi.mocked(gateway.getCustomPinDownloadUrl).mockResolvedValue(
+				'https://example.com/partner-v1.zip',
+			)
+			vi.mocked(computeModFolderHashForRelease).mockResolvedValue(
+				'd'.repeat(64),
+			)
+
+			const summary = await syncModRegistry()
+
+			expect(computeModFolderHashForRelease).toHaveBeenCalledWith(
+				'Partner',
+				'v1',
+				'https://example.com/partner-v1.zip',
+			)
+			expect(gateway.storeRankedPinHash).toHaveBeenCalledWith(
+				'Partner',
+				'v1',
+				'd'.repeat(64),
+			)
+			expect(gateway.clearRankedPin).not.toHaveBeenCalled()
+			expect(summary.pinsHashed).toBe(1)
+		})
+
+		it('clears a custom pin whose version row is gone', async () => {
+			vi.mocked(gateway.listRankedPins).mockResolvedValue([
+				{
+					id: 'Partner',
+					isCustom: true,
+					thunderstoreFullName: null,
+					rankedVersion: 'v1',
+					rankedVersionSha256: null,
+				},
+			])
+			vi.mocked(gateway.getCustomPinDownloadUrl).mockResolvedValue(null)
+
+			await syncModRegistry()
+
+			expect(gateway.clearRankedPin).toHaveBeenCalledWith('Partner', 'v1')
+		})
 	})
 })

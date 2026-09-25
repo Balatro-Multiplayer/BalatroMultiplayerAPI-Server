@@ -2,6 +2,8 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -28,8 +30,9 @@ const NONE_VALUE = '__none__'
 
 // Options are fetched lazily (only once this row's dropdown is actually
 // opened) via GET /webadmin/mods/:id/versions, which live-proxies
-// Thunderstore's own version list for this package -- avoids fetching every
-// mod's versions up front for a table where most rows will never be touched.
+// Thunderstore's own version list for a Thunderstore mod, or returns a
+// custom mod's own pinnable versions -- avoids fetching every mod's versions
+// up front for a table where most rows will never be touched.
 function RankedVersionSelect({
   mod,
   disabled,
@@ -88,11 +91,15 @@ export function ModsTable({
   isAdmin,
   pendingModId,
   onUpdate,
+  onEdit,
+  onDelete,
 }: {
   mods: ModSummary[]
   isAdmin: boolean
   pendingModId: string | null
   onUpdate: (mod: ModSummary, patch: ModPatch) => void
+  onEdit: (mod: ModSummary) => void
+  onDelete: (mod: ModSummary) => void
 }) {
   return (
     <Table>
@@ -103,6 +110,7 @@ export function ModsTable({
           <TableHead>Ranked version</TableHead>
           <TableHead>Featured</TableHead>
           <TableHead>Hidden</TableHead>
+          {isAdmin && <TableHead />}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -111,7 +119,14 @@ export function ModsTable({
           return (
             <TableRow key={mod.id}>
               <TableCell>
-                <p className='font-medium'>{mod.title}</p>
+                <p className='font-medium'>
+                  {mod.title}
+                  {mod.isCustom && (
+                    <Badge variant='secondary' className='ml-2'>
+                      Custom · {mod.sourceType}
+                    </Badge>
+                  )}
+                </p>
                 <p className='font-mono text-muted-foreground text-xs'>
                   {mod.id}
                   {mod.thunderstoreFullName &&
@@ -143,13 +158,38 @@ export function ModsTable({
                   onCheckedChange={(hidden) => onUpdate(mod, { hidden })}
                 />
               </TableCell>
+              {isAdmin && (
+                <TableCell className='whitespace-nowrap text-right'>
+                  {mod.isCustom && (
+                    <>
+                      <Button
+                        size='sm'
+                        variant='ghost'
+                        disabled={pendingModId === mod.id}
+                        onClick={() => onEdit(mod)}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        size='sm'
+                        variant='ghost'
+                        className='text-destructive'
+                        disabled={pendingModId === mod.id}
+                        onClick={() => onDelete(mod)}
+                      >
+                        Delete
+                      </Button>
+                    </>
+                  )}
+                </TableCell>
+              )}
             </TableRow>
           )
         })}
         {mods.length === 0 && (
           <TableRow>
             <TableCell
-              colSpan={5}
+              colSpan={6}
               className='text-center text-muted-foreground'
             >
               No mods synced yet — MOD_INDEX_SYNC_ENABLED may not be set, or the

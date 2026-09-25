@@ -689,8 +689,9 @@ export const modRegistry = pgTable('mod_registry', {
 	// Thunderstore get its full_name ("Owner-ModName") as their id.
 	id: varchar('id', { length: 128 }).primaryKey(),
 	// The sync key: Thunderstore's full_name for the package this row tracks.
-	// Null only for a carried-over row no package has claimed yet, which the
-	// next successful sync prunes.
+	// Null for a custom row (isCustom), which no package ever tracks, and for
+	// a carried-over row no package has claimed yet, which the next
+	// successful sync prunes.
 	thunderstoreFullName: varchar('thunderstore_full_name', {
 		length: 128,
 	}).unique(),
@@ -699,6 +700,27 @@ export const modRegistry = pgTable('mod_registry', {
 	title: varchar('title', { length: 128 }).notNull(),
 	author: varchar('author', { length: 128 }).notNull(),
 	categories: text('categories').array().notNull().default(sql`'{}'::text[]`),
+	// Admin-created mod with no Thunderstore package (thunderstoreFullName is
+	// null). The one kind of row an admin may create, edit and delete: sync
+	// never claims, overwrites or prunes it, and a Thunderstore row's fields
+	// stay read-only (only ranked pin / featured / hidden are editable).
+	// Its download URL is classified by mod-source-classifier.ts into
+	// branch / release / custom, which decides how a ranked pin is fetched.
+	isCustom: boolean('is_custom').notNull().default(false),
+	// Custom mods only: hourly GitHub check that bumps latestVersion when the
+	// source repo moves (custom-mod-version-check.service.ts), and whether a
+	// specific-release-tag URL follows that tag's newest asset.
+	automaticVersionCheck: boolean('automatic_version_check')
+		.notNull()
+		.default(false),
+	fixedReleaseTagUpdates: boolean('fixed_release_tag_updates')
+		.notNull()
+		.default(false),
+	// Custom mods only: alternative search terms (e.g. "wimf").
+	searchTerms: text('search_terms')
+		.array()
+		.notNull()
+		.default(sql`'{}'::text[]`),
 	requiresSteamodded: boolean('requires_steamodded').notNull().default(true),
 	// Talisman has no Thunderstore package to depend on, so sync can only
 	// ever prove this true -- it ORs into the stored value, never clears it.
@@ -718,7 +740,10 @@ export const modRegistry = pgTable('mod_registry', {
 	// (see mods.gateway.ts's setRankedVersion), which hashes that exact
 	// version's real downloaded/extracted content at pin time and stores the
 	// result alongside it below. Sync clears a pin whose version is no
-	// longer on Thunderstore, and hashes a pin that has no hash yet.
+	// longer on Thunderstore, and hashes a pin that has no hash yet. A custom
+	// mod's pin is cleared instead when its version moves in a way the stored
+	// hash can no longer back (see mods.gateway.ts's
+	// recordCustomVersionAndReconcilePin).
 	rankedVersion: varchar('ranked_version', { length: 64 }),
 	rankedVersionSha256: varchar('ranked_version_sha256', { length: 64 }),
 	// Admin-owned, never synced. featured highlights a mod in the launcher;

@@ -12,6 +12,10 @@ vi.mock('../../infrastructure/gateways/mods.gateway.js', async () => {
 	>('../../infrastructure/gateways/mods.gateway.js')
 	return {
 		...actual,
+		createCustomMod: vi.fn(),
+		updateCustomMod: vi.fn(),
+		deleteCustomMod: vi.fn(),
+		listPinnableVersionsForMod: vi.fn(),
 		listPublicMods: vi.fn(),
 		findModByIdOrFullName: vi.fn(),
 		setModFlags: vi.fn(),
@@ -19,10 +23,15 @@ vi.mock('../../infrastructure/gateways/mods.gateway.js', async () => {
 	}
 })
 
+vi.mock('../../features/mods/custom-mod-version-check.service.js', () => ({
+	resolveSourceInput: vi.fn(),
+}))
+
 vi.mock('../../features/mods/thunderstore-mod-index.service.js', () => ({
 	fetchThunderstorePackageVersions: vi.fn(),
 }))
 
+import { resolveSourceInput } from '../../features/mods/custom-mod-version-check.service.js'
 import { fetchThunderstorePackageVersions } from '../../features/mods/thunderstore-mod-index.service.js'
 
 const app = createTestApp()
@@ -261,4 +270,233 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		expect(res.status).toBe(400)
 		expect(modsGateway.setModFlags).not.toHaveBeenCalled()
 	})
+})
+
+const customRow = { id: 'Partner', thunderstoreFullName: null, isCustom: true }
+
+describe('custom mod admin routes', () => {
+	it('POST /mods is admin-only', async () => {
+		const token = authAsModerator('cm-post-1', 'Mod')
+		const res = await request(app)
+			.post('/api/webadmin/mods')
+			.set('Authorization', token)
+			.send({ id: 'Partner', title: 'P', author: 'a' })
+
+		expect(res.status).toBe(403)
+		expect(modsGateway.createCustomMod).not.toHaveBeenCalled()
+	})
+
+	it('POST /mods requires id, title and author', async () => {
+		const token = authAsAdmin('cm-post-2', 'Admin')
+		const res = await request(app)
+			.post('/api/webadmin/mods')
+			.set('Authorization', token)
+			.send({ id: 'Partner', title: 'P' })
+
+		expect(res.status).toBe(400)
+	})
+
+	it('POST /mods creates from a raw url with no GitHub resolution', async () => {
+		vi.mocked(modsGateway.createCustomMod).mockResolvedValue(customRow as any)
+
+		const token = authAsAdmin('cm-post-3', 'Admin')
+		const res = await request(app)
+			.post('/api/webadmin/mods')
+			.set('Authorization', token)
+			.send({
+				id: 'Partner',
+				title: 'P',
+				author: 'a',
+				latestVersion: 'v1',
+				latestDownloadUrl: 'https://example.com/p.zip',
+			})
+
+		expect(res.status).toBe(201)
+		expect(resolveSourceInput).not.toHaveBeenCalled()
+		expect(modsGateway.createCustomMod).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: 'Partner',
+				latestVersion: 'v1',
+				latestDownloadUrl: 'https://example.com/p.zip',
+			}),
+		)
+	})
+
+	it('POST /mods with a branch sourceInput resolves it and turns auto-check on', async () => {
+		vi.mocked(resolveSourceInput).mockResolvedValue({
+			latestDownloadUrl: 'https://github.com/o/r/archive/refs/heads/dev.zip',
+			latestVersion: 'abc1234',
+		})
+		vi.mocked(modsGateway.createCustomMod).mockResolvedValue(customRow as any)
+
+		const token = authAsAdmin('cm-post-4', 'Admin')
+		const res = await request(app)
+			.post('/api/webadmin/mods')
+			.set('Authorization', token)
+			.send({
+				id: 'Partner',
+				title: 'P',
+				author: 'a',
+				sourceInput: {
+					sourceType: 'branch',
+					repoUrl: 'https://github.com/o/r',
+					branch: 'dev',
+				},
+			})
+
+		expect(res.status).toBe(201)
+		expect(resolveSourceInput).toHaveBeenCalledWith({
+			sourceType: 'branch',
+			repoUrl: 'https://github.com/o/r',
+			branch: 'dev',
+		})
+		expect(modsGateway.createCustomMod).toHaveBeenCalledWith(
+			expect.objectContaining({
+				latestDownloadUrl: 'https://github.com/o/r/archive/refs/heads/dev.zip',
+				latestVersion: 'abc1234',
+				automaticVersionCheck: true,
+			}),
+		)
+	})
+
+	it('POST /mods rejects a sourceInput without a branch', async () => {
+		const token = authAsAdmin('cm-post-5', 'Admin')
+		const res = await request(app)
+			.post('/api/webadmin/mods')
+			.set('Authorization', token)
+			.send({
+				id: 'Partner',
+				title: 'P',
+				author: 'a',
+				sourceInput: {
+					sourceType: 'branch',
+					repoUrl: 'https://github.com/o/r',
+				},
+			})
+
+		expect(res.status).toBe(400)
+	})
+
+	it('POST /mods returns 409 when the id is taken', async () => {
+		vi.mocked(modsGateway.createCustomMod).mockResolvedValue(null)
+
+		const token = authAsAdmin('cm-post-6', 'Admin')
+		const res = await request(app)
+			.post('/api/webadmin/mods')
+			.set('Authorization', token)
+			.send({ id: 'Taken', title: 'P', author: 'a' })
+
+		expect(res.status).toBe(409)
+	})
+
+	it('PUT /mods/:modId/custom edits a custom mod', async () => {
+		vi.mocked(modsGateway.updateCustomMod).mockResolvedValue(customRow as any)
+
+		const token = authAsAdmin('cm-put-1', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Partner/custom')
+			.set('Authorization', token)
+			.send({ description: 'new', thumbnailUrl: null })
+
+		expect(res.status).toBe(200)
+		expect(modsGateway.updateCustomMod).toHaveBeenCalledWith(
+			'Partner',
+			expect.objectContaining({ description: 'new', thumbnailUrl: null }),
+		)
+	})
+
+	it('PUT /mods/:modId/custom 404s for a Thunderstore mod (gateway refuses non-custom rows)', async () => {
+		vi.mocked(modsGateway.updateCustomMod).mockResolvedValue(null)
+
+		const token = authAsAdmin('cm-put-2', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Author-Mod/custom')
+			.set('Authorization', token)
+			.send({ title: 'hijacked' })
+
+		expect(res.status).toBe(404)
+	})
+
+	it('DELETE /mods/:modId deletes a custom mod', async () => {
+		vi.mocked(modsGateway.findModByIdOrFullName).mockResolvedValue(
+			customRow as any,
+		)
+		vi.mocked(modsGateway.deleteCustomMod).mockResolvedValue(true)
+
+		const token = authAsAdmin('cm-del-1', 'Admin')
+		const res = await request(app)
+			.delete('/api/webadmin/mods/Partner')
+			.set('Authorization', token)
+
+		expect(res.status).toBe(200)
+		expect(modsGateway.deleteCustomMod).toHaveBeenCalledWith('Partner')
+	})
+
+	it('DELETE /mods/:modId refuses a Thunderstore mod', async () => {
+		const token = authAsAdmin('cm-del-2', 'Admin')
+		const res = await request(app)
+			.delete('/api/webadmin/mods/Author@Mod')
+			.set('Authorization', token)
+
+		expect(res.status).toBe(400)
+		expect(modsGateway.deleteCustomMod).not.toHaveBeenCalled()
+	})
+
+	it('GET /mods/:id/versions serves a custom mod its own pinnable versions, not Thunderstore', async () => {
+		vi.mocked(modsGateway.findModByIdOrFullName).mockResolvedValue(
+			customRow as any,
+		)
+		vi.mocked(modsGateway.listPinnableVersionsForMod).mockResolvedValue([
+			{ version: 'v2', downloadUrl: 'https://example.com/v2.zip' },
+		])
+
+		const token = authAsAdmin('cm-ver-1', 'Admin')
+		const res = await request(app)
+			.get('/api/webadmin/mods/Partner/versions')
+			.set('Authorization', token)
+
+		expect(res.status).toBe(200)
+		expect(res.body).toEqual([
+			{ version: 'v2', downloadUrl: 'https://example.com/v2.zip' },
+		])
+		expect(fetchThunderstorePackageVersions).not.toHaveBeenCalled()
+	})
+
+	it('PUT /mods/:modId pins a custom mod without any Thunderstore lookup', async () => {
+		vi.mocked(modsGateway.findModByIdOrFullName).mockResolvedValue(
+			customRow as any,
+		)
+		vi.mocked(modsGateway.setRankedVersion).mockResolvedValue({ ok: true })
+
+		const token = authAsAdmin('cm-pin-1', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Partner')
+			.set('Authorization', token)
+			.send({ rankedVersion: 'v1' })
+
+		expect(res.status).toBe(200)
+		expect(fetchThunderstorePackageVersions).not.toHaveBeenCalled()
+		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith('Partner', 'v1')
+	})
+
+	it.each(['version-not-found', 'version-not-pinnable'] as const)(
+		'PUT /mods/:modId maps %s to a 400',
+		async (reason) => {
+			vi.mocked(modsGateway.findModByIdOrFullName).mockResolvedValue(
+				customRow as any,
+			)
+			vi.mocked(modsGateway.setRankedVersion).mockResolvedValue({
+				ok: false,
+				reason,
+			})
+
+			const token = authAsAdmin(`cm-pin-${reason}`, 'Admin')
+			const res = await request(app)
+				.put('/api/webadmin/mods/Partner')
+				.set('Authorization', token)
+				.send({ rankedVersion: 'v0' })
+
+			expect(res.status).toBe(400)
+		},
+	)
 })

@@ -6,6 +6,9 @@ export interface ExistingModRow {
 	id: string
 	thunderstoreFullName: string | null
 	repoUrl: string | null
+	// Admin-created custom rows are invisible to claiming: no package may
+	// take one over, and none may be inserted under its id.
+	isCustom?: boolean
 }
 
 export interface ClaimablePackage {
@@ -20,6 +23,9 @@ export type ModRowClaim =
 	| { kind: 'claimed'; id: string }
 	// No row to reuse: insert one with id = full name.
 	| { kind: 'new'; id: string }
+	// The id this package would get is already an admin-created custom mod:
+	// skip the package rather than overwrite or collide with it.
+	| { kind: 'skip'; id: string }
 
 // Legacy ids whose repo URL doesn't lead to their Thunderstore package
 // (moved repos, or a website_url that isn't the repo) but which clients
@@ -58,8 +64,11 @@ export function planModRowClaims(
 ): Map<string, ModRowClaim> {
 	const ownedByFullName = new Map<string, string>()
 	const unclaimed = new Map<string, ExistingModRow>()
+	const customIds = new Set<string>()
 	for (const row of rows) {
-		if (row.thunderstoreFullName) {
+		if (row.isCustom) {
+			customIds.add(row.id)
+		} else if (row.thunderstoreFullName) {
 			ownedByFullName.set(row.thunderstoreFullName, row.id)
 		} else {
 			unclaimed.set(row.id, row)
@@ -106,6 +115,8 @@ export function planModRowClaims(
 			: undefined
 		if (repoMatchId && unclaimed.has(repoMatchId)) {
 			take(pkg.fullName, repoMatchId)
+		} else if (customIds.has(pkg.fullName)) {
+			claims.set(pkg.fullName, { kind: 'skip', id: pkg.fullName })
 		} else {
 			claims.set(pkg.fullName, { kind: 'new', id: pkg.fullName })
 		}
