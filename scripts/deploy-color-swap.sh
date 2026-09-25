@@ -51,7 +51,9 @@ log "building images..."
 $COMPOSE build "api-$INACTIVE"
 
 log "running migrations once (idempotent)..."
-$COMPOSE run --rm "api-$INACTIVE" sh -c "pnpm --filter balatro-multiplayer-api-server migrate"
+# --no-deps: postgres is already up, and `run` would otherwise start every
+# depends_on service -- including the whole moderation replica set.
+$COMPOSE run --rm --no-deps "api-$INACTIVE" sh -c "pnpm --filter balatro-multiplayer-api-server migrate"
 
 log "starting api-$INACTIVE..."
 $COMPOSE up -d --no-deps "api-$INACTIVE"
