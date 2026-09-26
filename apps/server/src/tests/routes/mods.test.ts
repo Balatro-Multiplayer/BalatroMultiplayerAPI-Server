@@ -136,6 +136,12 @@ function modRow(overrides: Record<string, unknown> = {}) {
 			'https://thunderstore.io/package/download/BalatroMultiplayer/MultiplayerAPI/0.1.2/',
 		rankedVersion: '0.1.2',
 		rankedVersionSha256: 'a'.repeat(64),
+		rankedDownloadUrl:
+			'https://thunderstore.io/package/download/BalatroMultiplayer/MultiplayerAPI/0.1.2/',
+		rankedSource: 'thunderstore',
+		rankedDownloadStatus: 'ok',
+		rankedCheckedAt: now,
+		trackGithub: false,
 		featured: true,
 		hidden: false,
 		isCustom: false,
@@ -149,14 +155,26 @@ function modRow(overrides: Record<string, unknown> = {}) {
 	}
 }
 
-function versionRow(id: number, version: string, releasedAt: string) {
+function versionRow(
+	id: number,
+	version: string,
+	releasedAt: string,
+	source: 'thunderstore' | 'github' = 'thunderstore',
+) {
 	return {
 		id,
 		modId: 'MultiplayerAPI',
 		version,
-		downloadUrl: `https://thunderstore.io/package/download/BalatroMultiplayer/MultiplayerAPI/${version}/`,
+		source,
+		aliases: source === 'thunderstore' ? [`v${version}`] : [],
+		ref: source === 'github' ? version : null,
+		downloadUrl:
+			source === 'thunderstore'
+				? `https://thunderstore.io/package/download/BalatroMultiplayer/MultiplayerAPI/${version}/`
+				: `https://codeload.github.com/Balatro-Multiplayer/BalatroMultiplayerAPI/zip/refs/tags/${version}`,
 		releasedAt: new Date(releasedAt),
-		dependencies: ['Steamodded-Steamodded-1.1814.0'],
+		dependencies:
+			source === 'thunderstore' ? ['Steamodded-Steamodded-1.1814.0'] : [],
 	}
 }
 
@@ -178,6 +196,11 @@ describe('mods routes', () => {
 				rankedVersionSha256: 'a'.repeat(64),
 				sourceType: 'release',
 				thunderstoreFullName: 'BalatroMultiplayer-MultiplayerAPI',
+				rankedDownloadUrl:
+					'https://thunderstore.io/package/download/BalatroMultiplayer/MultiplayerAPI/0.1.2/',
+				rankedSource: 'thunderstore',
+				rankedDownloadStatus: 'ok',
+				trackGithub: false,
 			})
 		})
 	})
@@ -286,6 +309,44 @@ describe('mods routes', () => {
 				'Steamodded-Steamodded-1.1814.0',
 			])
 			expect(res.body.latestSha256).toBe('a'.repeat(64))
+		})
+
+		it('lists Thunderstore versions before newer GitHub-only ones, with source and aliases', async () => {
+			mockSelects(
+				[modRow({ trackGithub: true })],
+				[
+					versionRow(1, '0.1.1', '2026-08-01'),
+					versionRow(2, 'v0.2.0-beta', '2026-09-20', 'github'),
+					versionRow(3, '0.1.2', '2026-09-01'),
+				],
+			)
+
+			const res = await request(app).get('/api/mods/MultiplayerAPI')
+
+			expect(
+				res.body.versions.map((v: any) => [v.version, v.source, v.aliases]),
+			).toEqual([
+				['0.1.2', 'thunderstore', ['v0.1.2']],
+				['0.1.1', 'thunderstore', ['v0.1.1']],
+				['v0.2.0-beta', 'github', []],
+			])
+			expect(res.body.versions[2].ref).toBe('v0.2.0-beta')
+			expect(res.body.trackGithub).toBe(true)
+		})
+
+		it('serves the ranked pin with its permanent URL, source and status', async () => {
+			mockSelects([modRow()], [])
+
+			const res = await request(app).get('/api/mods/MultiplayerAPI')
+
+			expect(res.body).toMatchObject({
+				rankedVersion: '0.1.2',
+				rankedVersionSha256: 'a'.repeat(64),
+				rankedDownloadUrl:
+					'https://thunderstore.io/package/download/BalatroMultiplayer/MultiplayerAPI/0.1.2/',
+				rankedSource: 'thunderstore',
+				rankedDownloadStatus: 'ok',
+			})
 		})
 
 		it('serves no latestSha256 when the latest version is not the ranked one', async () => {

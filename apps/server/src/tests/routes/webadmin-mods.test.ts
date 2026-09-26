@@ -15,7 +15,9 @@ vi.mock('../../infrastructure/gateways/mods.gateway.js', async () => {
 		createCustomMod: vi.fn(),
 		updateCustomMod: vi.fn(),
 		deleteCustomMod: vi.fn(),
-		listPinnableVersionsForMod: vi.fn(),
+		listVersionsForMod: vi.fn(),
+		pinCommit: vi.fn(),
+		setTrackGithub: vi.fn(),
 		listPublicMods: vi.fn(),
 		findModByIdOrFullName: vi.fn(),
 		setModFlags: vi.fn(),
@@ -27,12 +29,7 @@ vi.mock('../../features/mods/custom-mod-version-check.service.js', () => ({
 	resolveSourceInput: vi.fn(),
 }))
 
-vi.mock('../../features/mods/thunderstore-mod-index.service.js', () => ({
-	fetchThunderstorePackageVersions: vi.fn(),
-}))
-
 import { resolveSourceInput } from '../../features/mods/custom-mod-version-check.service.js'
-import { fetchThunderstorePackageVersions } from '../../features/mods/thunderstore-mod-index.service.js'
 
 const app = createTestApp()
 
@@ -90,13 +87,15 @@ describe('GET /api/webadmin/mods/:id/versions', () => {
 			.set('Authorization', token)
 
 		expect(res.status).toBe(403)
-		expect(fetchThunderstorePackageVersions).not.toHaveBeenCalled()
+		expect(modsGateway.listVersionsForMod).not.toHaveBeenCalled()
 	})
 
-	it('live-proxies the version list for an admin', async () => {
-		vi.mocked(fetchThunderstorePackageVersions).mockResolvedValue([
-			{ version: '1.0.0', downloadUrl: 'https://example.com/1.0.0' },
-		])
+	it('serves the merged Thunderstore + GitHub list for an admin', async () => {
+		const versions = [
+			{ version: '1.0.0', source: 'thunderstore', aliases: ['v1.0.0'] },
+			{ version: 'abc1234', source: 'github', aliases: [] },
+		]
+		vi.mocked(modsGateway.listVersionsForMod).mockResolvedValue(versions as any)
 
 		const token = authAsAdmin('admin-ver-1', 'Admin')
 		const res = await request(app)
@@ -104,14 +103,12 @@ describe('GET /api/webadmin/mods/:id/versions', () => {
 			.set('Authorization', token)
 
 		expect(res.status).toBe(200)
-		expect(res.body).toEqual([
-			{ version: '1.0.0', downloadUrl: 'https://example.com/1.0.0' },
-		])
-		expect(fetchThunderstorePackageVersions).toHaveBeenCalledWith('Author-Mod')
+		expect(res.body).toEqual(versions)
+		expect(modsGateway.listVersionsForMod).toHaveBeenCalledWith('Author-Mod')
 	})
 
 	it('returns 404 for an unknown mod', async () => {
-		vi.mocked(modsGateway.findModByIdOrFullName).mockResolvedValue(null)
+		vi.mocked(modsGateway.listVersionsForMod).mockResolvedValue(null)
 
 		const token = authAsAdmin('admin-ver-2', 'Admin')
 		const res = await request(app)
@@ -144,22 +141,26 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		expect(res.status).toBe(400)
 	})
 
-	it('returns 400 when the version is not currently on Thunderstore', async () => {
-		vi.mocked(fetchThunderstorePackageVersions).mockResolvedValue([
-			{ version: '1.0.0', downloadUrl: 'https://example.com/1.0.0' },
-		])
+	it.each([
+		'version-not-found',
+		'download-unresolvable',
+		'hash-failed',
+	] as const)('maps %s from the gateway to a 400', async (reason) => {
+		vi.mocked(modsGateway.setRankedVersion).mockResolvedValue({
+			ok: false,
+			reason,
+		})
 
-		const token = authAsAdmin('admin-put-2', 'Admin')
+		const token = authAsAdmin(`admin-put-2-${reason}`, 'Admin')
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
 			.send({ rankedVersion: '9.9.9' })
 
 		expect(res.status).toBe(400)
-		expect(modsGateway.setRankedVersion).not.toHaveBeenCalled()
 	})
 
-	it('skips the live version check and calls setRankedVersion(null) to ban a mod', async () => {
+	it('calls setRankedVersion(null) to ban a mod', async () => {
 		vi.mocked(modsGateway.setRankedVersion).mockResolvedValue({ ok: true })
 
 		const token = authAsAdmin('admin-put-3', 'Admin')
@@ -169,17 +170,13 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 			.send({ rankedVersion: null })
 
 		expect(res.status).toBe(200)
-		expect(fetchThunderstorePackageVersions).not.toHaveBeenCalled()
 		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith(
 			'Author@Mod',
 			null,
 		)
 	})
 
-	it('pins a known version and returns ok on success', async () => {
-		vi.mocked(fetchThunderstorePackageVersions).mockResolvedValue([
-			{ version: '1.0.0', downloadUrl: 'https://example.com/1.0.0' },
-		])
+	it('pins any version (by name or alias) through the gateway', async () => {
 		vi.mocked(modsGateway.setRankedVersion).mockResolvedValue({ ok: true })
 
 		const token = authAsAdmin('admin-put-4', 'Admin')
@@ -190,17 +187,67 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 
 		expect(res.status).toBe(200)
 		expect(res.body).toEqual({ ok: true })
-		expect(fetchThunderstorePackageVersions).toHaveBeenCalledWith('Author-Mod')
 		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith(
 			'Author@Mod',
 			'1.0.0',
 		)
 	})
 
+	it('pins a commit by SHA', async () => {
+		vi.mocked(modsGateway.pinCommit).mockResolvedValue({ ok: true })
+
+		const token = authAsAdmin('admin-put-commit-1', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Author-Mod')
+			.set('Authorization', token)
+			.send({ rankedCommit: ' abc1234 ' })
+
+		expect(res.status).toBe(200)
+		expect(modsGateway.pinCommit).toHaveBeenCalledWith('Author@Mod', 'abc1234')
+		expect(modsGateway.setRankedVersion).not.toHaveBeenCalled()
+	})
+
+	it.each(['no-github-repo', 'commit-not-found'] as const)(
+		'maps a commit pin failure (%s) to a 400',
+		async (reason) => {
+			vi.mocked(modsGateway.pinCommit).mockResolvedValue({ ok: false, reason })
+
+			const token = authAsAdmin(`admin-put-commit-${reason}`, 'Admin')
+			const res = await request(app)
+				.put('/api/webadmin/mods/Author-Mod')
+				.set('Authorization', token)
+				.send({ rankedCommit: 'abc1234' })
+
+			expect(res.status).toBe(400)
+		},
+	)
+
+	it('refuses rankedVersion and rankedCommit together', async () => {
+		const token = authAsAdmin('admin-put-commit-both', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Author-Mod')
+			.set('Authorization', token)
+			.send({ rankedVersion: '1.0.0', rankedCommit: 'abc1234' })
+
+		expect(res.status).toBe(400)
+		expect(modsGateway.setRankedVersion).not.toHaveBeenCalled()
+		expect(modsGateway.pinCommit).not.toHaveBeenCalled()
+	})
+
+	it('toggles GitHub tracking on a Thunderstore mod', async () => {
+		vi.mocked(modsGateway.setTrackGithub).mockResolvedValue(true)
+
+		const token = authAsAdmin('admin-put-track-1', 'Admin')
+		const res = await request(app)
+			.put('/api/webadmin/mods/Author-Mod')
+			.set('Authorization', token)
+			.send({ trackGithub: true })
+
+		expect(res.status).toBe(200)
+		expect(modsGateway.setTrackGithub).toHaveBeenCalledWith('Author@Mod', true)
+	})
+
 	it('returns 404 when the gateway reports the mod does not exist', async () => {
-		vi.mocked(fetchThunderstorePackageVersions).mockResolvedValue([
-			{ version: '1.0.0', downloadUrl: 'https://example.com/1.0.0' },
-		])
 		vi.mocked(modsGateway.setRankedVersion).mockResolvedValue({
 			ok: false,
 			reason: 'not-found',
@@ -213,24 +260,6 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 			.send({ rankedVersion: '1.0.0' })
 
 		expect(res.status).toBe(404)
-	})
-
-	it('returns 400 when the gateway could not compute a hash', async () => {
-		vi.mocked(fetchThunderstorePackageVersions).mockResolvedValue([
-			{ version: '1.0.0', downloadUrl: 'https://example.com/1.0.0' },
-		])
-		vi.mocked(modsGateway.setRankedVersion).mockResolvedValue({
-			ok: false,
-			reason: 'hash-failed',
-		})
-
-		const token = authAsAdmin('admin-put-6', 'Admin')
-		const res = await request(app)
-			.put('/api/webadmin/mods/Author-Mod')
-			.set('Authorization', token)
-			.send({ rankedVersion: '1.0.0' })
-
-		expect(res.status).toBe(400)
 	})
 
 	it('returns 404 when the mod does not exist', async () => {
@@ -442,24 +471,19 @@ describe('custom mod admin routes', () => {
 		expect(modsGateway.deleteCustomMod).not.toHaveBeenCalled()
 	})
 
-	it('GET /mods/:id/versions serves a custom mod its own pinnable versions, not Thunderstore', async () => {
+	it('PUT /mods/:modId refuses trackGithub on a custom mod (always tracked)', async () => {
 		vi.mocked(modsGateway.findModByIdOrFullName).mockResolvedValue(
 			customRow as any,
 		)
-		vi.mocked(modsGateway.listPinnableVersionsForMod).mockResolvedValue([
-			{ version: 'v2', downloadUrl: 'https://example.com/v2.zip' },
-		])
 
-		const token = authAsAdmin('cm-ver-1', 'Admin')
+		const token = authAsAdmin('cm-track-1', 'Admin')
 		const res = await request(app)
-			.get('/api/webadmin/mods/Partner/versions')
+			.put('/api/webadmin/mods/Partner')
 			.set('Authorization', token)
+			.send({ trackGithub: false })
 
-		expect(res.status).toBe(200)
-		expect(res.body).toEqual([
-			{ version: 'v2', downloadUrl: 'https://example.com/v2.zip' },
-		])
-		expect(fetchThunderstorePackageVersions).not.toHaveBeenCalled()
+		expect(res.status).toBe(400)
+		expect(modsGateway.setTrackGithub).not.toHaveBeenCalled()
 	})
 
 	it('PUT /mods/:modId pins a custom mod without any Thunderstore lookup', async () => {
@@ -475,11 +499,10 @@ describe('custom mod admin routes', () => {
 			.send({ rankedVersion: 'v1' })
 
 		expect(res.status).toBe(200)
-		expect(fetchThunderstorePackageVersions).not.toHaveBeenCalled()
 		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith('Partner', 'v1')
 	})
 
-	it.each(['version-not-found', 'version-not-pinnable'] as const)(
+	it.each(['version-not-found', 'download-unresolvable'] as const)(
 		'PUT /mods/:modId maps %s to a 400',
 		async (reason) => {
 			vi.mocked(modsGateway.findModByIdOrFullName).mockResolvedValue(

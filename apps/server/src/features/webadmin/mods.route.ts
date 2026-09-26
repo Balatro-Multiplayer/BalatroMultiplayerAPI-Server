@@ -1,29 +1,32 @@
 import { Router } from 'express'
 import {
+	type PinCommitResult,
 	createCustomMod,
 	deleteCustomMod,
 	findModByIdOrFullName,
 	getPublicModById,
-	listPinnableVersionsForMod,
 	listPublicMods,
+	listVersionsForMod,
+	pinCommit,
 	setModFlags,
 	setRankedVersion,
+	setTrackGithub,
 	updateCustomMod,
 } from '../../infrastructure/gateways/mods.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
 import {
+	type ResolvedSource,
 	type SourceInput,
 	resolveSourceInput,
 } from '../mods/custom-mod-version-check.service.js'
 import { syncModRegistry } from '../mods/mods-sync.service.js'
-import { fetchThunderstorePackageVersions } from '../mods/thunderstore-mod-index.service.js'
 
 // Ranked mod catalog admin surface: sync Thunderstore-sourced mods on demand,
-// manage the admin-owned fields -- rankedVersion (see schema.ts's own doc
-// comment -- a mod is ranked-allowed iff it's non-null), featured and hidden
-// -- on every mod, and create/edit/delete custom mods (rows with no
-// Thunderstore package). A Thunderstore mod's own fields are read-only here:
+// manage the admin-owned fields -- the ranked pin (see schema.ts's own doc
+// comment -- a mod is ranked-allowed iff rankedVersion is non-null),
+// featured, hidden and trackGithub -- on every mod, and create/edit/delete
+// custom mods (rows with no Thunderstore package). A Thunderstore mod's own fields are read-only here:
 // the gateway's custom-mod writes are scoped to isCustom rows in SQL, so
 // that holds even if a route check is missed.
 //
@@ -64,47 +67,68 @@ router.post('/mods/sync', async (req, res, next) => {
 	}
 })
 
-// The versions the ranked-mods admin UI's version picker offers: a
-// Thunderstore mod's list live-proxied straight from Thunderstore (what the
-// PUT handler below validates a submitted rankedVersion against), or a custom
-// mod's own pinnable version rows.
+// The versions the ranked-mods admin UI's version picker offers: the mod's
+// merged list (Thunderstore and GitHub versions, each with its source and
+// aliases), exactly as GET /api/mods/:id serves it.
 router.get('/mods/:id/versions', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
-		const mod = await findModByIdOrFullName(req.params.id)
-		if (!mod) throw new AppError('Mod not found', 404)
-		if (mod.isCustom) {
-			res.json(await listPinnableVersionsForMod(mod.id))
-			return
-		}
-		res.json(
-			mod.thunderstoreFullName
-				? await fetchThunderstorePackageVersions(mod.thunderstoreFullName)
-				: [],
-		)
+		const versions = await listVersionsForMod(req.params.id)
+		if (!versions) throw new AppError('Mod not found', 404)
+		res.json(versions)
 	} catch (err) {
 		next(err)
 	}
 })
 
+function throwPinError(result: Exclude<PinCommitResult, { ok: true }>): never {
+	switch (result.reason) {
+		case 'not-found':
+			throw new AppError('Mod not found', 404)
+		case 'version-not-found':
+			throw new AppError("That version is not one of this mod's versions", 400)
+		case 'download-unresolvable':
+			throw new AppError(
+				"Couldn't resolve that version to a permanent download right now (GitHub unreachable, or the branch/tag is gone) -- try again",
+				400,
+			)
+		case 'no-github-repo':
+			throw new AppError(
+				"This mod has no github.com repo URL, so a commit can't be pinned",
+				400,
+			)
+		case 'commit-not-found':
+			throw new AppError(
+				"That commit was not found in the mod's GitHub repo",
+				400,
+			)
+		case 'hash-failed':
+			throw new AppError(
+				"Couldn't compute a hash for this version -- check the server logs (mod-version-hash) for why the download/extraction failed, then try again",
+				400,
+			)
+	}
+}
+
 // Every field is optional; only the ones present are changed.
-// rankedVersion is the sole ranked-eligibility signal (see schema.ts's own
-// doc comment) -- null un-ranks the mod, any other value ranks it and pins
-// it to exactly that version. For a Thunderstore mod a non-null value is
-// validated against Thunderstore's own current version list before being
-// handed to the gateway (a custom mod's versions are validated by the gateway
-// itself), which independently re-resolves and hashes that same version's
-// real downloaded/extracted content -- see mods.gateway.ts's
-// setRankedVersion doc comment.
+//  - rankedVersion: null un-ranks the mod; any other value pins it to that
+//    version of its merged list (Thunderstore or GitHub, by name or alias).
+//  - rankedCommit: pins a GitHub commit by SHA (recorded as a version first).
+//  - trackGithub: Thunderstore mods only -- also list the repo's GitHub
+//    releases/tags as versions (applied on the next sync).
+// A pin is resolved to a permanent URL and hashed before it's stored -- see
+// mods.gateway.ts's setRankedVersion.
 router.put('/mods/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
 		const body = req.body as {
 			rankedVersion?: unknown
+			rankedCommit?: unknown
 			featured?: unknown
 			hidden?: unknown
+			trackGithub?: unknown
 		}
-		const { rankedVersion, featured, hidden } = body
+		const { rankedVersion, rankedCommit, featured, hidden, trackGithub } = body
 		if (
 			'rankedVersion' in body &&
 			rankedVersion !== null &&
@@ -112,58 +136,41 @@ router.put('/mods/:modId', async (req, res, next) => {
 		) {
 			throw new AppError('rankedVersion must be a string or null', 400)
 		}
+		if (rankedCommit !== undefined && typeof rankedCommit !== 'string') {
+			throw new AppError('rankedCommit must be a commit SHA string', 400)
+		}
+		if ('rankedVersion' in body && rankedCommit !== undefined) {
+			throw new AppError('Send rankedVersion or rankedCommit, not both', 400)
+		}
 		if (featured !== undefined && typeof featured !== 'boolean') {
 			throw new AppError('featured must be a boolean', 400)
 		}
 		if (hidden !== undefined && typeof hidden !== 'boolean') {
 			throw new AppError('hidden must be a boolean', 400)
 		}
+		if (trackGithub !== undefined && typeof trackGithub !== 'boolean') {
+			throw new AppError('trackGithub must be a boolean', 400)
+		}
 
 		const mod = await findModByIdOrFullName(req.params.modId)
 		if (!mod) throw new AppError('Mod not found', 404)
+		if (trackGithub !== undefined && mod.isCustom) {
+			throw new AppError('A custom mod always tracks GitHub', 400)
+		}
 
 		if (featured !== undefined || hidden !== undefined) {
 			await setModFlags(mod.id, { featured, hidden })
 		}
+		if (trackGithub !== undefined) {
+			await setTrackGithub(mod.id, trackGithub)
+		}
 
-		if ('rankedVersion' in body) {
-			if (rankedVersion !== null && !mod.isCustom) {
-				const versions = mod.thunderstoreFullName
-					? await fetchThunderstorePackageVersions(mod.thunderstoreFullName)
-					: []
-				if (!versions.some((v) => v.version === rankedVersion)) {
-					throw new AppError(
-						'That version is not currently on Thunderstore',
-						400,
-					)
-				}
-			}
-
-			const result = await setRankedVersion(
-				mod.id,
-				rankedVersion as string | null,
-			)
-			if (!result.ok) {
-				if (result.reason === 'not-found') {
-					throw new AppError('Mod not found', 404)
-				}
-				if (result.reason === 'version-not-found') {
-					throw new AppError(
-						"That version is not one of this mod's versions",
-						400,
-					)
-				}
-				if (result.reason === 'version-not-pinnable') {
-					throw new AppError(
-						'That version can no longer be pinned: its download URL is a moving pointer (a branch or latest-release link) that now serves a newer version',
-						400,
-					)
-				}
-				throw new AppError(
-					"Couldn't compute a hash for this version -- check the server logs (mod-version-hash) for why the download/extraction failed, then try again",
-					400,
-				)
-			}
+		if ('rankedVersion' in body || rankedCommit !== undefined) {
+			const result =
+				rankedCommit !== undefined
+					? await pinCommit(mod.id, rankedCommit.trim())
+					: await setRankedVersion(mod.id, rankedVersion as string | null)
+			if (!result.ok) throwPinError(result)
 		}
 		res.json({ ok: true })
 	} catch (err) {
@@ -177,7 +184,7 @@ router.put('/mods/:modId', async (req, res, next) => {
 // resolving: the admin sends latestDownloadUrl (and latestVersion) directly.
 async function resolveSourceInputField(
 	body: Record<string, unknown>,
-): Promise<{ latestDownloadUrl: string; latestVersion: string | null } | null> {
+): Promise<ResolvedSource | null> {
 	if (body.sourceInput === undefined) return null
 	const si = body.sourceInput as Record<string, unknown>
 	const requireString = (key: string) => {
@@ -268,6 +275,7 @@ router.post('/mods', async (req, res, next) => {
 			...(resolved && {
 				latestDownloadUrl: resolved.latestDownloadUrl,
 				latestVersion: resolved.latestVersion,
+				versionDownloadUrl: resolved.versionDownloadUrl,
 				automaticVersionCheck: fields.automaticVersionCheck ?? true,
 			}),
 		})
@@ -292,6 +300,7 @@ router.put('/mods/:modId/custom', async (req, res, next) => {
 			...(resolved && {
 				latestDownloadUrl: resolved.latestDownloadUrl,
 				latestVersion: resolved.latestVersion,
+				versionDownloadUrl: resolved.versionDownloadUrl,
 			}),
 		})
 		if (!mod) throw new AppError('Custom mod not found', 404)

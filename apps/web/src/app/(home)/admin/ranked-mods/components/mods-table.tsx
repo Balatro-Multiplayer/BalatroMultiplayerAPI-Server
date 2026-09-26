@@ -21,18 +21,57 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { apiFetch } from '@/lib/api'
-import type { ModPatch, ModSummary, ModVersion } from './ranked-mods-types'
+import type {
+  ModPatch,
+  ModSummary,
+  ModVersion,
+  VersionSource,
+} from './ranked-mods-types'
 
 // Radix Select items can't have an empty string value -- this sentinel
 // stands in for "not ranked" (rankedVersion: null) on the wire in/out of
 // the dropdown only, never sent to the API itself.
 const NONE_VALUE = '__none__'
 
+const SOURCE_LABEL: Record<VersionSource, string> = {
+  thunderstore: 'Thunderstore',
+  github: 'GitHub',
+}
+
+// The pinned download under the version picker: where it comes from, a link
+// to the exact archive that was hashed, and the sync's health flag.
+function PinDetails({ mod }: { mod: ModSummary }) {
+  if (!mod.rankedVersion) return null
+  if (!mod.rankedDownloadUrl) {
+    return (
+      <p className='mt-1 text-muted-foreground text-xs'>
+        Resolving on next sync…
+      </p>
+    )
+  }
+  return (
+    <p className='mt-1 flex items-center gap-1.5 text-muted-foreground text-xs'>
+      {mod.rankedSource && SOURCE_LABEL[mod.rankedSource]}
+      <a
+        href={mod.rankedDownloadUrl}
+        className='underline underline-offset-2'
+        target='_blank'
+        rel='noreferrer'
+      >
+        download
+      </a>
+      {mod.rankedDownloadStatus === 'unavailable' && (
+        <Badge variant='destructive'>Unavailable — re-pin</Badge>
+      )}
+    </p>
+  )
+}
+
 // Options are fetched lazily (only once this row's dropdown is actually
-// opened) via GET /webadmin/mods/:id/versions, which live-proxies
-// Thunderstore's own version list for a Thunderstore mod, or returns a
-// custom mod's own pinnable versions -- avoids fetching every mod's versions
-// up front for a table where most rows will never be touched.
+// opened) via GET /webadmin/mods/:id/versions, which returns the mod's merged
+// version list -- Thunderstore versions first, then GitHub-only ones -- so
+// any of them can be pinned. Avoids fetching every mod's versions up front
+// for a table where most rows will never be touched.
 function RankedVersionSelect({
   mod,
   disabled,
@@ -55,9 +94,17 @@ function RankedVersionSelect({
   // flight), fall back to just the currently-selected version (if any) so
   // the trigger has a matching SelectItem to render a label from instead of
   // going blank.
-  const options =
-    versions?.map((v) => v.version) ??
-    (mod.rankedVersion ? [mod.rankedVersion] : [])
+  const options: Pick<ModVersion, 'version' | 'source' | 'aliases'>[] =
+    versions ??
+    (mod.rankedVersion
+      ? [
+          {
+            version: mod.rankedVersion,
+            source: mod.rankedSource ?? 'thunderstore',
+            aliases: [],
+          },
+        ]
+      : [])
 
   return (
     <Select
@@ -66,7 +113,7 @@ function RankedVersionSelect({
       onOpenChange={setOpen}
       onValueChange={(value) => onChange(value === NONE_VALUE ? null : value)}
     >
-      <SelectTrigger size='sm' className='h-8 w-40 font-mono text-xs'>
+      <SelectTrigger size='sm' className='h-8 w-44 font-mono text-xs'>
         <SelectValue placeholder='None' />
       </SelectTrigger>
       <SelectContent>
@@ -76,9 +123,13 @@ function RankedVersionSelect({
             Loading versions…
           </div>
         )}
-        {options.map((version) => (
-          <SelectItem key={version} value={version}>
-            {version}
+        {options.map((v) => (
+          <SelectItem key={v.version} value={v.version}>
+            <span className='font-mono'>{v.version}</span>
+            <span className='text-muted-foreground text-xs'>
+              {SOURCE_LABEL[v.source]}
+              {v.aliases.length > 0 && ` · also ${v.aliases.join(', ')}`}
+            </span>
           </SelectItem>
         ))}
       </SelectContent>
@@ -93,6 +144,7 @@ export function ModsTable({
   onUpdate,
   onEdit,
   onDelete,
+  onPinCommit,
 }: {
   mods: ModSummary[]
   isAdmin: boolean
@@ -100,6 +152,7 @@ export function ModsTable({
   onUpdate: (mod: ModSummary, patch: ModPatch) => void
   onEdit: (mod: ModSummary) => void
   onDelete: (mod: ModSummary) => void
+  onPinCommit: (mod: ModSummary) => void
 }) {
   return (
     <Table>
@@ -110,6 +163,7 @@ export function ModsTable({
           <TableHead>Ranked version</TableHead>
           <TableHead>Featured</TableHead>
           <TableHead>Hidden</TableHead>
+          <TableHead>Track GitHub</TableHead>
           {isAdmin && <TableHead />}
         </TableRow>
       </TableHeader>
@@ -143,6 +197,7 @@ export function ModsTable({
                     onUpdate(mod, { rankedVersion: version })
                   }
                 />
+                <PinDetails mod={mod} />
               </TableCell>
               <TableCell>
                 <Switch
@@ -158,8 +213,30 @@ export function ModsTable({
                   onCheckedChange={(hidden) => onUpdate(mod, { hidden })}
                 />
               </TableCell>
+              <TableCell>
+                <Switch
+                  checked={mod.trackGithub}
+                  disabled={disabled || mod.isCustom}
+                  title={
+                    mod.isCustom
+                      ? 'Custom mods always list their GitHub versions'
+                      : 'Also list GitHub releases/tags as versions (next sync)'
+                  }
+                  onCheckedChange={(trackGithub) =>
+                    onUpdate(mod, { trackGithub })
+                  }
+                />
+              </TableCell>
               {isAdmin && (
                 <TableCell className='whitespace-nowrap text-right'>
+                  <Button
+                    size='sm'
+                    variant='ghost'
+                    disabled={pendingModId === mod.id}
+                    onClick={() => onPinCommit(mod)}
+                  >
+                    Pin commit
+                  </Button>
                   {mod.isCustom && (
                     <>
                       <Button
@@ -189,7 +266,7 @@ export function ModsTable({
         {mods.length === 0 && (
           <TableRow>
             <TableCell
-              colSpan={6}
+              colSpan={7}
               className='text-center text-muted-foreground'
             >
               No mods synced yet — MOD_INDEX_SYNC_ENABLED may not be set, or the

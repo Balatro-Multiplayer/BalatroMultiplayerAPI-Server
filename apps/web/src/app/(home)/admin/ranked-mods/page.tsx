@@ -17,6 +17,7 @@ import { useAuth } from '@/lib/auth'
 import { DeleteModDialog } from './components/delete-mod-dialog'
 import { ModFormDialog } from './components/mod-form-dialog'
 import { ModsTable } from './components/mods-table'
+import { PinCommitDialog } from './components/pin-commit-dialog'
 import {
   emptyModForm,
   formFromDetail,
@@ -30,10 +31,12 @@ import {
 // The ranked mod catalog -- synced hourly straight from Thunderstore (see
 // BalatroMultiplayerServer's features/mods/mods-sync.service.ts), plus
 // admin-created custom mods (no Thunderstore package). Editable on every
-// mod: rankedVersion (null means not ranked-allowed, any other value pins
-// that mod to exactly that version, hashed at pin time -- see
-// mods.gateway.ts's setRankedVersion doc comment), featured, and hidden
-// (drops the mod from the public catalog). Custom mods can additionally be
+// mod: the ranked pin (null means not ranked-allowed; any version of the
+// merged Thunderstore + GitHub list, or a commit by SHA, pins the mod to
+// exactly that version's permanent download, hashed at pin time -- see
+// mods.gateway.ts's setRankedVersion doc comment), featured, hidden (drops
+// the mod from the public catalog) and trackGithub. The sync never changes a
+// pin; it flags one whose download disappeared as unavailable. Custom mods can additionally be
 // created, edited and deleted; a Thunderstore mod's own fields are read-only.
 // Deliberately distinct from /admin/config's "Official Mods" section above
 // (the pre-existing launcher self-update channel, mod_versions/mod_releases)
@@ -91,6 +94,9 @@ export default function RankedModsPage() {
   const [form, setForm] = useState<ModForm>(emptyModForm)
   const [initialForm, setInitialForm] = useState<ModForm>(emptyModForm)
   const [deleteTarget, setDeleteTarget] = useState<ModSummary | null>(null)
+  const [pinCommitTarget, setPinCommitTarget] = useState<ModSummary | null>(
+    null
+  )
 
   const openCreate = () => {
     setForm(emptyModForm)
@@ -154,12 +160,16 @@ export default function RankedModsPage() {
         modsSynced: number
         pruned: number
         skipped: number
+        pinsUnavailable: number
       }>('/webadmin/mods/sync', { method: 'POST' }),
     onSuccess: (result) => {
       toast.success(
         `Synced ${result.modsSynced} mods` +
           (result.pruned ? ` (${result.pruned} pruned)` : '') +
-          (result.skipped ? ` (${result.skipped} skipped)` : '')
+          (result.skipped ? ` (${result.skipped} skipped)` : '') +
+          (result.pinsUnavailable
+            ? ` (${result.pinsUnavailable} ranked pins unavailable)`
+            : '')
       )
       qc.invalidateQueries({ queryKey: ['ranked-mods'] })
     },
@@ -167,6 +177,9 @@ export default function RankedModsPage() {
   })
 
   if (pending || !canView) return null
+
+  const unavailablePins =
+    mods?.filter((m) => m.rankedDownloadStatus === 'unavailable') ?? []
 
   return (
     <div className='container max-w-4xl space-y-6 py-8'>
@@ -178,6 +191,16 @@ export default function RankedModsPage() {
           pin time.
         </p>
       </div>
+
+      {unavailablePins.length > 0 && (
+        <p className='rounded-md border border-destructive/50 px-4 py-3 text-destructive text-sm'>
+          {unavailablePins.length === 1
+            ? '1 ranked pin can no longer be downloaded'
+            : `${unavailablePins.length} ranked pins can no longer be downloaded`}{' '}
+          ({unavailablePins.map((m) => m.title).join(', ')}). Players can't
+          launch Ranked with those mods until an admin re-pins them.
+        </p>
+      )}
 
       <Card>
         <CardHeader className='flex flex-row items-center justify-between'>
@@ -216,6 +239,7 @@ export default function RankedModsPage() {
               }
               onEdit={openEdit}
               onDelete={setDeleteTarget}
+              onPinCommit={setPinCommitTarget}
             />
           )}
         </CardContent>
@@ -229,6 +253,23 @@ export default function RankedModsPage() {
         onFormChange={setForm}
         onSave={() => saveModMut.mutate()}
         onClose={() => setDialog(null)}
+      />
+      <PinCommitDialog
+        target={pinCommitTarget}
+        isPending={updateModMut.isPending}
+        onConfirm={(sha) =>
+          pinCommitTarget &&
+          updateModMut.mutate(
+            { modId: pinCommitTarget.id, patch: { rankedCommit: sha } },
+            {
+              onSuccess: () => {
+                setPinCommitTarget(null)
+                qc.invalidateQueries({ queryKey: ['mod-versions'] })
+              },
+            }
+          )
+        }
+        onClose={() => setPinCommitTarget(null)}
       />
       <DeleteModDialog
         target={deleteTarget}

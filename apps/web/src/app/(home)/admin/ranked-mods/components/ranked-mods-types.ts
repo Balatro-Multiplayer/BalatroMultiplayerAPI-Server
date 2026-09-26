@@ -1,9 +1,13 @@
 // A mod is ranked-allowed iff rankedVersion is non-null -- there's no
 // separate "allowed" flag (see the server's schema.ts rankedVersion doc
 // comment). Most of the catalog is synced straight from Thunderstore and
-// read-only here (only rankedVersion, featured and hidden are editable);
-// isCustom rows are admin-created and fully editable.
+// read-only here (only the ranked pin, featured, hidden and trackGithub are
+// editable); isCustom rows are admin-created and fully editable.
 export type ModSourceType = 'branch' | 'release' | 'custom'
+
+// Where a version comes from, which also decides how it deploys:
+// 'thunderstore' as shipped, 'github' through the canonical flatten.
+export type VersionSource = 'thunderstore' | 'github'
 
 export interface ModSummary {
   id: string
@@ -11,20 +15,34 @@ export interface ModSummary {
   author: string
   rankedVersion: string | null
   rankedVersionSha256: string | null
+  // The pin's permanent download, fixed at pin time; only an admin re-pin
+  // changes it. rankedDownloadStatus is the sync's health check -- the
+  // server never clears a pin itself, it flags it 'unavailable' for an admin.
+  rankedDownloadUrl: string | null
+  rankedSource: VersionSource | null
+  rankedDownloadStatus: 'ok' | 'unavailable' | null
   featured: boolean
   hidden: boolean
   thunderstoreFullName: string | null
   isCustom: boolean
+  // Always true for a custom mod.
+  trackGithub: boolean
   sourceType: ModSourceType
 }
 
 export type ModPatch = Partial<
-  Pick<ModSummary, 'rankedVersion' | 'featured' | 'hidden'>
->
+  Pick<ModSummary, 'rankedVersion' | 'featured' | 'hidden' | 'trackGithub'>
+> & { rankedCommit?: string }
 
+// One entry of a mod's merged version list (GET /webadmin/mods/:id/versions),
+// Thunderstore versions first.
 export interface ModVersion {
   version: string
-  downloadUrl: string
+  source: VersionSource
+  aliases: string[]
+  ref: string | null
+  downloadUrl: string | null
+  releasedAt: string | null
 }
 
 // The subset of GET /webadmin/mods/:id the edit dialog prefills from.
