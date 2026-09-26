@@ -8,6 +8,7 @@ import {
 	or,
 	sql,
 } from 'drizzle-orm'
+import { withLegacySteamoddedTags } from '../../features/mods/legacy-steamodded-tags.js'
 import type {
 	ExistingModRow,
 	ModRowClaim,
@@ -112,21 +113,24 @@ function toDetail(row: ModRow, versions: ModVersionRow[]) {
 		packageUrl: row.packageUrl,
 		donationLink: row.donationLink,
 		// The launcher takes versions[0] as "latest", so order newest first.
-		versions: [...versions]
-			.sort(
-				(a, b) =>
-					(b.releasedAt?.getTime() ?? 0) - (a.releasedAt?.getTime() ?? 0),
-			)
-			.map((v) => ({
-				id: v.id,
-				modId: v.modId,
-				version: v.version,
-				sha256: hashFor(row, v.version),
-				downloadUrl: v.downloadUrl,
-				releasedAt: v.releasedAt,
-				pinFailedAt: null,
-				dependencies: v.dependencies,
-			})),
+		versions: withLegacySteamoddedTags(
+			row.thunderstoreFullName,
+			[...versions]
+				.sort(
+					(a, b) =>
+						(b.releasedAt?.getTime() ?? 0) - (a.releasedAt?.getTime() ?? 0),
+				)
+				.map((v) => ({
+					id: v.id,
+					modId: v.modId,
+					version: v.version,
+					sha256: hashFor(row, v.version),
+					downloadUrl: v.downloadUrl,
+					releasedAt: v.releasedAt,
+					pinFailedAt: null,
+					dependencies: v.dependencies,
+				})),
+		),
 	}
 }
 
