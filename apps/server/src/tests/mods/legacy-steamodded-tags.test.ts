@@ -9,6 +9,7 @@ describe('legacySteamoddedTag', () => {
 		expect(legacySteamoddedTag('1.1620.0')).toBe('1.0.0-beta-1620a')
 		expect(legacySteamoddedTag('1.1606.1')).toBe('1.0.0-beta-1606b')
 		expect(legacySteamoddedTag('1.1814.0')).toBe('1.0.0-beta-1814a')
+		expect(legacySteamoddedTag('1.827.2')).toBe('1.0.0-beta-0827c')
 	})
 
 	it('leaves versions that are not builds alone', () => {
@@ -26,7 +27,15 @@ describe('withLegacySteamoddedTags', () => {
 
 	it('appends twins after the real versions, keeping the hash', () => {
 		expect(withLegacySteamoddedTags('Steamodded-Steamodded', versions)).toEqual(
-			[...versions, { version: '1.0.0-beta-1620a', sha256: 'abc' }],
+			[
+				...versions,
+				{
+					version: '1.0.0-beta-1620a',
+					sha256: 'abc',
+					aliases: [],
+					legacyAliasOf: '1.1620.0',
+				},
+			],
 		)
 	})
 

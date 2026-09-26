@@ -1,18 +1,22 @@
 import { env } from '../../env.js'
 import {
 	applyDetectedVersion,
-	clearRankedPin,
-	getCustomPinDownloadUrl,
 	listCustomModsForVersionCheck,
+	listGithubTrackedMods,
 	listModRowsForClaims,
 	listRankedPins,
+	mergeGithubVersions,
 	pruneModsNotIn,
-	storeRankedPinHash,
+	resolvePinTarget,
+	setRankedPinStatus,
+	storeRankedPin,
 	writeModFromIndex,
 } from '../../infrastructure/gateways/mods.gateway.js'
 import { checkCustomModVersion } from './custom-mod-version-check.service.js'
+import { listGithubVersions } from './github-mod-versions.service.js'
 import { planModRowClaims } from './mod-registry-claims.js'
 import { computeModFolderHashForRelease } from './mod-version-hash.js'
+import { checkDownloadAvailable } from './ranked-pin-health.js'
 import {
 	type ModIndexEntryInput,
 	fetchThunderstoreModIndex,
@@ -23,9 +27,10 @@ export interface ModRegistrySyncSummary {
 	claimed: number
 	pruned: number
 	skipped: number
-	pinsCleared: number
 	pinsHashed: number
+	pinsUnavailable: number
 	customVersionsDetected: number
+	githubTrackedMods: number
 }
 
 const EMPTY_SUMMARY: ModRegistrySyncSummary = {
@@ -33,118 +38,138 @@ const EMPTY_SUMMARY: ModRegistrySyncSummary = {
 	claimed: 0,
 	pruned: 0,
 	skipped: 0,
-	pinsCleared: 0,
 	pinsHashed: 0,
+	pinsUnavailable: 0,
 	customVersionsDetected: 0,
+	githubTrackedMods: 0,
 }
 
 // Custom mods that opted into automaticVersionCheck: asks GitHub whether the
-// source moved, and records the new version (dropping a ranked pin the new
-// state can no longer back -- see applyDetectedVersion). Best-effort per
-// mod: checkCustomModVersion returns null on any GitHub failure, and one
-// mod's failure never stops the rest.
-async function checkCustomModVersions(): Promise<{
-	detected: number
-	pinsCleared: number
-}> {
+// source moved and records the new version. Best-effort per mod:
+// checkCustomModVersion returns null on any GitHub failure, and one mod's
+// failure never stops the rest. A ranked pin is untouched either way -- it
+// has its own permanent URL.
+async function checkCustomModVersions(): Promise<number> {
 	let detected = 0
-	let pinsCleared = 0
 	for (const mod of await listCustomModsForVersionCheck()) {
 		try {
 			const result = await checkCustomModVersion(mod)
 			if (!result) continue
-			const { pinCleared } = await applyDetectedVersion(mod.id, {
+			const applied = await applyDetectedVersion(mod.id, {
 				version: result.newVersion,
 				downloadUrl: result.newDownloadUrl,
+				versionDownloadUrl: result.versionDownloadUrl,
 			})
-			detected++
-			if (pinCleared) {
-				pinsCleared++
-				console.warn(
-					`[mods-sync] Cleared ranked pin on custom mod ${mod.id}: version moved to ${result.newVersion}`,
-				)
-			}
+			if (applied) detected++
 		} catch (err) {
 			console.error(`[mods-sync] Version check failed for ${mod.id}:`, err)
 		}
 	}
-	return { detected, pinsCleared }
+	return detected
 }
 
-// Keeps every ranked pin consistent with its source: a Thunderstore pin
-// whose version Thunderstore no longer serves is cleared (it can't be
-// installed, so it can't be verified), and a pin with no hash yet -- carried
-// over from the GitHub-index era, or whose hash failed at pin time -- is
-// hashed now. A custom mod's pin is judged against its own stored version
-// rows instead (custom mods never appear in the Thunderstore list); its
-// staleness is handled when its version moves (applyDetectedVersion /
-// updateCustomMod), so here it is only ever hashed, never cleared for being
-// "not on Thunderstore". A failed hash leaves the pin unhashed for the next
-// sync to retry; an unhashed pin fails the launcher's Ranked check rather
-// than passing it.
+// Custom mods and Thunderstore mods set to track GitHub: merges the repo's
+// releases/tags into the mod's version list. Best-effort per mod.
+async function syncGithubVersions(): Promise<number> {
+	let merged = 0
+	for (const mod of await listGithubTrackedMods()) {
+		try {
+			const versions = await listGithubVersions(
+				mod.repoUrl,
+				mod.latestDownloadUrl,
+			)
+			if (!versions) continue
+			await mergeGithubVersions(mod.id, mod.thunderstoreFullName, versions)
+			merged++
+		} catch (err) {
+			console.error(`[mods-sync] GitHub versions failed for ${mod.id}:`, err)
+		}
+	}
+	return merged
+}
+
+// Pins are only ever changed by an admin. The sync:
+//  - resolves and hashes a pin that has no permanent URL yet (carried over
+//    from before migration 0045, which also re-hashes Thunderstore pins as
+//    shipped rather than flattened) -- the old hash keeps being served until
+//    the new one is stored;
+//  - otherwise checks the pinned download still exists and sets
+//    rankedDownloadStatus, never clearing or re-pointing the pin.
 async function reconcileRankedPins(
 	entries: ModIndexEntryInput[],
-): Promise<{ cleared: number; hashed: number }> {
-	const byFullName = new Map(entries.map((e) => [e.fullName, e]))
-	let cleared = 0
+): Promise<{ hashed: number; unavailable: number }> {
+	const tsVersions = new Map(
+		entries.map((e) => [e.fullName, new Set(e.versions.map((v) => v.version))]),
+	)
 	let hashed = 0
+	let unavailable = 0
 
 	for (const pin of await listRankedPins()) {
 		const version = pin.rankedVersion!
-		if (pin.isCustom) {
-			if (pin.rankedVersionSha256) continue
-			const downloadUrl = await getCustomPinDownloadUrl(pin.id, version)
-			if (!downloadUrl) {
-				await clearRankedPin(pin.id, version)
-				cleared++
-				console.warn(
-					`[mods-sync] Cleared ranked pin ${pin.id}@${version}: no downloadable version row`,
-				)
+		try {
+			if (!pin.rankedDownloadUrl || !pin.rankedVersionSha256) {
+				const target = await resolvePinTarget(pin.id, pin.repoUrl, version)
+				const hash = target?.downloadUrl
+					? await computeModFolderHashForRelease(
+							pin.id,
+							target.version,
+							target.downloadUrl,
+							target.source,
+						)
+					: null
+				if (target?.downloadUrl && hash) {
+					await storeRankedPin(
+						pin.id,
+						{
+							version: target.version,
+							downloadUrl: target.downloadUrl,
+							source: target.source,
+							hash,
+						},
+						version,
+					)
+					hashed++
+				} else {
+					await setRankedPinStatus(pin.id, version, 'unavailable')
+					unavailable++
+					console.warn(
+						`[mods-sync] Ranked pin ${pin.id}@${version} has no resolvable download -- flagged for an admin`,
+					)
+				}
 				continue
 			}
-			const hash = await computeModFolderHashForRelease(
-				pin.id,
-				version,
-				downloadUrl,
-			)
-			if (hash) {
-				await storeRankedPinHash(pin.id, version, hash)
-				hashed++
-			}
-			continue
-		}
-		const entry = pin.thunderstoreFullName
-			? byFullName.get(pin.thunderstoreFullName)
-			: undefined
-		const release = entry?.versions.find((v) => v.version === version)
-		if (!release) {
-			await clearRankedPin(pin.id, version)
-			cleared++
-			console.warn(
-				`[mods-sync] Cleared ranked pin ${pin.id}@${version}: not on Thunderstore`,
-			)
-			continue
-		}
-		if (pin.rankedVersionSha256) continue
 
-		const hash = await computeModFolderHashForRelease(
-			pin.id,
-			version,
-			release.downloadUrl,
-		)
-		if (hash) {
-			await storeRankedPinHash(pin.id, version, hash)
-			hashed++
+			// A Thunderstore pin whose version is still listed is known-good
+			// without a request; anything else gets a HEAD check.
+			const listed =
+				pin.rankedSource === 'thunderstore' &&
+				!!pin.thunderstoreFullName &&
+				!!tsVersions.get(pin.thunderstoreFullName)?.has(version)
+			const status = listed
+				? 'ok'
+				: await checkDownloadAvailable(pin.rankedDownloadUrl)
+			if (status && status !== pin.rankedDownloadStatus) {
+				await setRankedPinStatus(pin.id, version, status)
+			}
+			if (status === 'unavailable') {
+				unavailable++
+				console.warn(
+					`[mods-sync] Ranked pin ${pin.id}@${version}: download is gone -- flagged for an admin`,
+				)
+			}
+		} catch (err) {
+			console.error(`[mods-sync] Ranked pin check failed for ${pin.id}:`, err)
 		}
 	}
 
-	return { cleared, hashed }
+	return { hashed, unavailable }
 }
 
 // Pulls thunderstore.io/c/balatro (see thunderstore-mod-index.service.ts),
 // writes each package into the row planModRowClaims picks for it, prunes
-// every row this run didn't write, then reconciles ranked pins. A failed
-// fetch throws before anything is written or pruned.
+// every row this run didn't write, merges GitHub versions, then checks
+// ranked pins. A failed Thunderstore fetch throws before anything is written
+// or pruned.
 async function runSync(): Promise<ModRegistrySyncSummary> {
 	if (!env.MOD_INDEX_SYNC_ENABLED) {
 		console.log(
@@ -155,7 +180,7 @@ async function runSync(): Promise<ModRegistrySyncSummary> {
 
 	// Custom-mod checks run first and independently: a Thunderstore outage
 	// throws below, and must not also stall a custom mod's own source.
-	const custom = await checkCustomModVersions()
+	const customDetected = await checkCustomModVersions()
 
 	const { entries, skipped: skippedByFilter } =
 		await fetchThunderstoreModIndex()
@@ -178,6 +203,7 @@ async function runSync(): Promise<ModRegistrySyncSummary> {
 	const skipped = skippedByFilter + skippedByCustomId
 
 	const pruned = await pruneModsNotIn(entries.map((e) => e.fullName))
+	const githubTrackedMods = await syncGithubVersions()
 	const pins = await reconcileRankedPins(entries)
 
 	console.log(
@@ -185,12 +211,13 @@ async function runSync(): Promise<ModRegistrySyncSummary> {
 			(claimed ? ` (${claimed} carried-over rows claimed)` : '') +
 			(pruned ? ` (${pruned} stale mods pruned)` : '') +
 			(skipped ? ` (${skipped} skipped)` : '') +
-			(pins.cleared + custom.pinsCleared
-				? ` (${pins.cleared + custom.pinsCleared} ranked pins cleared)`
-				: '') +
+			(githubTrackedMods ? ` (${githubTrackedMods} GitHub-tracked mods)` : '') +
 			(pins.hashed ? ` (${pins.hashed} ranked pins hashed)` : '') +
-			(custom.detected
-				? ` (${custom.detected} custom mod versions detected)`
+			(pins.unavailable
+				? ` (${pins.unavailable} ranked pins unavailable)`
+				: '') +
+			(customDetected
+				? ` (${customDetected} custom mod versions detected)`
 				: ''),
 	)
 
@@ -199,20 +226,18 @@ async function runSync(): Promise<ModRegistrySyncSummary> {
 		claimed,
 		pruned,
 		skipped,
-		pinsCleared: pins.cleared + custom.pinsCleared,
 		pinsHashed: pins.hashed,
-		customVersionsDetected: custom.detected,
+		pinsUnavailable: pins.unavailable,
+		customVersionsDetected: customDetected,
+		githubTrackedMods,
 	}
 }
 
-// Runs once, blocking, at server startup (see main.ts) so the mod catalog is
-// already correct before the server accepts its first request -- then again
-// on an hourly interval in the background, and on demand from the admin
-// "Sync now" button (POST /api/webadmin/mods/sync). Those three callers can
-// easily overlap in time (an admin clicking the button right as the hourly
-// interval fires, or clicking it twice), so a second call while one is
-// already running just awaits the in-flight run's result instead of kicking
-// off a redundant concurrent pass.
+// Runs at server startup (in the background, see main.ts), then on an hourly
+// interval, and on demand from the admin "Sync now" button
+// (POST /api/webadmin/mods/sync). Those callers can overlap in time, so a
+// second call while one is already running just awaits the in-flight run's
+// result instead of kicking off a redundant concurrent pass.
 let inFlight: Promise<ModRegistrySyncSummary> | null = null
 
 export function syncModRegistry(): Promise<ModRegistrySyncSummary> {
