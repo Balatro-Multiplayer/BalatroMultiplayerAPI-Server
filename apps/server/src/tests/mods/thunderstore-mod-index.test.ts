@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-	fetchThunderstoreModIndex,
-	fetchThunderstorePackageVersions,
-} from '../../features/mods/thunderstore-mod-index.service.js'
+import { fetchThunderstoreModIndex } from '../../features/mods/thunderstore-mod-index.service.js'
 
 function version(overrides: Record<string, unknown> = {}) {
 	return {
@@ -158,46 +155,5 @@ describe('fetchThunderstoreModIndex', () => {
 
 		expect(entries).toHaveLength(0)
 		expect(skipped).toBe(1)
-	})
-})
-
-describe('fetchThunderstorePackageVersions', () => {
-	it('returns only active versions for the matching package', async () => {
-		stubResponse([
-			pkg({
-				versions: [
-					{
-						version_number: '2.0.0',
-						download_url:
-							'https://thunderstore.io/package/download/Alice/NormalMod/2.0.0/',
-						is_active: true,
-					},
-					{
-						version_number: '1.5.0',
-						download_url:
-							'https://thunderstore.io/package/download/Alice/NormalMod/1.5.0/',
-						is_active: false,
-					},
-				],
-			}),
-		])
-
-		const versions = await fetchThunderstorePackageVersions('Alice-NormalMod')
-
-		expect(versions).toEqual([
-			{
-				version: '2.0.0',
-				downloadUrl:
-					'https://thunderstore.io/package/download/Alice/NormalMod/2.0.0/',
-			},
-		])
-	})
-
-	it('returns an empty array when no package matches', async () => {
-		stubResponse([pkg({})])
-
-		const versions = await fetchThunderstorePackageVersions('Bob-Nonexistent')
-
-		expect(versions).toEqual([])
 	})
 })

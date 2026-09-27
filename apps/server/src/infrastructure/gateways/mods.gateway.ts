@@ -2,27 +2,38 @@ import {
 	and,
 	asc,
 	eq,
-	isNotNull,
+	inArray,
 	isNull,
+	isNotNull,
 	notInArray,
 	or,
 	sql,
 } from 'drizzle-orm'
 import { withLegacySteamoddedTags } from '../../features/mods/legacy-steamodded-tags.js'
+import { extractRepoInfo } from '../../features/mods/github-api.js'
+import {
+	type GithubVersion,
+	resolveCommitVersion,
+	toPermanentUrl,
+} from '../../features/mods/github-mod-versions.service.js'
 import type {
 	ExistingModRow,
 	ModRowClaim,
 } from '../../features/mods/mod-registry-claims.js'
+import { classifyDownloadUrl } from '../../features/mods/mod-source-classifier.js'
 import {
-	classifyDownloadUrl,
-	isMovingDownloadUrl,
-	resolveReliableDownloadUrl,
-} from '../../features/mods/mod-source-classifier.js'
-import { computeModFolderHashForRelease } from '../../features/mods/mod-version-hash.js'
+	type VersionSource,
+	canonicalVersionKey,
+	foldGithubVersions,
+	isSteamodded,
+	matchesVersion,
+	thunderstoreAliases,
+} from '../../features/mods/mod-version-aliases.js'
 import {
-	type ModIndexEntryInput,
-	fetchThunderstorePackageVersions,
-} from '../../features/mods/thunderstore-mod-index.service.js'
+	type ModLayout,
+	computeModFolderHashForRelease,
+} from '../../features/mods/mod-version-hash.js'
+import type { ModIndexEntryInput } from '../../features/mods/thunderstore-mod-index.service.js'
 import { db } from '../db/index.js'
 import {
 	modProfileEntries,
@@ -34,6 +45,8 @@ import {
 type ModRow = typeof modRegistry.$inferSelect
 type ModVersionRow = typeof modRegistryVersions.$inferSelect
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+export type RankedDownloadStatus = 'ok' | 'unavailable'
 
 // --- Public catalog reads (GET /api/mods, GET /api/mods/:id) ---
 //
@@ -51,20 +64,34 @@ function sourceTypeOf(row: ModRow) {
 	return classifyDownloadUrl(row.latestDownloadUrl ?? '')
 }
 
+// The ranked pin, as served to the launcher: which version, the permanent URL
+// to download it from, the layout to deploy it with, the hash of the result,
+// and whether that download still works (see new-launcher
+// THUNDERSTORE_MIGRATION_PLAN.md section 3).
+function rankedFields(row: ModRow) {
+	return {
+		rankedVersion: row.rankedVersion,
+		rankedVersionSha256: row.rankedVersionSha256,
+		rankedDownloadUrl: row.rankedDownloadUrl,
+		rankedSource: row.rankedSource,
+		rankedDownloadStatus: row.rankedDownloadStatus,
+	}
+}
+
 function toListItem(row: ModRow) {
 	return {
 		id: row.id,
 		name: row.title,
 		title: row.title,
 		author: row.author,
-		rankedVersion: row.rankedVersion,
-		rankedVersionSha256: row.rankedVersionSha256,
+		...rankedFields(row),
 		featured: row.featured,
 		hidden: row.hidden,
 		latestVersion: row.latestVersion,
 		latestDownloadUrl: row.latestDownloadUrl,
 		thumbnailUrl: row.thumbnailUrl,
 		isCustom: row.isCustom,
+		trackGithub: row.isCustom || row.trackGithub,
 		overriddenFields: [] as string[],
 		searchTerms: row.searchTerms,
 		sourceType: sourceTypeOf(row),
@@ -73,12 +100,38 @@ function toListItem(row: ModRow) {
 }
 
 // The ranked pin's hash is the only hash the server keeps, so it stands in
-// for the version-level sha256 wherever that version is the pinned one --
-// which is exactly the case the launcher's Ranked check reads it for.
+// for the version-level sha256 wherever that version is the pinned one.
 function hashFor(row: ModRow, version: string | null): string | null {
 	return version !== null && version === row.rankedVersion
 		? row.rankedVersionSha256
 		: null
+}
+
+// Thunderstore versions first (newest first), then GitHub-only versions
+// (newest first). The launcher takes versions[0] as "latest", so a mod with
+// any Thunderstore version always gets its "latest" from Thunderstore.
+function orderVersions(versions: ModVersionRow[]): ModVersionRow[] {
+	const newestFirst = (a: ModVersionRow, b: ModVersionRow) =>
+		(b.releasedAt?.getTime() ?? 0) - (a.releasedAt?.getTime() ?? 0)
+	const bySource = (source: VersionSource) =>
+		versions.filter((v) => v.source === source).sort(newestFirst)
+	return [...bySource('thunderstore'), ...bySource('github')]
+}
+
+function toVersionItem(row: ModRow, v: ModVersionRow) {
+	return {
+		id: v.id,
+		modId: v.modId,
+		version: v.version,
+		source: v.source as VersionSource,
+		aliases: v.aliases,
+		ref: v.ref,
+		sha256: hashFor(row, v.version),
+		downloadUrl: v.downloadUrl,
+		releasedAt: v.releasedAt,
+		pinFailedAt: null,
+		dependencies: v.dependencies,
+	}
 }
 
 function toDetail(row: ModRow, versions: ModVersionRow[]) {
@@ -96,11 +149,11 @@ function toDetail(row: ModRow, versions: ModVersionRow[]) {
 		latestVersion: row.latestVersion,
 		latestDownloadUrl: row.latestDownloadUrl,
 		latestSha256: hashFor(row, row.latestVersion),
-		rankedVersion: row.rankedVersion,
-		rankedVersionSha256: row.rankedVersionSha256,
+		...rankedFields(row),
 		featured: row.featured,
 		hidden: row.hidden,
 		isCustom: row.isCustom,
+		trackGithub: row.isCustom || row.trackGithub,
 		automaticVersionCheck: row.automaticVersionCheck,
 		fixedReleaseTagUpdates: row.fixedReleaseTagUpdates,
 		overriddenFields: [] as string[],
@@ -112,24 +165,9 @@ function toDetail(row: ModRow, versions: ModVersionRow[]) {
 		thunderstoreFullName: row.thunderstoreFullName,
 		packageUrl: row.packageUrl,
 		donationLink: row.donationLink,
-		// The launcher takes versions[0] as "latest", so order newest first.
 		versions: withLegacySteamoddedTags(
 			row.thunderstoreFullName,
-			[...versions]
-				.sort(
-					(a, b) =>
-						(b.releasedAt?.getTime() ?? 0) - (a.releasedAt?.getTime() ?? 0),
-				)
-				.map((v) => ({
-					id: v.id,
-					modId: v.modId,
-					version: v.version,
-					sha256: hashFor(row, v.version),
-					downloadUrl: v.downloadUrl,
-					releasedAt: v.releasedAt,
-					pinFailedAt: null,
-					dependencies: v.dependencies,
-				})),
+			orderVersions(versions).map((v) => toVersionItem(row, v)),
 		),
 	}
 }
@@ -161,6 +199,16 @@ export async function findModByIdOrFullName(idOrFullName: string) {
 	return rows.find((r) => r.id === idOrFullName) ?? rows[0] ?? null
 }
 
+async function listVersionRows(
+	modId: string,
+	tx: Tx | typeof db = db,
+): Promise<ModVersionRow[]> {
+	return tx
+		.select()
+		.from(modRegistryVersions)
+		.where(eq(modRegistryVersions.modId, modId))
+}
+
 export async function getPublicModById(
 	idOrFullName: string,
 	opts?: { includeHidden?: boolean },
@@ -168,12 +216,7 @@ export async function getPublicModById(
 	const row = await findModByIdOrFullName(idOrFullName)
 	if (!row) return null
 	if (row.hidden && !opts?.includeHidden) return null
-
-	const versions = await db
-		.select()
-		.from(modRegistryVersions)
-		.where(eq(modRegistryVersions.modId, row.id))
-	return toDetail(row, versions)
+	return toDetail(row, await listVersionRows(row.id))
 }
 
 // --- Public profile reads (GET /api/mods/profiles, /api/mods/profiles/:slug) ---
@@ -219,8 +262,10 @@ export async function listModRowsForClaims(): Promise<ExistingModRow[]> {
 }
 
 // Writes one package into the row its claim names, and replaces that row's
-// version list. Never touches the admin-owned fields (ranked pin, featured,
-// hidden). title is set on insert only -- see schema.ts's title comment.
+// Thunderstore versions (its GitHub versions are left alone, except one whose
+// name a Thunderstore version now takes). Never touches the admin-owned
+// fields (ranked pin, featured, hidden, trackGithub). title is set on insert
+// only -- see schema.ts's title comment.
 export async function writeModFromIndex(
 	claim: Exclude<ModRowClaim, { kind: 'skip' }>,
 	entry: ModIndexEntryInput,
@@ -242,6 +287,7 @@ export async function writeModFromIndex(
 			: null,
 		updatedAt: new Date(),
 	}
+	const names = entry.versions.map((v) => v.version)
 
 	await db.transaction(async (tx) => {
 		if (claim.kind === 'new') {
@@ -263,12 +309,24 @@ export async function writeModFromIndex(
 
 		await tx
 			.delete(modRegistryVersions)
-			.where(eq(modRegistryVersions.modId, claim.id))
+			.where(
+				and(
+					eq(modRegistryVersions.modId, claim.id),
+					or(
+						eq(modRegistryVersions.source, 'thunderstore'),
+						names.length > 0
+							? inArray(modRegistryVersions.version, names)
+							: undefined,
+					),
+				),
+			)
 		if (entry.versions.length > 0) {
 			await tx.insert(modRegistryVersions).values(
 				entry.versions.map((v) => ({
 					modId: claim.id,
 					version: v.version,
+					source: 'thunderstore',
+					aliases: thunderstoreAliases(entry.fullName, v.version),
 					downloadUrl: v.downloadUrl,
 					releasedAt: v.releasedAt ? new Date(v.releasedAt) : null,
 					dependencies: v.dependencies,
@@ -281,10 +339,9 @@ export async function writeModFromIndex(
 // Deletes every Thunderstore-sourced row not written by this sync: unclaimed
 // carried-over rows, and packages that left Thunderstore. Custom rows are
 // never touched -- they have no Thunderstore package to be missing from. Only
-// ever called after a successful
-// fetch. An empty list is treated as a bad response, not "every mod is gone",
-// and prunes nothing. Returns the number of rows removed, for the sync log
-// line.
+// ever called after a successful fetch. An empty list is treated as a bad
+// response, not "every mod is gone", and prunes nothing. Returns the number
+// of rows removed, for the sync log line.
 export async function pruneModsNotIn(fullNames: string[]): Promise<number> {
 	if (fullNames.length === 0) return 0
 	const rows = await db
@@ -302,45 +359,190 @@ export async function pruneModsNotIn(fullNames: string[]): Promise<number> {
 	return rows.length
 }
 
+// Mods whose GitHub releases/tags are listed as versions: every custom mod,
+// and every Thunderstore mod an admin set to track GitHub.
+export async function listGithubTrackedMods() {
+	return db
+		.select({
+			id: modRegistry.id,
+			thunderstoreFullName: modRegistry.thunderstoreFullName,
+			repoUrl: modRegistry.repoUrl,
+			latestDownloadUrl: modRegistry.latestDownloadUrl,
+		})
+		.from(modRegistry)
+		.where(
+			or(eq(modRegistry.isCustom, true), eq(modRegistry.trackGithub, true)),
+		)
+}
+
+function unique(values: string[]): string[] {
+	return [...new Set(values)]
+}
+
+// Merges a mod's GitHub releases/tags into its version list: one that is the
+// same release as a Thunderstore version becomes an alias of it (and any
+// separate GitHub row for it is dropped), the rest are upserted as GitHub
+// versions. GitHub rows that disappeared upstream are kept -- they may back a
+// pin, and a stale extra version is harmless.
+export async function mergeGithubVersions(
+	modId: string,
+	thunderstoreFullName: string | null,
+	githubVersions: GithubVersion[],
+): Promise<void> {
+	const steamodded = isSteamodded(thunderstoreFullName)
+	await db.transaction(async (tx) => {
+		const rows = await listVersionRows(modId, tx)
+		const tsRows = rows.filter((r) => r.source === 'thunderstore')
+		const { aliases, githubOnly } = foldGithubVersions(
+			tsRows.map((r) => r.version),
+			githubVersions,
+			steamodded,
+		)
+
+		for (const tsRow of tsRows) {
+			const next = unique([
+				...thunderstoreAliases(thunderstoreFullName, tsRow.version),
+				...(aliases.get(tsRow.version) ?? []),
+			])
+			if (next.join('\n') !== tsRow.aliases.join('\n')) {
+				await tx
+					.update(modRegistryVersions)
+					.set({ aliases: next })
+					.where(eq(modRegistryVersions.id, tsRow.id))
+			}
+		}
+
+		const tsKeys = new Set(
+			tsRows.map((r) => canonicalVersionKey(r.version, steamodded)),
+		)
+		const folded = rows.filter(
+			(r) =>
+				r.source === 'github' &&
+				tsKeys.has(canonicalVersionKey(r.version, steamodded)),
+		)
+		if (folded.length > 0) {
+			await tx.delete(modRegistryVersions).where(
+				inArray(
+					modRegistryVersions.id,
+					folded.map((r) => r.id),
+				),
+			)
+		}
+
+		for (const gh of githubOnly) {
+			await upsertGithubVersion(tx, modId, gh)
+		}
+	})
+}
+
+async function upsertGithubVersion(tx: Tx, modId: string, gh: GithubVersion) {
+	await tx
+		.insert(modRegistryVersions)
+		.values({
+			modId,
+			version: gh.name,
+			source: 'github',
+			ref: gh.ref,
+			downloadUrl: gh.downloadUrl,
+			releasedAt: gh.releasedAt ? new Date(gh.releasedAt) : null,
+		})
+		.onConflictDoUpdate({
+			target: [modRegistryVersions.modId, modRegistryVersions.version],
+			set: { downloadUrl: gh.downloadUrl, ref: gh.ref },
+			where: eq(modRegistryVersions.source, 'github'),
+		})
+}
+
+// --- Ranked pins (sync + admin) ---
+
 export async function listRankedPins() {
 	return db
 		.select({
 			id: modRegistry.id,
-			isCustom: modRegistry.isCustom,
 			thunderstoreFullName: modRegistry.thunderstoreFullName,
+			repoUrl: modRegistry.repoUrl,
 			rankedVersion: modRegistry.rankedVersion,
 			rankedVersionSha256: modRegistry.rankedVersionSha256,
+			rankedDownloadUrl: modRegistry.rankedDownloadUrl,
+			rankedSource: modRegistry.rankedSource,
+			rankedDownloadStatus: modRegistry.rankedDownloadStatus,
 		})
 		.from(modRegistry)
 		.where(isNotNull(modRegistry.rankedVersion))
 }
 
-// Both writes are conditional on the pin still being the version the caller
-// looked at, so an admin re-pin that lands mid-sync is never overwritten.
-export async function clearRankedPin(modId: string, expectedVersion: string) {
+export interface PinTarget {
+	version: string
+	source: ModLayout
+	downloadUrl: string | null
+}
+
+// The version row a pin names (by name or alias) and the permanent URL to
+// download it from. downloadUrl is null when a moving GitHub URL couldn't be
+// resolved right now; the result is null when no such version exists.
+export async function resolvePinTarget(
+	modId: string,
+	repoUrl: string | null,
+	name: string,
+): Promise<PinTarget | null> {
+	const rows = await listVersionRows(modId)
+	const row =
+		rows.find((r) => r.version === name) ??
+		rows.find((r) => matchesVersion(r, name))
+	if (!row) return null
+	const source = row.source as ModLayout
+	if (!row.downloadUrl)
+		return { version: row.version, source, downloadUrl: null }
+	const downloadUrl =
+		source === 'thunderstore'
+			? row.downloadUrl
+			: await toPermanentUrl(row.downloadUrl, repoUrl, row.ref)
+	return { version: row.version, source, downloadUrl }
+}
+
+// Stores a resolved + hashed pin. With expectedVersion set (the sync) it only
+// writes if the pin is still that version, so an admin re-pin that lands
+// mid-sync is never overwritten.
+export async function storeRankedPin(
+	modId: string,
+	pin: {
+		version: string
+		downloadUrl: string
+		source: ModLayout
+		hash: string
+	},
+	expectedVersion?: string,
+): Promise<void> {
 	await db
 		.update(modRegistry)
 		.set({
-			rankedVersion: null,
-			rankedVersionSha256: null,
+			rankedVersion: pin.version,
+			rankedVersionSha256: pin.hash,
+			rankedDownloadUrl: pin.downloadUrl,
+			rankedSource: pin.source,
+			rankedDownloadStatus: 'ok',
+			rankedCheckedAt: new Date(),
 			updatedAt: new Date(),
 		})
 		.where(
-			and(
-				eq(modRegistry.id, modId),
-				eq(modRegistry.rankedVersion, expectedVersion),
-			),
+			expectedVersion === undefined
+				? eq(modRegistry.id, modId)
+				: and(
+						eq(modRegistry.id, modId),
+						eq(modRegistry.rankedVersion, expectedVersion),
+					),
 		)
 }
 
-export async function storeRankedPinHash(
+// The sync's health flag. Never touches the pin itself.
+export async function setRankedPinStatus(
 	modId: string,
 	version: string,
-	hash: string,
-) {
+	status: RankedDownloadStatus,
+): Promise<void> {
 	await db
 		.update(modRegistry)
-		.set({ rankedVersionSha256: hash, updatedAt: new Date() })
+		.set({ rankedDownloadStatus: status, rankedCheckedAt: new Date() })
 		.where(
 			and(eq(modRegistry.id, modId), eq(modRegistry.rankedVersion, version)),
 		)
@@ -351,22 +553,17 @@ export async function storeRankedPinHash(
 export type SetRankedVersionResult =
 	| { ok: true }
 	| { ok: false; reason: 'not-found' }
-	| { ok: false; reason: 'hash-failed' }
-	// Custom mods only: the version isn't one this mod has a row for, or its
-	// stored URL is a moving pointer (branch head / latest release) that no
-	// longer serves that version's bytes.
 	| { ok: false; reason: 'version-not-found' }
-	| { ok: false; reason: 'version-not-pinnable' }
+	// A moving GitHub URL (branch head, "latest release") couldn't be resolved
+	// to a permanent one right now -- GitHub unreachable or the ref is gone.
+	| { ok: false; reason: 'download-unresolvable' }
+	| { ok: false; reason: 'hash-failed' }
 
-// The sole ranked-eligibility write path: null un-ranks the mod (clearing
-// any previously-computed hash along with it); any other value ranks it and
-// pins it to exactly that version. For a Thunderstore mod the caller
-// (webadmin mods.route.ts's PUT handler) is responsible for validating that
-// the version actually exists on Thunderstore right now; a custom mod's
-// versions are its own stored rows, validated here. Either way this function
-// independently resolves that version's real downloadUrl and hashes the
-// extracted archive content itself before writing anything, so a hash always
-// accompanies a pin.
+// The sole ranked-eligibility write path: null un-ranks the mod; any other
+// value pins it to that version of its merged list (Thunderstore or GitHub,
+// by name or alias). The version is resolved to a permanent download URL,
+// downloaded, laid out per its source and hashed before anything is written,
+// so a pin always carries its URL and hash. Only an admin changes a pin.
 export async function setRankedVersion(
 	modId: string,
 	rankedVersion: string | null,
@@ -380,52 +577,63 @@ export async function setRankedVersion(
 			.set({
 				rankedVersion: null,
 				rankedVersionSha256: null,
+				rankedDownloadUrl: null,
+				rankedSource: null,
+				rankedDownloadStatus: null,
+				rankedCheckedAt: null,
 				updatedAt: new Date(),
 			})
 			.where(eq(modRegistry.id, existing.id))
 		return { ok: true }
 	}
 
-	let downloadUrl: string
-	if (existing.isCustom) {
-		const versions = await listPinnableCustomVersions(existing)
-		const match = versions.find((v) => v.version === rankedVersion)
-		if (!match) {
-			const known = await listVersionRows(existing.id)
-			return {
-				ok: false,
-				reason: known.some((v) => v.version === rankedVersion)
-					? 'version-not-pinnable'
-					: 'version-not-found',
-			}
-		}
-		// Branch archives are re-fetched through codeload -- see
-		// resolveReliableDownloadUrl's own comment for why the literal URL
-		// can hash differently from one fetch to the next.
-		downloadUrl = resolveReliableDownloadUrl(match.downloadUrl)
-	} else {
-		if (!existing.thunderstoreFullName)
-			return { ok: false, reason: 'hash-failed' }
-		const versions = await fetchThunderstorePackageVersions(
-			existing.thunderstoreFullName,
-		)
-		const match = versions.find((v) => v.version === rankedVersion)
-		if (!match) return { ok: false, reason: 'hash-failed' }
-		downloadUrl = match.downloadUrl
-	}
+	const target = await resolvePinTarget(
+		existing.id,
+		existing.repoUrl,
+		rankedVersion,
+	)
+	if (!target) return { ok: false, reason: 'version-not-found' }
+	if (!target.downloadUrl) return { ok: false, reason: 'download-unresolvable' }
 
 	const hash = await computeModFolderHashForRelease(
 		existing.id,
-		rankedVersion,
-		downloadUrl,
+		target.version,
+		target.downloadUrl,
+		target.source,
 	)
 	if (!hash) return { ok: false, reason: 'hash-failed' }
 
-	await db
-		.update(modRegistry)
-		.set({ rankedVersion, rankedVersionSha256: hash, updatedAt: new Date() })
-		.where(eq(modRegistry.id, existing.id))
+	await storeRankedPin(existing.id, {
+		version: target.version,
+		downloadUrl: target.downloadUrl,
+		source: target.source,
+		hash,
+	})
 	return { ok: true }
+}
+
+export type PinCommitResult =
+	| SetRankedVersionResult
+	| { ok: false; reason: 'no-github-repo' }
+	| { ok: false; reason: 'commit-not-found' }
+
+// Pins a specific commit an admin entered by SHA: records it as a GitHub
+// version (short SHA as its name, a codeload commit archive as its URL), then
+// pins that version exactly like setRankedVersion.
+export async function pinCommit(
+	modId: string,
+	sha: string,
+): Promise<PinCommitResult> {
+	const existing = await findModByIdOrFullName(modId)
+	if (!existing) return { ok: false, reason: 'not-found' }
+	if (!extractRepoInfo(existing.repoUrl)) {
+		return { ok: false, reason: 'no-github-repo' }
+	}
+	const commit = await resolveCommitVersion(existing.repoUrl, sha)
+	if (!commit) return { ok: false, reason: 'commit-not-found' }
+
+	await db.transaction((tx) => upsertGithubVersion(tx, existing.id, commit))
+	return setRankedVersion(existing.id, commit.name)
 }
 
 export async function setModFlags(
@@ -440,65 +648,35 @@ export async function setModFlags(
 	return rows.length > 0
 }
 
+// Thunderstore mods only -- a custom mod always tracks GitHub.
+export async function setTrackGithub(
+	modId: string,
+	trackGithub: boolean,
+): Promise<boolean> {
+	const rows = await db
+		.update(modRegistry)
+		.set({ trackGithub, updatedAt: new Date() })
+		.where(and(eq(modRegistry.id, modId), eq(modRegistry.isCustom, false)))
+		.returning({ id: modRegistry.id })
+	return rows.length > 0
+}
+
+// The merged version list the admin version picker offers, in the same order
+// and shape the public detail endpoint serves.
+export async function listVersionsForMod(modId: string) {
+	const row = await findModByIdOrFullName(modId)
+	if (!row) return null
+	return orderVersions(await listVersionRows(row.id)).map((v) =>
+		toVersionItem(row, v),
+	)
+}
+
 // --- Custom mods (features/webadmin/mods.route.ts, mods-sync.service.ts) ---
 //
 // A custom mod is the one kind of row an admin creates, edits and deletes
 // (isCustom = true, no Thunderstore package). Every write below is scoped to
 // isCustom rows in SQL, not just in the route, so a Thunderstore row's
 // synced fields can never be edited or deleted through here.
-
-async function listVersionRows(modId: string): Promise<ModVersionRow[]> {
-	return db
-		.select()
-		.from(modRegistryVersions)
-		.where(eq(modRegistryVersions.modId, modId))
-}
-
-// The versions an admin may pin for a custom mod, newest first. A stored URL
-// that is a moving pointer (branch head, "latest release" asset) only serves
-// the mod's current version, so it is pinnable only while it is the latest.
-async function listPinnableCustomVersions(
-	row: ModRow,
-): Promise<Array<{ version: string; downloadUrl: string }>> {
-	const versions = await listVersionRows(row.id)
-	return versions
-		.filter(
-			(v): v is ModVersionRow & { downloadUrl: string } =>
-				v.downloadUrl !== null &&
-				(!isMovingDownloadUrl(v.downloadUrl) ||
-					v.version === row.latestVersion),
-		)
-		.sort(
-			(a, b) => (b.releasedAt?.getTime() ?? 0) - (a.releasedAt?.getTime() ?? 0),
-		)
-		.map((v) => ({ version: v.version, downloadUrl: v.downloadUrl }))
-}
-
-export async function listPinnableVersionsForMod(
-	modId: string,
-): Promise<Array<{ version: string; downloadUrl: string }> | null> {
-	const row = await findModByIdOrFullName(modId)
-	if (!row) return null
-	return row.isCustom ? listPinnableCustomVersions(row) : []
-}
-
-// The URL a custom mod's ranked pin is hashed from, or null when that
-// version has no row or no URL.
-export async function getCustomPinDownloadUrl(
-	modId: string,
-	version: string,
-): Promise<string | null> {
-	const [row] = await db
-		.select({ downloadUrl: modRegistryVersions.downloadUrl })
-		.from(modRegistryVersions)
-		.where(
-			and(
-				eq(modRegistryVersions.modId, modId),
-				eq(modRegistryVersions.version, version),
-			),
-		)
-	return row?.downloadUrl ? resolveReliableDownloadUrl(row.downloadUrl) : null
-}
 
 // Custom mods opted into the hourly GitHub check.
 export async function listCustomModsForVersionCheck() {
@@ -519,63 +697,44 @@ export async function listCustomModsForVersionCheck() {
 		)
 }
 
-// After a custom mod's latest version/URL changed, records that version as a
-// row (what the launcher's version picker and a ranked pin read) and drops a
-// ranked pin whose hash the new state can no longer back:
-//  - the pin sits on the version whose URL just changed, or
-//  - the pin sits on an older version whose stored URL is a moving pointer
-//    (it now serves the newer bytes), or has no URL, or has no row at all.
-// A tagged-release or Thunderstore-style URL is immutable, so a pin on an
-// older one survives. Returns true when a pin was cleared.
-async function recordCustomVersionAndReconcilePin(
+// Records a custom mod's current latest version as a GitHub version row, with
+// the permanent URL for that exact version when one is known (a branch head's
+// commit archive, a tag's asset) rather than the moving latest URL. Never
+// touches the ranked pin: a pin carries its own permanent URL and hash.
+async function recordCustomVersion(
 	tx: Tx,
-	after: ModRow,
-): Promise<boolean> {
-	const before = await tx
-		.select()
-		.from(modRegistryVersions)
-		.where(eq(modRegistryVersions.modId, after.id))
-
-	if (after.latestVersion) {
-		await tx
-			.insert(modRegistryVersions)
-			.values({
-				modId: after.id,
-				version: after.latestVersion,
-				downloadUrl: after.latestDownloadUrl,
-				releasedAt: new Date(),
-			})
-			.onConflictDoUpdate({
-				target: [modRegistryVersions.modId, modRegistryVersions.version],
-				set: { downloadUrl: after.latestDownloadUrl },
-			})
-	}
-
-	const pin = after.rankedVersion
-	if (!pin) return false
-	const pinned = before.find((v) => v.version === pin)
-	const stale =
-		!pinned ||
-		pinned.downloadUrl === null ||
-		(pin === after.latestVersion
-			? pinned.downloadUrl !== after.latestDownloadUrl
-			: isMovingDownloadUrl(pinned.downloadUrl))
-	if (!stale) return false
-
+	row: ModRow,
+	versionDownloadUrl: string | null,
+): Promise<void> {
+	if (!row.latestVersion) return
+	const downloadUrl = versionDownloadUrl ?? row.latestDownloadUrl
 	await tx
-		.update(modRegistry)
-		.set({ rankedVersion: null, rankedVersionSha256: null })
-		.where(eq(modRegistry.id, after.id))
-	return true
+		.insert(modRegistryVersions)
+		.values({
+			modId: row.id,
+			version: row.latestVersion,
+			source: 'github',
+			downloadUrl,
+			releasedAt: new Date(),
+		})
+		.onConflictDoUpdate({
+			target: [modRegistryVersions.modId, modRegistryVersions.version],
+			set: { downloadUrl },
+		})
 }
 
 // Writes back a version custom-mod-version-check.service.ts just detected.
 // downloadUrl null means "leave latestDownloadUrl as it is" (the HEAD case,
 // and the common latest-tag case where the URL is already a stable pointer).
+// Returns false when the mod is gone or no longer custom.
 export async function applyDetectedVersion(
 	modId: string,
-	input: { version: string; downloadUrl: string | null },
-): Promise<{ pinCleared: boolean }> {
+	input: {
+		version: string
+		downloadUrl: string | null
+		versionDownloadUrl: string | null
+	},
+): Promise<boolean> {
 	return db.transaction(async (tx) => {
 		const set: Partial<typeof modRegistry.$inferInsert> = {
 			latestVersion: input.version,
@@ -589,8 +748,9 @@ export async function applyDetectedVersion(
 			.set(set)
 			.where(and(eq(modRegistry.id, modId), eq(modRegistry.isCustom, true)))
 			.returning()
-		if (!row) return { pinCleared: false }
-		return { pinCleared: await recordCustomVersionAndReconcilePin(tx, row) }
+		if (!row) return false
+		await recordCustomVersion(tx, row, input.versionDownloadUrl)
+		return true
 	})
 }
 
@@ -611,7 +771,12 @@ export interface CustomModFields {
 }
 
 export type CreateCustomModInput = Partial<CustomModFields> &
-	Pick<CustomModFields, 'title' | 'author'> & { id: string }
+	Pick<CustomModFields, 'title' | 'author'> & {
+		id: string
+		// Permanent URL for latestVersion's own version row, when the route
+		// resolved one (see ResolvedSource.versionDownloadUrl).
+		versionDownloadUrl?: string | null
+	}
 
 // Returns null when the id is taken by any existing row (synced or custom),
 // or equals a Thunderstore full name a future sync could want -- the route
@@ -651,19 +816,22 @@ export async function createCustomMod(
 				isCustom: true,
 			})
 			.returning()
-		await recordCustomVersionAndReconcilePin(tx, row)
+		await recordCustomVersion(tx, row, input.versionDownloadUrl ?? null)
 		return row
 	})
 }
 
 // Partial update: undefined leaves a field untouched, an explicit null clears
 // a nullable one. Returns null for a missing or non-custom mod.
-export type UpdateCustomModInput = Partial<CustomModFields>
+export type UpdateCustomModInput = Partial<CustomModFields> & {
+	versionDownloadUrl?: string | null
+}
 
 export async function updateCustomMod(
 	modId: string,
 	input: UpdateCustomModInput,
 ): Promise<ModRow | null> {
+	const { versionDownloadUrl, ...fieldsInput } = input
 	return db.transaction(async (tx) => {
 		const [current] = await tx
 			.select()
@@ -672,7 +840,7 @@ export async function updateCustomMod(
 		if (!current) return null
 
 		const fields = Object.fromEntries(
-			Object.entries(input).filter(([, v]) => v !== undefined),
+			Object.entries(fieldsInput).filter(([, v]) => v !== undefined),
 		)
 		const [row] = await tx
 			.update(modRegistry)
@@ -684,12 +852,7 @@ export async function updateCustomMod(
 			row.latestVersion !== current.latestVersion ||
 			row.latestDownloadUrl !== current.latestDownloadUrl
 		) {
-			await recordCustomVersionAndReconcilePin(tx, row)
-			return (
-				(
-					await tx.select().from(modRegistry).where(eq(modRegistry.id, modId))
-				)[0] ?? row
-			)
+			await recordCustomVersion(tx, row, versionDownloadUrl ?? null)
 		}
 		return row
 	})

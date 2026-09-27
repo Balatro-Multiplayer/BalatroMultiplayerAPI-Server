@@ -130,21 +130,3 @@ export async function fetchThunderstoreModIndex(): Promise<ThunderstoreIndexResu
 
 	return { entries, skipped }
 }
-
-// Live per-package version list, used by webadmin/mods.route.ts to offer and
-// validate an admin-supplied rankedVersion against what Thunderstore
-// currently serves, and by mods.gateway.ts's setRankedVersion to resolve the
-// exact downloadUrl to hash. Re-fetches the whole catalog rather than calling
-// a single-package endpoint -- pinning is rare enough that the extra bytes
-// don't matter.
-export async function fetchThunderstorePackageVersions(
-	fullName: string,
-): Promise<Array<{ version: string; downloadUrl: string }>> {
-	const packages = await fetchPackageList()
-	const pkg = packages.find((p) => p.full_name === fullName)
-	if (!pkg) return []
-
-	return pkg.versions
-		.filter((v) => v.is_active)
-		.map((v) => ({ version: v.version_number, downloadUrl: v.download_url }))
-}

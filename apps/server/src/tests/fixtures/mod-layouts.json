@@ -1,0 +1,227 @@
+{
+	"_comment": "Shared by the server (src/tests/mods/mod-layouts.test.ts) and the launcher's parity check. Each case is an extracted archive's file tree; expectedRoot is the folder the canonical flatten must pick ('' = the archive root itself), expectedHash the folder hash of the result. layout 'thunderstore' is never flattened. Change these only together with both implementations -- see new-launcher THUNDERSTORE_MIGRATION_PLAN.md section 4.",
+	"cases": [
+		{
+			"name": "handy-release-asset-decoy",
+			"layout": "github",
+			"files": {
+				"lovely.toml": "[manifest]\nversion = \"1.0.0\"\npriority = 99999999\n\n[[patches]]\n[patches.pattern]\ntarget = \"game.lua\"\npattern = '''boot_timer('splash prep', 'end',1)'''\nposition = \"after\"\npayload = '''\nif not Handy then\n    error([[Handy mod installed incorrectly. No \"folder in folder\" like \"/Mods/HandyBalatro/HandyBalatro\"]])\nend\n'''\n",
+				"Put HandyBalatro folder you see here in Mods folder.txt": "",
+				"toml file you see here will crash your game. Just follow instructions.txt": "",
+				"HandyBalatro/.gitignore": "*.log\n",
+				"HandyBalatro/metadata.json": "{\n\t\"id\": \"Handy\",\n\t\"name\": \"Handy\",\n\t\"main_file\": \"steamodded.lua\",\n\t\"version\": \"2.0.6\"\n}\n",
+				"HandyBalatro/manifest.json": "{\n\t\"name\": \"Handy\",\n\t\"version_number\": \"2.0.6\",\n\t\"dependencies\": [\"Thunderstore-lovely-0.9.0\"]\n}\n",
+				"HandyBalatro/steamodded.lua": "Handy.steamodded = true\n",
+				"HandyBalatro/index.lua": "Handy = {}\n",
+				"HandyBalatro/lovely/index.toml": "[manifest]\nversion = \"1.0.0\"\n\n[[patches]]\n[patches.module]\nsource = 'src/libs/json.lua'\nbefore = 'main.lua'\nname = 'handy/json'\n",
+				"HandyBalatro/src/libs/json.lua": "return {}\n"
+			},
+			"expectedRoot": "HandyBalatro",
+			"expectedHash": "d9235ddf9176dc12937353af1e4217b650797cf434add849011af1abe928b6e6"
+		},
+		{
+			"name": "handy-zipball",
+			"layout": "github",
+			"files": {
+				"HandyBalatro-2.0.6/metadata.json": "{\n\t\"id\": \"Handy\",\n\t\"main_file\": \"steamodded.lua\"\n}\n",
+				"HandyBalatro-2.0.6/steamodded.lua": "Handy.steamodded = true\n",
+				"HandyBalatro-2.0.6/lovely/index.toml": "[[patches]]\n[patches.module]\nsource = 'src/libs/json.lua'\n",
+				"HandyBalatro-2.0.6/src/libs/json.lua": "return {}\n",
+				"HandyBalatro-2.0.6/README.md": "# Handy\n"
+			},
+			"expectedRoot": "HandyBalatro-2.0.6",
+			"expectedHash": "1731d2848420e06d8869d8d7d5ec1b6ebb551db8924ca12674ee05015c3942fd"
+		},
+		{
+			"name": "debugplus-zipball-lovely-module-with-manifest",
+			"layout": "github",
+			"files": {
+				"DebugPlus-1.5.3/smods.json": "{\n  \"id\": \"DebugPlus\",\n  \"main_file\": \"debugplus/smods.lua\",\n  \"version\": \"1.5.3\"\n}\n",
+				"DebugPlus-1.5.3/lovely/modules.toml": "[[patches]]\n[patches.module]\nsource = \"debugplus/util.lua\"\nbefore = \"main.lua\"\nname = \"debugplus.util\"\n",
+				"DebugPlus-1.5.3/debugplus/smods.lua": "return {}\n",
+				"DebugPlus-1.5.3/debugplus/util.lua": "return {}\n",
+				"DebugPlus-1.5.3/README.md": "# DebugPlus\n",
+				"DebugPlus-1.5.3/.gitignore": "*.log\n"
+			},
+			"expectedRoot": "DebugPlus-1.5.3",
+			"expectedHash": "672eca10a396a827991491799a3c25c116f52aad475a2e27d104e44bf8f23815"
+		},
+		{
+			"name": "frost-utils-lovely-module-at-root",
+			"layout": "github",
+			"files": {
+				"lovely.toml": "[manifest]\nversion = \"1.0.0\"\n\n# commented out, must be ignored:\n#[[patches]]\n#[patches.copy]\n#sources = ['nowhere/x.lua']\n\n[[patches]]\n[patches.module]\nsource = \"futil/main.lua\"\nbefore = \"main.lua\"\nname = \"futil.main\"\n",
+				"smods.json": "{\n\t\"id\": \"Frost_Utils\",\n\t\"main_file\": \"futil/smods.lua\"\n}\n",
+				"manifest.json": "{\n    \"name\": \"Frost_Utils\",\n    \"version_number\": \"1.4.5\"\n}\n",
+				"futil/main.lua": "return {}\n",
+				"futil/smods.lua": "return {}\n"
+			},
+			"expectedRoot": "",
+			"expectedHash": "e74f941f5771c2fc85ca1c8bcf649d01cd446451568a09bb7a4d1fb645e796c3"
+		},
+		{
+			"name": "lovely-module-without-manifest",
+			"layout": "github",
+			"files": {
+				"lovely.toml": "[[patches]]\n[patches.copy]\ntarget = \"main.lua\"\nposition = \"append\"\nsources = [\"mymod/core.lua\", \"mymod/extra.lua\"]\n",
+				"mymod/core.lua": "return {}\n",
+				"mymod/extra.lua": "return {}\n",
+				"README.md": "# mymod\n"
+			},
+			"expectedRoot": "",
+			"expectedHash": "e53865f8c2ce8c1b4fb310eede316b274a91c07d3c2933590c6c48fc55540962"
+		},
+		{
+			"name": "lovely-patches-only",
+			"layout": "github",
+			"files": {
+				"README.md": "# MobileLikeDragging\n",
+				"icon.png": "png",
+				"manifest.json": "{\n\t\"name\": \"MobileLikeDragging\",\n\t\"version_number\": \"1.0.0\"\n}\n",
+				"lovely/card.toml": "[[patches]]\n[patches.pattern]\ntarget = \"card.lua\"\n",
+				"lovely/game.toml": "[[patches]]\n[patches.pattern]\ntarget = \"game.lua\"\n"
+			},
+			"expectedRoot": "",
+			"expectedHash": "c52159196fe92824c16a04c25847d01ac281dfd81c12c868ddc0995b591c3032"
+		},
+		{
+			"name": "nested-folder-with-lovely-dir",
+			"layout": "github",
+			"files": {
+				"README.md": "# balatroVS\n",
+				"balatro-vs/lovely/card.toml": "[[patches]]\n[patches.pattern]\ntarget = \"card.lua\"\n",
+				"balatro-vs/lovely/core.lua": "return {}\n"
+			},
+			"expectedRoot": "balatro-vs",
+			"expectedHash": "8c2ee8c6ec611567931173b801b84f935190346dad14ced43b2366411c03ac0c"
+		},
+		{
+			"name": "plain-zipball",
+			"layout": "github",
+			"files": {
+				"Owner-Repo-abc1234/main.lua": "return {}\n",
+				"Owner-Repo-abc1234/assets/1x/icon.png": "png"
+			},
+			"expectedRoot": "Owner-Repo-abc1234",
+			"expectedHash": "3c3910c4af244024e2d8dc55e19563a1f7e248b9b23f264376cfe40971dd7338"
+		},
+		{
+			"name": "release-asset-with-clutter",
+			"layout": "github",
+			"files": {
+				"README.md": "# MyMod\n",
+				"LICENSE": "MIT\n",
+				"MyMod/MyMod.lua": "--- STEAMODDED HEADER\n--- MOD_NAME: MyMod\n--- MOD_ID: MyMod\n",
+				"MyMod/assets/1x/a.png": "png"
+			},
+			"expectedRoot": "MyMod",
+			"expectedHash": "76a3fb0441196cbe108a2b7163b04d1265de218ba62a9a050f407042e232d9d4"
+		},
+		{
+			"name": "ambiguous-two-manifest-folders",
+			"layout": "github",
+			"files": {
+				"A/a.json": "{\"id\": \"A\", \"main_file\": \"a.lua\"}",
+				"B/b.json": "{\"id\": \"B\", \"main_file\": \"b.lua\"}"
+			},
+			"expectedRoot": "",
+			"expectedHash": "c7cb24cb841e92a0ec717937418aca0f180174f5acf8d7391756f85851a5e2d4"
+		},
+		{
+			"name": "decoy-toml-next-to-lua-folder-without-manifest",
+			"layout": "github",
+			"files": {
+				"lovely.toml": "[[patches]]\n[patches.pattern]\ntarget = \"game.lua\"\npayload = '''error(\"install Mod correctly\")'''\n",
+				"Mod/main.lua": "return {}\n",
+				"Mod/util.lua": "return {}\n"
+			},
+			"expectedRoot": "Mod",
+			"expectedHash": "d9cf81e865a3c21013e49bdbc477ba2b039ab091dd9fc7bdb9d00a14bbea64c7"
+		},
+		{
+			"name": "toml-only-mod",
+			"layout": "github",
+			"files": {
+				"lovely.toml": "[[patches]]\n[patches.pattern]\ntarget = \"game.lua\"\n",
+				"README.md": "# tiny\n"
+			},
+			"expectedRoot": "",
+			"expectedHash": "f900aa8cd711d190778834ef8dbebbeda57d586090521a6808e1e9e98739453f"
+		},
+		{
+			"name": "dot-folder-sibling",
+			"layout": "github",
+			"files": {
+				".github/workflows/ci.yml": "on: push\n",
+				"mod/main.lua": "return {}\n",
+				"mod/.gitignore": "*.log\n",
+				"README.md": "# mod\n"
+			},
+			"expectedRoot": "mod",
+			"expectedHash": "b2f6ea565a0e082f33b847617b264d3523fba4abc592479162b4b067e7fed635"
+		},
+		{
+			"name": "double-wrapper",
+			"layout": "github",
+			"files": {
+				"W/V/main.lua": "return {}\n"
+			},
+			"expectedRoot": "W/V",
+			"expectedHash": "823b7b0c86b60701124842c7432a32b5f72d75ddbe87d0809d2ec1c10fa94d87"
+		},
+		{
+			"name": "no-signal-single-wrapper",
+			"layout": "github",
+			"files": {
+				"W/data.txt": "data\n",
+				"W/more/values.csv": "a,b\n"
+			},
+			"expectedRoot": "W",
+			"expectedHash": "5f7e775f2c60771567b47d1f5027d77b06500887c009313b11ba7ee4fe1877a9"
+		},
+		{
+			"name": "lua-at-root-with-lua-subfolder",
+			"layout": "github",
+			"files": {
+				"main.lua": "return {}\n",
+				"sub/other.lua": "return {}\n"
+			},
+			"expectedRoot": "",
+			"expectedHash": "2d43a5e00106162b5241f0c4d3e8c9686762bb71a26459127b44c96923e411e6"
+		},
+		{
+			"name": "case-insensitive-signals",
+			"layout": "github",
+			"files": {
+				"LOVELY.TOML": "[[patches]]\n[patches.pattern]\ntarget = \"game.lua\"\n",
+				"Sub/MAIN.LUA": "return {}\n"
+			},
+			"expectedRoot": "Sub",
+			"expectedHash": "3125dd6cafeeea742f4b6df1681950239b69f882c28e1ba25cd0cdae071cb279"
+		},
+		{
+			"name": "thunderstore-nested-kept-as-shipped",
+			"layout": "thunderstore",
+			"files": {
+				"manifest.json": "{\n\t\"name\": \"Nested\",\n\t\"version_number\": \"1.0.0\"\n}\n",
+				"icon.png": "png",
+				"README.md": "# Nested\n",
+				"Nested/main.lua": "return {}\n"
+			},
+			"expectedRoot": "",
+			"expectedHash": "e1002057fad0d14628259053fa5b7300353849d696e5ce652a6bd7fe8443b4b2"
+		},
+		{
+			"name": "thunderstore-decoy-shape-kept-as-shipped",
+			"layout": "thunderstore",
+			"files": {
+				"lovely.toml": "[[patches]]\n[patches.pattern]\ntarget = \"game.lua\"\n",
+				"Mod/metadata.json": "{\"id\": \"Mod\", \"main_file\": \"m.lua\"}",
+				"Mod/m.lua": "return {}\n",
+				".gitignore": "*.log\n"
+			},
+			"expectedRoot": "",
+			"expectedHash": "39c022c9f9bccc46344a910d53b335069536ae5639ec9b0a4a75df8d744f70b1"
+		}
+	]
+}

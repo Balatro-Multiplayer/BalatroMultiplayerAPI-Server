@@ -739,13 +739,31 @@ export const modRegistry = pgTable('mod_registry', {
 	// is no "any version is fine" state. Set via PUT /api/webadmin/mods/:modId
 	// (see mods.gateway.ts's setRankedVersion), which hashes that exact
 	// version's real downloaded/extracted content at pin time and stores the
-	// result alongside it below. Sync clears a pin whose version is no
-	// longer on Thunderstore, and hashes a pin that has no hash yet. A custom
-	// mod's pin is cleared instead when its version moves in a way the stored
-	// hash can no longer back (see mods.gateway.ts's
-	// recordCustomVersionAndReconcilePin).
+	// result alongside it below. Any version of the merged list can be pinned
+	// (Thunderstore or GitHub). Nothing but an admin ever changes or clears a
+	// pin -- the sync only flags a pin whose download disappeared (see
+	// rankedDownloadStatus).
 	rankedVersion: varchar('ranked_version', { length: 64 }),
 	rankedVersionSha256: varchar('ranked_version_sha256', { length: 64 }),
+	// The pin's permanent download: resolved once when an admin pins
+	// (a Thunderstore version URL, a GitHub release asset on a fixed tag, or a
+	// codeload tag/commit archive), hashed with rankedSource's layout, and
+	// never re-resolved -- it changes only when an admin re-pins. Null only
+	// for a pin carried over from before this column existed, which the next
+	// sync resolves and hashes.
+	rankedDownloadUrl: text('ranked_download_url'),
+	// Layout the pin was hashed with: 'thunderstore' (as shipped) or 'github'
+	// (canonical flatten) -- see mod-version-hash.ts's ModLayout.
+	rankedSource: varchar('ranked_source', { length: 16 }),
+	// Set by the sync's pin health check: 'ok' while rankedDownloadUrl still
+	// downloads, 'unavailable' once it doesn't. The sync never clears or
+	// changes a pin itself; admins see this flag and re-pin.
+	rankedDownloadStatus: varchar('ranked_download_status', { length: 16 }),
+	rankedCheckedAt: timestamp('ranked_checked_at', { withTimezone: true }),
+	// Thunderstore mods only (custom mods always track GitHub): also list the
+	// repo's GitHub releases/tags as versions. A GitHub tag that is the same
+	// release as a Thunderstore version becomes an alias of it instead.
+	trackGithub: boolean('track_github').notNull().default(false),
 	// Admin-owned, never synced. featured highlights a mod in the launcher;
 	// hidden drops it from the public catalog entirely.
 	featured: boolean('featured').notNull().default(false),
@@ -759,9 +777,10 @@ export const modRegistry = pgTable('mod_registry', {
 		.defaultNow(),
 })
 
-// Every active Thunderstore version of a mod, replaced wholesale on each
-// sync. No per-version hash -- only the ranked pin is ever hashed (see
-// modRegistry.rankedVersionSha256).
+// A mod's merged version list: its active Thunderstore versions (replaced on
+// each sync) plus its GitHub versions (releases/tags, admin-pinned commits,
+// and a custom mod's detected versions). No per-version hash -- only the
+// ranked pin is ever hashed (see modRegistry.rankedVersionSha256).
 export const modRegistryVersions = pgTable(
 	'mod_registry_versions',
 	{
@@ -772,6 +791,16 @@ export const modRegistryVersions = pgTable(
 		version: varchar('version', { length: 64 }).notNull(),
 		downloadUrl: text('download_url'),
 		releasedAt: timestamp('released_at', { withTimezone: true }),
+		// 'thunderstore' (a Thunderstore package version, deployed as shipped)
+		// or 'github' (a release/tag/commit or an admin raw URL, flattened).
+		// Also decides the archive layout -- see mod-version-hash.ts.
+		source: varchar('source', { length: 16 }).notNull().default('thunderstore'),
+		// Other names this version answers to: "v1.2.0" for "1.2.0",
+		// Steamodded's "1.0.0-beta-1814a" for "1.1814.0", and any GitHub tag
+		// folded into a Thunderstore version. See mod-version-aliases.ts.
+		aliases: text('aliases').array().notNull().default(sql`'{}'::text[]`),
+		// GitHub only: the tag name, or the full commit SHA for a commit version.
+		ref: text('ref'),
 		// Thunderstore dependency strings, "Owner-Name-Version".
 		dependencies: text('dependencies')
 			.array()

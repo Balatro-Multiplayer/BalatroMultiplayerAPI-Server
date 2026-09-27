@@ -1,5 +1,15 @@
-import { env } from '../../env.js'
 import { AppError } from '../../shared/utils/errors.js'
+import {
+	type RepoInfo,
+	canonicalRepoUrl,
+	commitArchiveUrl,
+	extractRepoInfo,
+	fetchCommit,
+	fetchLatestReleaseTag,
+	githubGet,
+	releaseAssetUrl,
+	tagArchiveUrl,
+} from './github-api.js'
 import { classifyDownloadUrl } from './mod-source-classifier.js'
 
 // TS port of BETModIndex's update_mod_versions.py, scoped to admin-created
@@ -23,97 +33,19 @@ export interface VersionCheckResult {
 	// .../releases/latest/download/... and naturally serves the new
 	// release's asset without needing to change).
 	newDownloadUrl: string | null
+	// Permanent URL for newVersion's own version row (a commit archive for a
+	// branch head, the tag's asset or source archive for a release) -- what a
+	// ranked pin on that version downloads, unlike the moving latest URL.
+	versionDownloadUrl: string
 	source: VersionSource
 }
 
-const GITHUB_API_BASE = 'https://api.github.com'
-const GITHUB_FETCH_TIMEOUT_MS = 15_000
-
-function githubHeaders(): HeadersInit {
-	const headers: Record<string, string> = {
-		Accept: 'application/vnd.github+json',
-	}
-	if (env.GITHUB_TOKEN) headers.Authorization = `token ${env.GITHUB_TOKEN}`
-	return headers
-}
-
-// Every GitHub call in this module is best-effort: a 403/429 (rate limited),
-// a 5xx, or a network error just means "no update detected this cycle, try
-// again next hour" -- not a hard failure that should abort the rest of the
-// sync. Mirrors computePreparedZipHash's existing best-effort pattern in
-// mods-sync.service.ts. Deliberately no retry/backoff loop (unlike the
-// Python original's up-to-30-minute wait) -- this runs inside the same
-// blocking startup sync as everything else in mods-sync.service.ts.
-async function githubGet(path: string): Promise<Response | null> {
-	try {
-		const res = await fetch(`${GITHUB_API_BASE}${path}`, {
-			headers: githubHeaders(),
-			signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
-		})
-		if (!res.ok && res.status !== 404) {
-			console.warn(`[custom-mod-version-check] GET ${path} -> ${res.status}`)
-			return null
-		}
-		return res
-	} catch (err) {
-		console.warn(`[custom-mod-version-check] GET ${path} failed:`, err)
-		return null
-	}
-}
-
-function extractRepoInfo(
-	repoUrl: string,
-): { owner: string; repo: string } | null {
-	const match = /github\.com\/([^/]+)\/([^/]+)/.exec(repoUrl)
-	if (!match) return null
-	return { owner: match[1], repo: match[2].replace(/\.git$/, '') }
-}
-
-async function fetchLatestTag(
-	owner: string,
-	repo: string,
-): Promise<string | null> {
-	const res = await githubGet(`/repos/${owner}/${repo}/releases/latest`)
-	if (!res || res.status === 404) return null
-	const data = (await res.json()) as { tag_name?: string }
-	return data.tag_name ?? null
-}
-
-// ref omitted -> the default branch's most recent commit (GitHub returns an
-// array from /commits with no ref - existing checkCustomModVersion() 'head'
-// callers rely on exactly this shape, since a mod's stored branch-archive
-// URL doesn't get its branch name extracted/passed through there today).
-// ref given -> that specific branch/sha's own commit (GitHub returns a
-// single object from /commits/{ref}, a different shape) - used by
-// resolveSourceInput()'s Branch mode below, which does know the exact
-// branch name and would otherwise silently resolve the wrong branch's HEAD
-// whenever it isn't the repo's default.
-async function fetchHeadSha(
-	owner: string,
-	repo: string,
-	ref?: string,
-): Promise<string | null> {
-	const path = ref
-		? `/repos/${owner}/${repo}/commits/${ref}`
-		: `/repos/${owner}/${repo}/commits`
-	const res = await githubGet(path)
-	if (!res || res.status === 404) return null
-	if (ref) {
-		const data = (await res.json()) as { sha?: string }
-		return data.sha ? data.sha.slice(0, 7) : null
-	}
-	const data = (await res.json()) as Array<{ sha: string }>
-	if (!Array.isArray(data) || data.length === 0) return null
-	return data[0].sha.slice(0, 7)
-}
-
 async function fetchSpecificTag(
-	owner: string,
-	repo: string,
+	info: RepoInfo,
 	tagName: string,
 ): Promise<{ version: string; assetName: string } | null> {
 	const res = await githubGet(
-		`/repos/${owner}/${repo}/releases/tags/${tagName}`,
+		`/repos/${info.owner}/${info.repo}/releases/tags/${tagName}`,
 	)
 	if (!res || res.status === 404) return null
 	const data = (await res.json()) as {
@@ -143,23 +75,44 @@ async function fetchSpecificTag(
 	return { version, assetName: latestAsset }
 }
 
+const BRANCH_IN_URL = /\/archive\/refs\/heads\/(.+)\.zip$/
+const LATEST_ASSET_IN_URL = /\/releases\/latest\/download\/([^/]+)$/
+
+// The branch a branch-archive URL tracks, so its head is read from that
+// branch rather than the repo's default one.
+export function branchOfDownloadUrl(downloadUrl: string): string | undefined {
+	return BRANCH_IN_URL.exec(downloadUrl)?.[1]
+}
+
+// Permanent URL for a release tag's version row: the same asset the moving
+// "latest" link serves, pinned to that tag, or else the tag's source archive.
+function tagVersionUrl(info: RepoInfo, tag: string, latestUrl: string) {
+	const asset = LATEST_ASSET_IN_URL.exec(latestUrl)?.[1]
+	return asset ? releaseAssetUrl(info, tag, asset) : tagArchiveUrl(info, tag)
+}
+
 export async function checkCustomModVersion(
 	mod: VersionCheckInput,
 ): Promise<VersionCheckResult | null> {
-	if (!mod.repoUrl) return null
-	const repoInfo = extractRepoInfo(mod.repoUrl)
-	if (!repoInfo) return null
-	const { owner, repo } = repoInfo
-	const canonicalRepoUrl = `https://github.com/${owner}/${repo}`
+	const info = extractRepoInfo(mod.repoUrl)
+	if (!info) return null
 	const downloadUrl = mod.latestDownloadUrl ?? ''
 
 	let source: VersionSource
 	let newVersion: string | null = null
 	let newDownloadUrl: string | null = null
+	let versionDownloadUrl: string | null = null
+
+	const head = async (branch?: string) => {
+		const commit = await fetchCommit(info, branch)
+		if (!commit) return
+		newVersion = commit.sha.slice(0, 7)
+		versionDownloadUrl = commitArchiveUrl(info, commit.sha)
+	}
 
 	if (classifyDownloadUrl(downloadUrl) === 'branch') {
 		source = 'head'
-		newVersion = await fetchHeadSha(owner, repo)
+		await head(branchOfDownloadUrl(downloadUrl))
 	} else if (
 		mod.fixedReleaseTagUpdates &&
 		downloadUrl.includes('/releases/download/')
@@ -167,27 +120,31 @@ export async function checkCustomModVersion(
 		source = 'specific_tag'
 		const parts = downloadUrl.split('/')
 		const tagName = parts[parts.length - 2]
-		const result = await fetchSpecificTag(owner, repo, tagName)
+		const result = await fetchSpecificTag(info, tagName)
 		if (!result) return null
 		newVersion = result.version
-		newDownloadUrl = `${canonicalRepoUrl}/releases/download/${tagName}/${result.assetName}`
+		newDownloadUrl = releaseAssetUrl(info, tagName, result.assetName)
+		versionDownloadUrl = newDownloadUrl
 	} else {
 		source = 'latest_tag'
-		const tag = await fetchLatestTag(owner, repo)
+		const tag = await fetchLatestReleaseTag(info)
 		if (tag) {
 			newVersion = tag
 			if (downloadUrl.includes('/archive/refs/tags/')) {
-				newDownloadUrl = `${canonicalRepoUrl}/archive/refs/tags/${tag}.zip`
+				newDownloadUrl = `${canonicalRepoUrl(info)}/archive/refs/tags/${tag}.zip`
 			}
+			versionDownloadUrl = tagVersionUrl(info, tag, downloadUrl)
 		} else {
 			// Zero releases -- fall back to HEAD, same as update_mod_versions.py.
 			source = 'head'
-			newVersion = await fetchHeadSha(owner, repo)
+			await head()
 		}
 	}
 
-	if (!newVersion || newVersion === mod.latestVersion) return null
-	return { newVersion, newDownloadUrl, source }
+	if (!newVersion || !versionDownloadUrl || newVersion === mod.latestVersion) {
+		return null
+	}
+	return { newVersion, newDownloadUrl, versionDownloadUrl, source }
 }
 
 // Admin-facing counterpart to checkCustomModVersion above: that function
@@ -206,6 +163,9 @@ export type SourceInput =
 export interface ResolvedSource {
 	latestDownloadUrl: string
 	latestVersion: string | null
+	// Permanent URL for latestVersion's own version row (see
+	// VersionCheckResult.versionDownloadUrl); null for a raw custom URL.
+	versionDownloadUrl: string | null
 }
 
 // Throws AppError (never returns null) - this runs synchronously inside an
@@ -218,40 +178,45 @@ export async function resolveSourceInput(
 	input: SourceInput,
 ): Promise<ResolvedSource> {
 	if (input.sourceType === 'custom') {
-		return { latestDownloadUrl: input.url, latestVersion: null }
+		return {
+			latestDownloadUrl: input.url,
+			latestVersion: null,
+			versionDownloadUrl: null,
+		}
 	}
 
-	const repoInfo = extractRepoInfo(input.repoUrl)
-	if (!repoInfo) {
+	const info = extractRepoInfo(input.repoUrl)
+	if (!info) {
 		throw new AppError(
 			'repoUrl must be a github.com/<owner>/<repo> URL to resolve a branch or release source',
 			400,
 		)
 	}
-	const { owner, repo } = repoInfo
-	const canonicalRepoUrl = `https://github.com/${owner}/${repo}`
+	const repoUrl = canonicalRepoUrl(info)
 
 	if (input.sourceType === 'branch') {
-		const sha = await fetchHeadSha(owner, repo, input.branch)
-		if (!sha) {
+		const commit = await fetchCommit(info, input.branch)
+		if (!commit) {
 			throw new AppError(
-				`Couldn't find branch '${input.branch}' on ${canonicalRepoUrl} - check the branch name and try again`,
+				`Couldn't find branch '${input.branch}' on ${repoUrl} - check the branch name and try again`,
 				400,
 			)
 		}
 		return {
-			latestDownloadUrl: `${canonicalRepoUrl}/archive/refs/heads/${input.branch}.zip`,
-			latestVersion: sha,
+			latestDownloadUrl: `${repoUrl}/archive/refs/heads/${input.branch}.zip`,
+			latestVersion: commit.sha.slice(0, 7),
+			versionDownloadUrl: commitArchiveUrl(info, commit.sha),
 		}
 	}
 
 	// 'release'
-	const tag = await fetchLatestTag(owner, repo)
+	const tag = await fetchLatestReleaseTag(info)
 	if (!tag) {
-		throw new AppError(`No releases found on ${canonicalRepoUrl}`, 400)
+		throw new AppError(`No releases found on ${repoUrl}`, 400)
 	}
 	return {
-		latestDownloadUrl: `${canonicalRepoUrl}/archive/refs/tags/${tag}.zip`,
+		latestDownloadUrl: `${repoUrl}/archive/refs/tags/${tag}.zip`,
 		latestVersion: tag,
+		versionDownloadUrl: tagArchiveUrl(info, tag),
 	}
 }

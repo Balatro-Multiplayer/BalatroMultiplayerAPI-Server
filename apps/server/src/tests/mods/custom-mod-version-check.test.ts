@@ -40,6 +40,9 @@ describe('checkCustomModVersion', () => {
 		expect(result).toEqual({
 			newVersion: 'v2.0.0',
 			newDownloadUrl: null,
+			// The moving latest-asset link, pinned to the tag it resolved to.
+			versionDownloadUrl:
+				'https://github.com/Alice/Mod/releases/download/v2.0.0/mod.zip',
 			source: 'latest_tag',
 		})
 	})
@@ -66,6 +69,8 @@ describe('checkCustomModVersion', () => {
 		expect(result).toEqual({
 			newVersion: 'abcdef1',
 			newDownloadUrl: null,
+			versionDownloadUrl:
+				'https://codeload.github.com/Bob/Mod/zip/abcdef1234567890',
 			source: 'head',
 		})
 	})
@@ -95,14 +100,17 @@ describe('checkCustomModVersion', () => {
 			newVersion: '20260601_000000',
 			newDownloadUrl:
 				'https://github.com/Carol/Mod/releases/download/v1.5.0/mod-new.zip',
+			versionDownloadUrl:
+				'https://github.com/Carol/Mod/releases/download/v1.5.0/mod-new.zip',
 			source: 'specific_tag',
 		})
 	})
 
 	it('resolves via HEAD when latestDownloadUrl points at a branch archive', async () => {
 		mockFetch((url) => {
-			if (url.endsWith('/repos/Dave/Mod/commits')) {
-				return jsonResponse(200, [{ sha: '1234567890abcdef' }])
+			// The branch the archive URL tracks, not the repo's default branch.
+			if (url.endsWith('/repos/Dave/Mod/commits/main')) {
+				return jsonResponse(200, { sha: '1234567890abcdef' })
 			}
 			throw new Error(`unexpected fetch: ${url}`)
 		})
@@ -118,6 +126,8 @@ describe('checkCustomModVersion', () => {
 		expect(result).toEqual({
 			newVersion: '1234567',
 			newDownloadUrl: null,
+			versionDownloadUrl:
+				'https://codeload.github.com/Dave/Mod/zip/1234567890abcdef',
 			source: 'head',
 		})
 	})
@@ -209,6 +219,8 @@ describe('resolveSourceInput', () => {
 			latestDownloadUrl:
 				'https://github.com/Alice/Mod/archive/refs/heads/dev.zip',
 			latestVersion: 'aaaaaaa',
+			versionDownloadUrl:
+				'https://codeload.github.com/Alice/Mod/zip/aaaaaaaaaaaaaaaa',
 		})
 	})
 
@@ -241,6 +253,8 @@ describe('resolveSourceInput', () => {
 			latestDownloadUrl:
 				'https://github.com/Bob/Mod/archive/refs/tags/v3.0.0.zip',
 			latestVersion: 'v3.0.0',
+			versionDownloadUrl:
+				'https://codeload.github.com/Bob/Mod/zip/refs/tags/v3.0.0',
 		})
 	})
 
@@ -281,6 +295,7 @@ describe('resolveSourceInput', () => {
 		expect(result).toEqual({
 			latestDownloadUrl: 'https://example.com/mod.zip',
 			latestVersion: null,
+			versionDownloadUrl: null,
 		})
 	})
 })
