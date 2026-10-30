@@ -27,6 +27,10 @@ socket:
   # MAX_PARAMS_BYTES (16KB) so its too_large refusal is what applies;
   # src/socket_limit.test.ts checks this against both configs.
   max_message_size_bytes: 32768
+  # A Season replay fold call carries the state of every player (about
+  # 250 bytes each); Nakama's default (262144) refuses it at ~1000 players.
+  # src/socket_limit.test.ts checks this against both configs.
+  max_request_size_bytes: 8388608
 
 match:
   # Messages a match reads per tick. Nakama's default (128) silently drops the

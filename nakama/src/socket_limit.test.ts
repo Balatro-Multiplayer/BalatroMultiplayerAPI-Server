@@ -54,3 +54,18 @@ describe('match.input_queue_size', () => {
 		})
 	}
 })
+
+function maxRequestSize(config: string) {
+	const text = readFileSync(new URL(`../${config}`, import.meta.url), 'utf8')
+	const match =
+		/^socket:\n(?:[ \t]+.*\n|\n)*?[ \t]+max_request_size_bytes:\s*(\d+)/m.exec(text)
+	return match ? Number(match[1]) : 262144 // Nakama's default
+}
+
+describe('socket.max_request_size_bytes', () => {
+	for (const config of ['local.yml', 'prod.yml']) {
+		it(`${config} takes a Season replay fold call with thousands of players`, () => {
+			expect(maxRequestSize(config)).toBeGreaterThanOrEqual(8 * 1024 * 1024)
+		})
+	}
+})
