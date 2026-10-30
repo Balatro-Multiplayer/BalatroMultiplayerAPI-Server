@@ -1,6 +1,6 @@
 {
 	"name": "balatro-multiplayer-moderation",
-	"version": "1.0.2",
+	"version": "1.0.4",
 	"private": true,
 	"type": "module",
 	"scripts": {
