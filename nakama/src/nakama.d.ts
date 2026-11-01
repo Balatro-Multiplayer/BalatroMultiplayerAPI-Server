@@ -124,7 +124,7 @@ declare namespace nkruntime {
 			limit: number,
 			cursor: string,
 			expiry: number,
-		): { records?: LeaderboardRecord[]; nextCursor?: string }
+		): { records?: LeaderboardRecord[]; ownerRecords?: LeaderboardRecord[]; nextCursor?: string }
 		uuidv4(): string
 		accountGetId(userId: string): Account
 		// Every argument but userId may be null to leave that field unchanged.

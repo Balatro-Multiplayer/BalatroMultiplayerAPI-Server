@@ -26,7 +26,8 @@ function boardOf(payload: string): { modId: string; mode: string; input: { [key:
 }
 
 // {modId, mode, playerId?} -> the player's (default: the caller's) rating record on that board (a fresh one if
-// they haven't played it), plus whether they're still in placement games and how many there are.
+// they haven't played it), plus whether they're still in placement games, how many there are, and their place
+// on the board once they're past them.
 export function rpcRatingGet(
 	ctx: nkruntime.Context,
 	logger: nkruntime.Logger,
@@ -40,8 +41,30 @@ export function rpcRatingGet(
 	const playerId = input.playerId === undefined ? ctx.userId : input.playerId
 	if (typeof playerId !== 'string' || !USER_ID_PATTERN.test(playerId))
 		throw runtimeError(INVALID_ARGUMENT, 'playerId is not a user id')
-	const rating = loadRatings(nk, modId, mode, [playerId], Date.now(), currentSeason(nk)).current[playerId] || newRating()
-	return JSON.stringify({ ...rating, seasonBest: seasonBestOf(modId, rating.seasonBest), isPlacement: rating.gamesPlayed < PLACEMENT_GAMES, placementGames: PLACEMENT_GAMES })
+	const season = currentSeason(nk)
+	const rating = loadRatings(nk, modId, mode, [playerId], Date.now(), season).current[playerId] || newRating()
+	const isPlacement = rating.gamesPlayed < PLACEMENT_GAMES
+	return JSON.stringify({
+		...rating,
+		seasonBest: seasonBestOf(modId, rating.seasonBest),
+		isPlacement,
+		placementGames: PLACEMENT_GAMES,
+		rank: isPlacement ? null : boardRankOf(nk, boardId(modId, mode, season), playerId),
+	})
+}
+
+// The player's place on a board, or null when they aren't on it (still placing,
+// or the board doesn't exist yet). Ranked by the stored score, as the board
+// pages are before their in-page re-rank, so a decayed player can read a
+// place or two high until their next game.
+export function boardRankOf(nk: nkruntime.Nakama, id: string, playerId: string): number | null {
+	try {
+		const owned = nk.leaderboardRecordsList(id, [playerId], 1, '', 0).ownerRecords || []
+		const record = owned.find((r) => r.ownerId === playerId)
+		return record ? record.rank : null
+	} catch (e) {
+		return null
+	}
 }
 
 // {modId, mode, cursor?} -> {entries: [{rank, playerId, name, rating, wins,

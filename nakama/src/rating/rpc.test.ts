@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { boardEntries } from './rpc'
+import { boardEntries, boardRankOf } from './rpc'
 
 const DAY = 86400000
 const NOW = 1_800_000_000_000
@@ -57,5 +57,26 @@ describe('boardEntries', () => {
 	it('keeps the stored score when the rating object is missing', () => {
 		expect(boardEntries([rec('x', 700, 1, 1)], {}, NOW, 'MultiplayerPvP')[0].rating).toBe(700)
 		expect(boardEntries([], {}, NOW, 'MultiplayerPvP')).toEqual([])
+	})
+})
+
+describe('boardRankOf', () => {
+	const nkWith = (list: () => unknown) => ({ leaderboardRecordsList: list }) as unknown as nkruntime.Nakama
+
+	it("reads the player's own record's rank", () => {
+		const nk = nkWith(() => ({ records: [], ownerRecords: [rec('a', 1500, 3, 7)] }))
+		expect(boardRankOf(nk, 'board', 'a')).toBe(7)
+	})
+
+	it('is null for a player not on the board', () => {
+		const nk = nkWith(() => ({ records: [], ownerRecords: [] }))
+		expect(boardRankOf(nk, 'board', 'a')).toBeNull()
+	})
+
+	it('is null before the board exists', () => {
+		const nk = nkWith(() => {
+			throw new Error('leaderboard not found')
+		})
+		expect(boardRankOf(nk, 'board', 'a')).toBeNull()
 	})
 })
