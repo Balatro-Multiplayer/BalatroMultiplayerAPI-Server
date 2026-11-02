@@ -46,6 +46,13 @@ describe('eligibility', () => {
 		expect(e.kind === 'counts' && e.game.result).toBe('win')
 	})
 
+	it('reads a shared first place without performance 1 as a draw, even for a team', () => {
+		// The record has no team id: a team mod that does not report performance 1 for its winners is a draw here.
+		const team = runOf({ placements: [{ playerId: A, place: 1 }, { playerId: B, place: 1, performance: 0.5 }] })
+		const e = judge(team)
+		expect(e.kind === 'counts' && e.game.result).toBe('unknown')
+	})
+
 	it('skips unfinished, flagged, already counted and non-participant runs', () => {
 		expect(reason(judge(runOf({ status: 'abandoned' })))).toBe('not_finished')
 		expect(reason(judge(runOf({ status: 'restarted' })))).toBe('not_finished')

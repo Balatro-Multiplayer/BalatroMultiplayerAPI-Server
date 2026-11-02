@@ -36,7 +36,11 @@ function resultOf(run: RunRecord, playerId: string): GameResult {
 	if (!placement) return 'unknown'
 	if (placement.place !== 1) return 'loss'
 	// A shared first place is a draw (no win, and no loss either), unless it is a
-	// winning team: PvP reports a team's winners at place 1 with performance 1.
+	// winning team. The run record has no team id, so the only signal is a PvP
+	// convention: a team's winners are reported at place 1 with performance 1, a
+	// draw with performance 0. Clients report it and the server does not verify it,
+	// and a team mod that omits performance reads its winners as a draw. A team id
+	// on Placement would replace this guess, but that is a wire change.
 	const shared = run.placements.filter((p: Placement) => p.place === 1).length > 1
 	return shared && placement.performance !== 1 ? 'unknown' : 'win'
 }
