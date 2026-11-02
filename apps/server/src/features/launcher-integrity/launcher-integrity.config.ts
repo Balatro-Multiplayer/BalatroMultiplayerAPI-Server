@@ -15,6 +15,15 @@ export const CHALLENGE_TIMEOUT_MS = 15_000
 // longer allowance instead of sharing periodic's.
 export const LOGIN_CHALLENGE_TIMEOUT_MS = 30_000
 
+// The *ranked_readiness* challenge is issued the moment a player joins the
+// Ranked queue, and the launcher answers it only after forcing a fresh check
+// of its own version and every active Ranked-legal mod's on-disk hash. That
+// can take a while on a slow connection or disk, and the launcher's own
+// fallback timer starts later than this one (the challenge still has to reach
+// it through Nakama and the mod), so it gets the same generous allowance as
+// login rather than periodic's 15s.
+export const RANKED_READINESS_CHALLENGE_TIMEOUT_MS = 30_000
+
 // Periodic re-challenge interval is randomized within this window (jittered,
 // not fixed) so the interval itself can't be used to predict/evade a check.
 export const PERIODIC_MIN_MS = 3 * 60 * 1000

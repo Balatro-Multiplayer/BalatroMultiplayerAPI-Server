@@ -2,7 +2,11 @@ import { createHmac } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ILauncherIntegrityRepository } from '../../contracts/ILauncherIntegrityRepository.js'
-import { LOGIN_CHALLENGE_TIMEOUT_MS } from '../../features/launcher-integrity/launcher-integrity.config.js'
+import {
+	CHALLENGE_TIMEOUT_MS,
+	LOGIN_CHALLENGE_TIMEOUT_MS,
+	RANKED_READINESS_CHALLENGE_TIMEOUT_MS,
+} from '../../features/launcher-integrity/launcher-integrity.config.js'
 import {
 	type ChallengeSender,
 	createLauncherIntegrityService,
@@ -499,7 +503,7 @@ describe('launcher-integrity.service', () => {
 			expect(onFailed).toHaveBeenCalledWith('player1', 'launcher_outdated')
 		})
 
-		it('reports launcher_outdated on timeout, without disconnecting or touching launcherVerified', async () => {
+		it('reports verification_timeout on timeout, without disconnecting or touching launcherVerified', async () => {
 			vi.useFakeTimers()
 			const sendChallenge = makeSendChallenge()
 			const repository = makeMockRepository()
@@ -512,10 +516,32 @@ describe('launcher-integrity.service', () => {
 			service.onRankedReadinessFailed(onFailed)
 
 			await service.issueRankedReadinessChallenge('player1')
-			await vi.advanceTimersByTimeAsync(60_000)
+			await vi.advanceTimersByTimeAsync(
+				RANKED_READINESS_CHALLENGE_TIMEOUT_MS + 100,
+			)
 
-			expect(onFailed).toHaveBeenCalledWith('player1', 'launcher_outdated')
+			expect(onFailed).toHaveBeenCalledWith('player1', 'verification_timeout')
 			expect(service.isLauncherVerified('player1')).toBe(false)
+		})
+
+		it('gives the launcher longer than the periodic timeout to answer', async () => {
+			vi.useFakeTimers()
+			const service = createLauncherIntegrityService({
+				sendChallenge: makeSendChallenge(),
+				repository: makeMockRepository(),
+			})
+			service.setChallengeStrategy(makeFakeStrategy())
+			const onFailed = vi.fn()
+			service.onRankedReadinessFailed(onFailed)
+
+			await service.issueRankedReadinessChallenge('player1')
+			await vi.advanceTimersByTimeAsync(CHALLENGE_TIMEOUT_MS + 100)
+			expect(onFailed).not.toHaveBeenCalled()
+
+			await vi.advanceTimersByTimeAsync(
+				RANKED_READINESS_CHALLENGE_TIMEOUT_MS - CHALLENGE_TIMEOUT_MS,
+			)
+			expect(onFailed).toHaveBeenCalledWith('player1', 'verification_timeout')
 		})
 
 		it('does not affect a separately-verified login session', async () => {

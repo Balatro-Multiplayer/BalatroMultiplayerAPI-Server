@@ -16,6 +16,7 @@ import {
 	LOGIN_CHALLENGE_TIMEOUT_MS,
 	PERIODIC_MAX_MS,
 	PERIODIC_MIN_MS,
+	RANKED_READINESS_CHALLENGE_TIMEOUT_MS,
 } from './launcher-integrity.config.js'
 
 // The service's verdict on a player, each time it changes: passed a
@@ -49,7 +50,12 @@ export type LauncherIntegrityService = ReturnType<
 	typeof createLauncherIntegrityService
 >
 
-export type RankedReadinessFailureReason = 'launcher_outdated' | 'mods_outdated'
+// 'verification_timeout' is the launcher never answering in time -- not a
+// verdict that anything is out of date, so it must not read as one.
+export type RankedReadinessFailureReason =
+	| 'launcher_outdated'
+	| 'mods_outdated'
+	| 'verification_timeout'
 type RankedReadinessFailureHandler = (
 	playerId: string,
 	reason: RankedReadinessFailureReason,
@@ -187,10 +193,15 @@ export function createLauncherIntegrityService(
 		const issuance = await strategy.issue(playerId, kind)
 		const challengeId = randomUUID()
 
-		// login gets a longer allowance than periodic -- see
-		// LOGIN_CHALLENGE_TIMEOUT_MS's comment for why.
+		// login and ranked_readiness get a longer allowance than periodic --
+		// see LOGIN_CHALLENGE_TIMEOUT_MS's and
+		// RANKED_READINESS_CHALLENGE_TIMEOUT_MS's comments for why.
 		const timeoutMs =
-			kind === 'login' ? LOGIN_CHALLENGE_TIMEOUT_MS : CHALLENGE_TIMEOUT_MS
+			kind === 'login'
+				? LOGIN_CHALLENGE_TIMEOUT_MS
+				: kind === 'ranked_readiness'
+					? RANKED_READINESS_CHALLENGE_TIMEOUT_MS
+					: CHALLENGE_TIMEOUT_MS
 		const timeoutTimer = setTimeout(() => {
 			void handleChallengeTimeout(playerId, challengeId)
 		}, timeoutMs)
@@ -316,7 +327,7 @@ export function createLauncherIntegrityService(
 			console.warn(
 				`[launcher-integrity] ranked_readiness challenge timed out for player ${playerId}`,
 			)
-			rankedReadinessFailureHandler?.(playerId, 'launcher_outdated')
+			rankedReadinessFailureHandler?.(playerId, 'verification_timeout')
 			return
 		}
 

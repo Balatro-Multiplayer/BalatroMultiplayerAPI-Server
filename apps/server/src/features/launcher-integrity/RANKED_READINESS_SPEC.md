@@ -132,8 +132,12 @@ it dequeues the player (`leaveQueue`) and publishes `{type:'queue_cancelled',
 modId, gameMode, reason}` on `player/<playerId>/matchmaking`, where `reason`
 is `'launcher_outdated'` when `!launcherCurrent` (checked first — updating
 BET also resolves stale mods on next launch, so that message takes priority
-when both are stale) else `'mods_outdated'`. Same treatment for `verify()`
-returning `false` or the challenge timing out/being refused outright.
+when both are stale) else `'mods_outdated'`. The challenge gets 30s
+(`RANKED_READINESS_CHALLENGE_TIMEOUT_MS`) to be answered; running out of time
+publishes `'verification_timeout'` instead, since a launcher that never
+answered hasn't reported anything as out of date. `verify()` returning
+`false` or the challenge being refused outright still map to
+`'launcher_outdated'`.
 
 ## Test vectors
 
