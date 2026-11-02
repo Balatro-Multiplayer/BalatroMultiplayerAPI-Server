@@ -8378,6 +8378,8 @@ var SENDER_RULES = {
   pvp_player_lives: "host",
   pvp_eliminated: "host",
   pvp_start_blind: "host",
+  pvp_ready_check: "host",
+  // referee.lua: the host asks everyone to confirm Ready before a blind
   pvp_timer_hand_lost: "host",
   pvp_nemesis_pairing: "host",
   pvp_royale_target: "host",

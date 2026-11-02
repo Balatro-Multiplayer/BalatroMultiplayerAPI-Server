@@ -65,6 +65,7 @@ describe('SENDER_RULES', () => {
 			'pvp_win',
 			'pvp_player_won',
 			'pvp_end_pvp',
+			'pvp_ready_check',
 			'pvp_round_state',
 			'pvp_death_pending',
 			'pvp_player_lives',
