@@ -39,7 +39,7 @@ export interface Progress {
 export type GameKind = 'pvp' | 'spdrn' | 'other'
 
 // A game's result for the player: 'unknown' leaves the win streak alone (a
-// disputed result, or no placement for them).
+// disputed result, a draw, or no placement for them).
 export type GameResult = 'win' | 'loss' | 'unknown'
 
 export interface CountedGame {

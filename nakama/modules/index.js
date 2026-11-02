@@ -4533,7 +4533,9 @@ function resultOf(run, playerId) {
   if (run.status === "disputed") return "unknown";
   const placement = run.placements.filter((p) => p.playerId === playerId)[0];
   if (!placement) return "unknown";
-  return placement.place === 1 ? "win" : "loss";
+  if (placement.place !== 1) return "loss";
+  const shared = run.placements.filter((p) => p.place === 1).length > 1;
+  return shared && placement.performance !== 1 ? "unknown" : "win";
 }
 function eligibilityOf(run, playerId, facts, metShowman2, progress, day) {
   const skip = (reason) => ({ kind: "skipped", reason });

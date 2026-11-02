@@ -30,6 +30,22 @@ describe('eligibility', () => {
 		expect(unplaced.kind === 'counts' && unplaced.game.result).toBe('unknown')
 	})
 
+	it('counts a shared first place as a draw, not a win', () => {
+		const draw = runOf({ placements: [{ playerId: A, place: 1 }, { playerId: B, place: 1 }] })
+		const e = judge(draw)
+		expect(e.kind === 'counts' && e.game.result).toBe('unknown')
+		const players = [A, B, C].map((id) => ({ id, displayName: id }))
+		const tiedFirst = runOf({ players, placements: [{ playerId: A, place: 1 }, { playerId: B, place: 1 }, { playerId: C, place: 3 }] })
+		const third = judge(tiedFirst, C, { ...both, [C]: facts() })
+		expect(third.kind === 'counts' && third.game.result).toBe('loss')
+	})
+
+	it('counts a winning team as a win', () => {
+		const team = runOf({ placements: [{ playerId: A, place: 1, performance: 1 }, { playerId: B, place: 1, performance: 1 }] })
+		const e = judge(team)
+		expect(e.kind === 'counts' && e.game.result).toBe('win')
+	})
+
 	it('skips unfinished, flagged, already counted and non-participant runs', () => {
 		expect(reason(judge(runOf({ status: 'abandoned' })))).toBe('not_finished')
 		expect(reason(judge(runOf({ status: 'restarted' })))).toBe('not_finished')

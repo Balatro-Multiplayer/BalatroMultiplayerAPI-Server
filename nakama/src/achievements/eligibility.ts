@@ -4,7 +4,7 @@
 // game: at least MIN_HANDS hands from the player, MIN_GAME_MS long, and at
 // least two players who played a hand. Private lobbies count too, at most
 // PRIVATE_DAILY_CAP times a day against the same opponents (alt farming).
-// A disputed result counts the game but not who won. Pure.
+// A disputed result or a draw counts the game but not who won. Pure.
 import type { Placement, RunRecord, RunStatus } from '../lobby/protocol'
 import type { CountedGame, GameKind, GameResult, Progress } from './progress'
 import type { LogFacts } from './facts'
@@ -34,7 +34,11 @@ function resultOf(run: RunRecord, playerId: string): GameResult {
 	if (run.status === 'disputed') return 'unknown'
 	const placement = run.placements.filter((p: Placement) => p.playerId === playerId)[0]
 	if (!placement) return 'unknown'
-	return placement.place === 1 ? 'win' : 'loss'
+	if (placement.place !== 1) return 'loss'
+	// A shared first place is a draw (no win, and no loss either), unless it is a
+	// winning team: PvP reports a team's winners at place 1 with performance 1.
+	const shared = run.placements.filter((p: Placement) => p.place === 1).length > 1
+	return shared && placement.performance !== 1 ? 'unknown' : 'win'
 }
 
 export function eligibilityOf(
