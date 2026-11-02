@@ -122,8 +122,6 @@ function QueueStatsCard({
                         pillar,
                         pillarStats: counts ? pillarCounts(counts, pillar) : undefined,
                       }))
-                      // Busiest first: In Game, then In Queue. The sort is stable, so ties
-                      // (and the loading state) keep the configured pillar order.
                       .sort(
                         (a, b) =>
                           (b.pillarStats?.inMatch ?? 0) - (a.pillarStats?.inMatch ?? 0) ||
