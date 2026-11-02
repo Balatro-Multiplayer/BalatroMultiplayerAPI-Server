@@ -117,16 +117,25 @@ function QueueStatsCard({
                     </tr>
                   </thead>
                   <tbody>
-                    {group.pillars.map((pillar) => {
-                      const pillarStats = counts ? pillarCounts(counts, pillar) : undefined
-                      return (
+                    {group.pillars
+                      .map((pillar) => ({
+                        pillar,
+                        pillarStats: counts ? pillarCounts(counts, pillar) : undefined,
+                      }))
+                      // Busiest first: In Game, then In Queue. The sort is stable, so ties
+                      // (and the loading state) keep the configured pillar order.
+                      .sort(
+                        (a, b) =>
+                          (b.pillarStats?.inMatch ?? 0) - (a.pillarStats?.inMatch ?? 0) ||
+                          (b.pillarStats?.queued ?? 0) - (a.pillarStats?.queued ?? 0),
+                      )
+                      .map(({ pillar, pillarStats }) => (
                         <tr key={pillar.label} className='border-t border-border/50'>
                           <td className='py-1.5'>{pillar.label}</td>
                           <td className='py-1.5 text-right tabular-nums'>{pillarStats?.queued ?? '-'}</td>
                           <td className='py-1.5 text-right tabular-nums'>{pillarStats?.inMatch ?? '-'}</td>
                         </tr>
-                      )
-                    })}
+                      ))}
                   </tbody>
                 </table>
               </div>
