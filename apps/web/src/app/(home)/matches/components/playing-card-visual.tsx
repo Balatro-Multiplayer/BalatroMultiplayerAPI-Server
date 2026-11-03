@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 
-// Ported from www's deck-view.tsx (src/app/(home)/log-parser/_components/deck-view.tsx):
+// Ported from www's deck-view.tsx:
 // CSS multi-background-position compositing over the same three atlases
 // (public/atlases/8BitDeck.png, Editions.png, Enhancers.png), already present
 // in this app's public/ directory. Adapted only to this app's suit/value
