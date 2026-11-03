@@ -28,6 +28,15 @@ const BOSSES_WITHOUT_THE = new Set([
   'cerulean_bell',
 ])
 
+// An Idol roll is a JSON number in older logs and a fixed-decimal string
+// ("0.123456") in newer ones.
+function rollValue(raw: unknown): number | null {
+  if (typeof raw === 'number') return raw
+  if (typeof raw !== 'string' || raw.trim() === '') return null
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : null
+}
+
 export function blindName(key: string): string {
   if (key === 'bl_small') return 'Small Blind'
   if (key === 'bl_big') return 'Big Blind'
@@ -444,7 +453,7 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
             t,
             appliesTo: null,
             jokers: jokers.map((j) => j.card),
-            roll: typeof a[0] === 'number' ? a[0] : null,
+            roll: rollValue(a[0]),
             winner: typeof a[1] === 'string' ? a[1] : '',
             cards: parseIdolTokens(a[2]),
           }
@@ -454,7 +463,7 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
             t,
             appliesTo: null,
             jokers: jokers.map((j) => j.card),
-            roll: typeof args.roll === 'number' ? args.roll : 0,
+            roll: rollValue(args.roll) ?? 0,
             winner: typeof args.winner === 'string' ? args.winner : '',
             cards: parseIdolTokens(args.cards),
           }

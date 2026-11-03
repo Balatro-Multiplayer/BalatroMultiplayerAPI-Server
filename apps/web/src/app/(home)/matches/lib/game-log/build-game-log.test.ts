@@ -170,6 +170,25 @@ describe('buildGameLog', () => {
     ).toBe('Ace')
   })
 
+  test('reads the idol roll as a number (older logs) or a decimal string', () => {
+    const rollOf = (roll: unknown) => {
+      const log = buildGameLog([
+        player('a', [
+          [10, 'select_blind', 0],
+          [11, 'idol_roll', [roll, 'QH', ['KS4', 'QH3']]],
+        ]),
+      ])
+      const idol = log.players[0]?.rounds
+        .flatMap((r) => r.events)
+        .find((e) => e.type === 'idol')
+      return idol?.type === 'idol' ? idol.roll : undefined
+    }
+    expect(rollOf(0.5)).toBe(0.5)
+    expect(rollOf('0.123456')).toBe(0.123456)
+    expect(rollOf('')).toBe(null)
+    expect(rollOf('junk')).toBe(null)
+  })
+
   test('puts shops in their own section with the idol roll first', () => {
     const idol = (t: number, roll: number, winner: string): Ev => [
       t,
