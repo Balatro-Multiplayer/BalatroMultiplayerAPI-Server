@@ -5647,12 +5647,17 @@ var USER_ID_PATTERN = /^[0-9a-f-]{36}$/;
 var CHALLENGE_ID_PATTERN = /^[0-9A-Za-z-]{1,64}$/;
 var MAX_RESPONSE_BYTES = 8 * 1024;
 var UNVERIFIED = { verified: false, expiresAt: null };
-function verdictRecord(verified, permanent, now) {
-  if (!verified) return UNVERIFIED;
+var FAILED_VERDICT = { verified: false, expiresAt: null, failed: true };
+var DEFINITE_FAILURE_REASONS = ["wrong_response", "refused"];
+function verdictRecord(verified, permanent, now, reason) {
+  if (!verified) return reason && DEFINITE_FAILURE_REASONS.includes(reason) ? FAILED_VERDICT : UNVERIFIED;
   return { verified: true, expiresAt: permanent ? null : now + INTEGRITY_TTL_MS };
 }
 function isVerified(record, now) {
   return record.verified && (record.expiresAt === null || record.expiresAt > now);
+}
+function hasFailedVerdict(record) {
+  return record.failed === true;
 }
 function integrityRefusal(config, record, now) {
   if (!config.integrityEnforced || isVerified(record, now)) return null;
@@ -5661,7 +5666,8 @@ function integrityRefusal(config, record, now) {
 function readIntegrity(nk, userId) {
   const objects = nk.storageRead([{ collection: INTEGRITY_COLLECTION, key: INTEGRITY_KEY, userId }]);
   const value = objects.length > 0 ? objects[0].value : null;
-  if (!value || value.verified !== true) return UNVERIFIED;
+  if (!value) return UNVERIFIED;
+  if (value.verified !== true) return value.failed === true ? FAILED_VERDICT : UNVERIFIED;
   return { verified: true, expiresAt: typeof value.expiresAt === "number" ? value.expiresAt : null };
 }
 function writeIntegrity(nk, userId, record) {
@@ -5678,7 +5684,7 @@ function writeIntegrity(nk, userId, record) {
 }
 function rpcLauncherSessionStart(ctx, logger, nk, payload) {
   const userId = requireUser(ctx);
-  writeIntegrity(nk, userId, UNVERIFIED);
+  if (!isVerified(readIntegrity(nk, userId), Date.now())) writeIntegrity(nk, userId, UNVERIFIED);
   const reply = callExpress(nk, logger, ctx.env, "/integrity/session-start", { nakamaUserId: userId });
   return JSON.stringify({ started: reply !== null && reply.status >= 200 && reply.status < 300 });
 }
@@ -5715,7 +5721,11 @@ function rpcAdminIntegritySet(ctx, logger, nk, payload) {
   const input = parsePayload(payload);
   const userId = requireUserId(input);
   if (typeof input.verified !== "boolean") throw runtimeError(INVALID_ARGUMENT, "verified is required");
-  writeIntegrity(nk, userId, verdictRecord(input.verified, input.permanent === true, Date.now()));
+  writeIntegrity(
+    nk,
+    userId,
+    verdictRecord(input.verified, input.permanent === true, Date.now(), optionalString(input.reason))
+  );
   notify(nk, userId, NotifyCode.INTEGRITY, "integrity", {
     verified: input.verified,
     reason: optionalString(input.reason),
@@ -8664,9 +8674,9 @@ function sendRankedResults(nk, run) {
 
 // src/standing/rejoin.ts
 var REJOIN_REFUSED_PREFIX = "standing_refused:";
-function rejoinRefusal(required, result) {
+function rejoinRefusal(required, result, verdictFailed = false) {
   if (!required || meetsRequirement(result.standing, required)) return null;
-  if (required === "verified") return { reason: "verification_pending" };
+  if (required === "verified") return { reason: verdictFailed ? "verification_failed" : "verification_pending" };
   return result.reason === "mods_not_allowed" ? { reason: "mods_not_allowed", mods: result.disallowed } : { reason: "mods_unreported" };
 }
 function messageOf(refusal) {
@@ -8677,6 +8687,8 @@ function messageOf(refusal) {
       return "Your game hasn't reported its mods yet. Try again in a moment.";
     case "verification_pending":
       return "Launcher verification is still pending. Try again in a moment.";
+    case "verification_failed":
+      return "This ranked game needs a verified BET Launcher.";
   }
 }
 function rejoinRejectMessage(refusal) {
@@ -9010,7 +9022,11 @@ function lobbyMatchJoinAttempt(ctx, logger, nk, dispatcher, tickNumber, state, p
   if (rejection) {
     return { state, accept: false, rejectMessage: rejection };
   }
-  const standingRefused = rejoinRefusal(state.lobby.requiredStanding, standingFor(nk, settingsOf(ctx), presence.userId, Date.now()));
+  const standingRefused = rejoinRefusal(
+    state.lobby.requiredStanding,
+    standingFor(nk, settingsOf(ctx), presence.userId, Date.now()),
+    hasFailedVerdict(readIntegrity(nk, presence.userId))
+  );
   if (standingRefused) {
     logger.info("Lobby %s refused %s: %s", state.lobby.code, presence.userId, standingRefused.reason);
     return { state, accept: false, rejectMessage: rejoinRejectMessage(standingRefused) };

@@ -21,6 +21,12 @@ describe('rejoinRefusal', () => {
 		expect(rejoinRefusal('verified', VALID)).toEqual({ reason: 'verification_pending' })
 		expect(rejoinRefusal('verified', MODS)).toEqual({ reason: 'verification_pending' })
 	})
+	it('a ranked game tells a failed verdict apart from no verdict', () => {
+		expect(rejoinRefusal('verified', VALID, true)).toEqual({ reason: 'verification_failed' })
+		expect(rejoinRefusal('verified', MODS, true)).toEqual({ reason: 'verification_failed' })
+		expect(rejoinRefusal('verified', VERIFIED, true)).toBeNull()
+		expect(rejoinRefusal('valid', MODS, true)).toEqual({ reason: 'mods_not_allowed', mods: ['Cryptid'] })
+	})
 })
 
 describe('rejoinRejectMessage', () => {
@@ -33,5 +39,10 @@ describe('rejoinRejectMessage', () => {
 			message: "These mods aren't allowed in this game: Cryptid, Talisman",
 		})
 		expect(JSON.parse(rejoinRejectMessage({ reason: 'verification_pending' }).slice(REJOIN_REFUSED_PREFIX.length)).mods).toEqual([])
+		expect(JSON.parse(rejoinRejectMessage({ reason: 'verification_failed' }).slice(REJOIN_REFUSED_PREFIX.length))).toEqual({
+			reason: 'verification_failed',
+			mods: [],
+			message: 'This ranked game needs a verified BET Launcher.',
+		})
 	})
 })

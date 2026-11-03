@@ -4,6 +4,9 @@ import {
 	INTEGRITY_REQUIRED,
 	INTEGRITY_TTL_MS,
 	UNVERIFIED,
+	FAILED_VERDICT,
+	hasFailedVerdict,
+	isVerified,
 	integrityRefusal,
 	readIntegrity,
 	rpcAdminIntegritySet,
@@ -32,7 +35,14 @@ describe('integrityRefusal', () => {
 		expect(integrityRefusal(ENFORCED, verdict, 1000 + INTEGRITY_TTL_MS - 1)).toBeNull()
 		expect(integrityRefusal(ENFORCED, verdict, 1000 + INTEGRITY_TTL_MS)).toBe(INTEGRITY_REQUIRED)
 		expect(integrityRefusal(ENFORCED, verdictRecord(true, true, 0), 1e15)).toBeNull()
-		expect(verdictRecord(false, true, 0)).toEqual(UNVERIFIED)
+		expect(verdictRecord(false, true, 0, 'wrong_response')).toEqual(FAILED_VERDICT)
+		expect(verdictRecord(false, false, 0, 'refused')).toEqual(FAILED_VERDICT)
+		expect(verdictRecord(false, false, 0, 'timeout')).toEqual(UNVERIFIED)
+		expect(verdictRecord(false, false, 0)).toEqual(UNVERIFIED)
+		expect(hasFailedVerdict(FAILED_VERDICT)).toBe(true)
+		expect(hasFailedVerdict(UNVERIFIED)).toBe(false)
+		expect(isVerified(FAILED_VERDICT, 0)).toBe(false)
+		expect(integrityRefusal(ENFORCED, FAILED_VERDICT, 0)).toBe(INTEGRITY_REQUIRED)
 	})
 })
 
@@ -85,9 +95,17 @@ describe('admin_integrity_set', () => {
 			JSON.stringify({ userId: USER, verified: false, reason: 'timeout', message: 'Failed' }),
 		)
 		expect(readIntegrity(nk as any, USER)).toEqual(UNVERIFIED)
+		rpcAdminIntegritySet(
+			serverCtx(),
+			fakeLogger,
+			nk as any,
+			JSON.stringify({ userId: USER, verified: false, reason: 'wrong_response' }),
+		)
+		expect(readIntegrity(nk as any, USER)).toEqual(FAILED_VERDICT)
 		expect(nk.notifications.map((n) => [n.code, n.content])).toEqual([
 			[NotifyCode.INTEGRITY, { verified: true, reason: null, message: null }],
 			[NotifyCode.INTEGRITY, { verified: false, reason: 'timeout', message: 'Failed' }],
+			[NotifyCode.INTEGRITY, { verified: false, reason: 'wrong_response', message: null }],
 		])
 	})
 
@@ -125,7 +143,6 @@ describe('admin_queue_cancel', () => {
 describe('launcher_session_start', () => {
 	it('starts unverified and asks the API to challenge', () => {
 		const nk = fakeNk()
-		writeIntegrity(nk as any, USER, verdictRecord(true, true, 0))
 		const res = JSON.parse(rpcLauncherSessionStart(playerCtx(USER, ENV), fakeLogger, nk as any, '[]'))
 		expect(res).toEqual({ started: true })
 		expect(readIntegrity(nk as any, USER)).toEqual(UNVERIFIED)
@@ -133,6 +150,26 @@ describe('launcher_session_start', () => {
 			['http://api/internal/nakama/integrity/session-start', { nakamaUserId: USER }],
 		])
 		expect(JSON.parse(rpcLauncherSessionStart(playerCtx(USER), fakeLogger, nk as any, '{}'))).toEqual({ started: false })
+	})
+})
+
+describe('launcher_session_start again', () => {
+	it('keeps a verdict that is still valid', () => {
+		const nk = fakeNk()
+		const valid = verdictRecord(true, false, Date.now())
+		writeIntegrity(nk as any, USER, valid)
+		rpcLauncherSessionStart(playerCtx(USER, ENV), fakeLogger, nk as any, '{}')
+		expect(readIntegrity(nk as any, USER)).toEqual(valid)
+		expect(nk.http).toHaveLength(1)
+	})
+	it('gives an expired verdict and a failed one a fresh start', () => {
+		const nk = fakeNk()
+		writeIntegrity(nk as any, USER, verdictRecord(true, false, Date.now() - INTEGRITY_TTL_MS - 1))
+		rpcLauncherSessionStart(playerCtx(USER, ENV), fakeLogger, nk as any, '{}')
+		expect(readIntegrity(nk as any, USER)).toEqual(UNVERIFIED)
+		writeIntegrity(nk as any, USER, FAILED_VERDICT)
+		rpcLauncherSessionStart(playerCtx(USER, ENV), fakeLogger, nk as any, '{}')
+		expect(readIntegrity(nk as any, USER)).toEqual(UNVERIFIED)
 	})
 })
 

@@ -94,6 +94,13 @@ describe('the matchmade rejoin gate', () => {
 		expect(attempt(nk, state, 'a').accept).toBe(true)
 	})
 
+	it('says a failed verdict is final for a ranked game', () => {
+		const nk = lobbyNk()
+		report(nk, 'a', ['MultiplayerAPI-0.1.2'])
+		writeIntegrity(nk, 'a', verdictRecord(false, false, 0, 'refused'))
+		expect(refusalOf(attempt(nk, matchmade(nk, 'verified'), 'a').rejectMessage).reason).toBe('verification_failed')
+	})
+
 	it('never gates a private lobby', () => {
 		const nk = lobbyNk()
 		const state = lobbyMatchInit(ctx, fakeLogger, nk, { code: 'PRIV01', modId: 'M', maxPlayers: 4, creatorId: 'a' })

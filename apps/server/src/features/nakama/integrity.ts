@@ -6,6 +6,7 @@ import { setNakamaIntegrity } from '../../infrastructure/nakama/integrity-sync.j
 import { enqueueServiceQueueItem } from '../../infrastructure/gateways/service-queue.gateway.js'
 import { type IntegrityIntake, createIntegrityIntake } from '../service-queue/integrity-intake.js'
 import {
+	CHALLENGE_OFFLINE,
 	type ChallengeSender,
 	type IntegrityVerdict,
 	type LauncherIntegrityService,
@@ -53,7 +54,7 @@ export function createNakamaIntegrityService(
 		)
 		if (!result.ok)
 			console.warn(`[nakama] Challenge for ${userId} not sent: ${result.error}`)
-		else if (result.value.online === false) return 'offline'
+		else if (result.value.online === false) return CHALLENGE_OFFLINE
 		return undefined
 	}
 

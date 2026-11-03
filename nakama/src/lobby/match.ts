@@ -72,6 +72,7 @@ import { logChecksOf, saveRun } from './storage'
 import { standingFor } from '../standing/current'
 import { pvpVersionOf } from '../standing/pvp_version'
 import { readModReport } from '../standing/storage'
+import { hasFailedVerdict, readIntegrity } from '../integrity'
 import { rejoinRefusal, rejoinRejectMessage } from '../standing/rejoin'
 import type { RequiredStanding } from '../standing/standing'
 import { settingsOf, type ServerSettings } from '../server_kind'
@@ -536,7 +537,11 @@ export function lobbyMatchJoinAttempt(
 	if (rejection) {
 		return { state, accept: false, rejectMessage: rejection }
 	}
-	const standingRefused = rejoinRefusal(state.lobby.requiredStanding, standingFor(nk, settingsOf(ctx), presence.userId, Date.now()))
+	const standingRefused = rejoinRefusal(
+		state.lobby.requiredStanding,
+		standingFor(nk, settingsOf(ctx), presence.userId, Date.now()),
+		hasFailedVerdict(readIntegrity(nk, presence.userId)),
+	)
 	if (standingRefused) {
 		// The seat stays: a returning player's grace period keeps running, so
 		// they can fix their mods (or wait for the verdict) and come back.
