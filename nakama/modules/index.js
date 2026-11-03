@@ -2627,6 +2627,10 @@ function setupAfterDowntime(game, downtime) {
 var CLAIM_TIMEOUT_MS = 3e4;
 function checkpointOf(lobby, now) {
   if (lobby.closed || lobby.players.length === 0) return null;
+  if (lobby.game.runSavePending) {
+    const _a = lobby.game, { runSavePending } = _a, game = __objRest(_a, ["runSavePending"]);
+    lobby = __spreadProps(__spreadValues({}, lobby), { game });
+  }
   const gq = lobby.groupQueue;
   const parkedUntil = gq && gq.phase === "away" ? gq.until : 0;
   return { lobby, at: now, claimedAt: null, expiresAt: Math.max(now + CHECKPOINT_TTL_MS, parkedUntil) };
@@ -7872,6 +7876,59 @@ function beforeSessionRefresh(ctx, logger, nk, data) {
   return data;
 }
 
+// src/actions/run_save.ts
+var RUN_SAVE_PART_KEY = "mpapi_run_save_part";
+var MAX_RUN_SAVE_PART_BYTES = 12 * 1024;
+var MAX_RUN_SAVE_PARTS = 16;
+var MAX_ID_LENGTH = 64;
+var HASH_PATTERN2 = /^[0-9a-f]{64}$/i;
+function isParticipant(lobby, userId) {
+  return !!lobby.game.started && lobby.game.started.players.some((p) => p.id === userId);
+}
+function isPlainObject3(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isCount2(value, max) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= max;
+}
+var runSavePart = {
+  key: RUN_SAVE_PART_KEY,
+  reduce(lobby, ctx, params) {
+    var _a, _b, _c;
+    if (!lobby.game.started) return { reject: "not_in_game" };
+    if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
+    if (!isPlainObject3(params) || typeof params.id !== "string" || params.id.length === 0 || params.id.length > MAX_ID_LENGTH || !isCount2(params.count, MAX_RUN_SAVE_PARTS) || typeof params.index !== "number" || !Number.isInteger(params.index) || params.index < 0 || params.index >= params.count || typeof params.pos !== "number" || !Number.isInteger(params.pos) || params.pos < 0 || typeof params.hash !== "string" || !HASH_PATTERN2.test(params.hash) || typeof params.data !== "string" || params.data.length > MAX_RUN_SAVE_PART_BYTES)
+      return { reject: "bad_params" };
+    if (typeof params.run === "string" && params.run !== lobby.game.started.runId)
+      return { game: lobby.game, params: null, to: "none" };
+    const game = lobby.game;
+    const held = (_a = game.runSavePending) == null ? void 0 : _a[ctx.from];
+    const same = held && held.id === params.id && held.count === params.count && held.pos === params.pos && held.hash === params.hash;
+    const pending = same ? __spreadProps(__spreadValues({}, held), { parts: __spreadValues({}, held.parts) }) : { id: params.id, count: params.count, pos: params.pos, hash: params.hash, parts: {} };
+    pending.parts[String(params.index)] = params.data;
+    const rest = __spreadValues({}, (_b = game.runSavePending) != null ? _b : {});
+    if (Object.keys(pending.parts).length < pending.count) {
+      return {
+        game: __spreadProps(__spreadValues({}, game), { runSavePending: __spreadProps(__spreadValues({}, rest), { [ctx.from]: pending }) }),
+        params: null,
+        to: "none"
+      };
+    }
+    delete rest[ctx.from];
+    let data = "";
+    for (let i = 0; i < pending.count; i++) data += pending.parts[String(i)];
+    const save = { id: pending.id, pos: pending.pos, hash: pending.hash, data, at: ctx.now };
+    return {
+      game: __spreadProps(__spreadValues({}, game), {
+        runSaves: __spreadProps(__spreadValues({}, (_c = game.runSaves) != null ? _c : {}), { [ctx.from]: save }),
+        runSavePending: rest
+      }),
+      params: null,
+      to: "none"
+    };
+  }
+};
+
 // src/actions/results.ts
 function parsePlacements(value, participants) {
   if (!Array.isArray(value) || value.length !== participants.length)
@@ -8023,13 +8080,13 @@ function settle(lobby, now) {
 // src/actions/registry.ts
 var MAX_OPTIONS_BYTES = 4 * 1024;
 var MIN_GAME_PLAYERS = 2;
-function isPlainObject3(value) {
+function isPlainObject4(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 var ready = {
   key: "mpapi_ready",
   reduce(lobby, ctx, params) {
-    if (!isPlainObject3(params) || typeof params.ready !== "boolean")
+    if (!isPlainObject4(params) || typeof params.ready !== "boolean")
       return { reject: "bad_params" };
     if (lobby.game.started) return { reject: "in_game" };
     const readyMap = __spreadValues({}, lobby.game.ready);
@@ -8067,7 +8124,7 @@ function newGame(lobby, ctx, stake, options) {
 var startGame = {
   key: "mpapi_start_game",
   reduce(lobby, ctx, params) {
-    const p = isPlainObject3(params) ? params : {};
+    const p = isPlainObject4(params) ? params : {};
     if (p.stake !== void 0 && typeof p.stake !== "number")
       return { reject: "bad_params" };
     if (p.minPlayers !== void 0 && (typeof p.minPlayers !== "number" || p.minPlayers % 1 !== 0))
@@ -8141,7 +8198,7 @@ var abandonGame = {
     };
   }
 };
-function isParticipant(lobby, userId) {
+function isParticipant2(lobby, userId) {
   const started = lobby.game.started;
   return !!started && started.players.some((p) => p.id === userId);
 }
@@ -8150,9 +8207,9 @@ var reportResult = {
   reduce(lobby, ctx, params) {
     const started = lobby.game.started;
     if (!started) return { reject: "not_in_game" };
-    if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
+    if (!isParticipant2(lobby, ctx.from)) return { reject: "not_participant" };
     const placements = parsePlacements(
-      isPlainObject3(params) ? params.placements : null,
+      isPlainObject4(params) ? params.placements : null,
       started.players
     );
     if (!placements) return { reject: "bad_params" };
@@ -8172,8 +8229,8 @@ var setResultPending = {
   reduce(lobby, ctx, params) {
     const started = lobby.game.started;
     if (!started) return { reject: "not_in_game" };
-    if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
-    if (!isPlainObject3(params) || typeof params.pending !== "boolean")
+    if (!isParticipant2(lobby, ctx.from)) return { reject: "not_participant" };
+    if (!isPlainObject4(params) || typeof params.pending !== "boolean")
       return { reject: "bad_params" };
     const game = __spreadProps(__spreadValues({}, lobby.game), {
       resultPending: params.pending,
@@ -8187,10 +8244,10 @@ var contest = {
   reduce(lobby, ctx, params) {
     const started = lobby.game.started;
     if (!started) return { reject: "not_in_game" };
-    if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
+    if (!isParticipant2(lobby, ctx.from)) return { reject: "not_participant" };
     if (!lobby.rankedMode && !lobby.gameMode) return { reject: "not_matchmade" };
     if (lobby.game.contest) return { reject: "already_contested" };
-    const input = isPlainObject3(params) ? params : {};
+    const input = isPlainObject4(params) ? params : {};
     const others = started.players.filter((p) => p.id !== ctx.from);
     let against;
     if (input.opponentId === void 0 || input.opponentId === null) {
@@ -8213,7 +8270,7 @@ var MAX_LOG_EVENTS = 2e4;
 var MAX_LOG_BYTES = 1024 * 1024;
 var MAX_OPCODE_LENGTH = 64;
 function appendLogEvent(lobby, from, now, params) {
-  if (!isPlainObject3(params) || typeof params.t !== "number" || typeof params.opcode !== "string" || params.opcode.length === 0 || params.opcode.length > MAX_OPCODE_LENGTH)
+  if (!isPlainObject4(params) || typeof params.t !== "number" || typeof params.opcode !== "string" || params.opcode.length === 0 || params.opcode.length > MAX_OPCODE_LENGTH)
     return { reject: "bad_params" };
   const started = lobby.game.started;
   if (!started) return { reject: "not_in_game" };
@@ -8246,7 +8303,7 @@ var logEvent = {
   key: "mpapi_log_event",
   reduce(lobby, ctx, params) {
     if (!lobby.game.started) return { reject: "not_in_game" };
-    if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
+    if (!isParticipant2(lobby, ctx.from)) return { reject: "not_participant" };
     const appended = appendLogEvent(lobby, ctx.from, ctx.now, params);
     if ("reject" in appended) return appended;
     return {
@@ -8261,8 +8318,8 @@ var logEvents = {
   key: "mpapi_log_events",
   reduce(lobby, ctx, params) {
     if (!lobby.game.started) return { reject: "not_in_game" };
-    if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
-    if (!isPlainObject3(params) || !Array.isArray(params.events) || params.events.length === 0 || params.events.length > MAX_LOG_BATCH)
+    if (!isParticipant2(lobby, ctx.from)) return { reject: "not_participant" };
+    if (!isPlainObject4(params) || !Array.isArray(params.events) || params.events.length === 0 || params.events.length > MAX_LOG_BATCH)
       return { reject: "bad_params" };
     let current = lobby;
     const relayed2 = [];
@@ -8291,7 +8348,8 @@ var REGISTRY = {
   [setResultPending.key]: setResultPending,
   [contest.key]: contest,
   [logEvent.key]: logEvent,
-  [logEvents.key]: logEvents
+  [logEvents.key]: logEvents,
+  [runSavePart.key]: runSavePart
 };
 for (const setupAction of SETUP_ACTIONS) REGISTRY[setupAction.key] = setupAction;
 var LOG_EVENT_KEY = logEvent.key;
@@ -9906,7 +9964,7 @@ function rpcAdminRunsExpired(ctx, logger, nk, payload) {
 var USER_ID_PATTERN4 = /^[0-9a-f-]{36}$/;
 var MODE_PATTERN2 = /^[A-Za-z0-9_:.-]{1,64}$/;
 var MAX_ENTRIES = 1e3;
-function isCount2(value) {
+function isCount3(value) {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 function isSeasonBest(value) {
@@ -9919,7 +9977,7 @@ function recordOf3(value) {
   if (typeof value !== "object" || Array.isArray(value)) return void 0;
   const r = value;
   if (typeof r.rating !== "number" || !Number.isFinite(r.rating)) return void 0;
-  if (!isCount2(r.wins) || !isCount2(r.losses) || !isCount2(r.gamesPlayed) || !isCount2(r.lastMatchAt)) return void 0;
+  if (!isCount3(r.wins) || !isCount3(r.losses) || !isCount3(r.gamesPlayed) || !isCount3(r.lastMatchAt)) return void 0;
   if (!isSeasonBest(r.seasonBest)) return void 0;
   return {
     rating: r.rating,

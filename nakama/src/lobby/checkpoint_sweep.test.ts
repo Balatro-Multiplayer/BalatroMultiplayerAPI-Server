@@ -96,3 +96,20 @@ describe('sweepCheckpoints with a short ttl', () => {
 		expect(sweepCheckpoints(nk, fakeLogger, 2000, 100, 1000).deleted).toBe(1)
 	})
 })
+
+describe('sweepCheckpoints with Run saves', () => {
+	it('leaves no Run save behind', () => {
+		const nk: any = fakeNk({ uuidv4: () => 'u1', sha256Hash: (s: string) => `h${s.length}` })
+		const lobby = lobbyWith('SAV555', true)
+		const withSaves: Lobby = {
+			...lobby,
+			game: {
+				...lobby.game,
+				runSaves: { a: { id: 's1', pos: 2, hash: 'a'.repeat(64), data: 'RUNSAVE-DATA-MARKER', at: 1 } },
+			},
+		}
+		saveCheckpoint(nk, checkpointOf(withSaves, 0)!)
+		sweepCheckpoints(nk, fakeLogger, CHECKPOINT_TTL_MS + 5, 100)
+		for (const o of nk.objects.values()) expect(JSON.stringify(o)).not.toContain('RUNSAVE-DATA-MARKER')
+	})
+})
