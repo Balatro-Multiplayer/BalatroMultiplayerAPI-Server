@@ -151,17 +151,21 @@ export function spectateEvent(lobby: Lobby, event: SpectateEvent): Outbound[] {
 
 // What a spectator needs to show `playerId` as they are now: their Run save
 // and the events after it. Only a spectator of the lobby gets it; a player in
-// the match never gets another player's Run save.
+// the match never gets another player's Run save. fromStart skips the Run save
+// and gives the whole log, for a spectator whose client could not load it.
 export function spectateRunOf(
 	lobby: Lobby,
 	userId: string,
 	playerId: string,
 	sha256: (input: string) => string,
+	fromStart = false,
 ): Step {
 	const started = lobby.game.started
 	if (!isSpectator(lobby, userId) || !started || !started.players.some((p) => p.id === playerId))
 		return { lobby, out: [] }
-	const { runSave, runSaveSkipped } = checkedRunSave(lobby, playerId, sha256)
+	const { runSave, runSaveSkipped } = fromStart
+		? { runSave: null, runSaveSkipped: null }
+		: checkedRunSave(lobby, playerId, sha256)
 	const pos = runSave ? runSave.pos : 0
 	const log = lobby.game.logs[playerId]
 	const payload: SpectateRun = {

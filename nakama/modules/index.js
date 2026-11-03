@@ -1536,8 +1536,9 @@ var ClientOp = {
   // {catchingUp} -- the sender is (or is no longer) replaying its own run
   // after a crash. The seat is safe either way: nothing waits for it.
   CATCHING_UP: 6,
-  // {playerId} -- a spectator asks for the run of the player it watches: that
+  // {playerId, fromStart?} -- a spectator asks for the run of the player it watches: that
   // player's Run save and the events after it (answered with SPECTATE_RUN).
+  // fromStart asks for the whole log and no Run save.
   SPECTATE_VIEW: 7
 };
 var ServerOp = {
@@ -3962,11 +3963,11 @@ function spectateEvent(lobby, event2) {
   if (to.length === 0) return [];
   return [{ kind: "send", op: ServerOp.SPECTATE_EVENT, payload: event2, to }];
 }
-function spectateRunOf(lobby, userId, playerId, sha256) {
+function spectateRunOf(lobby, userId, playerId, sha256, fromStart = false) {
   const started = lobby.game.started;
   if (!isSpectator(lobby, userId) || !started || !started.players.some((p) => p.id === playerId))
     return { lobby, out: [] };
-  const { runSave, runSaveSkipped } = checkedRunSave(lobby, playerId, sha256);
+  const { runSave, runSaveSkipped } = fromStart ? { runSave: null, runSaveSkipped: null } : checkedRunSave(lobby, playerId, sha256);
   const pos = runSave ? runSave.pos : 0;
   const log = lobby.game.logs[playerId];
   const payload = {
@@ -9228,7 +9229,7 @@ function stepForMessage(nk, lobby, senderId, opCode, data) {
         data.state === void 0 ? null : data.state
       );
     case ClientOp.SPECTATE_VIEW:
-      return typeof data.playerId === "string" ? spectateRunOf(lobby, senderId, data.playerId, (input) => nk.sha256Hash(input)) : null;
+      return typeof data.playerId === "string" ? spectateRunOf(lobby, senderId, data.playerId, (input) => nk.sha256Hash(input), data.fromStart === true) : null;
     case ClientOp.CATCHING_UP:
       return setCatchingUp(lobby, senderId, data.catchingUp === true, Date.now());
     default:

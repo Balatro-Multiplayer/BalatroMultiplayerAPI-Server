@@ -253,6 +253,13 @@ describe('spectateRunOf', () => {
 		expect((run.payload as any).events).toHaveLength(3)
 	})
 
+	it('sends the whole log, with no run save, to a spectator whose run save would not load', () => {
+		const lobby = watched()
+		const [run] = sends(spectateRunOf(lobby, 'z', 'a', sha, true), ServerOp.SPECTATE_RUN)
+		expect(run.payload).toMatchObject({ runSave: null, runSaveSkipped: null, pos: 0 })
+		expect((run.payload as any).events).toHaveLength(3)
+	})
+
 	it('gives nothing to a player in the match, to a stranger, or about a player not in the match', () => {
 		const lobby = watched()
 		expect(spectateRunOf(lobby, 'b', 'a', sha).out).toEqual([])

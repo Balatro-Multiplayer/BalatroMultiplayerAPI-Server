@@ -698,7 +698,7 @@ function stepForMessage(
 			)
 		case ClientOp.SPECTATE_VIEW:
 			return typeof data.playerId === 'string'
-				? spectateRunOf(lobby, senderId, data.playerId, (input) => nk.sha256Hash(input))
+				? spectateRunOf(lobby, senderId, data.playerId, (input) => nk.sha256Hash(input), data.fromStart === true)
 				: null
 		case ClientOp.CATCHING_UP:
 			return setCatchingUp(lobby, senderId, data.catchingUp === true, Date.now())

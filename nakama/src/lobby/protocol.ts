@@ -21,8 +21,9 @@ export const ClientOp = {
 	// {catchingUp} -- the sender is (or is no longer) replaying its own run
 	// after a crash. The seat is safe either way: nothing waits for it.
 	CATCHING_UP: 6,
-	// {playerId} -- a spectator asks for the run of the player it watches: that
+	// {playerId, fromStart?} -- a spectator asks for the run of the player it watches: that
 	// player's Run save and the events after it (answered with SPECTATE_RUN).
+	// fromStart asks for the whole log and no Run save.
 	SPECTATE_VIEW: 7,
 } as const
 
