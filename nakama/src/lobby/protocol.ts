@@ -233,6 +233,30 @@ export interface GameState {
 	// The result was pending at some point in this run. Stays set after the
 	// flag clears, so the settled run knows to tell players who left earlier.
 	resultWasPending?: boolean
+	// The latest complete Run save of each player (actions/run_save.ts), apart
+	// from the log. Never sent to a client from here.
+	runSaves?: { [userId: string]: RunSave }
+	// A player's Run save still missing parts.
+	runSavePending?: { [userId: string]: PendingRunSave }
+}
+
+// One player's Run save: the base64 text of the compressed save, whole, with
+// the event position it was taken at and the hash of the log up to there.
+export interface RunSave {
+	id: string
+	pos: number
+	hash: string
+	data: string
+	at: number
+}
+
+export interface PendingRunSave {
+	id: string
+	count: number
+	pos: number
+	hash: string
+	// Part index (as text) -> its data.
+	parts: { [index: string]: string }
 }
 
 export interface Contest {

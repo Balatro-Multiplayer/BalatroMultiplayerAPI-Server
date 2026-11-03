@@ -12,6 +12,7 @@ import {
 	MAX_PLAYERS,
 	emptyGame,
 } from '../lobby/state'
+import { runSavePart } from './run_save'
 import { finishGame, parsePlacements } from './results'
 import { SETUP_ACTIONS, setupForRestart } from './setup'
 import { PVP_MOD_ID, VERSION_MISMATCH, versionOutliers } from '../standing/pvp_version'
@@ -414,6 +415,7 @@ const REGISTRY: { [key: string]: AuthoritativeAction } = {
 	[contest.key]: contest,
 	[logEvent.key]: logEvent,
 	[logEvents.key]: logEvents,
+	[runSavePart.key]: runSavePart,
 }
 for (const setupAction of SETUP_ACTIONS) REGISTRY[setupAction.key] = setupAction
 
