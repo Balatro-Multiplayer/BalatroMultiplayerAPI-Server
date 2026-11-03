@@ -2627,6 +2627,10 @@ function setupAfterDowntime(game, downtime) {
 var CLAIM_TIMEOUT_MS = 3e4;
 function checkpointOf(lobby, now) {
   if (lobby.closed || lobby.players.length === 0) return null;
+  if (lobby.game.runSavePending) {
+    const _a = lobby.game, { runSavePending } = _a, game = __objRest(_a, ["runSavePending"]);
+    lobby = __spreadProps(__spreadValues({}, lobby), { game });
+  }
   const gq = lobby.groupQueue;
   const parkedUntil = gq && gq.phase === "away" ? gq.until : 0;
   return { lobby, at: now, claimedAt: null, expiresAt: Math.max(now + CHECKPOINT_TTL_MS, parkedUntil) };
