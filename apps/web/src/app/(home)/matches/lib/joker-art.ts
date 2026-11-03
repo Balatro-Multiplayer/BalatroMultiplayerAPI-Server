@@ -38,8 +38,8 @@ function candidates(ident: string): string[] {
 
 export function jokerArt(ident: string): JokerInfo | null {
   for (const key of candidates(ident)) {
-    const found = MP_JOKERS[key] ?? jokers[key]
-    if (found) return found
+    if (Object.hasOwn(MP_JOKERS, key)) return MP_JOKERS[key] ?? null
+    if (Object.hasOwn(jokers, key)) return jokers[key] ?? null
   }
   return null
 }
