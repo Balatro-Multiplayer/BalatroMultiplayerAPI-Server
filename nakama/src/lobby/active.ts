@@ -8,7 +8,8 @@ import { hashInput } from './log_check'
 // seated in the lobby. The events are the player's own log so far, parsed
 // from the JSON text they arrived as into {t, opcode, args}.
 //
-// The owner's Run save is checked here against the log as it arrived: it is
+// The owner's Run save is checked (checkedRunSave) against the log as it
+// arrived: it is
 // given only if the log holds its position and the log up to there hashes to
 // the save's hash. (The client cannot redo that hash from the parsed events:
 // it would have to re-encode objects in the order they arrived.)
@@ -17,16 +18,8 @@ export function activeRunOf(lobby: Lobby, userId: string, sha256: (input: string
 	if (!started || lobby.closed) return null
 	if (!started.players.some((p) => p.id === userId)) return null
 	if (!lobby.players.some((p) => p.id === userId)) return null
-	const save = lobby.game.runSaves?.[userId]
 	const lines = lobby.game.logs[userId]?.lines ?? []
-	let runSave: ActiveRun['runSave'] = null
-	let runSaveSkipped: ActiveRun['runSaveSkipped'] = null
-	if (save) {
-		if (save.pos > lines.length) runSaveSkipped = 'beyond_log'
-		else if (sha256(hashInput(lines.slice(0, save.pos))).toLowerCase() !== save.hash.toLowerCase())
-			runSaveSkipped = 'hash_mismatch'
-		else runSave = { id: save.id, pos: save.pos, hash: save.hash, data: save.data }
-	}
+	const { runSave, runSaveSkipped } = checkedRunSave(lobby, userId, sha256)
 	return {
 		runId: started.runId,
 		code: lobby.code,
@@ -53,9 +46,26 @@ export function replayTailOf(lobby: Lobby, userId: string): ReplayTail | null {
 	return tails.length > 0 ? { runId: started.runId, tails } : null
 }
 
-function eventsOf(log: PlayerLog | undefined): ReplayEvent[] {
+export function eventsOf(log: PlayerLog | undefined): ReplayEvent[] {
 	return (log ? log.lines : []).map((line) => {
 		const [t, opcode, args] = JSON.parse(line) as unknown[]
 		return { t, opcode, args }
 	})
+}
+
+// userId's latest Run save if the log holds its position and the log up to
+// there hashes to the save's hash; otherwise null, and why when a save was
+// held back. Callers decide who may be given it.
+export function checkedRunSave(
+	lobby: Lobby,
+	userId: string,
+	sha256: (input: string) => string,
+): { runSave: ActiveRun['runSave']; runSaveSkipped: ActiveRun['runSaveSkipped'] } {
+	const save = lobby.game.runSaves?.[userId]
+	if (!save) return { runSave: null, runSaveSkipped: null }
+	const lines = lobby.game.logs[userId]?.lines ?? []
+	if (save.pos > lines.length) return { runSave: null, runSaveSkipped: 'beyond_log' }
+	if (sha256(hashInput(lines.slice(0, save.pos))).toLowerCase() !== save.hash.toLowerCase())
+		return { runSave: null, runSaveSkipped: 'hash_mismatch' }
+	return { runSave: { id: save.id, pos: save.pos, hash: save.hash, data: save.data }, runSaveSkipped: null }
 }

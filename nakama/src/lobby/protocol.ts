@@ -21,6 +21,9 @@ export const ClientOp = {
 	// {catchingUp} -- the sender is (or is no longer) replaying its own run
 	// after a crash. The seat is safe either way: nothing waits for it.
 	CATCHING_UP: 6,
+	// {playerId} -- a spectator asks for the run of the player it watches: that
+	// player's Run save and the events after it (answered with SPECTATE_RUN).
+	SPECTATE_VIEW: 7,
 } as const
 
 export const ServerOp = {
@@ -54,6 +57,8 @@ export const ServerOp = {
 	// GroupQueueMessage, to the home lobby's players: its group queue moved on
 	// (matchmaking/group).
 	GROUP_QUEUE: 112,
+	// SpectateRun, to the spectator that asked (ClientOp.SPECTATE_VIEW).
+	SPECTATE_RUN: 113,
 } as const
 
 // Where an ACTION goes: a player id, '*' for everyone (the sender included),
@@ -398,6 +403,17 @@ export interface SpectateSnapshot {
 	runId: string | null
 	players: { playerId: string; displayName: string }[]
 	snapshot: SpectatorSnapshotEntry[]
+}
+
+// A spectator's starting point for one player: the player's Run save, checked
+// against the log as in ActiveRun, and the events after it (all of them when
+// there is no save). `pos` is how many events the save covers.
+export interface SpectateRun {
+	playerId: string
+	runSave: ActiveRun['runSave']
+	runSaveSkipped: ActiveRun['runSaveSkipped']
+	pos: number
+	events: ReplayEvent[]
 }
 
 export interface SpectateEvent {

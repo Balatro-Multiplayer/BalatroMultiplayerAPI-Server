@@ -1535,7 +1535,10 @@ var ClientOp = {
   ACTION: 5,
   // {catchingUp} -- the sender is (or is no longer) replaying its own run
   // after a crash. The seat is safe either way: nothing waits for it.
-  CATCHING_UP: 6
+  CATCHING_UP: 6,
+  // {playerId} -- a spectator asks for the run of the player it watches: that
+  // player's Run save and the events after it (answered with SPECTATE_RUN).
+  SPECTATE_VIEW: 7
 };
 var ServerOp = {
   // Snapshot, to the joining player only.
@@ -1567,7 +1570,9 @@ var ServerOp = {
   REPLAY_TAIL: 111,
   // GroupQueueMessage, to the home lobby's players: its group queue moved on
   // (matchmaking/group).
-  GROUP_QUEUE: 112
+  GROUP_QUEUE: 112,
+  // SpectateRun, to the spectator that asked (ClientOp.SPECTATE_VIEW).
+  SPECTATE_RUN: 113
 };
 var BROADCAST_TARGET = "*";
 var SERVER_TARGET = "server";
@@ -2957,21 +2962,13 @@ function checkLog(log, sha256) {
 
 // src/lobby/active.ts
 function activeRunOf(lobby, userId, sha256) {
-  var _a, _b, _c;
+  var _a, _b;
   const started = lobby.game.started;
   if (!started || lobby.closed) return null;
   if (!started.players.some((p) => p.id === userId)) return null;
   if (!lobby.players.some((p) => p.id === userId)) return null;
-  const save = (_a = lobby.game.runSaves) == null ? void 0 : _a[userId];
-  const lines = (_c = (_b = lobby.game.logs[userId]) == null ? void 0 : _b.lines) != null ? _c : [];
-  let runSave = null;
-  let runSaveSkipped = null;
-  if (save) {
-    if (save.pos > lines.length) runSaveSkipped = "beyond_log";
-    else if (sha256(hashInput(lines.slice(0, save.pos))).toLowerCase() !== save.hash.toLowerCase())
-      runSaveSkipped = "hash_mismatch";
-    else runSave = { id: save.id, pos: save.pos, hash: save.hash, data: save.data };
-  }
+  const lines = (_b = (_a = lobby.game.logs[userId]) == null ? void 0 : _a.lines) != null ? _b : [];
+  const { runSave, runSaveSkipped } = checkedRunSave(lobby, userId, sha256);
   return {
     runId: started.runId,
     code: lobby.code,
@@ -2995,6 +2992,16 @@ function eventsOf(log) {
     const [t, opcode, args] = JSON.parse(line);
     return { t, opcode, args };
   });
+}
+function checkedRunSave(lobby, userId, sha256) {
+  var _a, _b, _c;
+  const save = (_a = lobby.game.runSaves) == null ? void 0 : _a[userId];
+  if (!save) return { runSave: null, runSaveSkipped: null };
+  const lines = (_c = (_b = lobby.game.logs[userId]) == null ? void 0 : _b.lines) != null ? _c : [];
+  if (save.pos > lines.length) return { runSave: null, runSaveSkipped: "beyond_log" };
+  if (sha256(hashInput(lines.slice(0, save.pos))).toLowerCase() !== save.hash.toLowerCase())
+    return { runSave: null, runSaveSkipped: "hash_mismatch" };
+  return { runSave: { id: save.id, pos: save.pos, hash: save.hash, data: save.data }, runSaveSkipped: null };
 }
 
 // src/lobby/catch_up.ts
@@ -3954,6 +3961,22 @@ function spectateEvent(lobby, event2) {
   const to = spectatorsOf(lobby);
   if (to.length === 0) return [];
   return [{ kind: "send", op: ServerOp.SPECTATE_EVENT, payload: event2, to }];
+}
+function spectateRunOf(lobby, userId, playerId, sha256) {
+  const started = lobby.game.started;
+  if (!isSpectator(lobby, userId) || !started || !started.players.some((p) => p.id === playerId))
+    return { lobby, out: [] };
+  const { runSave, runSaveSkipped } = checkedRunSave(lobby, playerId, sha256);
+  const pos = runSave ? runSave.pos : 0;
+  const log = lobby.game.logs[playerId];
+  const payload = {
+    playerId,
+    runSave,
+    runSaveSkipped,
+    pos,
+    events: eventsOf(log ? __spreadProps(__spreadValues({}, log), { lines: log.lines.slice(pos) }) : void 0)
+  };
+  return { lobby, out: [{ kind: "send", op: ServerOp.SPECTATE_RUN, payload, to: [userId] }] };
 }
 function spectatableLobbies(labels) {
   const lobbies = [];
@@ -9204,6 +9227,8 @@ function stepForMessage(nk, lobby, senderId, opCode, data) {
         senderId,
         data.state === void 0 ? null : data.state
       );
+    case ClientOp.SPECTATE_VIEW:
+      return typeof data.playerId === "string" ? spectateRunOf(lobby, senderId, data.playerId, (input) => nk.sha256Hash(input)) : null;
     case ClientOp.CATCHING_UP:
       return setCatchingUp(lobby, senderId, data.catchingUp === true, Date.now());
     default:

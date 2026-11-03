@@ -59,6 +59,7 @@ import {
 	isSpectator,
 	removeSpectator,
 	spectateRejection,
+	spectateRunOf,
 } from './spectate'
 import { recordRun } from '../achievements/record'
 import { sendLateResults, sendRankedResults } from './late_result'
@@ -695,6 +696,10 @@ function stepForMessage(
 				senderId,
 				data.state === undefined ? null : data.state,
 			)
+		case ClientOp.SPECTATE_VIEW:
+			return typeof data.playerId === 'string'
+				? spectateRunOf(lobby, senderId, data.playerId, (input) => nk.sha256Hash(input))
+				: null
 		case ClientOp.CATCHING_UP:
 			return setCatchingUp(lobby, senderId, data.catchingUp === true, Date.now())
 		default:

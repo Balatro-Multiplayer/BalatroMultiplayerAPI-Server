@@ -6,10 +6,12 @@
 import {
 	ServerOp,
 	type SpectateEvent,
+	type SpectateRun,
 	type SpectateSnapshot,
 	type SpectatorManifest,
 	type SpectatorSnapshotEntry,
 } from './protocol'
+import { checkedRunSave, eventsOf } from './active'
 import { DIFFERENT_MOD, type Lobby, type Outbound, type Step, findPlayer, isSpectatable } from './state'
 
 export const MAX_SPECTATORS = 16
@@ -145,6 +147,31 @@ export function spectateEvent(lobby: Lobby, event: SpectateEvent): Outbound[] {
 	const to = spectatorsOf(lobby)
 	if (to.length === 0) return []
 	return [{ kind: 'send', op: ServerOp.SPECTATE_EVENT, payload: event, to }]
+}
+
+// What a spectator needs to show `playerId` as they are now: their Run save
+// and the events after it. Only a spectator of the lobby gets it; a player in
+// the match never gets another player's Run save.
+export function spectateRunOf(
+	lobby: Lobby,
+	userId: string,
+	playerId: string,
+	sha256: (input: string) => string,
+): Step {
+	const started = lobby.game.started
+	if (!isSpectator(lobby, userId) || !started || !started.players.some((p) => p.id === playerId))
+		return { lobby, out: [] }
+	const { runSave, runSaveSkipped } = checkedRunSave(lobby, playerId, sha256)
+	const pos = runSave ? runSave.pos : 0
+	const log = lobby.game.logs[playerId]
+	const payload: SpectateRun = {
+		playerId,
+		runSave,
+		runSaveSkipped,
+		pos,
+		events: eventsOf(log ? { ...log, lines: log.lines.slice(pos) } : undefined),
+	}
+	return { lobby, out: [{ kind: 'send', op: ServerOp.SPECTATE_RUN, payload, to: [userId] }] }
 }
 
 export interface SpectatableLobby {
