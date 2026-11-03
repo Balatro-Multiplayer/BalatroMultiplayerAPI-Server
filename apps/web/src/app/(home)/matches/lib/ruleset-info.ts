@@ -1,6 +1,6 @@
 import { DECK_INFO } from '@/shared/decks'
 
-// Ported from www's log-parser (src/app/(home)/log-parser/page.tsx) --
+// Ported from www's log parser --
 // RULESET_INFO has no equivalent anywhere in this app yet (unlike
 // DECK_INFO/DECK_IMAGES, already in @/shared/decks from the shared www
 // origin). normalizeLookupKey handles both PvP's raw ruleset keys

@@ -4,7 +4,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 
-// Ported from www's InfoTooltipLabel (log-parser/page.tsx).
+// Ported from www's InfoTooltipLabel.
 export function InfoTooltipLabel({
   label,
   description,
