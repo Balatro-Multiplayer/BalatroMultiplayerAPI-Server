@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   hiddenPlayerIds,
   matchLink,
+  ownSide,
   shareControl,
   withOwnSideShared,
 } from './match-view'
@@ -51,6 +52,23 @@ describe('hiddenPlayerIds', () => {
       side('b', { hidden: true }),
     ])
     expect([...ids]).toEqual(['b'])
+  })
+})
+
+describe('ownSide', () => {
+  test('is the viewer side, found by the viewer player id', () => {
+    const data = response([side('a'), side('b')], {
+      role: 'participant',
+      playerId: 'b',
+    })
+    expect(ownSide(data)?.playerId).toBe('b')
+  })
+
+  test('is undefined for a public viewer or a viewer not in the match', () => {
+    expect(ownSide(response([side('a')], { role: 'public' }))).toBe(undefined)
+    expect(
+      ownSide(response([side('a')], { role: 'public', playerId: 'z' }))
+    ).toBe(undefined)
   })
 })
 

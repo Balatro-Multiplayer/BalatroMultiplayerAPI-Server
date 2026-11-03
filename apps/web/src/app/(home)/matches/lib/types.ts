@@ -10,6 +10,11 @@ export interface RunRow {
   finalizedAt: string | null
 }
 
+// The run in a match view. A public viewer gets no lobby code.
+export interface ReplayRun extends Omit<RunRow, 'lobbyCode'> {
+  lobbyCode: string | null
+}
+
 export interface MyRunsResponse {
   runs: RunRow[]
   total: number
@@ -37,7 +42,7 @@ export interface PlayerLogRow {
 export type ReplayViewerRole = 'participant' | 'moderator' | 'public'
 
 export interface RunReplayResponse {
-  run: RunRow
+  run: ReplayRun
   logs: PlayerLogRow[]
   viewer: { role: ReplayViewerRole; playerId?: string }
 }

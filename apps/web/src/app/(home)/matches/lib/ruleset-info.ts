@@ -1,7 +1,7 @@
 import { DECK_INFO } from '@/shared/decks'
 
-// Ported from www's log parser --
-// RULESET_INFO has no equivalent anywhere in this app yet (unlike
+// RULESET_INFO: names and descriptions shown on the match page. It has no
+// equivalent anywhere in this app yet (unlike
 // DECK_INFO/DECK_IMAGES, already in @/shared/decks from the shared www
 // origin). normalizeLookupKey handles both PvP's raw ruleset keys
 // (`ruleset_mp_vanilla` -> `vanilla`) and SPDRN's manifest, where the

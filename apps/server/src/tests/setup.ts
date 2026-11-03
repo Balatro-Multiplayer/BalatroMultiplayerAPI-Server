@@ -121,6 +121,7 @@ vi.mock('../infrastructure/gateways/player.gateway.js', () => ({
 	findPlayerBySteamIdHash: vi.fn().mockResolvedValue(null),
 	findPlayerByDiscordIdHash: vi.fn().mockResolvedValue(null),
 	findPlayerById: vi.fn().mockResolvedValue(null),
+	isModerator: vi.fn().mockResolvedValue(false),
 	findPlayerBySteamName: vi.fn().mockResolvedValue(null),
 	createPlayer: vi.fn().mockResolvedValue(mockPlayerRecord),
 	linkSteam: vi.fn().mockResolvedValue(undefined),
@@ -162,6 +163,7 @@ beforeEach(async () => {
 	vi.mocked(playerDb.findPlayerBySteamIdHash).mockResolvedValue(null)
 	vi.mocked(playerDb.findPlayerByDiscordIdHash).mockResolvedValue(null)
 	vi.mocked(playerDb.findPlayerById).mockResolvedValue(null)
+	vi.mocked(playerDb.isModerator).mockResolvedValue(false)
 	vi.mocked(playerDb.createPlayer).mockResolvedValue(mockPlayerRecord)
 	vi.mocked(playerDb.linkSteam).mockResolvedValue(undefined)
 	vi.mocked(playerDb.linkNakamaUser).mockResolvedValue(undefined)

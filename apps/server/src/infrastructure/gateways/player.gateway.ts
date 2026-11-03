@@ -300,3 +300,12 @@ export async function clearDeletedPlayerHashes(playerIds: string[]): Promise<num
 		.returning({ id: players.id })
 	return cleared.length
 }
+
+export async function isModerator(playerId: string): Promise<boolean> {
+	const player = await findPlayerById(playerId)
+	return (
+		player?.privileges.includes('admin') ||
+		player?.privileges.includes('moderator') ||
+		false
+	)
+}

@@ -1,7 +1,7 @@
 import request from 'supertest'
 import { describe, expect, it, vi } from 'vitest'
 import { signJwt } from '../../features/auth/jwt.js'
-import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
+import { isModerator } from '../../infrastructure/gateways/player.gateway.js'
 import * as replayLogGateway from '../../infrastructure/gateways/replay-log.gateway.js'
 import { compressToBase64 } from '../../shared/utils/compression.js'
 import { createSession } from '../../state/index.js'
@@ -135,9 +135,7 @@ describe('runs routes', () => {
 
 		it('gives a moderator every side in full when nothing is shared', async () => {
 			mockRun({ p1: null, p2: null })
-			vi.mocked(findPlayerById).mockResolvedValue({
-				privileges: ['moderator'],
-			} as Awaited<ReturnType<typeof findPlayerById>>)
+			vi.mocked(isModerator).mockResolvedValue(true)
 
 			const res = await request(app)
 				.get('/api/runs/run-1/replay')

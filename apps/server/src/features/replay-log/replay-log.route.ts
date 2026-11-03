@@ -1,5 +1,4 @@
 import { Router } from 'express'
-import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import {
 	authenticate,
 	optionalAuthenticate,
@@ -38,21 +37,11 @@ export function createReplayLogRouter(service: ReplayLogService): Router {
 	// a moderator, or a side is shared.
 	router.get('/:runId/replay', optionalAuthenticate, async (req, res, next) => {
 		try {
-			// Same DB-authoritative privilege check webAdmin's middleware uses
-			// (not the in-memory session), so a moderator browsing from the
-			// website -- no live game session required -- still gets access.
-			const playerId = req.player?.playerId ?? null
-			const player = playerId ? await findPlayerById(playerId) : null
-			const isModerator =
-				player?.privileges.includes('admin') ||
-				player?.privileges.includes('moderator') ||
-				false
-
 			res.json(
-				await service.getReplay(String(req.params.runId), {
-					playerId,
-					isModerator,
-				}),
+				await service.getReplay(
+					String(req.params.runId),
+					req.player?.playerId ?? null,
+				),
 			)
 		} catch (err) {
 			next(err)

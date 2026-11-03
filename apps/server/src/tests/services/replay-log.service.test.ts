@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { IModeratorLookup } from '../../contracts/IModeratorLookup.js'
 import type { IReplayLogRepository } from '../../contracts/IReplayLogRepository.js'
 import { createReplayLogService } from '../../features/replay-log/replay-log.service.js'
 import {
@@ -15,6 +16,13 @@ function makeMockRepository(): IReplayLogRepository {
 		getDisplayNames: vi.fn().mockResolvedValue(new Map()),
 	}
 }
+
+const noModerators: IModeratorLookup = {
+	isModerator: vi.fn().mockResolvedValue(false),
+}
+const moderatorIds = (...ids: string[]): IModeratorLookup => ({
+	isModerator: vi.fn(async (id: string) => ids.includes(id)),
+})
 
 describe('replay-log.service', () => {
 	describe('listMyRuns', () => {
@@ -34,7 +42,10 @@ describe('replay-log.service', () => {
 			repository.getRunsForPlayer = vi
 				.fn()
 				.mockResolvedValue({ runs, total: 1 })
-			const service = createReplayLogService({ repository })
+			const service = createReplayLogService({
+				repository,
+				moderators: noModerators,
+			})
 
 			const result = await service.listMyRuns('p1')
 
@@ -44,7 +55,10 @@ describe('replay-log.service', () => {
 
 		it('returns an empty list when the player has no runs', async () => {
 			const repository = makeMockRepository()
-			const service = createReplayLogService({ repository })
+			const service = createReplayLogService({
+				repository,
+				moderators: noModerators,
+			})
 
 			const result = await service.listMyRuns('p1')
 
@@ -83,7 +97,10 @@ describe('replay-log.service', () => {
 		])
 		const eventsOf = (block: string) => JSON.parse(decompressFromBase64(block))
 
-		function setup(sharedAt: { p1: Date | null; p2: Date | null }) {
+		function setup(
+			sharedAt: { p1: Date | null; p2: Date | null },
+			moderators: IModeratorLookup = moderatorIds('mod'),
+		) {
 			const repository = makeMockRepository()
 			vi.mocked(repository.getRunWithLogs).mockResolvedValue({
 				run,
@@ -92,29 +109,26 @@ describe('replay-log.service', () => {
 			vi.mocked(repository.getDisplayNames).mockResolvedValue(names)
 			return {
 				repository,
-				service: createReplayLogService({ repository }),
+				service: createReplayLogService({ repository, moderators }),
 			}
 		}
 
 		it('throws 404 when the run does not exist', async () => {
 			const repository = makeMockRepository()
-			const service = createReplayLogService({ repository })
+			const service = createReplayLogService({
+				repository,
+				moderators: noModerators,
+			})
 
-			await expect(
-				service.getReplay('missing-run', {
-					playerId: 'p1',
-					isModerator: false,
-				}),
-			).rejects.toThrow('Run not found')
+			await expect(service.getReplay('missing-run', 'p1')).rejects.toThrow(
+				'Run not found',
+			)
 		})
 
 		it('gives a participant every side in full, with names and flags', async () => {
 			const { service } = setup({ p1: new Date(), p2: null })
 
-			const result = await service.getReplay('run-1', {
-				playerId: 'p2',
-				isModerator: false,
-			})
+			const result = await service.getReplay('run-1', 'p2')
 
 			expect(result.viewer).toEqual({ role: 'participant', playerId: 'p2' })
 			expect(
@@ -132,10 +146,7 @@ describe('replay-log.service', () => {
 		it('gives a moderator every side in full', async () => {
 			const { service } = setup({ p1: null, p2: null })
 
-			const result = await service.getReplay('run-1', {
-				playerId: 'mod',
-				isModerator: true,
-			})
+			const result = await service.getReplay('run-1', 'mod')
 
 			expect(result.viewer).toEqual({ role: 'moderator', playerId: 'mod' })
 			expect(
@@ -146,24 +157,18 @@ describe('replay-log.service', () => {
 		it('answers 404 to a public viewer when no side is shared', async () => {
 			const { service } = setup({ p1: null, p2: null })
 
-			await expect(
-				service.getReplay('run-1', { playerId: null, isModerator: false }),
-			).rejects.toThrow('Run not found')
-			await expect(
-				service.getReplay('run-1', {
-					playerId: 'stranger',
-					isModerator: false,
-				}),
-			).rejects.toThrow('Run not found')
+			await expect(service.getReplay('run-1', null)).rejects.toThrow(
+				'Run not found',
+			)
+			await expect(service.getReplay('run-1', 'stranger')).rejects.toThrow(
+				'Run not found',
+			)
 		})
 
 		it('shows a public viewer shared sides in full and the others reduced', async () => {
 			const { service } = setup({ p1: new Date(), p2: null })
 
-			const result = await service.getReplay('run-1', {
-				playerId: null,
-				isModerator: false,
-			})
+			const result = await service.getReplay('run-1', null)
 
 			expect(result.viewer).toEqual({ role: 'public' })
 			const [shared, hidden] = result.logs
@@ -186,6 +191,29 @@ describe('replay-log.service', () => {
 			expect(hidden?.eventCount).toBe(2)
 		})
 
+		it('gives a moderator who is also in the run the moderator role', async () => {
+			const { service } = setup({ p1: null, p2: null }, moderatorIds('p1'))
+
+			const result = await service.getReplay('run-1', 'p1')
+
+			expect(result.viewer).toEqual({ role: 'moderator', playerId: 'p1' })
+		})
+
+		it('gives the lobby code to players and moderators, not to the public', async () => {
+			const { service } = setup({ p1: new Date(), p2: null })
+
+			expect((await service.getReplay('run-1', 'p1')).run.lobbyCode).toBe(
+				'ABCDE',
+			)
+			expect((await service.getReplay('run-1', 'mod')).run.lobbyCode).toBe(
+				'ABCDE',
+			)
+			expect((await service.getReplay('run-1', null)).run.lobbyCode).toBeNull()
+			expect(
+				(await service.getReplay('run-1', 'stranger')).run.lobbyCode,
+			).toBeNull()
+		})
+
 		it('hides anti-cheat flags and hashes from a public viewer', async () => {
 			const { service, repository } = setup({ p1: new Date(), p2: null })
 			vi.mocked(repository.getRunWithLogs).mockResolvedValue({
@@ -196,10 +224,7 @@ describe('replay-log.service', () => {
 				],
 			})
 
-			const result = await service.getReplay('run-1', {
-				playerId: 'stranger',
-				isModerator: false,
-			})
+			const result = await service.getReplay('run-1', 'stranger')
 
 			expect(result.viewer).toEqual({ role: 'public', playerId: 'stranger' })
 			expect(
@@ -213,7 +238,10 @@ describe('replay-log.service', () => {
 	describe('setShared', () => {
 		it('sets the flag on the caller own row', async () => {
 			const repository = makeMockRepository()
-			const service = createReplayLogService({ repository })
+			const service = createReplayLogService({
+				repository,
+				moderators: noModerators,
+			})
 
 			await service.setShared('run-1', 'p1', true)
 
@@ -223,7 +251,10 @@ describe('replay-log.service', () => {
 		it('throws 404 when the caller has no row in the run', async () => {
 			const repository = makeMockRepository()
 			vi.mocked(repository.setShared).mockResolvedValue(false)
-			const service = createReplayLogService({ repository })
+			const service = createReplayLogService({
+				repository,
+				moderators: noModerators,
+			})
 
 			await expect(service.setShared('run-1', 'p1', false)).rejects.toThrow(
 				'Run not found',

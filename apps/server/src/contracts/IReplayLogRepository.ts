@@ -15,6 +15,11 @@ export interface RunRow {
 	finalizedAt: Date | null
 }
 
+// The run as the replay response shows it. A public viewer gets no lobby code.
+export interface ReplayRun extends Omit<RunRow, 'lobbyCode'> {
+	lobbyCode: string | null
+}
+
 export interface PlayerLogRow {
 	playerId: string
 	compressedEvents: string
@@ -44,7 +49,7 @@ export interface ReplaySide {
 }
 
 export interface ReplayResponse {
-	run: RunRow
+	run: ReplayRun
 	logs: ReplaySide[]
 	viewer: { role: ReplayViewerRole; playerId?: string }
 }

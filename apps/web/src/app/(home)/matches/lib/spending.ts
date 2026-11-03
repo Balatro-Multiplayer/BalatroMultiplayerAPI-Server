@@ -6,9 +6,8 @@ import type { DecodedPlayerLog } from './decode-player-logs'
 // objects/replay_log/record.lua's SPDRN equivalent) -- older recordings
 // predate both and simply won't have the data to compute either number.
 //
-// This is NOT the same comparison www's log parser makes ("Reported" vs
-// "Actual" spending): that system has a client self-report event
-// (spentLastShop) this protocol has no equivalent of. Here:
+// This is NOT a "Reported" vs "Actual" comparison: that would need a client
+// self-report event (spentLastShop) this protocol has no equivalent of. Here:
 //   - itemizedPurchases: sum of each buy/open_pack/voucher event's own
 //     `cost` (the 4th positional arg) -- a bottom-up account of individual
 //     shop purchases specifically.

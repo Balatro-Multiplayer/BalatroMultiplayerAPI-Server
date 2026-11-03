@@ -9,6 +9,12 @@ export function hiddenPlayerIds(
   return new Set(logs.filter((l) => l.hidden).map((l) => l.playerId))
 }
 
+/** The viewer's own side of the match, or undefined (public, or not in it). */
+export function ownSide(data: RunReplayResponse): PlayerLogRow | undefined {
+  const viewerId = data.viewer.playerId
+  return viewerId ? data.logs.find((l) => l.playerId === viewerId) : undefined
+}
+
 export interface ShareControl {
   /** The viewer's own side is shared: show Unshare and Copy link. */
   shared: boolean
@@ -17,9 +23,7 @@ export interface ShareControl {
 // Null when the viewer has no side of their own in this match (a public
 // viewer, or a moderator who did not play), so no Share button shows.
 export function shareControl(data: RunReplayResponse): ShareControl | null {
-  const viewerId = data.viewer.playerId
-  if (!viewerId) return null
-  const own = data.logs.find((l) => l.playerId === viewerId)
+  const own = ownSide(data)
   return own ? { shared: own.shared } : null
 }
 
@@ -27,12 +31,10 @@ export function withOwnSideShared(
   data: RunReplayResponse,
   shared: boolean
 ): RunReplayResponse {
-  const viewerId = data.viewer.playerId
+  const own = ownSide(data)
   return {
     ...data,
-    logs: data.logs.map((l) =>
-      l.playerId === viewerId ? { ...l, shared } : l
-    ),
+    logs: data.logs.map((l) => (l === own ? { ...l, shared } : l)),
   }
 }
 

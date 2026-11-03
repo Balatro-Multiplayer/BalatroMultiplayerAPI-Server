@@ -1,3 +1,4 @@
+import { PVP_BLIND_KEY } from '@bmp/types'
 import type { ResolvedCard } from '../card-ref'
 import { isRawRef, resolveCardRef } from '../card-ref'
 import type { DecodedPlayerLog } from '../decode-player-logs'
@@ -40,7 +41,7 @@ function rollValue(raw: unknown): number | null {
 export function blindName(key: string): string {
   if (key === 'bl_small') return 'Small Blind'
   if (key === 'bl_big') return 'Big Blind'
-  if (key === 'bl_mp_nemesis') return 'PvP Blind'
+  if (key === PVP_BLIND_KEY) return 'PvP Blind'
   const bare = key.replace(/^bl_(mp_)?/, '')
   const title = bare
     .split('_')
@@ -173,7 +174,7 @@ function newRound(
     entry,
     blindKey,
     isPvp: blindKey
-      ? blindKey === 'bl_mp_nemesis'
+      ? blindKey === PVP_BLIND_KEY
       : entry !== 'setup' && slot === 2,
     anteKey: null,
     startT: t,

@@ -147,7 +147,8 @@ export default function MatchPage() {
           )}
         </div>
         <p className='text-muted-foreground text-sm'>
-          {data.run.modId} · Lobby {data.run.lobbyCode} · Started{' '}
+          {data.run.modId}
+          {data.run.lobbyCode && ` · Lobby ${data.run.lobbyCode}`} · Started{' '}
           {new Date(data.run.startedAt).toLocaleString()}
         </p>
         {share && (

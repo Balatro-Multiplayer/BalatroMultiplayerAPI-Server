@@ -1,11 +1,12 @@
+import type { IModeratorLookup } from '../../contracts/IModeratorLookup.js'
 import type {
 	IReplayLogRepository,
 	ReplayResponse,
+	ReplayRun,
 	ReplaySide,
 	ReplayViewerRole,
 	RunRow,
 } from '../../contracts/IReplayLogRepository.js'
-import * as replayLogGateway from '../../infrastructure/gateways/replay-log.gateway.js'
 import { decompressFromBase64 } from '../../shared/utils/compression.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { reduceToResultOnly } from './hidden-side.js'
@@ -19,35 +20,42 @@ function countEvents(block: string): number {
 
 interface ReplayLogServiceDeps {
 	repository: IReplayLogRepository
+	moderators: IModeratorLookup
 }
 
 export type ReplayLogService = ReturnType<typeof createReplayLogService>
 
 export function createReplayLogService(deps: ReplayLogServiceDeps) {
-	const { repository } = deps
+	const { repository, moderators } = deps
+
+	// The viewer's role, resolved once: a moderator (from the DB-stored
+	// privileges), else a player in the run, else public.
+	async function viewerRole(
+		playerId: string | null,
+		logs: readonly { playerId: string }[],
+	): Promise<ReplayViewerRole> {
+		if (playerId !== null && (await moderators.isModerator(playerId))) {
+			return 'moderator'
+		}
+		if (playerId !== null && logs.some((log) => log.playerId === playerId)) {
+			return 'participant'
+		}
+		return 'public'
+	}
 
 	// GET /api/runs/:runId/replay. Players in the run and moderators get every
 	// side in full. Anyone else gets a 404 unless at least one side is shared;
 	// then shared sides come in full and the others are reduced to the result,
-	// lives lost and PvP blind scores. isModerator is resolved by the route from
-	// the requester's DB-stored privileges, same check webAdmin's middleware uses.
+	// lives lost and PvP blind scores. A public viewer gets no lobby code.
 	async function getReplay(
 		runId: string,
-		viewer: { playerId: string | null; isModerator: boolean },
+		viewerPlayerId: string | null,
 	): Promise<ReplayResponse> {
 		const result = await repository.getRunWithLogs(runId)
 		if (!result) throw new AppError('Run not found', 404)
 
-		const isParticipant =
-			viewer.playerId !== null &&
-			result.logs.some((log) => log.playerId === viewer.playerId)
-		const role: ReplayViewerRole = viewer.isModerator
-			? 'moderator'
-			: isParticipant
-				? 'participant'
-				: 'public'
-		const seesEverything = role !== 'public'
-		if (!seesEverything && !result.logs.some((log) => log.sharedAt)) {
+		const role = await viewerRole(viewerPlayerId, result.logs)
+		if (role === 'public' && !result.logs.some((log) => log.sharedAt)) {
 			throw new AppError('Run not found', 404)
 		}
 
@@ -56,7 +64,7 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 		)
 		const logs = result.logs.map((log): ReplaySide => {
 			const shared = log.sharedAt !== null
-			const hidden = !seesEverything && !shared
+			const hidden = role === 'public' && !shared
 			const { sharedAt: _sharedAt, ...rest } = log
 			const side = {
 				...rest,
@@ -75,18 +83,18 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 				}
 			}
 			// Anti-cheat details are for the match's own players and moderators.
-			return seesEverything
-				? side
-				: { ...side, carbonHash: null, flagReason: null }
+			return role === 'public'
+				? { ...side, carbonHash: null, flagReason: null }
+				: side
 		})
 
+		const run: ReplayRun =
+			role === 'public' ? { ...result.run, lobbyCode: null } : result.run
 		return {
-			run: result.run,
+			run,
 			logs,
 			viewer:
-				viewer.playerId === null
-					? { role }
-					: { role, playerId: viewer.playerId },
+				viewerPlayerId === null ? { role } : { role, playerId: viewerPlayerId },
 		}
 	}
 
@@ -119,17 +127,5 @@ export function createReplayLogService(deps: ReplayLogServiceDeps) {
 		return { runs, total, page, pageSize }
 	}
 
-	// Admin Match History's "View Log" button: resolves a page of matchIds to
-	// their run ids in one query.
-	async function getRunIdsForMatchIds(
-		matchIds: string[],
-	): Promise<Map<string, string>> {
-		return repository.getRunIdsForMatchIds(matchIds)
-	}
-
-	return { getReplay, setShared, listMyRuns, getRunIdsForMatchIds }
+	return { getReplay, setShared, listMyRuns }
 }
-
-export const replayLogService = createReplayLogService({
-	repository: replayLogGateway,
-})

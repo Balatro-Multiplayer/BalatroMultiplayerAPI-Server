@@ -61,10 +61,10 @@ describe('reduceToResultOnly', () => {
 		])
 	})
 
-	it('finds PvP blinds by position when the blind key is missing', () => {
+	it('keeps no score when the blind key is missing: it does not guess the PvP blind', () => {
 		const block = encode([
 			[1, 'select_blind', [0]],
-			[2, 'skip_blind', [0]],
+			[2, 'skip_blind', 0],
 			[3, 'select_blind', [0]],
 			[4, 'hand_result', ['9', 1]],
 		])
@@ -72,7 +72,45 @@ describe('reduceToResultOnly', () => {
 			[1, 'select_blind', [null, null]],
 			[2, 'skip_blind', [null, null]],
 			[3, 'select_blind', [null, null]],
-			[4, 'hand_result', ['9']],
+		])
+	})
+
+	it('drops scores after a skipped blind and in non-PvP blinds', () => {
+		const block = encode([
+			[1, 'select_blind', [0, 'bl_mp_nemesis']],
+			[2, 'skip_blind', 0],
+			[3, 'hand_result', ['50', 3]],
+			[4, 'select_blind', [0, 'bl_hook']],
+			[5, 'hand_result', ['60', 3]],
+		])
+		expect(decode(reduceToResultOnly(block)).map((e) => e[1])).toEqual([
+			'select_blind',
+			'skip_blind',
+			'select_blind',
+		])
+	})
+
+	it('keeps only lost and lives of a life_lost event', () => {
+		const block = encode([
+			[1, 'life_lost', { lost: 2, lives: 1, opponent: 'p2', note: 'x' }],
+			[2, 'life_lost', 'odd'],
+		])
+		expect(decode(reduceToResultOnly(block))).toEqual([
+			[1, 'life_lost', { lost: 2, lives: 1 }],
+			[2, 'life_lost', {}],
+		])
+	})
+
+	it('reads zero scores in every form the log used', () => {
+		const block = encode([
+			[1, 'select_blind', [0, 'bl_mp_nemesis']],
+			[2, 'hand_result', ['5', 3]],
+			[3, 'hand_result', ['0', 2]],
+			[4, 'hand_result', ['0.0', 1]],
+		])
+		expect(decode(reduceToResultOnly(block))).toEqual([
+			[1, 'select_blind', [null, 'bl_mp_nemesis']],
+			[2, 'hand_result', ['5']],
 		])
 	})
 
