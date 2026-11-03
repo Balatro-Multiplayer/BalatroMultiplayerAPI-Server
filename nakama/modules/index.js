@@ -2926,18 +2926,61 @@ function lobbyKindOfLabel(label) {
   }
 }
 
+// src/lobby/log_check.ts
+var FRAMING_OPCODES = { end: true, chk: true };
+function opcodeOf(line) {
+  return JSON.parse(line)[1];
+}
+function hashInput(lines) {
+  return `[${lines.filter((line) => !FRAMING_OPCODES[opcodeOf(line)]).join(",")}]`;
+}
+function claimedHash(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const event2 = JSON.parse(lines[i]);
+    if (event2[1] !== "chk") continue;
+    const args = event2[2];
+    return args && typeof args.carbon === "string" ? args.carbon : null;
+  }
+  return null;
+}
+function checkLog(log, sha256) {
+  if (!log) return { carbonHash: null, check: "unavailable" };
+  const carbonHash = claimedHash(log.lines);
+  if (carbonHash === null || log.truncated)
+    return { carbonHash, check: "unavailable" };
+  const recomputed = sha256(hashInput(log.lines)).toLowerCase();
+  return {
+    carbonHash,
+    check: recomputed === carbonHash.toLowerCase() ? "match" : "mismatch"
+  };
+}
+
 // src/lobby/active.ts
-function activeRunOf(lobby, userId) {
+function activeRunOf(lobby, userId, sha256) {
+  var _a, _b, _c;
   const started = lobby.game.started;
   if (!started || lobby.closed) return null;
   if (!started.players.some((p) => p.id === userId)) return null;
   if (!lobby.players.some((p) => p.id === userId)) return null;
+  const save = (_a = lobby.game.runSaves) == null ? void 0 : _a[userId];
+  const lines = (_c = (_b = lobby.game.logs[userId]) == null ? void 0 : _b.lines) != null ? _c : [];
+  let runSave = null;
+  let runSaveSkipped = null;
+  if (save) {
+    if (save.pos > lines.length) runSaveSkipped = "beyond_log";
+    else if (sha256(hashInput(lines.slice(0, save.pos))).toLowerCase() !== save.hash.toLowerCase())
+      runSaveSkipped = "hash_mismatch";
+    else runSave = { id: save.id, pos: save.pos, hash: save.hash, data: save.data };
+  }
   return {
     runId: started.runId,
     code: lobby.code,
     modId: lobby.modId,
     events: eventsOf(lobby.game.logs[userId]),
-    requiredStanding: lobby.requiredStanding || null
+    requiredStanding: lobby.requiredStanding || null,
+    runSave,
+    runSaveSkipped,
+    logText: hashInput(lines)
   };
 }
 function replayTailOf(lobby, userId) {
@@ -5941,35 +5984,6 @@ function eventsByPlayer(logs) {
   const events = {};
   for (const userId in logs) events[userId] = eventsOf2(logs[userId]);
   return events;
-}
-
-// src/lobby/log_check.ts
-var FRAMING_OPCODES = { end: true, chk: true };
-function opcodeOf(line) {
-  return JSON.parse(line)[1];
-}
-function hashInput(lines) {
-  return `[${lines.filter((line) => !FRAMING_OPCODES[opcodeOf(line)]).join(",")}]`;
-}
-function claimedHash(lines) {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const event2 = JSON.parse(lines[i]);
-    if (event2[1] !== "chk") continue;
-    const args = event2[2];
-    return args && typeof args.carbon === "string" ? args.carbon : null;
-  }
-  return null;
-}
-function checkLog(log, sha256) {
-  if (!log) return { carbonHash: null, check: "unavailable" };
-  const carbonHash = claimedHash(log.lines);
-  if (carbonHash === null || log.truncated)
-    return { carbonHash, check: "unavailable" };
-  const recomputed = sha256(hashInput(log.lines)).toLowerCase();
-  return {
-    carbonHash,
-    check: recomputed === carbonHash.toLowerCase() ? "match" : "mismatch"
-  };
 }
 
 // src/lobby/storage.ts
@@ -9280,7 +9294,7 @@ function lobbyMatchSignal(ctx, logger, nk, dispatcher, tickNumber, state, data) 
     return { state: next || __spreadProps(__spreadValues({}, state), { lobby: __spreadProps(__spreadValues({}, state.lobby), { closed: true }) }), data: answer2.reply };
   }
   if (signal2.type === "get_active") {
-    return { state, data: JSON.stringify(activeRunOf(state.lobby, signal2.userId)) };
+    return { state, data: JSON.stringify(activeRunOf(state.lobby, signal2.userId, (input) => nk.sha256Hash(input))) };
   }
   if (signal2.type === "chat_check") {
     const check = chatCheck(state.lobby, signal2.userId, Date.now());
