@@ -19,6 +19,8 @@ import type { GameLog, IdolRoll } from '../matches/lib/game-log/types'
 import { LegacyGamesView } from './_legacy/legacy-game-view'
 import { type ParsedLogGame, parseLogSource } from './_legacy/log-source-parser'
 
+const MAX_FILE_BYTES = 50 * 1024 * 1024
+
 const fileLabel = (name: string) => name.replace(/\.[^.]+$/, '')
 
 interface LogView {
@@ -40,10 +42,29 @@ export default function LogParserPage() {
   const [idolRolls, setIdolRolls] = useState<IdolRoll[]>([])
   const [error, setError] = useState<string | null>(null)
 
+  function fail(message: string) {
+    setError(message)
+    setViews([])
+    setLegacyGames([])
+    setIdolRolls([])
+  }
+
   async function onFiles(files: FileList | null) {
     setError(null)
     if (!files || files.length === 0) return
+    const tooLarge = Array.from(files).find((f) => f.size > MAX_FILE_BYTES)
+    if (tooLarge) {
+      fail(`${tooLarge.name} is too large (the limit is 50 MB).`)
+      return
+    }
+    try {
+      await readFiles(files)
+    } catch {
+      fail('Could not read this log.')
+    }
+  }
 
+  async function readFiles(files: FileList) {
     const replayLogs: DecodedPlayerLog[] = []
     const nextViews: LogView[] = []
     const games: ParsedLogGame[] = []
@@ -87,10 +108,7 @@ export default function LogParserPage() {
         continue
       }
 
-      setError(`${file.name} is not a log this page can read.`)
-      setViews([])
-      setLegacyGames([])
-      setIdolRolls([])
+      fail(`${file.name} is not a log this page can read.`)
       return
     }
 
