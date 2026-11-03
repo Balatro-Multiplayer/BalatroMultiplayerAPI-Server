@@ -340,6 +340,53 @@ describe('disconnect and grace period', () => {
 	})
 })
 
+describe('a started match with every seat away', () => {
+	const running = () => {
+		const lobby = lobbyWith('a', 'b')
+		return {
+			...lobby,
+			game: { ...lobby.game, started: { runId: 'r1', players: [{ id: 'a' }, { id: 'b' }] } as any },
+		}
+	}
+
+	it('stays open while a seat is within its grace, and closes when the last grace runs out', () => {
+		let lobby = disconnect(running(), 'b', 'b-s1', 1000).lobby
+		lobby = disconnect(lobby, 'a', 'a-s1', 2000).lobby
+		expect(lobby.closed).toBe(false)
+		const midway = tick(lobby, 1000 + GRACE)
+		expect(midway.lobby.closed).toBe(false)
+		expect(midway.lobby.players.map((p) => p.id)).toEqual(['a'])
+		const last = tick(midway.lobby, 2000 + GRACE)
+		expect(last.lobby.closed).toBe(true)
+		expect(eventTypes(last)).toContain('lobby_closed')
+	})
+
+	it('lets the last seat rejoin after the other seat forfeited, and that seat holds the match', () => {
+		let lobby = disconnect(running(), 'a', 'a-s1', 1000).lobby
+		lobby = tick(lobby, 1000 + GRACE).lobby
+		lobby = disconnect(lobby, 'b', 'b-s1', 1000 + GRACE).lobby
+		expect(lobby.closed).toBe(false)
+		expect(lobby.forfeitedSeats).toEqual({ a: 'r1' })
+		lobby = join(lobby, 'b', 'b-s2', info('b')).lobby
+		expect(lobby.closed).toBe(false)
+		expect(lobby.players.map((p) => [p.id, p.awaySince])).toEqual([['b', null]])
+		expect(tick(lobby, 1000 + GRACE + 5000).lobby.closed).toBe(false)
+	})
+
+	it('stays open when the last seat leaves for good while the other is within its grace', () => {
+		let lobby = disconnect(running(), 'b', 'b-s1', 1000).lobby
+		lobby = leave(lobby, 'a').lobby
+		expect(lobby.closed).toBe(false)
+		expect(tick(lobby, 1000 + GRACE).lobby.closed).toBe(true)
+	})
+
+	it('still closes at once when the match has not started', () => {
+		let lobby = disconnect(lobbyWith('a', 'b'), 'b', 'b-s1', 1000).lobby
+		lobby = disconnect(lobby, 'a', 'a-s1', 2000).lobby
+		expect(lobby.closed).toBe(true)
+	})
+})
+
 describe('kick', () => {
 	it('is host only and never targets the host', () => {
 		const lobby = lobbyWith('a', 'b')

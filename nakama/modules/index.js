@@ -3599,7 +3599,7 @@ function close(lobby) {
 }
 function closeIfAbandoned(step) {
   const lobby = step.lobby;
-  if (lobby.closed || isParked(lobby)) return step;
+  if (lobby.closed || isParked(lobby) || lobby.game.started) return step;
   const anyoneHere = lobby.players.some((p) => p.awaySince === null);
   if (anyoneHere) return step;
   const closed = close(lobby);

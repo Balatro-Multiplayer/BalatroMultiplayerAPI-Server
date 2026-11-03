@@ -501,10 +501,12 @@ export function close(lobby: Lobby): Step {
 
 // A lobby nobody is connected to any more is closed straight away rather than
 // waiting out every player's grace period -- unless its group is away, which
-// is everyone gone on purpose.
+// is everyone gone on purpose. A started match waits instead: every seat left
+// is away, and tick evicts each one when its grace runs out, which closes the
+// lobby with the last. Until then a seat that rejoins gets the match back.
 function closeIfAbandoned(step: Step): Step {
 	const lobby = step.lobby
-	if (lobby.closed || isParked(lobby)) return step
+	if (lobby.closed || isParked(lobby) || lobby.game.started) return step
 	const anyoneHere = lobby.players.some((p) => p.awaySince === null)
 	if (anyoneHere) return step
 	const closed = close(lobby)
