@@ -335,6 +335,7 @@ export function snapshotFor(lobby: Lobby, userId: string, now: number = Date.now
 			ready: lobby.game.ready,
 			started: lobby.game.started,
 			reported: Object.keys(lobby.game.reports),
+			resultPending: lobby.game.resultPending === true,
 			setup: setupView(setupOf(lobby.game), now),
 		},
 		groupQueue: viewOf(lobby),

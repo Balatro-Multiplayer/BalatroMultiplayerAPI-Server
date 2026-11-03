@@ -247,6 +247,9 @@ export interface GameView {
 	ready: { [userId: string]: boolean }
 	started: null | StartedGame
 	reported: string[]
+	// GameState.resultPending as a plain boolean: a host that takes over mid-run
+	// reads it here, since only the old host knew it had asked for the hold.
+	resultPending: boolean
 	setup: SetupView
 }
 

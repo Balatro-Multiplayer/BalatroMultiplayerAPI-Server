@@ -302,6 +302,14 @@ describe('authoritative actions', () => {
 		lobby = start(lobby, 'a').lobby
 		expect(snapshotFor(lobby, 'b').game.started?.seed).toBe('SEED1234')
 	})
+
+	it('tells clients whether the started game holds a pending result', () => {
+		let lobby = ready(lobbyWith('a', 'b'), 'b', true).lobby
+		lobby = start(lobby, 'a').lobby
+		expect(snapshotFor(lobby, 'b').game.resultPending).toBe(false)
+		lobby = { ...lobby, game: { ...lobby.game, resultPending: true } }
+		expect(snapshotFor(lobby, 'b').game.resultPending).toBe(true)
+	})
 })
 
 describe('seedFromHex', () => {
