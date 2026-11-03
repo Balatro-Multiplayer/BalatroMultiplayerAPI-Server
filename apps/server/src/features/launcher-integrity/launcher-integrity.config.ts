@@ -28,3 +28,10 @@ export const RANKED_READINESS_CHALLENGE_TIMEOUT_MS = 30_000
 // not fixed) so the interval itself can't be used to predict/evade a check.
 export const PERIODIC_MIN_MS = 3 * 60 * 1000
 export const PERIODIC_MAX_MS = 5 * 60 * 1000
+
+// Periodic checks in a row that may find a verified player offline before the
+// check session ends. A dropped socket usually comes back within minutes, and
+// the session must survive that. 12 misses is 36 to 60 minutes of absence,
+// longer than any normal reconnect, and it caps a player who never returns to
+// one idle timer chain for about an hour. A new login resets the session.
+export const MAX_OFFLINE_PERIODIC_CHECKS = 12

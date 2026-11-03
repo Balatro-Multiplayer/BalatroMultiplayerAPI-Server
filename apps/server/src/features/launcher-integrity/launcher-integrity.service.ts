@@ -14,6 +14,7 @@ import type {
 import {
 	CHALLENGE_TIMEOUT_MS,
 	LOGIN_CHALLENGE_TIMEOUT_MS,
+	MAX_OFFLINE_PERIODIC_CHECKS,
 	PERIODIC_MAX_MS,
 	PERIODIC_MIN_MS,
 	RANKED_READINESS_CHALLENGE_TIMEOUT_MS,
@@ -30,10 +31,11 @@ export interface IntegrityVerdict {
 }
 
 // Sends a player one 'challenge' message: issued, verified or failed.
+// Resolves 'offline' when the player has no open socket to receive it.
 export type ChallengeSender = (
 	playerId: string,
 	payload: Record<string, unknown>,
-) => Promise<void>
+) => Promise<void | 'offline'>
 
 interface LauncherIntegrityServiceDeps {
 	sendChallenge: ChallengeSender
@@ -209,7 +211,7 @@ export function createLauncherIntegrityService(
 
 		session.activeChallenge = { challengeId, kind, issuance, timeoutTimer }
 
-		await sendChallenge(playerId, {
+		const sent = await sendChallenge(playerId, {
 			type: 'issued',
 			challengeId,
 			kind,
@@ -217,6 +219,33 @@ export function createLauncherIntegrityService(
 			algorithm: issuance.algorithm,
 			expiresAt: issuance.expiresAt,
 		})
+		if (sent === 'offline') handleChallengeUndelivered(playerId, challengeId)
+		else if (session.offlineChecks) session.offlineChecks = 0
+	}
+
+	// A challenge that found the player's socket closed. Nobody could answer
+	// it, so it is neither a pass nor a failure: drop it without an integrity
+	// event or a verdict change, and keep a verified player's check session so
+	// the next slot can check again once the socket reopens. Anything else
+	// (unverified, or too many misses in a row) ends the session.
+	function handleChallengeUndelivered(
+		playerId: string,
+		challengeId: string,
+	): void {
+		const session = integritySessions.get(playerId)
+		if (session?.activeChallenge?.challengeId !== challengeId) return
+		clearTimeout(session.activeChallenge.timeoutTimer)
+		session.activeChallenge = undefined
+
+		session.offlineChecks = (session.offlineChecks ?? 0) + 1
+		if (
+			!session.launcherVerified ||
+			session.offlineChecks >= MAX_OFFLINE_PERIODIC_CHECKS
+		) {
+			clearSession(playerId)
+			return
+		}
+		scheduleNextPeriodicChallenge(playerId)
 	}
 
 	// Nakama session start (/internal/nakama/integrity/session-start) -- issues the login

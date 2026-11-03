@@ -5,6 +5,8 @@ import type { ILauncherIntegrityRepository } from '../../contracts/ILauncherInte
 import {
 	CHALLENGE_TIMEOUT_MS,
 	LOGIN_CHALLENGE_TIMEOUT_MS,
+	MAX_OFFLINE_PERIODIC_CHECKS,
+	PERIODIC_MIN_MS,
 	RANKED_READINESS_CHALLENGE_TIMEOUT_MS,
 } from '../../features/launcher-integrity/launcher-integrity.config.js'
 import {
@@ -634,5 +636,71 @@ describe('launcher-integrity.service', () => {
 
 			expect(integritySessions.has('player1')).toBe(false)
 		})
+	})
+})
+
+describe('periodic checks while the player is offline', () => {
+	// Math.random 0 makes every periodic slot exactly PERIODIC_MIN_MS long.
+	beforeEach(() => {
+		vi.spyOn(Math, 'random').mockReturnValue(0)
+	})
+	afterEach(() => {
+		vi.restoreAllMocks()
+	})
+
+	async function verifiedPlayer(sendChallenge: ReturnType<typeof makeSendChallenge>, repository = makeMockRepository()) {
+		const service = createLauncherIntegrityService({ sendChallenge, repository })
+		service.setChallengeStrategy(makeFakeStrategy())
+		await service.handleClientConnected('player1')
+		const challengeId = await getIssuedChallengeId(sendChallenge)
+		await service.handleChallengeResponse('player1', { challengeId, response: 'x' })
+		sendChallenge.mockClear()
+		return { service, repository }
+	}
+
+	it('keeps the session and checks again when a check finds the player offline', async () => {
+		vi.useFakeTimers()
+		const sendChallenge = makeSendChallenge()
+		const { service, repository } = await verifiedPlayer(sendChallenge)
+		sendChallenge.mockResolvedValueOnce('offline')
+
+		await vi.advanceTimersByTimeAsync(PERIODIC_MIN_MS)
+		expect(sendChallenge).toHaveBeenCalledTimes(1)
+		expect(integritySessions.has('player1')).toBe(true)
+		expect(service.isLauncherVerified('player1')).toBe(true)
+
+		// No timeout failure comes from the undelivered check.
+		await vi.advanceTimersByTimeAsync(PERIODIC_MIN_MS - 1)
+		expect(service.isLauncherVerified('player1')).toBe(true)
+		expect(repository.insertEvent).not.toHaveBeenCalled()
+
+		// The next slot checks again and the player can answer.
+		await vi.advanceTimersByTimeAsync(1)
+		expect(sendChallenge).toHaveBeenCalledTimes(2)
+		const challengeId = await getIssuedChallengeId(sendChallenge)
+		await service.handleChallengeResponse('player1', { challengeId, response: 'x' })
+		expect(service.isLauncherVerified('player1')).toBe(true)
+	})
+
+	it('ends the session of a player who never comes back', async () => {
+		vi.useFakeTimers()
+		const sendChallenge = makeSendChallenge()
+		await verifiedPlayer(sendChallenge)
+		sendChallenge.mockResolvedValue('offline')
+
+		for (let i = 0; i < MAX_OFFLINE_PERIODIC_CHECKS - 1; i++) {
+			await vi.advanceTimersByTimeAsync(PERIODIC_MIN_MS)
+			expect(integritySessions.has('player1')).toBe(true)
+		}
+		await vi.advanceTimersByTimeAsync(PERIODIC_MIN_MS)
+		expect(integritySessions.has('player1')).toBe(false)
+	})
+
+	it('ends the session of an unverified player whose login challenge finds them offline', async () => {
+		const sendChallenge = makeSendChallenge().mockResolvedValue('offline')
+		const service = createLauncherIntegrityService({ sendChallenge, repository: makeMockRepository() })
+		service.setChallengeStrategy(makeFakeStrategy())
+		await service.handleClientConnected('player1')
+		expect(integritySessions.has('player1')).toBe(false)
 	})
 })
