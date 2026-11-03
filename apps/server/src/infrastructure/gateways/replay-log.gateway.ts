@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import type {
 	LobbyRunStatus,
 	PaginatedRuns,
@@ -6,7 +6,7 @@ import type {
 	RunWithLogs,
 } from '../../contracts/IReplayLogRepository.js'
 import { db } from '../db/index.js'
-import { lobbyRuns, matchRunLogs } from '../db/schema.js'
+import { lobbyRuns, matchRunLogs, players } from '../db/schema.js'
 
 // A player's own runs, for "My Matches". Two queries (run ids this player has a log row for, then
 // those runs' own rows) rather than a join, since matchRunLogs has no FK
@@ -86,6 +86,7 @@ export async function getRunWithLogs(
 			eventCount: matchRunLogs.eventCount,
 			status: matchRunLogs.status,
 			flagReason: matchRunLogs.flagReason,
+			sharedAt: matchRunLogs.sharedAt,
 		})
 		.from(matchRunLogs)
 		.where(eq(matchRunLogs.runId, runId))
@@ -106,4 +107,44 @@ export async function getRunWithLogs(
 			flagReason: log.flagReason as RunWithLogs['logs'][number]['flagReason'],
 		})),
 	}
+}
+
+// Sets or clears the player's own share flag. False when they have no row.
+export async function setShared(
+	runId: string,
+	playerId: string,
+	shared: boolean,
+): Promise<boolean> {
+	const rows = await db
+		.update(matchRunLogs)
+		.set({ sharedAt: shared ? new Date() : null })
+		.where(
+			and(eq(matchRunLogs.runId, runId), eq(matchRunLogs.playerId, playerId)),
+		)
+		.returning({ playerId: matchRunLogs.playerId })
+	return rows.length > 0
+}
+
+// The name other players see: the Discord name when the player chose it.
+export async function getDisplayNames(
+	playerIds: string[],
+): Promise<Map<string, string>> {
+	if (playerIds.length === 0) return new Map()
+	const rows = await db
+		.select({
+			id: players.id,
+			steamName: players.steamName,
+			discordUsername: players.discordUsername,
+			useDiscordName: players.useDiscordName,
+		})
+		.from(players)
+		.where(inArray(players.id, playerIds))
+	return new Map(
+		rows.map((row) => [
+			row.id,
+			row.useDiscordName && row.discordUsername
+				? row.discordUsername
+				: row.steamName,
+		]),
+	)
 }

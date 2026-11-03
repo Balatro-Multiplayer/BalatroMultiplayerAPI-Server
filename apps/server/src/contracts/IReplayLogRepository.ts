@@ -22,6 +22,31 @@ export interface PlayerLogRow {
 	eventCount: number
 	status: PlayerLogStatus
 	flagReason: FlagReason | null
+	// When this player shared their own side, or null.
+	sharedAt: Date | null
+}
+
+export type ReplayViewerRole = 'participant' | 'moderator' | 'public'
+
+// One side of a Shared match as the viewer may see it.
+export interface ReplaySide {
+	playerId: string
+	displayName: string
+	shared: boolean
+	// True when the side was reduced to the result, lives lost and PvP blind
+	// scores (see features/replay-log/hidden-side.ts).
+	hidden: boolean
+	compressedEvents: string
+	carbonHash: string | null
+	eventCount: number
+	status: PlayerLogStatus
+	flagReason: FlagReason | null
+}
+
+export interface ReplayResponse {
+	run: RunRow
+	logs: ReplaySide[]
+	viewer: { role: ReplayViewerRole; playerId?: string }
 }
 
 export interface RunWithLogs {
@@ -42,4 +67,7 @@ export interface IReplayLogRepository {
 		pageSize: number,
 	): Promise<PaginatedRuns>
 	getRunIdsForMatchIds(matchIds: string[]): Promise<Map<string, string>>
+	// False when the player has no row in the run.
+	setShared(runId: string, playerId: string, shared: boolean): Promise<boolean>
+	getDisplayNames(playerIds: string[]): Promise<Map<string, string>>
 }

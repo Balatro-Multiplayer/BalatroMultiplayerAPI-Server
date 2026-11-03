@@ -22,6 +22,11 @@ export type FlagReason = 'hash_mismatch' | 'elapsed_time_gate' | 'unverified_log
 
 export interface PlayerLogRow {
   playerId: string
+  displayName: string
+  // The player shared their own side.
+  shared: boolean
+  // The side was reduced to the result, lives lost and PvP blind scores.
+  hidden: boolean
   compressedEvents: string
   carbonHash: string | null
   eventCount: number
@@ -29,7 +34,10 @@ export interface PlayerLogRow {
   flagReason: FlagReason | null
 }
 
+export type ReplayViewerRole = 'participant' | 'moderator' | 'public'
+
 export interface RunReplayResponse {
   run: RunRow
   logs: PlayerLogRow[]
+  viewer: { role: ReplayViewerRole; playerId?: string }
 }

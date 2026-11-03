@@ -27,3 +27,16 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
 	req.player = payload
 	next()
 }
+
+// A valid token sets req.player, no token is fine, a bad token is still 401.
+export function optionalAuthenticate(
+	req: Request,
+	res: Response,
+	next: NextFunction,
+) {
+	if (!req.headers.authorization) {
+		next()
+		return
+	}
+	authenticate(req, res, next)
+}

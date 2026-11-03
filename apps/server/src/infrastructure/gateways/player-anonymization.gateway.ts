@@ -453,6 +453,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'flag_reason',
 		'finalized_at',
 		'expires_at',
+		'shared_at',
 	],
 	mod_registry: [
 		'id',

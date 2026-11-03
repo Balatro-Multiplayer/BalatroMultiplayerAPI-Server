@@ -785,6 +785,10 @@ export const matchRunLogs = pgTable(
 		// it longer while a report or ban uses the run (features/retention).
 		// NULL on older flagged or disputed logs: read as finalizedAt + 180 days.
 		expiresAt: timestamp('expires_at', { withTimezone: true }),
+		// When this player shared their own side of the match, or NULL. Only the
+		// share route writes it: the mirror upsert leaves it alone, and sharing
+		// never changes how long the row lives.
+		sharedAt: timestamp('shared_at', { withTimezone: true }),
 	},
 	(t) => [primaryKey({ columns: [t.runId, t.playerId] })],
 )
