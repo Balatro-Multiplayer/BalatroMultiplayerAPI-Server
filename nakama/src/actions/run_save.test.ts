@@ -1,16 +1,35 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import { activeRunOf } from '../lobby/active'
 import { ServerOp } from '../lobby/protocol'
 import { type RelayStep, action } from '../lobby/relay'
 import { type Lobby, type Step, join, newLobby } from '../lobby/state'
-import { activeRunOf } from '../lobby/active'
-import { MAX_RUN_SAVE_PART_BYTES, MAX_RUN_SAVE_PARTS, RUN_SAVE_PART_KEY } from './run_save'
+import {
+	MAX_RUN_SAVE_PARTS,
+	MAX_RUN_SAVE_PART_BYTES,
+	RUN_SAVE_PART_KEY,
+} from './run_save'
 
-const info = (name: string) => ({ displayName: name, preferredJoker: null, mods: null })
-const ctx = { now: 1000, newSeed: () => 'SEED1234', newId: () => 'RUN1', random: () => 0 }
+const info = (name: string) => ({
+	displayName: name,
+	preferredJoker: null,
+	mods: null,
+})
+const ctx = {
+	now: 1000,
+	newSeed: () => 'SEED1234',
+	newId: () => 'RUN1',
+	random: () => 0,
+}
 const HASH = 'a'.repeat(64)
 
-function send(lobby: Lobby, from: string, key: string, params: unknown, to = 'server'): RelayStep {
+function send(
+	lobby: Lobby,
+	from: string,
+	key: string,
+	params: unknown,
+	to = 'server',
+): RelayStep {
 	return action(lobby, from, { cid: 'c', action: key, to, params }, ctx)
 }
 
@@ -24,11 +43,18 @@ function started(ids: string[]): Lobby {
 		graceMs: 10_000,
 	})
 	for (const id of ids) lobby = join(lobby, id, `${id}-s1`, info(id)).lobby
-	for (const id of ids.slice(1)) lobby = send(lobby, id, 'mpapi_ready', { ready: true }).lobby
+	for (const id of ids.slice(1))
+		lobby = send(lobby, id, 'mpapi_ready', { ready: true }).lobby
 	return send(lobby, ids[0], 'mpapi_start_game', {}).lobby
 }
 
-const part = (id: string, index: number, count: number, data: string, pos = 7) => ({
+const part = (
+	id: string,
+	index: number,
+	count: number,
+	data: string,
+	pos = 7,
+) => ({
 	run: 'RUN1',
 	id,
 	index,
@@ -37,7 +63,8 @@ const part = (id: string, index: number, count: number, data: string, pos = 7) =
 	hash: HASH,
 	data,
 })
-const sendPart = (lobby: Lobby, from: string, p: unknown) => send(lobby, from, RUN_SAVE_PART_KEY, p)
+const sendPart = (lobby: Lobby, from: string, p: unknown) =>
+	send(lobby, from, RUN_SAVE_PART_KEY, p)
 const rejected = (step: Step) =>
 	step.out.filter((o) => o.kind === 'send' && o.op === ServerOp.ACTION_REJECTED)
 const sends = (step: Step) => step.out.filter((o) => o.kind === 'send')
@@ -49,7 +76,12 @@ describe('run save parts', () => {
 		lobby = sendPart(lobby, 'a', part('s1', 1, 2, 'WORLD')).lobby
 		expect(saves(lobby).a).toBeUndefined()
 		lobby = sendPart(lobby, 'a', part('s1', 0, 2, 'HELLO')).lobby
-		expect(saves(lobby).a).toMatchObject({ id: 's1', pos: 7, hash: HASH, data: 'HELLOWORLD' })
+		expect(saves(lobby).a).toMatchObject({
+			id: 's1',
+			pos: 7,
+			hash: HASH,
+			data: 'HELLOWORLD',
+		})
 		expect(saves(lobby).b).toBeUndefined()
 	})
 
@@ -87,7 +119,10 @@ describe('run save parts', () => {
 
 	it('ignores a part for another run', () => {
 		const lobby = started(['a', 'b'])
-		const step = sendPart(lobby, 'a', { ...part('s1', 0, 1, 'X'), run: 'OLDRUN' })
+		const step = sendPart(lobby, 'a', {
+			...part('s1', 0, 1, 'X'),
+			run: 'OLDRUN',
+		})
 		expect(saves(step.lobby).a).toBeUndefined()
 		expect(rejected(step)).toEqual([])
 	})
@@ -95,13 +130,23 @@ describe('run save parts', () => {
 	it('refuses malformed parts and non-participants', () => {
 		const lobby = started(['a', 'b'])
 		const reasons = (p: unknown, from = 'a') =>
-			(rejected(sendPart(lobby, from, p))[0] as { payload: { reason: string } } | undefined)?.payload.reason
+			(
+				rejected(sendPart(lobby, from, p))[0] as
+					| { payload: { reason: string } }
+					| undefined
+			)?.payload.reason
 		expect(reasons(null)).toBe('bad_params')
 		expect(reasons(part('', 0, 1, 'x'))).toBe('bad_params')
 		expect(reasons(part('s', 1, 1, 'x'))).toBe('bad_params')
-		expect(reasons(part('s', 0, MAX_RUN_SAVE_PARTS + 1, 'x'))).toBe('bad_params')
-		expect(reasons(part('s', 0, 1, 'x'.repeat(MAX_RUN_SAVE_PART_BYTES + 1)))).toBe('bad_params')
-		expect(reasons({ ...part('s', 0, 1, 'x'), hash: 'nothex' })).toBe('bad_params')
+		expect(reasons(part('s', 0, MAX_RUN_SAVE_PARTS + 1, 'x'))).toBe(
+			'bad_params',
+		)
+		expect(
+			reasons(part('s', 0, 1, 'x'.repeat(MAX_RUN_SAVE_PART_BYTES + 1))),
+		).toBe('bad_params')
+		expect(reasons({ ...part('s', 0, 1, 'x'), hash: 'nothex' })).toBe(
+			'bad_params',
+		)
 		expect(reasons({ ...part('s', 0, 1, 'x'), pos: -1 })).toBe('bad_params')
 		expect(sendPart(lobby, 'zed', part('s', 0, 1, 'x')).refused).toBeDefined()
 		expect(reasons(part('s', 0, 1, 'x'))).toBeUndefined()
@@ -115,8 +160,12 @@ describe('run save parts', () => {
 			{ playerId: 'a', place: 1 },
 			{ playerId: 'b', place: 2 },
 		]
-		lobby = send(lobby, 'a', 'mpapi_report_result', { placements: places }).lobby
-		lobby = send(lobby, 'b', 'mpapi_report_result', { placements: places }).lobby
+		lobby = send(lobby, 'a', 'mpapi_report_result', {
+			placements: places,
+		}).lobby
+		lobby = send(lobby, 'b', 'mpapi_report_result', {
+			placements: places,
+		}).lobby
 		expect(lobby.game.started).toBeNull()
 		expect(lobby.game.runSaves).toBeUndefined()
 	})
@@ -129,11 +178,20 @@ describe('run save parts', () => {
 })
 
 describe('run save on rejoin', () => {
-	const sha = (input: string) => createHash('sha256').update(input).digest('hex')
+	const sha = (input: string) =>
+		createHash('sha256').update(input).digest('hex')
 	// Two logged events for 'a', so a save taken after 2 events has the hash of exactly those.
-	const logged = (lobby: Lobby) => {
-		lobby = send(lobby, 'a', 'mpapi_log_event', { t: 1, opcode: 'play', args: [1] }).lobby
-		return send(lobby, 'a', 'mpapi_log_event', { t: 2, opcode: 'buy', args: null }).lobby
+	const logged = (start: Lobby) => {
+		const lobby = send(start, 'a', 'mpapi_log_event', {
+			t: 1,
+			opcode: 'play',
+			args: [1],
+		}).lobby
+		return send(lobby, 'a', 'mpapi_log_event', {
+			t: 2,
+			opcode: 'buy',
+			args: null,
+		}).lobby
 	}
 	const hashAfter = (lobby: Lobby, count: number) =>
 		sha(`[${(lobby.game.logs.a?.lines ?? []).slice(0, count).join(',')}]`)
@@ -144,14 +202,23 @@ describe('run save on rejoin', () => {
 		let lobby = logged(started(['a', 'b']))
 		lobby = withSave(lobby, 2, hashAfter(lobby, 2))
 		const mine = activeRunOf(lobby, 'a', sha)
-		expect(mine?.runSave).toEqual({ id: 's1', pos: 2, hash: hashAfter(lobby, 2), data: 'MINE' })
+		expect(mine?.runSave).toEqual({
+			id: 's1',
+			pos: 2,
+			hash: hashAfter(lobby, 2),
+			data: 'MINE',
+		})
 		expect(mine?.runSaveSkipped).toBeNull()
 		expect(activeRunOf(lobby, 'b', sha)?.runSave).toBeNull()
 		expect(JSON.stringify(activeRunOf(lobby, 'b', sha))).not.toContain('MINE')
 	})
 
 	it('is null while the player has no complete save', () => {
-		const lobby = sendPart(logged(started(['a', 'b'])), 'a', part('s1', 0, 2, 'half', 2)).lobby
+		const lobby = sendPart(
+			logged(started(['a', 'b'])),
+			'a',
+			part('s1', 0, 2, 'half', 2),
+		).lobby
 		const active = activeRunOf(lobby, 'a', sha)
 		expect(active?.runSave).toBeNull()
 		expect(active?.runSaveSkipped).toBeNull()
@@ -175,6 +242,8 @@ describe('run save on rejoin', () => {
 
 	it('gives the log as the text the hash is taken over, so a resumed client can extend it', () => {
 		const lobby = logged(started(['a', 'b']))
-		expect(activeRunOf(lobby, 'a', sha)?.logText).toBe(`[${lobby.game.logs.a.lines.join(',')}]`)
+		expect(activeRunOf(lobby, 'a', sha)?.logText).toBe(
+			`[${lobby.game.logs.a.lines.join(',')}]`,
+		)
 	})
 })

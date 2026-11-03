@@ -2,12 +2,12 @@
 // the client in parts (mpapi_run_save_part) and kept here for the rest of the
 // match. The server holds the latest complete save per player and never
 // relays one. Only the owner gets theirs back, with their active run on a
-// rejoin (lobby/active.ts). A save does not touch the replay log and is gone when the game ends
-// (emptyGame). The part format is mirrored by hand in MPAPI
+// rejoin (lobby/active.ts). A save does not touch the replay log and is gone
+// when the game ends (emptyGame). The part format is mirrored by hand in MPAPI
 // (api/replay/run_save.lua).
-import type { Lobby } from '../lobby/state'
-import type { AuthoritativeAction } from './registry'
 import type { PendingRunSave, RunSave } from '../lobby/protocol'
+import { isParticipant } from '../lobby/state'
+import type { AuthoritativeAction } from './registry'
 
 export const RUN_SAVE_PART_KEY = 'mpapi_run_save_part'
 // Longest `data` of one part, in characters (base64 text of the compressed save).
@@ -17,16 +17,21 @@ export const MAX_RUN_SAVE_PARTS = 16
 const MAX_ID_LENGTH = 64
 const HASH_PATTERN = /^[0-9a-f]{64}$/i
 
-function isParticipant(lobby: Lobby, userId: string): boolean {
-	return !!lobby.game.started && lobby.game.started.players.some((p) => p.id === userId)
-}
-
 function isPlainObject(value: unknown): value is { [key: string]: unknown } {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isCount(value: unknown, max: number): value is number {
-	return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= max
+	return (
+		typeof value === 'number' &&
+		Number.isInteger(value) &&
+		value >= 1 &&
+		value <= max
+	)
+}
+
+function isNonNegativeInt(value: unknown): value is number {
+	return typeof value === 'number' && Number.isInteger(value) && value >= 0
 }
 
 // {run, id, index, count, pos, hash, data} -- part `index` (0-based) of `count`
@@ -45,13 +50,9 @@ export const runSavePart: AuthoritativeAction = {
 			params.id.length === 0 ||
 			params.id.length > MAX_ID_LENGTH ||
 			!isCount(params.count, MAX_RUN_SAVE_PARTS) ||
-			typeof params.index !== 'number' ||
-			!Number.isInteger(params.index) ||
-			params.index < 0 ||
+			!isNonNegativeInt(params.index) ||
 			params.index >= params.count ||
-			typeof params.pos !== 'number' ||
-			!Number.isInteger(params.pos) ||
-			params.pos < 0 ||
+			!isNonNegativeInt(params.pos) ||
 			typeof params.hash !== 'string' ||
 			!HASH_PATTERN.test(params.hash) ||
 			typeof params.data !== 'string' ||
@@ -59,7 +60,10 @@ export const runSavePart: AuthoritativeAction = {
 		)
 			return { reject: 'bad_params' }
 		// Sent for a run the server has since restarted: not this run's.
-		if (typeof params.run === 'string' && params.run !== lobby.game.started.runId)
+		if (
+			typeof params.run === 'string' &&
+			params.run !== lobby.game.started.runId
+		)
 			return { game: lobby.game, params: null, to: 'none' }
 
 		const game = lobby.game
@@ -72,7 +76,13 @@ export const runSavePart: AuthoritativeAction = {
 			held.hash === params.hash
 		const pending: PendingRunSave = same
 			? { ...held, parts: { ...held.parts } }
-			: { id: params.id, count: params.count, pos: params.pos, hash: params.hash, parts: {} }
+			: {
+					id: params.id,
+					count: params.count,
+					pos: params.pos,
+					hash: params.hash,
+					parts: {},
+				}
 		pending.parts[String(params.index)] = params.data
 
 		const rest = { ...(game.runSavePending ?? {}) }
@@ -86,7 +96,13 @@ export const runSavePart: AuthoritativeAction = {
 		delete rest[ctx.from]
 		let data = ''
 		for (let i = 0; i < pending.count; i++) data += pending.parts[String(i)]
-		const save: RunSave = { id: pending.id, pos: pending.pos, hash: pending.hash, data, at: ctx.now }
+		const save: RunSave = {
+			id: pending.id,
+			pos: pending.pos,
+			hash: pending.hash,
+			data,
+			at: ctx.now,
+		}
 		return {
 			game: {
 				...game,

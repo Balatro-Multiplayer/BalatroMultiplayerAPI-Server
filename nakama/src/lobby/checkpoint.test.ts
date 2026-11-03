@@ -144,8 +144,20 @@ describe('a restart', () => {
 })
 
 describe('Run saves across a restart', () => {
-	const save = (id: string, pos: number) => ({ id, pos, hash: 'a'.repeat(64), data: `data-${id}`, at: 7 })
-	const pending = (id: string) => ({ id, count: 3, pos: 9, hash: 'b'.repeat(64), parts: { '0': 'x' } })
+	const save = (id: string, pos: number) => ({
+		id,
+		pos,
+		hash: 'a'.repeat(64),
+		data: `data-${id}`,
+		at: 7,
+	})
+	const pending = (id: string) => ({
+		id,
+		count: 3,
+		pos: 9,
+		hash: 'b'.repeat(64),
+		parts: { '0': 'x' },
+	})
 
 	function restartAndResume() {
 		const { nk, matches } = nakama()
@@ -159,9 +171,23 @@ describe('Run saves across a restart', () => {
 			},
 		}
 		bindCode(nk, 'ABC123', 'gone', 'M')
-		const dispatcher: any = { broadcastMessage: () => {} }
-		const state: any = { lobby, presences: {}, pendingInfo: {}, label: '' }
-		lobbyMatchTerminate({ ...playerCtx(''), matchId: 'm0' }, fakeLogger, nk, dispatcher, 1, state, 20)
+		type Terminate = Parameters<typeof lobbyMatchTerminate>
+		const dispatcher = { broadcastMessage: () => {} } as unknown as Terminate[3]
+		const state = {
+			lobby,
+			presences: {},
+			pendingInfo: {},
+			label: '',
+		} as unknown as Terminate[5]
+		lobbyMatchTerminate(
+			{ ...playerCtx(''), matchId: 'm0' },
+			fakeLogger,
+			nk,
+			dispatcher,
+			1,
+			state,
+			20,
+		)
 		const result = resumeLobby(nk, null, 'ABC123', Date.now())
 		expect(result.kind).toBe('resumed')
 		return { resumed: matches.m1, lobby }

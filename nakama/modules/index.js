@@ -2631,15 +2631,21 @@ function setupAfterDowntime(game, downtime) {
 
 // src/lobby/checkpoint.ts
 var CLAIM_TIMEOUT_MS = 3e4;
+function withoutPendingRunSaves(lobby) {
+  if (!lobby.game.runSavePending) return lobby;
+  const _a = lobby.game, { runSavePending } = _a, game = __objRest(_a, ["runSavePending"]);
+  return __spreadProps(__spreadValues({}, lobby), { game });
+}
 function checkpointOf(lobby, now) {
   if (lobby.closed || lobby.players.length === 0) return null;
-  if (lobby.game.runSavePending) {
-    const _a = lobby.game, { runSavePending } = _a, game = __objRest(_a, ["runSavePending"]);
-    lobby = __spreadProps(__spreadValues({}, lobby), { game });
-  }
   const gq = lobby.groupQueue;
   const parkedUntil = gq && gq.phase === "away" ? gq.until : 0;
-  return { lobby, at: now, claimedAt: null, expiresAt: Math.max(now + CHECKPOINT_TTL_MS, parkedUntil) };
+  return {
+    lobby: withoutPendingRunSaves(lobby),
+    at: now,
+    claimedAt: null,
+    expiresAt: Math.max(now + CHECKPOINT_TTL_MS, parkedUntil)
+  };
 }
 function isExpired(checkpoint, now) {
   return now >= checkpointExpiry(checkpoint);
@@ -2966,15 +2972,20 @@ function activeRunOf(lobby, userId, sha256) {
   var _a, _b;
   const started = lobby.game.started;
   if (!started || lobby.closed) return null;
-  if (!started.players.some((p) => p.id === userId)) return null;
+  if (!isParticipant(lobby, userId)) return null;
   if (!lobby.players.some((p) => p.id === userId)) return null;
   const lines = (_b = (_a = lobby.game.logs[userId]) == null ? void 0 : _a.lines) != null ? _b : [];
-  const { runSave, runSaveSkipped } = checkedRunSave(lobby, userId, sha256);
+  const { runSave, runSaveSkipped } = checkedRunSave(
+    lobby,
+    userId,
+    lines,
+    sha256
+  );
   return {
     runId: started.runId,
     code: lobby.code,
     modId: lobby.modId,
-    events: eventsOf(lobby.game.logs[userId]),
+    events: eventsOf(lines),
     requiredStanding: lobby.requiredStanding || null,
     runSave,
     runSaveSkipped,
@@ -2985,24 +2996,33 @@ function replayTailOf(lobby, userId) {
   const started = lobby.game.started;
   if (!started || lobby.closed) return null;
   if (!started.players.some((p) => p.id === userId)) return null;
-  const tails = started.players.filter((p) => p.id !== userId).map((p) => ({ playerId: p.id, events: eventsOf(lobby.game.logs[p.id]) })).filter((tail) => tail.events.length > 0);
+  const tails = started.players.filter((p) => p.id !== userId).map((p) => {
+    var _a, _b;
+    return {
+      playerId: p.id,
+      events: eventsOf((_b = (_a = lobby.game.logs[p.id]) == null ? void 0 : _a.lines) != null ? _b : [])
+    };
+  }).filter((tail) => tail.events.length > 0);
   return tails.length > 0 ? { runId: started.runId, tails } : null;
 }
-function eventsOf(log) {
-  return (log ? log.lines : []).map((line) => {
+function eventsOf(lines) {
+  return lines.map((line) => {
     const [t, opcode, args] = JSON.parse(line);
     return { t, opcode, args };
   });
 }
-function checkedRunSave(lobby, userId, sha256) {
-  var _a, _b, _c;
+function checkedRunSave(lobby, userId, lines, sha256) {
+  var _a;
   const save = (_a = lobby.game.runSaves) == null ? void 0 : _a[userId];
   if (!save) return { runSave: null, runSaveSkipped: null };
-  const lines = (_c = (_b = lobby.game.logs[userId]) == null ? void 0 : _b.lines) != null ? _c : [];
-  if (save.pos > lines.length) return { runSave: null, runSaveSkipped: "beyond_log" };
+  if (save.pos > lines.length)
+    return { runSave: null, runSaveSkipped: "beyond_log" };
   if (sha256(hashInput(lines.slice(0, save.pos))).toLowerCase() !== save.hash.toLowerCase())
     return { runSave: null, runSaveSkipped: "hash_mismatch" };
-  return { runSave: { id: save.id, pos: save.pos, hash: save.hash, data: save.data }, runSaveSkipped: null };
+  return {
+    runSave: { id: save.id, pos: save.pos, hash: save.hash, data: save.data },
+    runSaveSkipped: null
+  };
 }
 
 // src/lobby/catch_up.ts
@@ -3423,6 +3443,10 @@ function emptyGame() {
     settleFrom: null,
     logs: {}
   };
+}
+function isParticipant(lobby, userId) {
+  const started = lobby.game.started;
+  return !!started && started.players.some((p) => p.id === userId);
 }
 function lobbyType(lobby) {
   return lobby.allowedIds ? "public" : "private";
@@ -3964,20 +3988,23 @@ function spectateEvent(lobby, event2) {
   return [{ kind: "send", op: ServerOp.SPECTATE_EVENT, payload: event2, to }];
 }
 function spectateRunOf(lobby, userId, playerId, sha256, fromStart = false) {
-  const started = lobby.game.started;
-  if (!isSpectator(lobby, userId) || !started || !started.players.some((p) => p.id === playerId))
+  var _a, _b;
+  if (!isSpectator(lobby, userId) || !isParticipant(lobby, playerId))
     return { lobby, out: [] };
-  const { runSave, runSaveSkipped } = fromStart ? { runSave: null, runSaveSkipped: null } : checkedRunSave(lobby, playerId, sha256);
+  const lines = (_b = (_a = lobby.game.logs[playerId]) == null ? void 0 : _a.lines) != null ? _b : [];
+  const { runSave, runSaveSkipped } = fromStart ? { runSave: null, runSaveSkipped: null } : checkedRunSave(lobby, playerId, lines, sha256);
   const pos = runSave ? runSave.pos : 0;
-  const log = lobby.game.logs[playerId];
   const payload = {
     playerId,
     runSave,
     runSaveSkipped,
     pos,
-    events: eventsOf(log ? __spreadProps(__spreadValues({}, log), { lines: log.lines.slice(pos) }) : void 0)
+    events: eventsOf(lines.slice(pos))
   };
-  return { lobby, out: [{ kind: "send", op: ServerOp.SPECTATE_RUN, payload, to: [userId] }] };
+  return {
+    lobby,
+    out: [{ kind: "send", op: ServerOp.SPECTATE_RUN, payload, to: [userId] }]
+  };
 }
 function spectatableLobbies(labels) {
   const lobbies = [];
@@ -7920,14 +7947,14 @@ var MAX_RUN_SAVE_PART_BYTES = 12 * 1024;
 var MAX_RUN_SAVE_PARTS = 16;
 var MAX_ID_LENGTH = 64;
 var HASH_PATTERN2 = /^[0-9a-f]{64}$/i;
-function isParticipant(lobby, userId) {
-  return !!lobby.game.started && lobby.game.started.players.some((p) => p.id === userId);
-}
 function isPlainObject3(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function isCount2(value, max) {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= max;
+}
+function isNonNegativeInt(value) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 var runSavePart = {
   key: RUN_SAVE_PART_KEY,
@@ -7935,14 +7962,20 @@ var runSavePart = {
     var _a, _b, _c;
     if (!lobby.game.started) return { reject: "not_in_game" };
     if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
-    if (!isPlainObject3(params) || typeof params.id !== "string" || params.id.length === 0 || params.id.length > MAX_ID_LENGTH || !isCount2(params.count, MAX_RUN_SAVE_PARTS) || typeof params.index !== "number" || !Number.isInteger(params.index) || params.index < 0 || params.index >= params.count || typeof params.pos !== "number" || !Number.isInteger(params.pos) || params.pos < 0 || typeof params.hash !== "string" || !HASH_PATTERN2.test(params.hash) || typeof params.data !== "string" || params.data.length > MAX_RUN_SAVE_PART_BYTES)
+    if (!isPlainObject3(params) || typeof params.id !== "string" || params.id.length === 0 || params.id.length > MAX_ID_LENGTH || !isCount2(params.count, MAX_RUN_SAVE_PARTS) || !isNonNegativeInt(params.index) || params.index >= params.count || !isNonNegativeInt(params.pos) || typeof params.hash !== "string" || !HASH_PATTERN2.test(params.hash) || typeof params.data !== "string" || params.data.length > MAX_RUN_SAVE_PART_BYTES)
       return { reject: "bad_params" };
     if (typeof params.run === "string" && params.run !== lobby.game.started.runId)
       return { game: lobby.game, params: null, to: "none" };
     const game = lobby.game;
     const held = (_a = game.runSavePending) == null ? void 0 : _a[ctx.from];
     const same = held && held.id === params.id && held.count === params.count && held.pos === params.pos && held.hash === params.hash;
-    const pending = same ? __spreadProps(__spreadValues({}, held), { parts: __spreadValues({}, held.parts) }) : { id: params.id, count: params.count, pos: params.pos, hash: params.hash, parts: {} };
+    const pending = same ? __spreadProps(__spreadValues({}, held), { parts: __spreadValues({}, held.parts) }) : {
+      id: params.id,
+      count: params.count,
+      pos: params.pos,
+      hash: params.hash,
+      parts: {}
+    };
     pending.parts[String(params.index)] = params.data;
     const rest = __spreadValues({}, (_b = game.runSavePending) != null ? _b : {});
     if (Object.keys(pending.parts).length < pending.count) {
@@ -7955,7 +7988,13 @@ var runSavePart = {
     delete rest[ctx.from];
     let data = "";
     for (let i = 0; i < pending.count; i++) data += pending.parts[String(i)];
-    const save = { id: pending.id, pos: pending.pos, hash: pending.hash, data, at: ctx.now };
+    const save = {
+      id: pending.id,
+      pos: pending.pos,
+      hash: pending.hash,
+      data,
+      at: ctx.now
+    };
     return {
       game: __spreadProps(__spreadValues({}, game), {
         runSaves: __spreadProps(__spreadValues({}, (_c = game.runSaves) != null ? _c : {}), { [ctx.from]: save }),
@@ -8236,16 +8275,12 @@ var abandonGame = {
     };
   }
 };
-function isParticipant2(lobby, userId) {
-  const started = lobby.game.started;
-  return !!started && started.players.some((p) => p.id === userId);
-}
 var reportResult = {
   key: "mpapi_report_result",
   reduce(lobby, ctx, params) {
     const started = lobby.game.started;
     if (!started) return { reject: "not_in_game" };
-    if (!isParticipant2(lobby, ctx.from)) return { reject: "not_participant" };
+    if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
     const placements = parsePlacements(
       isPlainObject4(params) ? params.placements : null,
       started.players
@@ -8267,7 +8302,7 @@ var setResultPending = {
   reduce(lobby, ctx, params) {
     const started = lobby.game.started;
     if (!started) return { reject: "not_in_game" };
-    if (!isParticipant2(lobby, ctx.from)) return { reject: "not_participant" };
+    if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
     if (!isPlainObject4(params) || typeof params.pending !== "boolean")
       return { reject: "bad_params" };
     const game = __spreadProps(__spreadValues({}, lobby.game), {
@@ -8282,7 +8317,7 @@ var contest = {
   reduce(lobby, ctx, params) {
     const started = lobby.game.started;
     if (!started) return { reject: "not_in_game" };
-    if (!isParticipant2(lobby, ctx.from)) return { reject: "not_participant" };
+    if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
     if (!lobby.rankedMode && !lobby.gameMode) return { reject: "not_matchmade" };
     if (lobby.game.contest) return { reject: "already_contested" };
     const input = isPlainObject4(params) ? params : {};
@@ -8341,7 +8376,7 @@ var logEvent = {
   key: "mpapi_log_event",
   reduce(lobby, ctx, params) {
     if (!lobby.game.started) return { reject: "not_in_game" };
-    if (!isParticipant2(lobby, ctx.from)) return { reject: "not_participant" };
+    if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
     const appended = appendLogEvent(lobby, ctx.from, ctx.now, params);
     if ("reject" in appended) return appended;
     return {
@@ -8356,7 +8391,7 @@ var logEvents = {
   key: "mpapi_log_events",
   reduce(lobby, ctx, params) {
     if (!lobby.game.started) return { reject: "not_in_game" };
-    if (!isParticipant2(lobby, ctx.from)) return { reject: "not_participant" };
+    if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
     if (!isPlainObject4(params) || !Array.isArray(params.events) || params.events.length === 0 || params.events.length > MAX_LOG_BATCH)
       return { reject: "bad_params" };
     let current = lobby;
@@ -9229,7 +9264,13 @@ function stepForMessage(nk, lobby, senderId, opCode, data) {
         data.state === void 0 ? null : data.state
       );
     case ClientOp.SPECTATE_VIEW:
-      return typeof data.playerId === "string" ? spectateRunOf(lobby, senderId, data.playerId, (input) => nk.sha256Hash(input), data.fromStart === true) : null;
+      return typeof data.playerId === "string" ? spectateRunOf(
+        lobby,
+        senderId,
+        data.playerId,
+        (input) => nk.sha256Hash(input),
+        data.fromStart === true
+      ) : null;
     case ClientOp.CATCHING_UP:
       return setCatchingUp(lobby, senderId, data.catchingUp === true, Date.now());
     default:
@@ -9320,7 +9361,16 @@ function lobbyMatchSignal(ctx, logger, nk, dispatcher, tickNumber, state, data) 
     return { state: next || __spreadProps(__spreadValues({}, state), { lobby: __spreadProps(__spreadValues({}, state.lobby), { closed: true }) }), data: answer2.reply };
   }
   if (signal2.type === "get_active") {
-    return { state, data: JSON.stringify(activeRunOf(state.lobby, signal2.userId, (input) => nk.sha256Hash(input))) };
+    return {
+      state,
+      data: JSON.stringify(
+        activeRunOf(
+          state.lobby,
+          signal2.userId,
+          (input) => nk.sha256Hash(input)
+        )
+      )
+    };
   }
   if (signal2.type === "chat_check") {
     const check = chatCheck(state.lobby, signal2.userId, Date.now());

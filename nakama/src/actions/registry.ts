@@ -11,6 +11,7 @@ import {
 	type Outbound,
 	MAX_PLAYERS,
 	emptyGame,
+	isParticipant,
 } from '../lobby/state'
 import { runSavePart } from './run_save'
 import { finishGame, parsePlacements } from './results'
@@ -199,11 +200,6 @@ const abandonGame: AuthoritativeAction = {
 			out: finished.out,
 		}
 	},
-}
-
-function isParticipant(lobby: Lobby, userId: string): boolean {
-	const started = lobby.game.started
-	return !!started && started.players.some((p) => p.id === userId)
 }
 
 // {placements: [{playerId, place, performance?, metric?}]} -- every

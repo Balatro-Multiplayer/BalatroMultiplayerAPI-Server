@@ -363,7 +363,7 @@ export interface ActiveRun {
 	// The owner's latest complete Run save, for a rejoin from zero; null when
 	// they have none, or when the log no longer matches it (runSaveSkipped says
 	// why). Only the owner's own active run carries it.
-	runSave: { id: string; pos: number; hash: string; data: string } | null
+	runSave: Omit<RunSave, 'at'> | null
 	runSaveSkipped: 'hash_mismatch' | 'beyond_log' | null
 	// The text the log hash is taken over: the log's events as they arrived,
 	// joined into a JSON array. A client that resumes the log needs it to hash

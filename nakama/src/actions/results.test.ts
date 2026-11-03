@@ -812,7 +812,9 @@ describe('replay logs', () => {
 
 describe('active run', () => {
 	it('is null when no game is running', () => {
-		expect(activeRunOf({ ...started('a', 'b'), game: emptyGame() }, 'a', sha256)).toBeNull()
+		expect(
+			activeRunOf({ ...started('a', 'b'), game: emptyGame() }, 'a', sha256),
+		).toBeNull()
 	})
 
 	it('gives a participant their own events so far, as {t, opcode, args}', () => {
@@ -826,7 +828,10 @@ describe('active run', () => {
 	it("names the game's bar for coming back, null for a lobby without one", () => {
 		const lobby = log2(started('a', 'b'))
 		expect(activeRunOf(lobby, 'a', sha256)?.requiredStanding).toBeNull()
-		expect(activeRunOf({ ...lobby, requiredStanding: 'verified' }, 'a', sha256)?.requiredStanding).toBe('verified')
+		expect(
+			activeRunOf({ ...lobby, requiredStanding: 'verified' }, 'a', sha256)
+				?.requiredStanding,
+		).toBe('verified')
 	})
 
 	it('is null for someone who is not playing or has left', () => {

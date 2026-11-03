@@ -3,6 +3,7 @@
 // SPECTATE_SNAPSHOT to start from, then every participant's replay event as a
 // SPECTATE_EVENT. They are never seated, counted, readied or sent the
 // participants' own ops.
+import { checkedRunSave, eventsOf } from './active'
 import {
 	ServerOp,
 	type SpectateEvent,
@@ -11,8 +12,15 @@ import {
 	type SpectatorManifest,
 	type SpectatorSnapshotEntry,
 } from './protocol'
-import { checkedRunSave, eventsOf } from './active'
-import { DIFFERENT_MOD, type Lobby, type Outbound, type Step, findPlayer, isSpectatable } from './state'
+import {
+	DIFFERENT_MOD,
+	type Lobby,
+	type Outbound,
+	type Step,
+	findPlayer,
+	isParticipant,
+	isSpectatable,
+} from './state'
 
 export const MAX_SPECTATORS = 16
 export const SPECTATOR_ROLE = 'spectator'
@@ -160,22 +168,24 @@ export function spectateRunOf(
 	sha256: (input: string) => string,
 	fromStart = false,
 ): Step {
-	const started = lobby.game.started
-	if (!isSpectator(lobby, userId) || !started || !started.players.some((p) => p.id === playerId))
+	if (!isSpectator(lobby, userId) || !isParticipant(lobby, playerId))
 		return { lobby, out: [] }
+	const lines = lobby.game.logs[playerId]?.lines ?? []
 	const { runSave, runSaveSkipped } = fromStart
 		? { runSave: null, runSaveSkipped: null }
-		: checkedRunSave(lobby, playerId, sha256)
+		: checkedRunSave(lobby, playerId, lines, sha256)
 	const pos = runSave ? runSave.pos : 0
-	const log = lobby.game.logs[playerId]
 	const payload: SpectateRun = {
 		playerId,
 		runSave,
 		runSaveSkipped,
 		pos,
-		events: eventsOf(log ? { ...log, lines: log.lines.slice(pos) } : undefined),
+		events: eventsOf(lines.slice(pos)),
 	}
-	return { lobby, out: [{ kind: 'send', op: ServerOp.SPECTATE_RUN, payload, to: [userId] }] }
+	return {
+		lobby,
+		out: [{ kind: 'send', op: ServerOp.SPECTATE_RUN, payload, to: [userId] }],
+	}
 }
 
 export interface SpectatableLobby {
