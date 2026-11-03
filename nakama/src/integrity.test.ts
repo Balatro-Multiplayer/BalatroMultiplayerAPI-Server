@@ -35,7 +35,10 @@ describe('integrityRefusal', () => {
 		expect(integrityRefusal(ENFORCED, verdict, 1000 + INTEGRITY_TTL_MS - 1)).toBeNull()
 		expect(integrityRefusal(ENFORCED, verdict, 1000 + INTEGRITY_TTL_MS)).toBe(INTEGRITY_REQUIRED)
 		expect(integrityRefusal(ENFORCED, verdictRecord(true, true, 0), 1e15)).toBeNull()
-		expect(verdictRecord(false, true, 0)).toEqual(FAILED_VERDICT)
+		expect(verdictRecord(false, true, 0, 'wrong_response')).toEqual(FAILED_VERDICT)
+		expect(verdictRecord(false, false, 0, 'refused')).toEqual(FAILED_VERDICT)
+		expect(verdictRecord(false, false, 0, 'timeout')).toEqual(UNVERIFIED)
+		expect(verdictRecord(false, false, 0)).toEqual(UNVERIFIED)
 		expect(hasFailedVerdict(FAILED_VERDICT)).toBe(true)
 		expect(hasFailedVerdict(UNVERIFIED)).toBe(false)
 		expect(isVerified(FAILED_VERDICT, 0)).toBe(false)
@@ -91,10 +94,18 @@ describe('admin_integrity_set', () => {
 			nk as any,
 			JSON.stringify({ userId: USER, verified: false, reason: 'timeout', message: 'Failed' }),
 		)
+		expect(readIntegrity(nk as any, USER)).toEqual(UNVERIFIED)
+		rpcAdminIntegritySet(
+			serverCtx(),
+			fakeLogger,
+			nk as any,
+			JSON.stringify({ userId: USER, verified: false, reason: 'wrong_response' }),
+		)
 		expect(readIntegrity(nk as any, USER)).toEqual(FAILED_VERDICT)
 		expect(nk.notifications.map((n) => [n.code, n.content])).toEqual([
 			[NotifyCode.INTEGRITY, { verified: true, reason: null, message: null }],
 			[NotifyCode.INTEGRITY, { verified: false, reason: 'timeout', message: 'Failed' }],
+			[NotifyCode.INTEGRITY, { verified: false, reason: 'wrong_response', message: null }],
 		])
 	})
 

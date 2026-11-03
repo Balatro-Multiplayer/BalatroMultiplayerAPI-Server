@@ -39,8 +39,18 @@ export interface IntegrityRecord {
 export const UNVERIFIED: IntegrityRecord = { verified: false, expiresAt: null }
 export const FAILED_VERDICT: IntegrityRecord = { verified: false, expiresAt: null, failed: true }
 
-export function verdictRecord(verified: boolean, permanent: boolean, now: number): IntegrityRecord {
-	if (!verified) return FAILED_VERDICT
+// Only an answer that was wrong or refused is a definite "no". A launcher that
+// never answered in time (reason 'timeout') may still be the real one, so it
+// stays unverified and the client can verify again.
+const DEFINITE_FAILURE_REASONS = ['wrong_response', 'refused']
+
+export function verdictRecord(
+	verified: boolean,
+	permanent: boolean,
+	now: number,
+	reason?: string | null,
+): IntegrityRecord {
+	if (!verified) return reason && DEFINITE_FAILURE_REASONS.includes(reason) ? FAILED_VERDICT : UNVERIFIED
 	return { verified: true, expiresAt: permanent ? null : now + INTEGRITY_TTL_MS }
 }
 
@@ -155,7 +165,11 @@ export function rpcAdminIntegritySet(
 	const input = parsePayload(payload)
 	const userId = requireUserId(input)
 	if (typeof input.verified !== 'boolean') throw runtimeError(INVALID_ARGUMENT, 'verified is required')
-	writeIntegrity(nk, userId, verdictRecord(input.verified, input.permanent === true, Date.now()))
+	writeIntegrity(
+		nk,
+		userId,
+		verdictRecord(input.verified, input.permanent === true, Date.now(), optionalString(input.reason)),
+	)
 	notify(nk, userId, NotifyCode.INTEGRITY, 'integrity', {
 		verified: input.verified,
 		reason: optionalString(input.reason),

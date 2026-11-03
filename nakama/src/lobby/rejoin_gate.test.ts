@@ -97,7 +97,7 @@ describe('the matchmade rejoin gate', () => {
 	it('says a failed verdict is final for a ranked game', () => {
 		const nk = lobbyNk()
 		report(nk, 'a', ['MultiplayerAPI-0.1.2'])
-		writeIntegrity(nk, 'a', verdictRecord(false, false, 0))
+		writeIntegrity(nk, 'a', verdictRecord(false, false, 0, 'refused'))
 		expect(refusalOf(attempt(nk, matchmade(nk, 'verified'), 'a').rejectMessage).reason).toBe('verification_failed')
 	})
 

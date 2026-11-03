@@ -32,11 +32,13 @@ export interface IntegrityVerdict {
 }
 
 // Sends a player one 'challenge' message: issued, verified or failed.
-// Resolves 'offline' when the player has no open socket to receive it.
+// Resolves CHALLENGE_OFFLINE when the player has no open socket to receive it.
+export const CHALLENGE_OFFLINE = 'offline'
+export type ChallengeOffline = typeof CHALLENGE_OFFLINE
 export type ChallengeSender = (
 	playerId: string,
 	payload: Record<string, unknown>,
-) => Promise<void | 'offline'>
+) => Promise<void | ChallengeOffline>
 
 interface LauncherIntegrityServiceDeps {
 	sendChallenge: ChallengeSender
@@ -220,7 +222,7 @@ export function createLauncherIntegrityService(
 			algorithm: issuance.algorithm,
 			expiresAt: issuance.expiresAt,
 		})
-		if (sent === 'offline') handleChallengeUndelivered(playerId, challengeId)
+		if (sent === CHALLENGE_OFFLINE) handleChallengeUndelivered(playerId, challengeId)
 		else session.offlineSince = undefined
 	}
 

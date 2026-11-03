@@ -5648,8 +5648,9 @@ var CHALLENGE_ID_PATTERN = /^[0-9A-Za-z-]{1,64}$/;
 var MAX_RESPONSE_BYTES = 8 * 1024;
 var UNVERIFIED = { verified: false, expiresAt: null };
 var FAILED_VERDICT = { verified: false, expiresAt: null, failed: true };
-function verdictRecord(verified, permanent, now) {
-  if (!verified) return FAILED_VERDICT;
+var DEFINITE_FAILURE_REASONS = ["wrong_response", "refused"];
+function verdictRecord(verified, permanent, now, reason) {
+  if (!verified) return reason && DEFINITE_FAILURE_REASONS.includes(reason) ? FAILED_VERDICT : UNVERIFIED;
   return { verified: true, expiresAt: permanent ? null : now + INTEGRITY_TTL_MS };
 }
 function isVerified(record, now) {
@@ -5720,7 +5721,11 @@ function rpcAdminIntegritySet(ctx, logger, nk, payload) {
   const input = parsePayload(payload);
   const userId = requireUserId(input);
   if (typeof input.verified !== "boolean") throw runtimeError(INVALID_ARGUMENT, "verified is required");
-  writeIntegrity(nk, userId, verdictRecord(input.verified, input.permanent === true, Date.now()));
+  writeIntegrity(
+    nk,
+    userId,
+    verdictRecord(input.verified, input.permanent === true, Date.now(), optionalString(input.reason))
+  );
   notify(nk, userId, NotifyCode.INTEGRITY, "integrity", {
     verified: input.verified,
     reason: optionalString(input.reason),
