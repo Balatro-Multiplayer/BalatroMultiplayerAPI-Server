@@ -28,21 +28,28 @@ const CHALLENGE_ID_PATTERN = /^[0-9A-Za-z-]{1,64}$/
 const MAX_RESPONSE_BYTES = 8 * 1024
 
 // expiresAt null: never expires (the API's dev auto-verify, which issues no
-// re-challenges to refresh it).
+// re-challenges to refresh it). failed marks a definite "no" from the API,
+// against UNVERIFIED, which is only "no verdict (yet)".
 export interface IntegrityRecord {
 	verified: boolean
 	expiresAt: number | null
+	failed?: boolean
 }
 
 export const UNVERIFIED: IntegrityRecord = { verified: false, expiresAt: null }
+export const FAILED_VERDICT: IntegrityRecord = { verified: false, expiresAt: null, failed: true }
 
 export function verdictRecord(verified: boolean, permanent: boolean, now: number): IntegrityRecord {
-	if (!verified) return UNVERIFIED
+	if (!verified) return FAILED_VERDICT
 	return { verified: true, expiresAt: permanent ? null : now + INTEGRITY_TTL_MS }
 }
 
 export function isVerified(record: IntegrityRecord, now: number): boolean {
 	return record.verified && (record.expiresAt === null || record.expiresAt > now)
+}
+
+export function hasFailedVerdict(record: IntegrityRecord): boolean {
+	return record.failed === true
 }
 
 // Why the player may not queue for ranked, or null.
@@ -54,7 +61,8 @@ export function integrityRefusal(config: ServerConfig, record: IntegrityRecord, 
 export function readIntegrity(nk: nkruntime.Nakama, userId: string): IntegrityRecord {
 	const objects = nk.storageRead([{ collection: INTEGRITY_COLLECTION, key: INTEGRITY_KEY, userId }])
 	const value = objects.length > 0 ? objects[0].value : null
-	if (!value || value.verified !== true) return UNVERIFIED
+	if (!value) return UNVERIFIED
+	if (value.verified !== true) return value.failed === true ? FAILED_VERDICT : UNVERIFIED
 	return { verified: true, expiresAt: typeof value.expiresAt === 'number' ? value.expiresAt : null }
 }
 
@@ -72,9 +80,10 @@ export function writeIntegrity(nk: nkruntime.Nakama, userId: string, record: Int
 }
 
 // launcher_session_start: {} -> {started}. Called by the client once its
-// socket is open (the challenges arrive as notifications over it): the
-// session starts unverified and the API starts its challenges (or, in
-// development, verifies outright). started is false when the API can't be
+// socket is open (the challenges arrive as notifications over it), and again
+// when a rejoin has to wait for a verdict: the API starts its challenges (or,
+// in development, verifies outright). A verdict that is still valid stays, so
+// asking again never makes it worse; anything else starts unverified. started is false when the API can't be
 // reached; the player then just stays out of ranked.
 export function rpcLauncherSessionStart(
 	ctx: nkruntime.Context,
@@ -83,7 +92,7 @@ export function rpcLauncherSessionStart(
 	payload: string,
 ) {
 	const userId = requireUser(ctx)
-	writeIntegrity(nk, userId, UNVERIFIED)
+	if (!isVerified(readIntegrity(nk, userId), Date.now())) writeIntegrity(nk, userId, UNVERIFIED)
 	const reply = callExpress(nk, logger, ctx.env, '/integrity/session-start', { nakamaUserId: userId })
 	return JSON.stringify({ started: reply !== null && reply.status >= 200 && reply.status < 300 })
 }
