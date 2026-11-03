@@ -131,6 +131,12 @@ export default function MatchReplayPage() {
         <div className='flex items-center gap-3'>
           <h1 className='font-bold text-2xl tracking-tight'>Match Replay</h1>
           <RunStatusBadge status={run.status} />
+          <Link
+            href={`/matches/${runId}/log`}
+            className='ml-auto text-bal-blue text-sm hover:underline'
+          >
+            Readable log →
+          </Link>
         </div>
         <p className='text-muted-foreground text-sm'>
           {run.modId} · Lobby {run.lobbyCode} · Started{' '}
