@@ -31,8 +31,9 @@ interface NakamaIntegrityDeps {
 // their transport. Challenges go out as CHALLENGE notifications, answers come
 // in through /internal/nakama/integrity/answer, verdicts go to
 // admin_integrity_set and a failed ranked-readiness check to
-// admin_queue_cancel. A challenge for a player whose socket has closed ends
-// their session here (Nakama has no session-end hook to tell us).
+// admin_queue_cancel. A challenge for a player whose socket has closed is
+// reported back as 'offline': the service keeps a verified player's session
+// and checks again later (Nakama has no session-end hook to tell us).
 export function createNakamaIntegrityService(
 	deps: NakamaIntegrityDeps,
 ): LauncherIntegrityService {
@@ -52,7 +53,8 @@ export function createNakamaIntegrityService(
 		)
 		if (!result.ok)
 			console.warn(`[nakama] Challenge for ${userId} not sent: ${result.error}`)
-		else if (result.value.online === false) service?.clearSession(userId)
+		else if (result.value.online === false) return 'offline'
+		return undefined
 	}
 
 	// The audit trail is keyed by Postgres player; a Nakama-only account with

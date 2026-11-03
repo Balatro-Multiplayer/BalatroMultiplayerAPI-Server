@@ -14,6 +14,8 @@ import type {
 import {
 	CHALLENGE_TIMEOUT_MS,
 	LOGIN_CHALLENGE_TIMEOUT_MS,
+	MAX_OFFLINE_MS,
+	OFFLINE_RETRY_MS,
 	PERIODIC_MAX_MS,
 	PERIODIC_MIN_MS,
 	RANKED_READINESS_CHALLENGE_TIMEOUT_MS,
@@ -30,10 +32,11 @@ export interface IntegrityVerdict {
 }
 
 // Sends a player one 'challenge' message: issued, verified or failed.
+// Resolves 'offline' when the player has no open socket to receive it.
 export type ChallengeSender = (
 	playerId: string,
 	payload: Record<string, unknown>,
-) => Promise<void>
+) => Promise<void | 'offline'>
 
 interface LauncherIntegrityServiceDeps {
 	sendChallenge: ChallengeSender
@@ -209,7 +212,7 @@ export function createLauncherIntegrityService(
 
 		session.activeChallenge = { challengeId, kind, issuance, timeoutTimer }
 
-		await sendChallenge(playerId, {
+		const sent = await sendChallenge(playerId, {
 			type: 'issued',
 			challengeId,
 			kind,
@@ -217,6 +220,34 @@ export function createLauncherIntegrityService(
 			algorithm: issuance.algorithm,
 			expiresAt: issuance.expiresAt,
 		})
+		if (sent === 'offline') handleChallengeUndelivered(playerId, challengeId)
+		else session.offlineSince = undefined
+	}
+
+	// A challenge that found the player's socket closed. Nobody could answer
+	// it, so it is neither a pass nor a failure: drop it without an integrity
+	// event or a verdict change, and keep a verified player's check session so
+	// the next slot can check again once the socket reopens. Anything else
+	// (unverified, or offline for too long) ends the session.
+	function handleChallengeUndelivered(
+		playerId: string,
+		challengeId: string,
+	): void {
+		const session = integritySessions.get(playerId)
+		if (session?.activeChallenge?.challengeId !== challengeId) return
+		clearTimeout(session.activeChallenge.timeoutTimer)
+		session.activeChallenge = undefined
+
+		const now = Date.now()
+		session.offlineSince ??= now
+		if (
+			!session.launcherVerified ||
+			now - session.offlineSince > MAX_OFFLINE_MS
+		) {
+			clearSession(playerId)
+			return
+		}
+		scheduleNextPeriodicChallenge(playerId, OFFLINE_RETRY_MS)
 	}
 
 	// Nakama session start (/internal/nakama/integrity/session-start) -- issues the login
@@ -241,14 +272,17 @@ export function createLauncherIntegrityService(
 		await issueChallenge(playerId, 'login')
 	}
 
-	function scheduleNextPeriodicChallenge(playerId: string): void {
+	function scheduleNextPeriodicChallenge(
+		playerId: string,
+		delayMs: number = randomJitterMs(),
+	): void {
 		if (!strategy) return
 		const session = integritySessions.get(playerId)
 		if (!session?.launcherVerified) return
 
 		const timer = setTimeout(() => {
 			void issueChallenge(playerId, 'periodic')
-		}, randomJitterMs())
+		}, delayMs)
 		timer.unref()
 		session.nextChallengeTimer = timer
 	}

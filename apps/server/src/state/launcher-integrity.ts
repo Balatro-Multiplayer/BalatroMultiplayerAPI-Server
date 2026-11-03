@@ -15,6 +15,9 @@ export interface IntegritySession {
 	// (handleClientConnected always starts from a fresh session). Currently
 	// write-only (no consumer reads it yet); kept for audit/debugging value.
 	launcherRefused: boolean
+	// When the first check in the current run of missed checks found the
+	// player offline; cleared when a check is delivered.
+	offlineSince?: number
 	activeChallenge?: IntegrityChallenge
 	nextChallengeTimer?: ReturnType<typeof setTimeout>
 }
