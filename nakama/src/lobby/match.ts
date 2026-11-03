@@ -810,7 +810,7 @@ export function lobbyMatchSignal(
 		return { state: next || { ...state, lobby: { ...state.lobby, closed: true } }, data: answer.reply }
 	}
 	if (signal.type === 'get_active') {
-		return { state, data: JSON.stringify(activeRunOf(state.lobby, signal.userId)) }
+		return { state, data: JSON.stringify(activeRunOf(state.lobby, signal.userId, (input) => nk.sha256Hash(input))) }
 	}
 	if (signal.type === 'chat_check') {
 		const check = chatCheck(state.lobby, signal.userId, Date.now())

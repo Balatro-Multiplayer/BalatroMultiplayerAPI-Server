@@ -258,7 +258,7 @@ export function rpcLobbyCurrent(
 }
 
 // {} when the caller isn't in a running game, else {active: {runId, code,
-// modId, events, requiredStanding}, standing}: what the reconnect prompt
+// modId, events, requiredStanding, runSave, runSaveSkipped, logText}, standing}: what the reconnect prompt
 // needs to catch a restarted client up (the API's GET /runs/mine/active, on
 // Nakama), and whether it may come back (standing/rejoin.ts).
 export function rpcRunActive(

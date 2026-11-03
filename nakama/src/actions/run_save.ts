@@ -1,8 +1,8 @@
 // Run saves: one player's whole run state at a Blind Select screen, sent by
 // the client in parts (mpapi_run_save_part) and kept here for the rest of the
 // match. The server holds the latest complete save per player and never
-// relays one: not to the other players, not to spectators, not back to the
-// sender. A save does not touch the replay log and is gone when the game ends
+// relays one. Only the owner gets theirs back, with their active run on a
+// rejoin (lobby/active.ts). A save does not touch the replay log and is gone when the game ends
 // (emptyGame). The part format is mirrored by hand in MPAPI
 // (api/replay/run_save.lua).
 import type { Lobby } from '../lobby/state'

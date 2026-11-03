@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { ServerOp } from '../lobby/protocol'
 import { type RelayStep, action } from '../lobby/relay'
 import { type Lobby, type Step, join, newLobby } from '../lobby/state'
+import { activeRunOf } from '../lobby/active'
 import { MAX_RUN_SAVE_PART_BYTES, MAX_RUN_SAVE_PARTS, RUN_SAVE_PART_KEY } from './run_save'
 
 const info = (name: string) => ({ displayName: name, preferredJoker: null, mods: null })
@@ -123,5 +125,56 @@ describe('run save parts', () => {
 		let lobby = started(['a', 'b'])
 		lobby = sendPart(lobby, 'a', part('s1', 0, 1, 'DATA')).lobby
 		expect(lobby.game.logs.a).toBeUndefined()
+	})
+})
+
+describe('run save on rejoin', () => {
+	const sha = (input: string) => createHash('sha256').update(input).digest('hex')
+	// Two logged events for 'a', so a save taken after 2 events has the hash of exactly those.
+	const logged = (lobby: Lobby) => {
+		lobby = send(lobby, 'a', 'mpapi_log_event', { t: 1, opcode: 'play', args: [1] }).lobby
+		return send(lobby, 'a', 'mpapi_log_event', { t: 2, opcode: 'buy', args: null }).lobby
+	}
+	const hashAfter = (lobby: Lobby, count: number) =>
+		sha(`[${(lobby.game.logs.a?.lines ?? []).slice(0, count).join(',')}]`)
+	const withSave = (lobby: Lobby, pos: number, hash: string) =>
+		sendPart(lobby, 'a', { ...part('s1', 0, 1, 'MINE', pos), hash }).lobby
+
+	it('goes only to its owner with the active run', () => {
+		let lobby = logged(started(['a', 'b']))
+		lobby = withSave(lobby, 2, hashAfter(lobby, 2))
+		const mine = activeRunOf(lobby, 'a', sha)
+		expect(mine?.runSave).toEqual({ id: 's1', pos: 2, hash: hashAfter(lobby, 2), data: 'MINE' })
+		expect(mine?.runSaveSkipped).toBeNull()
+		expect(activeRunOf(lobby, 'b', sha)?.runSave).toBeNull()
+		expect(JSON.stringify(activeRunOf(lobby, 'b', sha))).not.toContain('MINE')
+	})
+
+	it('is null while the player has no complete save', () => {
+		const lobby = sendPart(logged(started(['a', 'b'])), 'a', part('s1', 0, 2, 'half', 2)).lobby
+		const active = activeRunOf(lobby, 'a', sha)
+		expect(active?.runSave).toBeNull()
+		expect(active?.runSaveSkipped).toBeNull()
+	})
+
+	it('holds back a save whose hash is not the hash of the log up to its position', () => {
+		let lobby = logged(started(['a', 'b']))
+		lobby = withSave(lobby, 2, 'f'.repeat(64))
+		const active = activeRunOf(lobby, 'a', sha)
+		expect(active?.runSave).toBeNull()
+		expect(active?.runSaveSkipped).toBe('hash_mismatch')
+	})
+
+	it('holds back a save taken after more events than the log holds', () => {
+		let lobby = logged(started(['a', 'b']))
+		lobby = withSave(lobby, 5, hashAfter(lobby, 2))
+		const active = activeRunOf(lobby, 'a', sha)
+		expect(active?.runSave).toBeNull()
+		expect(active?.runSaveSkipped).toBe('beyond_log')
+	})
+
+	it('gives the log as the text the hash is taken over, so a resumed client can extend it', () => {
+		const lobby = logged(started(['a', 'b']))
+		expect(activeRunOf(lobby, 'a', sha)?.logText).toBe(`[${lobby.game.logs.a.lines.join(',')}]`)
 	})
 })

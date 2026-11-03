@@ -2,21 +2,40 @@
 // connection. Pure.
 import type { ActiveRun, PlayerLog, ReplayEvent, ReplayTail } from './protocol'
 import type { Lobby } from './state'
+import { hashInput } from './log_check'
 
 // null unless a game is running and userId is one of its participants still
 // seated in the lobby. The events are the player's own log so far, parsed
 // from the JSON text they arrived as into {t, opcode, args}.
-export function activeRunOf(lobby: Lobby, userId: string): ActiveRun | null {
+//
+// The owner's Run save is checked here against the log as it arrived: it is
+// given only if the log holds its position and the log up to there hashes to
+// the save's hash. (The client cannot redo that hash from the parsed events:
+// it would have to re-encode objects in the order they arrived.)
+export function activeRunOf(lobby: Lobby, userId: string, sha256: (input: string) => string): ActiveRun | null {
 	const started = lobby.game.started
 	if (!started || lobby.closed) return null
 	if (!started.players.some((p) => p.id === userId)) return null
 	if (!lobby.players.some((p) => p.id === userId)) return null
+	const save = lobby.game.runSaves?.[userId]
+	const lines = lobby.game.logs[userId]?.lines ?? []
+	let runSave: ActiveRun['runSave'] = null
+	let runSaveSkipped: ActiveRun['runSaveSkipped'] = null
+	if (save) {
+		if (save.pos > lines.length) runSaveSkipped = 'beyond_log'
+		else if (sha256(hashInput(lines.slice(0, save.pos))).toLowerCase() !== save.hash.toLowerCase())
+			runSaveSkipped = 'hash_mismatch'
+		else runSave = { id: save.id, pos: save.pos, hash: save.hash, data: save.data }
+	}
 	return {
 		runId: started.runId,
 		code: lobby.code,
 		modId: lobby.modId,
 		events: eventsOf(lobby.game.logs[userId]),
 		requiredStanding: lobby.requiredStanding || null,
+		runSave,
+		runSaveSkipped,
+		logText: hashInput(lines),
 	}
 }
 
