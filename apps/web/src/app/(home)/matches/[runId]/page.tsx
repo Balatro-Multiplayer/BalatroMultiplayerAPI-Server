@@ -1,37 +1,30 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
-import { useParams, useRouter } from 'next/navigation'
-import { useEffect, useMemo } from 'react'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { useParams } from 'next/navigation'
+import { useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
 import { ApiError, apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { EventDetail } from '../components/event-detail'
-import { InfoTooltipLabel } from '../components/info-tooltip-label'
-import { KeyValueGrid } from '../components/key-value-grid'
-import { OpcodeBadge } from '../components/opcode-badge'
+import { GameLogView } from '../components/game-log/game-log-view'
+import { MatchTimeline } from '../components/match-timeline'
 import { PlayerLabel } from '../components/player-label'
 import { RunStatusBadge } from '../components/status-badge'
-import { buildCardRegistries } from '../lib/build-card-registries'
 import { decodePlayerLogs } from '../lib/decode-player-logs'
-import { getDeckInfo, getRulesetInfo } from '../lib/ruleset-info'
-import { computePlayerSpending } from '../lib/spending'
-import { formatElapsedMs } from '../lib/format'
-import { findMatchInfo, findPlayerOutcomeArgs } from '../lib/manifest'
-import { buildTimeline, FRAMING_OPCODES } from '../lib/timeline'
+import { buildGameLog } from '../lib/game-log/build-game-log'
+import {
+  hiddenPlayerIds,
+  matchLink,
+  shareControl,
+  withOwnSideShared,
+} from '../lib/match-view'
 import type { RunReplayResponse } from '../lib/types'
 
 function BackLink() {
+  const { isLoggedIn } = useAuth()
+  if (!isLoggedIn) return null
   return (
     <Link href='/matches' className='text-bal-blue text-sm hover:underline'>
       ← Back to My Matches
@@ -39,325 +32,193 @@ function BackLink() {
   )
 }
 
-export default function MatchReplayPage() {
-  const { pending, isLoggedIn, player } = useAuth()
-  const router = useRouter()
-  const params = useParams()
-  const runId = params.runId as string
+function ShareButtons({
+  runId,
+  shared,
+  busy,
+  onToggle,
+}: {
+  runId: string
+  shared: boolean
+  busy: boolean
+  onToggle: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    await navigator.clipboard.writeText(
+      matchLink(window.location.origin, runId)
+    )
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <div className='ml-auto flex items-center gap-2'>
+      {shared && (
+        <Button size='sm' variant='outline' onClick={copy}>
+          {copied ? 'Copied' : 'Copy link'}
+        </Button>
+      )}
+      <Button
+        size='sm'
+        variant={shared ? 'outline' : 'default'}
+        disabled={busy}
+        onClick={onToggle}
+      >
+        {shared ? 'Unshare' : 'Share'}
+      </Button>
+    </div>
+  )
+}
 
-  useEffect(() => {
-    if (!pending && !isLoggedIn) router.replace('/login')
-  }, [pending, isLoggedIn, router])
+export default function MatchPage() {
+  const { pending, player } = useAuth()
+  const runId = useParams().runId as string
+  const queryClient = useQueryClient()
+  const [tab, setTab] = useState<'log' | 'timeline'>('log')
+  const queryKey = ['match-replay', runId, player?.id ?? null]
 
+  // No login needed: the API decides what this viewer may see.
   const { data, error, isLoading } = useQuery<RunReplayResponse>({
-    queryKey: ['match-replay', runId],
+    queryKey,
     queryFn: () => apiFetch(`/runs/${runId}/replay`),
-    enabled: isLoggedIn,
+    enabled: !pending,
     retry: false,
+  })
+
+  const shareMutation = useMutation({
+    mutationFn: (share: boolean) =>
+      apiFetch<{ shared: boolean }>(`/runs/${runId}/share`, {
+        method: share ? 'POST' : 'DELETE',
+      }),
+    onSuccess: ({ shared }) =>
+      queryClient.setQueryData<RunReplayResponse>(queryKey, (old) =>
+        old ? withOwnSideShared(old, shared) : old
+      ),
   })
 
   const { decoded, failures } = useMemo(
     () => decodePlayerLogs(data?.logs ?? []),
     [data]
   )
-  const timeline = useMemo(() => buildTimeline(decoded), [decoded])
-  const cardRegistries = useMemo(() => buildCardRegistries(decoded), [decoded])
-  const spending = useMemo(() => computePlayerSpending(decoded), [decoded])
-  const gameplayTimeline = useMemo(
-    () => timeline.filter((entry) => !FRAMING_OPCODES.has(entry.opcode)),
-    [timeline]
-  )
-  const manifest = useMemo(() => findMatchInfo(timeline), [timeline])
-  const playerOutcomes = useMemo(
-    () =>
-      (data?.logs ?? []).map((log) => ({
-        playerId: log.playerId,
-        outcome: findPlayerOutcomeArgs(timeline, log.playerId),
-      })),
-    [data, timeline]
+  const gameLog = useMemo(() => buildGameLog(decoded), [decoded])
+  const hidden = useMemo(() => hiddenPlayerIds(data?.logs ?? []), [data])
+  const names = useMemo(
+    () => new Map((data?.logs ?? []).map((l) => [l.playerId, l.displayName])),
+    [data]
   )
 
-  if (pending)
-    return <div className='container py-8 text-muted-foreground'>Loading…</div>
-  if (!isLoggedIn) return null
+  const message =
+    error instanceof ApiError && error.status === 404
+      ? 'Match not found.'
+      : error
+        ? 'Failed to load this match. Please try again later.'
+        : pending || isLoading || !data
+          ? 'Loading…'
+          : null
 
-  if (error instanceof ApiError && error.status === 403) {
+  if (message || !data) {
     return (
       <div className='container max-w-lg space-y-4 py-8'>
         <BackLink />
-        <p className='text-muted-foreground'>
-          You don't have access to this replay.
-        </p>
+        <p className='text-muted-foreground'>{message}</p>
       </div>
     )
   }
 
-  if (error instanceof ApiError && error.status === 404) {
-    return (
-      <div className='container max-w-lg space-y-4 py-8'>
-        <BackLink />
-        <p className='text-muted-foreground'>Match not found.</p>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className='container max-w-lg space-y-4 py-8'>
-        <BackLink />
-        <p className='text-muted-foreground'>
-          Failed to load this replay. Please try again later.
-        </p>
-      </div>
-    )
-  }
-
-  if (isLoading || !data) {
-    return (
-      <div className='container max-w-lg space-y-4 py-8'>
-        <BackLink />
-        <p className='text-muted-foreground'>Loading…</p>
-      </div>
-    )
-  }
-
-  const { run, logs } = data
-  const viewerId = player?.id ?? null
+  const viewerId = data.viewer.playerId ?? null
+  const share = shareControl(data)
+  const isModerator = data.viewer.role === 'moderator'
+  const showTimeline = isModerator && tab === 'timeline'
 
   return (
-    <div className='container max-w-5xl space-y-6 py-8'>
+    <div className='container max-w-6xl space-y-6 py-8'>
       <div className='space-y-1'>
         <BackLink />
-        <div className='flex items-center gap-3'>
-          <h1 className='font-bold text-2xl tracking-tight'>Match Replay</h1>
-          <RunStatusBadge status={run.status} />
-          <Link
-            href={`/matches/${runId}/log`}
-            className='ml-auto text-bal-blue text-sm hover:underline'
-          >
-            Readable log →
-          </Link>
+        <div className='flex flex-wrap items-center gap-3'>
+          <h1 className='font-bold text-2xl tracking-tight'>Match Log</h1>
+          <RunStatusBadge status={data.run.status} />
+          {share && (
+            <ShareButtons
+              runId={runId}
+              shared={share.shared}
+              busy={shareMutation.isPending}
+              onToggle={() => shareMutation.mutate(!share.shared)}
+            />
+          )}
         </div>
         <p className='text-muted-foreground text-sm'>
-          {run.modId} · Lobby {run.lobbyCode} · Started{' '}
-          {new Date(run.startedAt).toLocaleString()}
+          {data.run.modId} · Lobby {data.run.lobbyCode} · Started{' '}
+          {new Date(data.run.startedAt).toLocaleString()}
         </p>
-      </div>
-
-      {logs.length === 0 && (
-        <Card>
-          <CardContent className='pt-6 text-muted-foreground'>
-            No player logs were recorded for this match.
-          </CardContent>
-        </Card>
-      )}
-
-      {failures.length > 0 && (
-        <Card className='border-destructive/40'>
-          <CardHeader>
-            <CardTitle className='text-base text-destructive'>
-              Some logs failed to decode
-            </CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-1 text-muted-foreground text-sm'>
-            {failures.map((failure) => (
-              <p key={failure.playerId}>
-                Player {failure.playerId.slice(0, 8)}: {failure.error}
-              </p>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {manifest && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Match Info</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <KeyValueGrid
-              data={manifest}
-              renderValue={(key, value) => {
-                const info =
-                  key === 'ruleset'
-                    ? getRulesetInfo(value)
-                    : key === 'deck'
-                      ? getDeckInfo(value)
-                      : null
-                if (!info || typeof value !== 'string') return null
-                return (
-                  <InfoTooltipLabel label={value} description={info.description} />
-                )
-              }}
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      {playerOutcomes.some((p) => p.outcome) && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Result</CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-4'>
-            {playerOutcomes
-              .filter(
-                (
-                  p
-                ): p is {
-                  playerId: string
-                  outcome: Record<string, unknown>
-                } => p.outcome !== null
-              )
-              .map((p) => (
-                <div key={p.playerId}>
-                  <p className='mb-1 font-medium text-sm'>
-                    <PlayerLabel playerId={p.playerId} viewerId={viewerId} />
-                  </p>
-                  <KeyValueGrid data={p.outcome} />
-                </div>
-              ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {logs.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Players</CardTitle>
-          </CardHeader>
-          <CardContent className='flex flex-wrap gap-4 text-sm'>
-            {logs.map((log) => (
-              <div key={log.playerId} className='flex items-center gap-2'>
-                <PlayerLabel playerId={log.playerId} viewerId={viewerId} />
-                <span className='text-muted-foreground'>
-                  {log.eventCount} events
-                </span>
-                <Badge
-                  variant={log.status === 'complete' ? 'secondary' : 'outline'}
-                >
-                  {log.status}
-                </Badge>
-                {log.flagReason && (
-                  <Badge variant='destructive'>{log.flagReason}</Badge>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {spending.some((s) => s.hasData) && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Spending</CardTitle>
-          </CardHeader>
-          <CardContent className='p-0'>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Player</TableHead>
-                  <TableHead className='text-right'>
-                    Itemized Purchases
-                  </TableHead>
-                  <TableHead className='text-right'>
-                    Observed Balance Decrease
-                  </TableHead>
-                  <TableHead className='text-right'>
-                    Observed Balance Increase
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {spending
-                  .filter((s) => s.hasData)
-                  .map((s) => (
-                    <TableRow key={s.playerId}>
-                      <TableCell>
-                        <PlayerLabel
-                          playerId={s.playerId}
-                          viewerId={viewerId}
-                        />
-                      </TableCell>
-                      <TableCell className='text-right font-mono text-sm'>
-                        ${s.itemizedPurchases}
-                      </TableCell>
-                      <TableCell className='text-right font-mono text-sm'>
-                        ${s.observedSpend}
-                      </TableCell>
-                      <TableCell className='text-right font-mono text-sm'>
-                        ${s.observedGain}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-              </TableBody>
-            </Table>
-            <p className='px-4 py-3 text-muted-foreground text-xs'>
-              Itemized Purchases sums each shop purchase's own recorded cost.
-              Observed Balance Decrease/Increase sums every recorded balance
-              change for any reason (purchases, rerolls, blind rewards,
-              interest, joker triggers, ...), not shop purchases alone --
-              expect it to run higher than Itemized Purchases, that's not by
-              itself a sign of anything wrong.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {gameplayTimeline.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Timeline</CardTitle>
-          </CardHeader>
-          <CardContent className='p-0'>
-            <div className='max-h-[600px] overflow-y-auto'>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Player</TableHead>
-                    <TableHead>Event</TableHead>
-                    <TableHead>Details</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {gameplayTimeline.map((entry) => (
-                    <TableRow key={entry.id}>
-                      <TableCell className='font-mono text-muted-foreground text-xs'>
-                        {formatElapsedMs(entry.t)}
-                      </TableCell>
-                      <TableCell>
-                        <PlayerLabel
-                          playerId={entry.playerId}
-                          viewerId={viewerId}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <OpcodeBadge opcode={entry.opcode} />
-                      </TableCell>
-                      <TableCell>
-                        <EventDetail
-                          opcode={entry.opcode}
-                          args={entry.args}
-                          registry={cardRegistries.get(entry.playerId)}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {logs.length > 0 &&
-        gameplayTimeline.length === 0 &&
-        failures.length === 0 && (
-          <p className='text-muted-foreground text-sm'>
-            No gameplay events recorded beyond match framing.
+        {share && (
+          <p className='text-muted-foreground text-xs'>
+            {share.shared
+              ? 'Your side is shared. Anyone with the link can see it.'
+              : 'Only you and your opponents can see your side. Share it to let anyone with the link see it.'}
           </p>
         )}
+        {shareMutation.isError && (
+          <p className='text-destructive text-sm'>
+            Could not change sharing. Please try again.
+          </p>
+        )}
+      </div>
+
+      {isModerator && (
+        <div className='flex gap-2'>
+          <Button
+            size='sm'
+            variant={tab === 'log' ? 'default' : 'outline'}
+            onClick={() => setTab('log')}
+          >
+            Match log
+          </Button>
+          <Button
+            size='sm'
+            variant={tab === 'timeline' ? 'default' : 'outline'}
+            onClick={() => setTab('timeline')}
+          >
+            Event timeline
+          </Button>
+        </div>
+      )}
+
+      {showTimeline ? (
+        <MatchTimeline logs={data.logs} viewerId={viewerId} />
+      ) : (
+        <>
+          {failures.length > 0 && (
+            <Card className='border-destructive/40'>
+              <CardContent className='space-y-1 pt-6 text-destructive text-sm'>
+                {failures.map((f) => (
+                  <p key={f.playerId}>
+                    Player {names.get(f.playerId) ?? f.playerId.slice(0, 8)}:{' '}
+                    {f.error}
+                  </p>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {gameLog.players.length === 0 ? (
+            <p className='text-muted-foreground text-sm'>
+              No player logs were recorded for this match.
+            </p>
+          ) : (
+            <GameLogView
+              log={gameLog}
+              hiddenPlayerIds={hidden}
+              playerLabel={(id) => (
+                <PlayerLabel
+                  playerId={id}
+                  displayName={names.get(id)}
+                  viewerId={viewerId}
+                />
+              )}
+            />
+          )}
+        </>
+      )}
     </div>
   )
 }

@@ -209,13 +209,38 @@ function RoundColumn({
   )
 }
 
+const NO_HIDDEN_SIDES: ReadonlySet<string> = new Set()
+
+export const HIDDEN_SIDE_TEXT = 'This player has not shared their side'
+
 function PlayerSummary({
   player,
   label,
+  hidden,
 }: {
   player: PlayerGameLog
   label: ReactNode
+  hidden: boolean
 }) {
+  if (hidden) {
+    return (
+      <div className='space-y-2 rounded-md border p-3'>
+        <div className='flex flex-wrap items-center gap-2'>
+          <span className='font-medium text-sm'>{label}</span>
+          {player.result && (
+            <Badge variant={player.result === 'win' ? 'default' : 'secondary'}>
+              {player.result}
+            </Badge>
+          )}
+        </div>
+        <dl className='grid grid-cols-2 gap-x-4 gap-y-1 text-xs'>
+          <dt className='text-muted-foreground'>Lives lost</dt>
+          <dd>{player.livesLost}</dd>
+        </dl>
+        <p className='text-muted-foreground text-sm'>{HIDDEN_SIDE_TEXT}</p>
+      </div>
+    )
+  }
   return (
     <div className='space-y-2 rounded-md border p-3'>
       <div className='flex flex-wrap items-center gap-2'>
@@ -274,23 +299,31 @@ function PlayerSummary({
 export function GameLogView({
   log,
   playerLabel,
+  hiddenPlayerIds = NO_HIDDEN_SIDES,
 }: {
   log: GameLog
   playerLabel: (playerId: string) => ReactNode
+  /** Sides reduced to result, lives lost and PvP blind scores. */
+  hiddenPlayerIds?: ReadonlySet<string>
 }) {
+  const detailPlayers = useMemo(
+    () => log.players.filter((p) => !hiddenPlayerIds.has(p.playerId)),
+    [log.players, hiddenPlayerIds]
+  )
   const [filter, setFilter] = useState<string>('all')
   const [showMoney, setShowMoney] = useState(false)
 
   const visible = useMemo(
-    () => log.players.filter((p) => filter === 'all' || p.playerId === filter),
-    [log.players, filter]
+    () =>
+      detailPlayers.filter((p) => filter === 'all' || p.playerId === filter),
+    [detailPlayers, filter]
   )
   // Blinds are whole numbers and their shops sit at +0.5 between them.
   const roundIndexes = [
-    ...new Set(log.players.flatMap((p) => p.rounds.map((r) => r.index))),
+    ...new Set(detailPlayers.flatMap((p) => p.rounds.map((r) => r.index))),
   ].sort((a, b) => a - b)
 
-  const first = log.players[0]
+  const first = detailPlayers[0]
   const deckInfo = getDeckInfo(first?.deck)
   const rulesetInfo = getRulesetInfo(log.match?.ruleset)
 
@@ -351,6 +384,7 @@ export function GameLogView({
                 key={player.playerId}
                 player={player}
                 label={playerLabel(player.playerId)}
+                hidden={hiddenPlayerIds.has(player.playerId)}
               />
             ))}
           </div>
@@ -404,7 +438,7 @@ export function GameLogView({
         >
           Both
         </Button>
-        {log.players.map((p) => (
+        {detailPlayers.map((p) => (
           <Button
             key={p.playerId}
             size='sm'
@@ -428,7 +462,7 @@ export function GameLogView({
       <EconomyChart log={log} players={visible} playerLabel={playerLabel} />
 
       {roundIndexes.map((index) => {
-        const first = log.players
+        const first = detailPlayers
           .flatMap((p) => p.rounds)
           .find((r) => r.index === index)
         const label = first?.label ?? ''

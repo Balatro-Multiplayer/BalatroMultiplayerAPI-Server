@@ -227,3 +227,26 @@ describe('buildGameLog', () => {
     expect(rounds[0]?.events.some((e) => e.type === 'cashout')).toBe(true)
   })
 })
+
+describe('buildGameLog with a reduced side', () => {
+  test('keeps result, lives lost and PvP blind scores', () => {
+    const shared = player('a', [
+      [10, 'select_blind', [0, 'bl_mp_nemesis']],
+      [11, 'hand_result', ['500', 3]],
+      [12, 'end', { result: 'win' }],
+    ])
+    const reduced = player('b', [
+      [10, 'select_blind', [null, 'bl_mp_nemesis']],
+      [11, 'hand_result', ['300']],
+      [12, 'life_lost', { lost: 1, lives: 3 }],
+      [13, 'end', { result: 'loss' }],
+    ])
+    const log = buildGameLog([shared, reduced])
+    const b = log.players.find((p) => p.playerId === 'b')
+    expect(b?.result).toBe('loss')
+    expect(b?.livesLost).toBe(1)
+    expect(log.pvp).toHaveLength(1)
+    expect(log.pvp[0]?.scores).toEqual({ a: '500', b: '300' })
+    expect(log.pvp[0]?.winnerId).toBe('a')
+  })
+})
