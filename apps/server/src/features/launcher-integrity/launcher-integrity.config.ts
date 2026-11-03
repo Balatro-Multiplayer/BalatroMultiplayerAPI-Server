@@ -29,9 +29,16 @@ export const RANKED_READINESS_CHALLENGE_TIMEOUT_MS = 30_000
 export const PERIODIC_MIN_MS = 3 * 60 * 1000
 export const PERIODIC_MAX_MS = 5 * 60 * 1000
 
-// Periodic checks in a row that may find a verified player offline before the
-// check session ends. A dropped socket usually comes back within minutes, and
-// the session must survive that. 12 misses is 36 to 60 minutes of absence,
-// longer than any normal reconnect, and it caps a player who never returns to
-// one idle timer chain for about an hour. A new login resets the session.
-export const MAX_OFFLINE_PERIODIC_CHECKS = 12
+// Delay before re-checking a verified player whose last check found them
+// offline. Nakama's verdict expires 6 minutes after the last pass, so waiting
+// a full periodic slot (3 to 5 minutes) could leave a player whose socket
+// just reopened unverified for minutes. A short retry restores the verdict
+// soon after they return.
+export const OFFLINE_RETRY_MS = 30 * 1000
+
+// How long a verified player may stay offline (first missed check to now)
+// before the check session ends. A dropped socket usually returns within
+// minutes, so the session must survive that. After an hour the player is
+// gone for practical purposes, and ending the session caps the retry timer
+// chain for a player who never returns. A new login starts a fresh session.
+export const MAX_OFFLINE_MS = 60 * 60 * 1000

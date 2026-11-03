@@ -5,7 +5,8 @@ import type { ILauncherIntegrityRepository } from '../../contracts/ILauncherInte
 import {
 	CHALLENGE_TIMEOUT_MS,
 	LOGIN_CHALLENGE_TIMEOUT_MS,
-	MAX_OFFLINE_PERIODIC_CHECKS,
+	MAX_OFFLINE_MS,
+	OFFLINE_RETRY_MS,
 	PERIODIC_MIN_MS,
 	RANKED_READINESS_CHALLENGE_TIMEOUT_MS,
 } from '../../features/launcher-integrity/launcher-integrity.config.js'
@@ -670,11 +671,12 @@ describe('periodic checks while the player is offline', () => {
 		expect(service.isLauncherVerified('player1')).toBe(true)
 
 		// No timeout failure comes from the undelivered check.
-		await vi.advanceTimersByTimeAsync(PERIODIC_MIN_MS - 1)
+		await vi.advanceTimersByTimeAsync(OFFLINE_RETRY_MS - 1)
 		expect(service.isLauncherVerified('player1')).toBe(true)
 		expect(repository.insertEvent).not.toHaveBeenCalled()
+		expect(sendChallenge).toHaveBeenCalledTimes(1)
 
-		// The next slot checks again and the player can answer.
+		// A short retry checks again, long before the next periodic slot.
 		await vi.advanceTimersByTimeAsync(1)
 		expect(sendChallenge).toHaveBeenCalledTimes(2)
 		const challengeId = await getIssuedChallengeId(sendChallenge)
@@ -682,18 +684,41 @@ describe('periodic checks while the player is offline', () => {
 		expect(service.isLauncherVerified('player1')).toBe(true)
 	})
 
-	it('ends the session of a player who never comes back', async () => {
+	it('ends the session of a player who stays offline past the time cap', async () => {
 		vi.useFakeTimers()
 		const sendChallenge = makeSendChallenge()
 		await verifiedPlayer(sendChallenge)
 		sendChallenge.mockResolvedValue('offline')
 
-		for (let i = 0; i < MAX_OFFLINE_PERIODIC_CHECKS - 1; i++) {
-			await vi.advanceTimersByTimeAsync(PERIODIC_MIN_MS)
-			expect(integritySessions.has('player1')).toBe(true)
-		}
+		// First miss, then just under the cap of further absence.
 		await vi.advanceTimersByTimeAsync(PERIODIC_MIN_MS)
+		await vi.advanceTimersByTimeAsync(MAX_OFFLINE_MS - OFFLINE_RETRY_MS)
+		expect(integritySessions.has('player1')).toBe(true)
+
+		await vi.advanceTimersByTimeAsync(2 * OFFLINE_RETRY_MS)
 		expect(integritySessions.has('player1')).toBe(false)
+	})
+
+	it('restarts the time cap when a check is delivered again', async () => {
+		vi.useFakeTimers()
+		const sendChallenge = makeSendChallenge()
+		const { service } = await verifiedPlayer(sendChallenge)
+		sendChallenge.mockResolvedValue('offline')
+		const away = MAX_OFFLINE_MS * 0.6
+
+		await vi.advanceTimersByTimeAsync(PERIODIC_MIN_MS + away)
+		expect(integritySessions.has('player1')).toBe(true)
+
+		// The player returns, answers, and is checked again.
+		sendChallenge.mockResolvedValueOnce(undefined)
+		await vi.advanceTimersByTimeAsync(OFFLINE_RETRY_MS)
+		const challengeId = await getIssuedChallengeId(sendChallenge)
+		await service.handleChallengeResponse('player1', { challengeId, response: 'x' })
+
+		// A second absence of the same length is more than the cap in total,
+		// but not since the last delivered check.
+		await vi.advanceTimersByTimeAsync(PERIODIC_MIN_MS + away)
+		expect(integritySessions.has('player1')).toBe(true)
 	})
 
 	it('ends the session of an unverified player whose login challenge finds them offline', async () => {

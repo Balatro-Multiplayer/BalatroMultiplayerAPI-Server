@@ -14,7 +14,8 @@ import type {
 import {
 	CHALLENGE_TIMEOUT_MS,
 	LOGIN_CHALLENGE_TIMEOUT_MS,
-	MAX_OFFLINE_PERIODIC_CHECKS,
+	MAX_OFFLINE_MS,
+	OFFLINE_RETRY_MS,
 	PERIODIC_MAX_MS,
 	PERIODIC_MIN_MS,
 	RANKED_READINESS_CHALLENGE_TIMEOUT_MS,
@@ -220,14 +221,14 @@ export function createLauncherIntegrityService(
 			expiresAt: issuance.expiresAt,
 		})
 		if (sent === 'offline') handleChallengeUndelivered(playerId, challengeId)
-		else if (session.offlineChecks) session.offlineChecks = 0
+		else session.offlineSince = undefined
 	}
 
 	// A challenge that found the player's socket closed. Nobody could answer
 	// it, so it is neither a pass nor a failure: drop it without an integrity
 	// event or a verdict change, and keep a verified player's check session so
 	// the next slot can check again once the socket reopens. Anything else
-	// (unverified, or too many misses in a row) ends the session.
+	// (unverified, or offline for too long) ends the session.
 	function handleChallengeUndelivered(
 		playerId: string,
 		challengeId: string,
@@ -237,15 +238,16 @@ export function createLauncherIntegrityService(
 		clearTimeout(session.activeChallenge.timeoutTimer)
 		session.activeChallenge = undefined
 
-		session.offlineChecks = (session.offlineChecks ?? 0) + 1
+		const now = Date.now()
+		session.offlineSince ??= now
 		if (
 			!session.launcherVerified ||
-			session.offlineChecks >= MAX_OFFLINE_PERIODIC_CHECKS
+			now - session.offlineSince > MAX_OFFLINE_MS
 		) {
 			clearSession(playerId)
 			return
 		}
-		scheduleNextPeriodicChallenge(playerId)
+		scheduleNextPeriodicChallenge(playerId, OFFLINE_RETRY_MS)
 	}
 
 	// Nakama session start (/internal/nakama/integrity/session-start) -- issues the login
@@ -270,14 +272,17 @@ export function createLauncherIntegrityService(
 		await issueChallenge(playerId, 'login')
 	}
 
-	function scheduleNextPeriodicChallenge(playerId: string): void {
+	function scheduleNextPeriodicChallenge(
+		playerId: string,
+		delayMs: number = randomJitterMs(),
+	): void {
 		if (!strategy) return
 		const session = integritySessions.get(playerId)
 		if (!session?.launcherVerified) return
 
 		const timer = setTimeout(() => {
 			void issueChallenge(playerId, 'periodic')
-		}, randomJitterMs())
+		}, delayMs)
 		timer.unref()
 		session.nextChallengeTimer = timer
 	}
