@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEV_ANSWER_PREFIX, createDevChallengeStrategy } from '../../features/launcher-integrity/dev-strategy.js'
+import { RANKED_READINESS_CHALLENGE_TIMEOUT_MS } from '../../features/launcher-integrity/launcher-integrity.config.js'
 import { createNakamaIntegrityService } from '../../features/nakama/integrity.js'
 import { ok } from '../../shared/utils/result.js'
 import { integritySessions } from '../../state/launcher-integrity.js'
@@ -72,6 +73,18 @@ describe('Nakama launcher integrity', () => {
 		await vi.waitFor(() =>
 			expect(callNakamaRpc).toHaveBeenCalledWith('admin_queue_cancel', { userId: USER, reason: 'mods_outdated' }),
 		)
+	})
+
+	it('sends verification_timeout to the queue cancel when the readiness challenge times out', async () => {
+		vi.useFakeTimers()
+		try {
+			const { service, callNakamaRpc } = setup()
+			await service.issueRankedReadinessChallenge(USER)
+			await vi.advanceTimersByTimeAsync(RANKED_READINESS_CHALLENGE_TIMEOUT_MS + 100)
+			expect(callNakamaRpc).toHaveBeenCalledWith('admin_queue_cancel', { userId: USER, reason: 'verification_timeout' })
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 })
 

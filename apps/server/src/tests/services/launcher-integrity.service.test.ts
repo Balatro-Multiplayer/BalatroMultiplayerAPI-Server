@@ -524,6 +524,37 @@ describe('launcher-integrity.service', () => {
 			expect(service.isLauncherVerified('player1')).toBe(false)
 		})
 
+		it('ignores an answer that arrives after the timeout', async () => {
+			vi.useFakeTimers()
+			const sendChallenge = makeSendChallenge()
+			const service = createLauncherIntegrityService({
+				sendChallenge,
+				repository: makeMockRepository(),
+			})
+			service.setChallengeStrategy(makeFakeStrategy())
+			const onFailed = vi.fn()
+			service.onRankedReadinessFailed(onFailed)
+
+			await service.issueRankedReadinessChallenge('player1')
+			const challengeId = await getIssuedChallengeId(sendChallenge)
+			await vi.advanceTimersByTimeAsync(
+				RANKED_READINESS_CHALLENGE_TIMEOUT_MS + 100,
+			)
+			expect(onFailed).toHaveBeenCalledTimes(1)
+
+			await service.handleChallengeResponse('player1', {
+				challengeId,
+				response: {
+					signature: 'sig',
+					launcherCurrent: false,
+					modsCurrent: true,
+				},
+			})
+
+			expect(onFailed).toHaveBeenCalledTimes(1)
+			expect(service.isLauncherVerified('player1')).toBe(false)
+		})
+
 		it('gives the launcher longer than the periodic timeout to answer', async () => {
 			vi.useFakeTimers()
 			const service = createLauncherIntegrityService({
