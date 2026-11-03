@@ -1,0 +1,23 @@
+INFO - [G] :: DEBUG :: MULTIPLAYER :: matchmaking.queue mod=MultiplayerPvP gameMode=ranked:pvp_ranked_expanded
+INFO - [G] 2026-11-01 10:00:00 :: DEBUG :: MULTIPLAYER :: Game starting — 2026-11-01T10:00:00-0400
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 1200 set_ante_key ante_1
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 2500 select_blind 0 bl_small
+INFO - [G] :: DEBUG :: MULTIPLAYER :: Client sent message: action:selectBlind,blind:bl_small
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 9000 play 1.2.3.4.5 -1.pc.Hearts.King,-2.pc.Hearts.Queen,-3.pc.Hearts.Jack,-4.pc.Hearts.10,-5.pc.Hearts.9 
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 9400 hand_result 450 3
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 15000 hand_result 1200 2
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 15500 round_dollars 4
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 15600 cashout
+INFO - [G] :: DEBUG :: IdolAlgo :: IDOL_ROLL::eyJyb2xsIjowLjQ4MjkxMywid2lubmVyIjoiUUgiLCJjYXJkcyI6WyJLUzQiLCJRSDMiXX0=
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 18000 buy 2 1 -6.Joker.j_joker 0
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 19000 open_pack 3 1 -16.Booster.p_buffoon_normal_2 4
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 21000 money_delta -4
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 24000 leave_shop
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 24500 skip_blind 0
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 30000 set_ante_key ante_1
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 30500 select_blind 0 bl_manacle
+INFO - [G] :: DEBUG :: MULTIPLAYER :: Client sent message: action:selectBlind,blind:bl_manacle
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 36000 play 1.2.3.4.5 -7.pc.Spades.Ace,-8.pc.Spades.King,-9.pc.Spades.Queen,-10.pc.Spades.Jack,-11.pc.Spades.10 6.
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 36400 hand_result 300 3
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: 40000 life_lost
+INFO - [G] :: TRACE :: MULTIPLAYER :: MP_RLOG: END {"result":"loss"}

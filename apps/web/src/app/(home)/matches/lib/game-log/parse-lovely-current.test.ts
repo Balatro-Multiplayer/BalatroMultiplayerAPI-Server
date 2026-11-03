@@ -10,7 +10,7 @@ import {
 // A real excerpt of a Lovely log written by API/PvP 1.0.3 (one ranked PvP
 // game start through its first shops, then the closing END line).
 const text = readFileSync(
-  new URL('./__fixtures__/lovely-pvp-excerpt.log', import.meta.url),
+  new URL('./__fixtures__/lovely-pvp-excerpt.txt', import.meta.url),
   'utf8'
 )
 
