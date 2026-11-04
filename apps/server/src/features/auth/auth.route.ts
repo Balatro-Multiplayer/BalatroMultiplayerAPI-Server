@@ -10,6 +10,9 @@ import {
 	avatarsFor,
 	setNakamaAvatar,
 } from '../../infrastructure/nakama/avatar-sync.js'
+import { listBans } from '../../infrastructure/gateways/ban.gateway.js'
+import { listWarnings } from '../../infrastructure/gateways/warning.gateway.js'
+import { isNetworkBannedInNakama } from '../../infrastructure/nakama/moderation-sync.js'
 import {
 	editNakamaProfile,
 	linkNakamaDiscord,
@@ -20,6 +23,7 @@ import { isOwner } from '../../shared/utils/require-owner.js'
 import { effectivePrivileges } from '../../shared/utils/staff-role.js'
 import { getSession, removeSession } from '../../state/index.js'
 import type { PlayerSession } from '../../state/index.js'
+import { buildPunishmentList } from '../punishments/player-punishments.js'
 import { discordLinkService } from '../nakama/discord-link.js'
 import type { AuthService } from './auth.service.js'
 import { getDiscordAuthUrl, validateDiscordCode } from './discord.js'
@@ -155,6 +159,26 @@ export function createAuthRouter(service: AuthService): Router {
 					dbPlayer?.privileges ?? [],
 				),
 				isOwner: isOwner(jwt.playerId),
+			})
+		} catch (err) {
+			next(err)
+		}
+	})
+
+	// The account page's punishment list. It works for a banned account (plain
+	// `authenticate`), and shows a network ban that the player's address is
+	// under, without naming the account that caused it.
+	router.get('/punishments', authenticate, async (req, res, next) => {
+		try {
+			const playerId = req.player!.playerId
+			const [bans, warnings, networkBanned] = await Promise.all([
+				listBans(playerId),
+				listWarnings(playerId, 200),
+				isNetworkBannedInNakama(req.ip ?? ''),
+			])
+			res.json({
+				punishments: buildPunishmentList(bans, warnings, new Date()),
+				networkBanned,
 			})
 		} catch (err) {
 			next(err)

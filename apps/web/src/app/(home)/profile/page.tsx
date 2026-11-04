@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { jokers } from '@/shared/jokers'
+import { PunishmentsCard } from './punishments-card'
 import { type AvatarCatalog, type AvatarEntry, goalText, shownProgress } from './avatar-goals'
 
 function ProfileInfoCard({
@@ -454,6 +455,7 @@ export default function ProfilePage() {
   return (
     <div className='container max-w-2xl py-8 space-y-6'>
       <h1 className='text-2xl font-bold tracking-tight'>Your Account</h1>
+      <PunishmentsCard />
       <ProfileInfoCard player={player} />
       <DisplayNameCard player={player} onRefresh={fetchMe} />
       <AvatarCard player={player} onRefresh={fetchMe} />
