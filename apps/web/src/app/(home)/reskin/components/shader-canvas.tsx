@@ -1,7 +1,8 @@
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
 import type { GameArchive } from '../lib/gameArchive'
-import { useEffect, useRef } from 'react'
+import { buildShaderProgram } from '../lib/shaderProgram'
 import { loadShaderFragment, shaderFile, VEC2_SHADERS } from '../lib/shaders'
 
 const VERT = `
@@ -12,37 +13,6 @@ void main() {
   gl_Position = vec4(aPos, 0.0, 1.0);
 }
 `
-
-function buildProgram(
-  gl: WebGLRenderingContext,
-  vs: string,
-  fs: string
-): WebGLProgram | null {
-  const compile = (type: number, src: string): WebGLShader | null => {
-    const sh = gl.createShader(type)
-    if (!sh) return null
-    gl.shaderSource(sh, src)
-    gl.compileShader(sh)
-    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
-      console.error('reskin shader compile error:', gl.getShaderInfoLog(sh))
-      return null
-    }
-    return sh
-  }
-  const v = compile(gl.VERTEX_SHADER, vs)
-  const f = compile(gl.FRAGMENT_SHADER, fs)
-  if (!v || !f) return null
-  const p = gl.createProgram()
-  if (!p) return null
-  gl.attachShader(p, v)
-  gl.attachShader(p, f)
-  gl.linkProgram(p)
-  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
-    console.error('reskin shader link error:', gl.getProgramInfoLog(p))
-    return null
-  }
-  return p
-}
 
 /** Live WebGL preview of a Balatro edition shader applied to a sprite. Reads the
  *  shader from the exe, animates it via the same time-driven uniforms the game
@@ -58,6 +28,7 @@ export function ShaderCanvas({
   exeBuf: GameArchive
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [failure, setFailure] = useState<string | null>(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -68,25 +39,28 @@ export function ShaderCanvas({
     let raf = 0
     let disposed = false
     let cleanup = () => {}
+    setFailure(null)
 
     ;(async () => {
       const file = shaderFile(option)
-      let frag: string
-      try {
-        frag = await loadShaderFragment(exeBuf, file)
-      } catch {
-        return
-      }
+      const frag = await loadShaderFragment(exeBuf, file)
       if (disposed) return
       const gl = canvas.getContext('webgl', {
         premultipliedAlpha: false,
         alpha: true,
       })
-      if (!gl) return
-      const prog = buildProgram(gl, VERT, frag)
-      if (!prog) return
-
-      const quad = gl.createBuffer()
+      if (!gl) throw new Error('WebGL is unavailable in this browser')
+      const prog = buildShaderProgram(gl, VERT, frag)
+      let quad: WebGLBuffer | null = null
+      let tex: WebGLTexture | null = null
+      // Install cleanup before any later allocation or asynchronous image read.
+      cleanup = () => {
+        gl.deleteProgram(prog)
+        gl.deleteBuffer(quad)
+        gl.deleteTexture(tex)
+      }
+      quad = gl.createBuffer()
+      if (!quad) throw new Error('Could not create the preview buffer')
       gl.bindBuffer(gl.ARRAY_BUFFER, quad)
       gl.bufferData(
         gl.ARRAY_BUFFER,
@@ -97,13 +71,10 @@ export function ShaderCanvas({
 
       const img = new Image()
       img.src = sprite
-      try {
-        await img.decode()
-      } catch {
-        /* fall through with a possibly-undecoded image */
-      }
+      await img.decode()
       if (disposed) return
-      const tex = gl.createTexture()
+      tex = gl.createTexture()
+      if (!tex) throw new Error('Could not create the preview texture')
       gl.bindTexture(gl.TEXTURE_2D, tex)
       // The vertex shader already flips Y into vTexCoord, so upload un-flipped:
       // texcoord t=0 = the image's top row (LÖVE's top-left origin).
@@ -117,14 +88,12 @@ export function ShaderCanvas({
       const w = img.naturalWidth || canvas.width
       const h = img.naturalHeight || canvas.height
 
+      // biome-ignore lint/correctness/useHookAtTopLevel: WebGL API, not a React hook
       gl.useProgram(prog)
       gl.enable(gl.BLEND)
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
-      const set = (
-        name: string,
-        fn: (loc: WebGLUniformLocation) => void
-      ) => {
+      const set = (name: string, fn: (loc: WebGLUniformLocation) => void) => {
         const loc = gl.getUniformLocation(prog, name)
         if (loc) fn(loc)
       }
@@ -136,6 +105,7 @@ export function ShaderCanvas({
         gl.viewport(0, 0, canvas.width, canvas.height)
         gl.clearColor(0, 0, 0, 0)
         gl.clear(gl.COLOR_BUFFER_BIT)
+        // biome-ignore lint/correctness/useHookAtTopLevel: WebGL API, not a React hook
         gl.useProgram(prog)
         gl.activeTexture(gl.TEXTURE0)
         gl.bindTexture(gl.TEXTURE_2D, tex)
@@ -158,13 +128,13 @@ export function ShaderCanvas({
         raf = requestAnimationFrame(draw)
       }
       draw()
-
-      cleanup = () => {
-        gl.deleteProgram(prog)
-        gl.deleteBuffer(quad)
-        gl.deleteTexture(tex)
-      }
-    })()
+    })().catch((error: unknown) => {
+      if (disposed) return
+      cancelAnimationFrame(raf)
+      cleanup()
+      cleanup = () => {}
+      setFailure(error instanceof Error ? error.message : String(error))
+    })
 
     return () => {
       disposed = true
@@ -174,10 +144,23 @@ export function ShaderCanvas({
   }, [sprite, option, exeBuf])
 
   return (
-    <canvas
-      ref={canvasRef}
-      className='pointer-events-none absolute inset-0 h-full w-full'
-      style={{ imageRendering: 'pixelated' }}
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        hidden={Boolean(failure)}
+        aria-label={`${option} shader preview`}
+        className='pointer-events-none absolute inset-0 h-full w-full'
+        style={{ imageRendering: 'pixelated' }}
+      />
+      {failure && (
+        <span
+          role='status'
+          title={`Showing static art. ${failure}`}
+          className='pointer-events-none absolute inset-x-0 bottom-0 rounded bg-background/90 px-1 text-center text-[10px] text-muted-foreground'
+        >
+          Shader preview unavailable
+        </span>
+      )}
+    </>
   )
 }

@@ -86,6 +86,21 @@ installation and the new layer controls still need a manual visual pass:
    the legendary portraits, Hologram effect, and Soul gem/animation, including
    after changing texture scaling. Reimport a pack and confirm its layer choices.
 
+## Shader preview compatibility
+
+Hologram's literal glow-sampling radius is promoted to `const int` during
+LÖVE-to-WebGL conversion: WebGL 1 requires constant loop initializers/bounds.
+The imported radius and effect body are otherwise unchanged. Shader fragments
+are cached per imported archive, including in-flight reads, so a different game
+import cannot reuse stale shader source.
+
+Compilation/linking and image/setup failures keep the static sprite visible and
+show **Shader preview unavailable** locally, without logging a console error that
+opens Next's full-page development overlay. Temporary shaders and failed programs
+are released. Unit tests use synthetic GLSL; a headless Chromium WebGL 1 smoke
+check reproduced the old loop-index rejection, then compiled, linked and rendered
+the converted fixture. This does not claim native Safari or in-game validation.
+
 ## Automated checks
 
 From the repository root (pnpm 10.33.0 and Bun):
