@@ -7,6 +7,7 @@ import {
 	players,
 	serviceQueueItems,
 } from '../db/schema.js'
+import { findPunishmentRef, listAppealsOf } from './appeal.gateway.js'
 import { actorNames } from './service-queue.gateway.js'
 
 // Reads and writes of the staff player page that no other gateway owns.
@@ -88,4 +89,44 @@ export async function namesOf(
 		.from(players)
 		.where(inArray(players.id, bare))
 	return { ...named, ...Object.fromEntries(rows.map((r) => [r.id, r.name])) }
+}
+
+// The punishment an appeal was about, as the page shows it.
+export interface AppealPunishment {
+	id: string | null
+	kind: 'ban' | 'warning' | 'network_ban' | 'gone'
+	// The ban's type (chat, queue, account); null for the others.
+	banType: string | null
+	// The reason on the punishment (a warning's message).
+	reason: string | null
+}
+
+// Every appeal the player made, newest first, with its punishment. No
+// network hashes: the page shows an appeal of a network ban as such.
+export async function listPlayerAppeals(playerId: string) {
+	const rows = await listAppealsOf(playerId)
+	return Promise.all(
+		rows.map(async (a) => {
+			let punishment: AppealPunishment
+			if (a.targetKind === 'network_ban' || a.punishmentId === null)
+				punishment = { id: null, kind: 'network_ban', banType: null, reason: null }
+			else {
+				const ref = await findPunishmentRef(a.punishmentId)
+				punishment = ref
+					? { id: ref.id, kind: ref.kind, banType: ref.banType, reason: ref.reason }
+					: { id: a.punishmentId, kind: 'gone', banType: null, reason: null }
+			}
+			return {
+				id: a.id,
+				punishment,
+				message: a.message,
+				status: a.status,
+				outcome: a.outcome,
+				decisionReason: a.decisionReason,
+				decidedBy: a.decidedBy,
+				decidedAt: a.decidedAt,
+				createdAt: a.createdAt,
+			}
+		}),
+	)
 }

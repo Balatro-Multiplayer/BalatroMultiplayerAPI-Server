@@ -2,6 +2,7 @@ import request from 'supertest'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { signJwt } from '../../features/auth/jwt.js'
 import { db } from '../../infrastructure/db/index.js'
+import { findPunishmentRef, liftWarning } from '../../infrastructure/gateways/appeal.gateway.js'
 import { listBans } from '../../infrastructure/gateways/ban.gateway.js'
 import { getIntegrityEventsForPlayer } from '../../infrastructure/gateways/launcher-integrity.gateway.js'
 import * as pageGateway from '../../infrastructure/gateways/player-page.gateway.js'
@@ -29,6 +30,15 @@ vi.mock(
 		listPlayerNotes: vi.fn().mockResolvedValue([]),
 		insertPlayerNote: vi.fn().mockResolvedValue({ id: 'n1' }),
 		namesOf: vi.fn().mockResolvedValue({}),
+		listPlayerAppeals: vi.fn().mockResolvedValue([]),
+	}),
+)
+vi.mock(
+	'../../infrastructure/gateways/appeal.gateway.js',
+	async (importOriginal) => ({
+		...(await importOriginal<object>()),
+		findPunishmentRef: vi.fn(),
+		liftWarning: vi.fn().mockResolvedValue(true),
 	}),
 )
 vi.mock(
@@ -360,5 +370,101 @@ describe('POST /api/webadmin/players/:id/warnings', () => {
 			'admin_notify',
 			expect.objectContaining({ userId: 'nk-target', code: 109 }),
 		)
+	})
+})
+
+describe('appeals on the player page', () => {
+	it('lists the appeals with decision names, for a moderator, with no network data', async () => {
+		vi.mocked(pageGateway.listPlayerAppeals).mockResolvedValue([
+			{
+				id: 'a1',
+				punishment: { id: 'b1', kind: 'ban', banType: 'chat', reason: 'spam' },
+				message: 'sorry',
+				status: 'denied',
+				outcome: null,
+				decisionReason: 'Fair ban',
+				decidedBy: 'moderator:mod-2',
+				decidedAt: new Date('2026-10-03'),
+				createdAt: new Date('2026-10-02'),
+			},
+		])
+		vi.mocked(pageGateway.namesOf).mockResolvedValue({ 'moderator:mod-2': 'Modder' })
+		const res = await request(app)
+			.get(`/api/webadmin/players/${TARGET}/page`)
+			.set('Authorization', authAs('mod-1', ['moderator']))
+		expect(res.status).toBe(200)
+		expect(res.body.appeals).toEqual([
+			expect.objectContaining({
+				id: 'a1',
+				status: 'denied',
+				decisionReason: 'Fair ban',
+				decidedByName: 'Modder',
+				punishment: { id: 'b1', kind: 'ban', banType: 'chat', reason: 'spam' },
+			}),
+		])
+		expect(JSON.stringify(res.body.appeals)).not.toContain('networkBanIds')
+	})
+})
+
+describe('DELETE /api/webadmin/players/:id/warnings/:warningId', () => {
+	const url = `/api/webadmin/players/${TARGET}/warnings/w1`
+	const warning = { id: 'w1', playerId: TARGET, kind: 'warning' } as any
+
+	it('is for admins: a moderator is refused', async () => {
+		const res = await request(app)
+			.delete(url)
+			.set('Authorization', authAs('mod-1', ['moderator']))
+			.send({ reason: 'mistake' })
+		expect(res.status).toBe(403)
+		expect(vi.mocked(liftWarning)).not.toHaveBeenCalled()
+	})
+
+	it('needs a reason', async () => {
+		const res = await request(app)
+			.delete(url)
+			.set('Authorization', authAs('adm-1', ['admin']))
+			.send({})
+		expect(res.status).toBe(400)
+		expect(vi.mocked(liftWarning)).not.toHaveBeenCalled()
+	})
+
+	it('lifts the warning and logs it in one transaction', async () => {
+		vi.mocked(findPunishmentRef).mockResolvedValue(warning)
+		vi.mocked(recordStaffAction).mockClear()
+		const res = await request(app)
+			.delete(url)
+			.set('Authorization', authAs('adm-1', ['admin']))
+			.send({ reason: 'Issued by mistake' })
+		expect(res.status).toBe(200)
+		expect(vi.mocked(liftWarning)).toHaveBeenCalledWith({ tx: true }, 'w1', 'admin:adm-1')
+		expect(vi.mocked(recordStaffAction)).toHaveBeenCalledWith(
+			{ tx: true },
+			expect.objectContaining({
+				action: 'lift_warning',
+				targetPlayerId: TARGET,
+				reason: 'Issued by mistake',
+				staff: { playerId: 'adm-1', role: 'admin' },
+			}),
+		)
+	})
+
+	it('answers 404 for a warning that is another player\'s or is a ban', async () => {
+		const token = authAs('adm-1', ['admin'])
+		vi.mocked(findPunishmentRef).mockResolvedValue({ ...warning, playerId: 'someone-else' })
+		expect((await request(app).delete(url).set('Authorization', token).send({ reason: 'x' })).status).toBe(404)
+		vi.mocked(findPunishmentRef).mockResolvedValue({ ...warning, kind: 'ban' })
+		expect((await request(app).delete(url).set('Authorization', token).send({ reason: 'x' })).status).toBe(404)
+	})
+
+	it('answers 409 and logs nothing when it is already lifted', async () => {
+		vi.mocked(findPunishmentRef).mockResolvedValue(warning)
+		vi.mocked(liftWarning).mockResolvedValueOnce(false)
+		vi.mocked(recordStaffAction).mockClear()
+		const res = await request(app)
+			.delete(url)
+			.set('Authorization', authAs('adm-1', ['admin']))
+			.send({ reason: 'again' })
+		expect(res.status).toBe(409)
+		expect(vi.mocked(recordStaffAction)).not.toHaveBeenCalled()
 	})
 })

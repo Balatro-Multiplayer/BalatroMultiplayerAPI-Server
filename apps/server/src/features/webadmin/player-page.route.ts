@@ -1,30 +1,30 @@
 import { Router } from 'express'
-import { db } from '../../infrastructure/db/index.js'
+import { findPunishmentRef } from '../../infrastructure/gateways/appeal.gateway.js'
 import { listBans } from '../../infrastructure/gateways/ban.gateway.js'
 import { getIntegrityEventsForPlayer } from '../../infrastructure/gateways/launcher-integrity.gateway.js'
 import {
-	insertPlayerNote,
+	listPlayerAppeals,
 	listPlayerChat,
 	listPlayerNotes,
 	listPlayerQueueItems,
 	namesOf,
 } from '../../infrastructure/gateways/player-page.gateway.js'
 import {
+	liftWarningWithLog,
+	saveNoteWithLog,
+	saveWarningWithLog,
+} from '../../infrastructure/gateways/player-page-write.gateway.js'
+import {
 	findPlayerById,
 	findPlayerIdsByNakamaUserIds,
 } from '../../infrastructure/gateways/player.gateway.js'
 import { getRunsForPlayer } from '../../infrastructure/gateways/replay-log.gateway.js'
-import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gateway.js'
-import {
-	insertWarning,
-	listWarnings,
-} from '../../infrastructure/gateways/warning.gateway.js'
+import { listWarnings } from '../../infrastructure/gateways/warning.gateway.js'
 import {
 	networkBansInNakama,
 	notifyWarnedInNakama,
 	playerNetworksInNakama,
 } from '../../infrastructure/nakama/moderation-sync.js'
-import { insertStrike } from '../../infrastructure/gateways/strike.gateway.js'
 import { isLadder } from '../strikes/ladder.js'
 import { judgeOnLadder, strikeSummaryOf } from '../strikes/strike.service.js'
 import { parseReason } from '../../shared/staff-log/actions.js'
@@ -57,7 +57,7 @@ router.get('/players/:id/page', async (req, res, next) => {
 		const role = await requireRole(req, 'moderator')
 		const player = await playerOr404(req.params.id)
 		const id = req.params.id
-		const [bans, warnings, matches, chat, queueItems, notes, integrityEvents, strikes] =
+		const [bans, warnings, matches, chat, queueItems, notes, integrityEvents, strikes, appeals] =
 			await Promise.all([
 				listBans(id),
 				listWarnings(id),
@@ -67,11 +67,13 @@ router.get('/players/:id/page', async (req, res, next) => {
 				listPlayerNotes(id),
 				getIntegrityEventsForPlayer(id),
 				strikeSummaryOf(id),
+				listPlayerAppeals(id),
 			])
 		const names = await namesOf([
 			...bans.flatMap((b) => [b.issuedBy, b.liftedBy]),
 			...warnings.map((w) => w.issuedBy),
 			...notes.map((n) => n.authorId),
+			...appeals.map((a) => a.decidedBy),
 		])
 		const nameOf = (actor: string | null) =>
 			actor ? (names[actor] ?? null) : null
@@ -95,6 +97,7 @@ router.get('/players/:id/page', async (req, res, next) => {
 			notes: notes.map((n) => ({ ...n, authorName: nameOf(n.authorId) })),
 			integrityEvents,
 			strikes,
+			appeals: appeals.map((a) => ({ ...a, decidedByName: nameOf(a.decidedBy) })),
 		})
 	} catch (err) {
 		next(err)
@@ -149,27 +152,39 @@ router.get('/players/:id/identity', async (req, res, next) => {
 	}
 })
 
+// An admin lifts a warning directly; a lifted warning stops counting as a strike.
+router.delete('/players/:id/warnings/:warningId', async (req, res, next) => {
+	try {
+		const role = await requireRole(req, 'admin')
+		const reason = reasonOf((req.body as { reason?: unknown } | undefined)?.reason)
+		await playerOr404(req.params.id)
+		const ref = await findPunishmentRef(req.params.warningId)
+		if (!ref || ref.kind !== 'warning' || ref.playerId !== req.params.id)
+			throw new AppError('Warning not found', 404)
+		const lifted = await liftWarningWithLog(
+			{ playerId: req.player!.playerId, role },
+			req.params.id,
+			req.params.warningId,
+			reason,
+		)
+		if (!lifted) throw new AppError('That warning is already lifted', 409)
+		res.json({ lifted: true })
+	} catch (err) {
+		next(err)
+	}
+})
+
 router.post('/players/:id/notes', async (req, res, next) => {
 	try {
 		const role = await requireRole(req, 'moderator')
 		// The note is the reason: it is what the staff log shows for the action.
 		const note = reasonOf((req.body as { note?: unknown }).note)
 		await playerOr404(req.params.id)
-		const staffId = req.player!.playerId
-		const saved = await db.transaction(async (tx) => {
-			const row = await insertPlayerNote(tx, {
-				playerId: req.params.id,
-				note,
-				authorId: staffId,
-			})
-			await recordStaffAction(tx, {
-				staff: { playerId: staffId, role },
-				action: 'note',
-				targetPlayerId: req.params.id,
-				reason: note,
-			})
-			return row
-		})
+		const saved = await saveNoteWithLog(
+			{ playerId: req.player!.playerId, role },
+			req.params.id,
+			note,
+		)
 		res.status(201).json({ note: saved })
 	} catch (err) {
 		next(err)
@@ -205,37 +220,10 @@ router.post('/players/:id/warnings', async (req, res, next) => {
 			typeof body.deviationReason === 'string' ? body.deviationReason : null,
 			now,
 		)
-		const staffId = req.player!.playerId
-		const warning = await db.transaction(async (tx) => {
-			const row = await insertWarning(tx, {
-				playerId: req.params.id,
-				itemId: null,
-				message,
-				issuedBy: `${role}:${staffId}`,
-			})
-			await insertStrike(tx, {
-				playerId: req.params.id,
-				ladder,
-				banId: null,
-				warningId: row.id,
-				recommendedStep: strike.recommended,
-				appliedStep: strike.applied,
-				deviationReason: strike.deviationReason,
-				issuedAt: now,
-			})
-			await recordStaffAction(tx, {
-				staff: { playerId: staffId, role },
-				action: 'warn',
-				targetPlayerId: req.params.id,
-				reason,
-				detail: {
-					warningId: row.id,
-					message,
-					strike: { ladder, ...strike },
-				},
-			})
-			return row
-		})
+		const warning = await saveWarningWithLog(
+			{ playerId: req.player!.playerId, role },
+			{ playerId: req.params.id, message, reason, ladder, strike, now },
+		)
 		const delivered = await notifyWarnedInNakama(req.params.id, {
 			message,
 			itemType: 'player_page',
