@@ -4,6 +4,7 @@
 
 export const STAFF_ACTIONS = [
 	'warn',
+	'note',
 	'chat_ban',
 	'queue_ban',
 	'account_ban',

@@ -187,6 +187,9 @@ export const PLAYER_ID_COLUMNS: readonly PlayerIdColumn[] = [
 	{ table: 'staff_log', column: 'target_player_id', kind: 'id', data: 'moderation' },
 	{ table: 'staff_log', column: 'reason', kind: 'text', data: 'moderation' },
 	{ table: 'staff_log', column: 'detail', kind: 'json', data: 'moderation' },
+	{ table: 'player_notes', column: 'player_id', kind: 'id', data: 'moderation' },
+	{ table: 'player_notes', column: 'author_id', kind: 'id', data: 'moderation' },
+	{ table: 'player_notes', column: 'note', kind: 'text', data: 'moderation' },
 	{ table: 'grace_periods', column: 'player_id', kind: 'id', data: 'own' },
 	{
 		table: 'matchmaking_ratings',

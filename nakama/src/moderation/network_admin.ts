@@ -3,7 +3,12 @@
 import { requireUserId } from '../admin'
 import { INVALID_ARGUMENT, runtimeError } from '../errors'
 import { parsePayload, requireServer } from '../rpc'
-import { liftNetworkBan, networkBansFor, purgeIpHashes } from './network'
+import {
+	liftNetworkBan,
+	networkBansFor,
+	purgeIpHashes,
+	readIpHashes,
+} from './network'
 
 // Accounts looked at per call at most; the caller repeats while `more` is set.
 export const IP_HASH_PURGE_MAX = 500
@@ -19,6 +24,25 @@ export function rpcAdminNetworkBans(
 	requireServer(ctx)
 	const userId = requireUserId(nk, parsePayload(payload))
 	return JSON.stringify({ networkBans: networkBansFor(nk, userId) })
+}
+
+// {userId} -> {networks}: the salted hashes of the networks the account
+// logged in from in the last 30 days, each with the time of its last login.
+// For admins only; the hashes are never sent to moderators.
+export function rpcAdminPlayerNetworks(
+	ctx: nkruntime.Context,
+	logger: nkruntime.Logger,
+	nk: nkruntime.Nakama,
+	payload: string,
+) {
+	requireServer(ctx)
+	const userId = requireUserId(nk, parsePayload(payload))
+	const hashes = readIpHashes(nk, userId)
+	const networks = Object.keys(hashes).map((hash) => ({
+		hash,
+		lastSeen: hashes[hash],
+	}))
+	return JSON.stringify({ networks })
 }
 
 // {banId} -> {lifted}: lifted is false when no such network ban is in force.

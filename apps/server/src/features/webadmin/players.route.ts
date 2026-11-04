@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, ilike, isNull, or, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gt, isNull, or, sql } from 'drizzle-orm'
 import { Router } from 'express'
 import { db } from '../../infrastructure/db/index.js'
 import { playerBans, players } from '../../infrastructure/db/schema.js'
@@ -24,6 +24,7 @@ import { isOwnerId, redactPlayerFor } from '../../shared/utils/staff-role.js'
 import { mayIssueBan, mayLiftBan } from '../service-queue/permissions.js'
 import { staffOf } from '../service-queue/staff.js'
 import { issueBan } from './ban.service.js'
+import { playerSearchCondition } from './player-search.js'
 
 // Privilege names are free-form identifiers (a lowercase letter followed by
 // lowercase letters/digits/underscores). Validated by format rather than a fixed
@@ -54,7 +55,7 @@ router.get('/players', async (req, res, next) => {
 		const offset = (page - 1) * limit
 		const search = typeof req.query.search === 'string' ? req.query.search.trim() : ''
 
-		const baseWhere = search ? ilike(players.steamName, `%${search}%`) : undefined
+		const baseWhere = playerSearchCondition(search)
 
 		const [{ total }] = await db
 			.select({ total: count() })
