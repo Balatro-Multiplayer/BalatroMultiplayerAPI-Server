@@ -52,7 +52,12 @@ export const ACTION_RULES: Readonly<Record<ActionKey, ActionRule>> = {
 		itemTypes: ['report', 'flagged_chat', 'contest'],
 		status: 'open',
 		minRole: 'moderator',
-		presets: { '24h': 'moderator', '7d': 'moderator', '30d': 'moderator', permanent: 'admin' },
+		presets: {
+			'24h': 'moderator',
+			'7d': 'moderator',
+			'30d': 'moderator',
+			permanent: 'moderator',
+		},
 		targeted: true,
 		destructive: true,
 	},
@@ -60,7 +65,12 @@ export const ACTION_RULES: Readonly<Record<ActionKey, ActionRule>> = {
 		itemTypes: ['report', 'match_conflict', 'contest', 'anti_cheat', 'integrity'],
 		status: 'open',
 		minRole: 'moderator',
-		presets: { '7d': 'moderator', '30d': 'admin', permanent: 'admin' },
+		presets: {
+			'24h': 'moderator',
+			'7d': 'moderator',
+			'30d': 'moderator',
+			permanent: 'moderator',
+		},
 		targeted: true,
 		destructive: true,
 	},
@@ -73,14 +83,24 @@ export const ACTION_RULES: Readonly<Record<ActionKey, ActionRule>> = {
 		destructive: true,
 	},
 	void: {
-		itemTypes: ['match_conflict', 'forfeit_reconciliation', 'contest', 'anti_cheat'],
+		itemTypes: [
+			'match_conflict',
+			'forfeit_reconciliation',
+			'contest',
+			'anti_cheat',
+		],
 		status: 'open',
-		minRole: 'admin',
+		minRole: 'moderator',
 		destructive: true,
 	},
-	overturn: { itemTypes: ['match_conflict', 'contest'], status: 'open', minRole: 'admin', destructive: true },
+	overturn: {
+		itemTypes: ['match_conflict', 'contest'],
+		status: 'open',
+		minRole: 'moderator',
+		destructive: true,
+	},
 	reopen: { itemTypes: ALL, status: 'resolved', minRole: 'moderator' },
-	unban: { itemTypes: ALL, status: 'any', minRole: 'moderator', destructive: true },
+	unban: { itemTypes: ALL, status: 'any', minRole: 'admin', destructive: true },
 	note: { itemTypes: ALL, status: 'any', minRole: 'moderator' },
 }
 
@@ -153,9 +173,9 @@ export function allowedActionsFor(
 
 export type BanKind = 'chat' | 'queue' | 'account'
 
-// Lifting a ban: moderators lift chat and queue bans, admins any.
-export function mayLiftBan(role: StaffRole, banType: BanKind): boolean {
-	return banType === 'account' ? role === 'admin' : true
+// Lifting a punishment is for admins, of any kind.
+export function mayLiftBan(role: StaffRole, _banType: BanKind): boolean {
+	return role === 'admin'
 }
 
 // The queue action whose presets govern a ban of each kind.
@@ -168,22 +188,27 @@ const BAN_ACTION: Readonly<Record<BanKind, ActionKey>> = {
 // A client computes expiresAt a moment before the request lands.
 const DIRECT_BAN_SLACK_MS = 60 * 1000
 
-// A ban issued outside the queue (the players page: any expiry) held to the
-// same table: the role must meet the ban's action, and the expiry may run no
-// longer than the longest preset that role may pick (permanent only when the
-// role may pick 'permanent'). Moderators: chat bans up to 30 days, queue bans
-// up to 7; admins: everything.
-export function mayIssueBan(role: StaffRole, banType: BanKind, expiresAt: Date | null, now: Date): boolean {
+// A ban issued outside the queue (the players page) held to the same table:
+// the role must meet the ban's action, and a role below admin picks one of the
+// presets the action offers it (a custom length is an admin's).
+export function mayIssueBan(
+	role: StaffRole,
+	banType: BanKind,
+	expiresAt: Date | null,
+	now: Date,
+): boolean {
+	if (role === 'admin') return true
 	const rule = ACTION_RULES[BAN_ACTION[banType]]
 	if (!roleMeets(role, rule.minRole)) return false
-	const presets = (Object.keys(rule.presets ?? {}) as Duration[]).filter((p) => {
-		const least = rule.presets?.[p]
-		return least !== undefined && roleMeets(role, least)
-	})
-	if (expiresAt === null) return presets.includes('permanent')
-	const longest = Math.max(
-		...presets.map((p) => expiresAtOf(p, now)?.getTime() ?? Number.POSITIVE_INFINITY),
-		Number.NEGATIVE_INFINITY,
+	const presets = (Object.keys(rule.presets ?? {}) as Duration[]).filter(
+		(p) => {
+			const least = rule.presets?.[p]
+			return least !== undefined && roleMeets(role, least)
+		},
 	)
-	return expiresAt.getTime() <= longest + DIRECT_BAN_SLACK_MS
+	return presets.some((p) => {
+		const end = expiresAtOf(p, now)
+		if (expiresAt === null || end === null) return expiresAt === end
+		return Math.abs(expiresAt.getTime() - end.getTime()) <= DIRECT_BAN_SLACK_MS
+	})
 }

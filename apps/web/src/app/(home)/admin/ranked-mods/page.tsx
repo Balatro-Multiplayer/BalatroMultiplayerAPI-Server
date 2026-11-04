@@ -57,11 +57,12 @@ import {
 // catalog, the mod profiles: named mod lists the launcher offers as presets
 // (GET /api/mods/profiles), read by the launcher as-is.
 export default function RankedModsPage() {
-  const { isAdmin, isModerator, pending } = useAuth()
+  const { isAdmin, pending } = useAuth()
   const router = useRouter()
   const qc = useQueryClient()
 
-  const canView = isAdmin || isModerator
+  // An admin page: the server sends moderators nothing from it.
+  const canView = isAdmin
 
   useEffect(() => {
     if (!pending && !canView) router.replace('/')

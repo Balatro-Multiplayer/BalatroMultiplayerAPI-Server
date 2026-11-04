@@ -1,9 +1,13 @@
 import request from 'supertest'
 import { describe, expect, it, vi } from 'vitest'
 import { signJwt } from '../../features/auth/jwt.js'
-import * as playerGateway from '../../infrastructure/gateways/player.gateway.js'
-import { insertBan, liftBan, listBans } from '../../infrastructure/gateways/ban.gateway.js'
 import { db } from '../../infrastructure/db/index.js'
+import {
+	insertBan,
+	liftBan,
+	listBans,
+} from '../../infrastructure/gateways/ban.gateway.js'
+import * as playerGateway from '../../infrastructure/gateways/player.gateway.js'
 import {
 	banInNakama,
 	liftNetworkBanInNakama,
@@ -105,28 +109,44 @@ describe('POST /api/webadmin/players/:id/bans: the queue role table', () => {
 	const issue = (token: string, body: Record<string, unknown>) =>
 		request(app).post('/api/webadmin/players/target-3/bans').set('Authorization', token).send(body)
 
-	it('lets a moderator issue a 7-day queue ban and a 24-hour chat ban', async () => {
+	it('lets a moderator issue every preset length, permanent too', async () => {
 		const token = authAsModerator('mod-2', 'Mod2')
 		vi.mocked(insertBan).mockResolvedValue({ id: 'ban-3' } as any)
-		expect((await issue(token, { type: 'queue', expiresAt: inDays(7) })).status).toBe(201)
-		expect((await issue(token, { type: 'chat', expiresAt: inDays(1) })).status).toBe(201)
-		expect(vi.mocked(insertBan)).toHaveBeenCalledWith(expect.objectContaining({ issuedBy: 'moderator:mod-2' }))
+		for (const body of [
+			{ type: 'queue', expiresAt: inDays(1) },
+			{ type: 'queue', expiresAt: inDays(7) },
+			{ type: 'queue', expiresAt: inDays(30) },
+			{ type: 'queue' },
+			{ type: 'chat', expiresAt: inDays(1) },
+			{ type: 'chat' },
+		])
+			expect((await issue(token, body)).status, JSON.stringify(body)).toBe(201)
+		expect(vi.mocked(insertBan)).toHaveBeenCalledWith(
+			expect.objectContaining({ issuedBy: 'moderator:mod-2' }),
+		)
 	})
 
-	it('refuses a moderator an account ban, a permanent ban and a queue ban past 7 days', async () => {
+	it('refuses a moderator an account ban and a custom length', async () => {
 		const token = authAsModerator('mod-3', 'Mod3')
 		for (const body of [
 			{ type: 'account', expiresAt: inDays(1) },
 			{ type: 'account' },
-			{ type: 'queue' },
-			{ type: 'queue', expiresAt: inDays(30) },
-			{ type: 'chat' },
+			{ type: 'queue', expiresAt: inDays(3) },
+			{ type: 'chat', expiresAt: inDays(90) },
 		]) {
 			const res = await issue(token, body)
 			expect(res.status, JSON.stringify(body)).toBe(403)
 		}
 		expect(vi.mocked(insertBan)).not.toHaveBeenCalled()
 		expect(vi.mocked(banInNakama)).not.toHaveBeenCalled()
+	})
+
+	it('lets an admin send a custom length', async () => {
+		const token = authAsAdmin('admin-8', 'Admin8')
+		vi.mocked(insertBan).mockResolvedValue({ id: 'ban-5' } as any)
+		expect(
+			(await issue(token, { type: 'chat', expiresAt: inDays(3) })).status,
+		).toBe(201)
 	})
 
 	it('lets an admin issue a permanent account ban', async () => {
@@ -148,32 +168,67 @@ describe('DELETE /api/webadmin/players/:id/bans/:banId: the queue role table', (
 		expect(vi.mocked(liftBan)).not.toHaveBeenCalled()
 	})
 
-	it('lets a moderator lift a queue ban', async () => {
+	it('refuses a moderator lifting a chat or queue ban', async () => {
 		const token = authAsModerator('mod-5', 'Mod5')
+		for (const kind of ['chat', 'queue'] as const) {
+			vi.mocked(listBans).mockResolvedValue([ban(kind)])
+			const res = await request(app)
+				.delete('/api/webadmin/players/target-4/bans/ban-9')
+				.set('Authorization', token)
+			expect(res.status).toBe(403)
+		}
+		expect(vi.mocked(liftBan)).not.toHaveBeenCalled()
+	})
+
+	it('lets an admin lift a queue ban', async () => {
+		const token = authAsAdmin('admin-9', 'Admin9')
 		vi.mocked(listBans).mockResolvedValue([ban('queue')])
 		vi.mocked(liftBan).mockResolvedValue(ban('queue'))
 		const res = await request(app).delete('/api/webadmin/players/target-4/bans/ban-9').set('Authorization', token)
 		expect(res.status).toBe(200)
-		expect(vi.mocked(liftBan)).toHaveBeenCalledWith('target-4', 'ban-9', 'moderator:mod-5')
+		expect(vi.mocked(liftBan)).toHaveBeenCalledWith(
+			'target-4',
+			'ban-9',
+			'admin:admin-9',
+		)
 	})
 })
 
 describe('network bans in the admin panel', () => {
 	const networkBan = { banId: 'ban-7', own: false, networks: 2, bannedAt: 1, liftedAt: null }
 
-	it('shows staff the network bans that touch a player', async () => {
-		const token = authAsModerator('mod-6', 'Mod6')
-		vi.mocked(networkBansInNakama).mockResolvedValue({ ok: true, value: [networkBan] })
-		const res = await request(app).get('/api/webadmin/players/target-5/network-bans').set('Authorization', token)
+	it('shows an admin the network bans that touch a player', async () => {
+		const token = authAsAdmin('admin-10', 'Admin10')
+		vi.mocked(networkBansInNakama).mockResolvedValue({
+			ok: true,
+			value: [networkBan],
+		})
+		const res = await request(app)
+			.get('/api/webadmin/players/target-5/network-bans')
+			.set('Authorization', token)
 		expect(res.status).toBe(200)
 		expect(res.body).toEqual({ networkBans: [networkBan] })
 		expect(vi.mocked(networkBansInNakama)).toHaveBeenCalledWith('target-5')
 	})
 
+	it('gives a moderator no network data', async () => {
+		const token = authAsModerator('mod-6', 'Mod6')
+		const res = await request(app)
+			.get('/api/webadmin/players/target-5/network-bans')
+			.set('Authorization', token)
+		expect(res.status).toBe(403)
+		expect(vi.mocked(networkBansInNakama)).not.toHaveBeenCalled()
+	})
+
 	it('says so when Nakama cannot answer', async () => {
-		const token = authAsModerator('mod-7', 'Mod7')
-		vi.mocked(networkBansInNakama).mockResolvedValue({ ok: false, error: 'unavailable' })
-		const res = await request(app).get('/api/webadmin/players/target-5/network-bans').set('Authorization', token)
+		const token = authAsAdmin('admin-11', 'Admin11')
+		vi.mocked(networkBansInNakama).mockResolvedValue({
+			ok: false,
+			error: 'unavailable',
+		})
+		const res = await request(app)
+			.get('/api/webadmin/players/target-5/network-bans')
+			.set('Authorization', token)
 		expect(res.status).toBe(503)
 	})
 

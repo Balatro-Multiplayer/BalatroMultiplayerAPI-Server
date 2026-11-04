@@ -16,6 +16,8 @@ import {
 } from '../../infrastructure/nakama/profile-sync.js'
 import { authenticate } from '../../middleware/authenticate.js'
 import { AppError } from '../../shared/utils/errors.js'
+import { isOwner } from '../../shared/utils/require-owner.js'
+import { effectivePrivileges } from '../../shared/utils/staff-role.js'
 import { getSession, removeSession } from '../../state/index.js'
 import type { PlayerSession } from '../../state/index.js'
 import { discordLinkService } from '../nakama/discord-link.js'
@@ -23,7 +25,6 @@ import type { AuthService } from './auth.service.js'
 import { getDiscordAuthUrl, validateDiscordCode } from './discord.js'
 import { signTosPendingToken, verifyTosPendingToken } from './jwt.js'
 import { generateLinkState, verifyLinkState } from './link-state.js'
-import { isOwner } from '../../shared/utils/require-owner.js'
 import {
 	getSteamOpenIdUrl,
 	getSteamPlayerName,
@@ -39,8 +40,8 @@ function playerPayload(session: PlayerSession) {
 		preferredJoker: session.preferredJoker,
 		discordLinked: session.discordIdHash != null,
 		discordUsername: session.discordUsername ?? null,
-		privileges: session.privileges,
-		isOwner: isOwner(session.playerId, session.privileges),
+		privileges: effectivePrivileges(session.playerId, session.privileges),
+		isOwner: isOwner(session.playerId),
 		chatEnabled: session.chatEnabled,
 		chatBlocked: session.chatBlocked,
 	}
@@ -149,8 +150,11 @@ export function createAuthRouter(service: AuthService): Router {
 				preferredJoker: jwt.preferredJoker ?? null,
 				discordLinked: jwt.discordIdHash != null,
 				discordUsername: jwt.discordUsername ?? null,
-				privileges: dbPlayer?.privileges ?? [],
-				isOwner: isOwner(jwt.playerId, dbPlayer?.privileges ?? []),
+				privileges: effectivePrivileges(
+					jwt.playerId,
+					dbPlayer?.privileges ?? [],
+				),
+				isOwner: isOwner(jwt.playerId),
 			})
 		} catch (err) {
 			next(err)

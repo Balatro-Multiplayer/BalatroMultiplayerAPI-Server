@@ -27,7 +27,7 @@ export type ActionKey = (typeof ACTION_KEYS)[number]
 export const CHAT_MUTE_DURATIONS = ['24h', '7d', '30d', 'permanent'] as const
 export type ChatMuteDuration = (typeof CHAT_MUTE_DURATIONS)[number]
 
-export const BAN_DURATIONS = ['7d', '30d', 'permanent'] as const
+export const BAN_DURATIONS = ['24h', '7d', '30d', 'permanent'] as const
 export type BanDuration = (typeof BAN_DURATIONS)[number]
 
 export type Duration = ChatMuteDuration | BanDuration

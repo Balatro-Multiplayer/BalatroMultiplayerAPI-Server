@@ -76,13 +76,13 @@ function authAsAdmin(playerId: string, steamName: string) {
 }
 
 describe('GET /api/webadmin/mods', () => {
-	it('mirrors the public compact list plus hidden mods, readable by a moderator', async () => {
+	it('mirrors the public compact list plus hidden mods, readable by an admin', async () => {
 		const rows = [
 			{ id: 'Author-Mod', title: 'Mod', author: 'Author', rankedVersion: null },
 		]
 		vi.mocked(modsGateway.listPublicMods).mockResolvedValue(rows as any)
 
-		const token = authAsModerator('mod-list-1', 'Mod')
+		const token = authAsAdmin('mod-list-1', 'Mod')
 		const res = await request(app)
 			.get('/api/webadmin/mods')
 			.set('Authorization', token)
@@ -604,11 +604,11 @@ describe('mod profile admin routes', () => {
 		description: null,
 	}
 
-	it('lists every profile with its entries, readable by a moderator', async () => {
+	it('lists every profile with its entries, readable by an admin', async () => {
 		const rows = [{ ...profile, entries: [] }]
 		vi.mocked(modsGateway.listPublicProfiles).mockResolvedValue(rows as any)
 
-		const token = authAsModerator('prof-list-1', 'Mod')
+		const token = authAsAdmin('prof-list-1', 'Mod')
 		const res = await request(app)
 			.get('/api/webadmin/mods/profiles')
 			.set('Authorization', token)

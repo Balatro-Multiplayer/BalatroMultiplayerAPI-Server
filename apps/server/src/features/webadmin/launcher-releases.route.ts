@@ -11,6 +11,7 @@ import {
 } from '../../infrastructure/gateways/launcher-releases.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
+import { requireAdmin } from '../../shared/utils/require-admin.js'
 import {
 	assertSafeVersion,
 	listRecentReleases,
@@ -21,16 +22,8 @@ import {
 // GitHub -- see features/launcher/launcher.route.ts for the public "check
 // for update" + download endpoints these imports feed. Mutations are
 // admin-only (not moderator), same self-inflicted-blast-radius precedent as
-// mods.route.ts's requireAdmin. Reads stay at the router-level webAdmin
-// gate.
+// mods.route.ts's requireAdmin. The router is admin-only (webadmin.route.ts).
 const router = Router()
-
-async function requireAdmin(req: Request) {
-	const actingPlayer = await findPlayerById(req.player!.playerId)
-	if (!actingPlayer?.privileges.includes('admin')) {
-		throw new AppError('Only admins can manage launcher releases', 403)
-	}
-}
 
 const PLATFORMS: readonly LauncherPlatform[] = ['windows', 'mac', 'linux']
 

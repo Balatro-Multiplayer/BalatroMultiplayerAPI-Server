@@ -54,21 +54,27 @@ export function NavAuth() {
               <DropdownMenuItem asChild>
                 <Link href='/admin/seasons'>Seasons</Link>
               </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href='/admin/releases'>BET Releases</Link>
-              </DropdownMenuItem>
+              {isAdmin && (
+                <DropdownMenuItem asChild>
+                  <Link href='/admin/releases'>BET Releases</Link>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem asChild>
                 <Link href='/admin/blog'>Blog</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href='/admin/games'>Match History</Link>
               </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href='/admin/config'>Configuration</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href='/admin/ranked-mods'>Ranked Mods</Link>
-              </DropdownMenuItem>
+              {isAdmin && (
+                <DropdownMenuItem asChild>
+                  <Link href='/admin/config'>Configuration</Link>
+                </DropdownMenuItem>
+              )}
+              {isAdmin && (
+                <DropdownMenuItem asChild>
+                  <Link href='/admin/ranked-mods'>Ranked Mods</Link>
+                </DropdownMenuItem>
+              )}
             </>
           )}
           <DropdownMenuSeparator />

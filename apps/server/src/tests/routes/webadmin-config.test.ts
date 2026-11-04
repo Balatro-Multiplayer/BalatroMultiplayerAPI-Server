@@ -47,7 +47,7 @@ describe('GET /api/webadmin/config', () => {
 			queueAllowedModIds: ['MultiplayerPvP'],
 		})
 
-		const token = authAsModerator('mod-cfg-1', 'Mod')
+		const token = authAsAdmin('mod-cfg-1', 'Mod')
 		const res = await request(app).get('/api/webadmin/config').set('Authorization', token)
 
 		expect(res.status).toBe(200)

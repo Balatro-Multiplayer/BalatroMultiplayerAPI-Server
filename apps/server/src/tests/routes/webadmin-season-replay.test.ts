@@ -89,9 +89,9 @@ describe('POST /api/webadmin/ratings/season-replay', () => {
 		expect(replaySeason).not.toHaveBeenCalled()
 	})
 
-	it('refuses the owner id without the admin privilege', async () => {
-		expect((await post(authAs('owner-1', ['moderator']))).status).toBe(403)
-		expect(replaySeason).not.toHaveBeenCalled()
+	it('counts the owner as an admin without the privilege', async () => {
+		vi.mocked(replaySeason).mockResolvedValue(ok(report))
+		expect((await post(authAs('owner-1', ['moderator']))).status).toBe(200)
 	})
 
 	it('refuses everyone while no owner is set', async () => {

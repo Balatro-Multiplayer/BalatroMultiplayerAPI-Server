@@ -65,7 +65,7 @@ describe('GET /api/webadmin/launcher-releases/github-releases', () => {
 			},
 		])
 
-		const token = authAsModerator('mod-view', 'Mod')
+		const token = authAsAdmin('mod-view', 'Mod')
 		const res = await request(app)
 			.get('/api/webadmin/launcher-releases/github-releases')
 			.set('Authorization', token)

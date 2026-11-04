@@ -32,10 +32,11 @@ interface GithubReleasesResponse {
 // chosen release's asset metadata (not the binaries themselves, which stay
 // on GitHub and get proxied on download) rather than re-uploading them here.
 export default function AdminReleasesPage() {
-  const { isAdmin, isModerator, pending } = useAuth()
+  const { isAdmin, pending } = useAuth()
   const router = useRouter()
   const qc = useQueryClient()
-  const canAccess = isAdmin || isModerator
+  // An admin page: the server sends moderators nothing from it.
+  const canAccess = isAdmin
 
   const [deleteTarget, setDeleteTarget] = useState<LauncherRelease | null>(null)
   const [pendingReleaseId, setPendingReleaseId] = useState<number | null>(null)

@@ -3,6 +3,7 @@ import {
 	type ModProfileVersionMode,
 	modProfileVersionModeEnum,
 } from '../../infrastructure/db/schema.js'
+import { loadConfigFromDb } from '../../infrastructure/gateways/config.gateway.js'
 import {
 	type ModProfileFields,
 	type PinCommitResult,
@@ -26,9 +27,9 @@ import {
 	updateCustomMod,
 	updateProfile,
 } from '../../infrastructure/gateways/mods.gateway.js'
-import { loadConfigFromDb } from '../../infrastructure/gateways/config.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
+import { requireAdmin } from '../../shared/utils/require-admin.js'
 import {
 	type ResolvedSource,
 	type SourceInput,
@@ -47,17 +48,9 @@ import { backfillSmodsIds } from '../mods/smods-ids-backfill.service.js'
 // the gateway's custom-mod writes are scoped to isCustom rows in SQL, so
 // that holds even if a route check is missed.
 //
-// Mutations are admin-only (not moderator), matching config.route.ts's
-// precedent: this has the same self-inflicted-blast-radius shape as platform
-// config. Reads stay at the router-level webAdmin gate (admin OR moderator).
+// The whole router is admin-only (webadmin.route.ts); each mutation also
+// calls the shared requireAdmin.
 const router = Router()
-
-async function requireAdmin(req: import('express').Request) {
-	const actingPlayer = await findPlayerById(req.player!.playerId)
-	if (!actingPlayer?.privileges.includes('admin')) {
-		throw new AppError('Only admins can edit the ranked mod catalog', 403)
-	}
-}
 
 // Mirrors the public GET /api/mods (see features/mods/mods.route.ts), plus
 // hidden mods so they can be un-hidden.

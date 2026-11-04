@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import type { NextFunction, Request, Response } from 'express'
-import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { authenticate } from '../../middleware/authenticate.js'
+import { currentStaffRole, roleGuard } from '../../shared/utils/staff-role.js'
 import achievementsRouter from './achievements.route.js'
 import archivesRouter from './archives.route.js'
 import blogRouter from './blog.route.js'
@@ -24,11 +24,7 @@ const router = Router()
 function webAdmin(req: Request, res: Response, next: NextFunction) {
 	authenticate(req, res, async () => {
 		try {
-			const player = await findPlayerById(req.player!.playerId)
-			const isAuthorized =
-				player?.privileges.includes('admin') ||
-				player?.privileges.includes('moderator')
-			if (!isAuthorized) {
+			if ((await currentStaffRole(req)) === null) {
 				res.status(403).json({ error: 'Forbidden' })
 				return
 			}
@@ -39,6 +35,9 @@ function webAdmin(req: Request, res: Response, next: NextFunction) {
 	})
 }
 
+// Pages and routes for admins only: a moderator gets no data from them.
+const admin = roleGuard('admin')
+
 router.use(webAdmin)
 router.use(playersRouter)
 router.use(chatLogsRouter)
@@ -48,13 +47,18 @@ router.use(matchesRouter)
 router.use(lobbiesRouter)
 router.use(matchConflictsRouter)
 router.use(forfeitReconciliationRouter)
+router.use('/launcher-releases', admin)
 router.use(launcherReleasesRouter)
+router.use('/config', admin)
 router.use(configRouter)
+router.use('/mods', admin)
 router.use(modsRouter)
 router.use(blogRouter)
 router.use(archivesRouter)
 router.use(serviceQueueRouter)
+router.use('/achievements', admin)
 router.use(achievementsRouter)
+router.use('/ratings', admin)
 router.use(seasonReplayRouter)
 
 export default router

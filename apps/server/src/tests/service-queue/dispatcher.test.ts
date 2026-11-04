@@ -159,9 +159,17 @@ describe('the dispatcher', () => {
 
 	it("refuses a moderator an admin's action (403), and an action the type does not take", async () => {
 		const { dispatcher, world } = setup(item())
-		expect(await dispatcher.run(1, 'account_ban', MOD, { duration: '7d' })).toEqual({ ok: false, refusal: { code: 'forbidden' } })
-		expect(await dispatcher.run(1, 'queue_ban', MOD, { duration: '30d' })).toEqual({ ok: false, refusal: { code: 'forbidden' } })
-		expect(await dispatcher.run(1, 'void', ADMIN, {})).toEqual({ ok: false, refusal: { code: 'not_for_type' } })
+		expect(
+			await dispatcher.run(1, 'account_ban', MOD, { duration: '7d' }),
+		).toEqual({ ok: false, refusal: { code: 'forbidden' } })
+		expect(await dispatcher.run(1, 'unban', MOD, { banId: BAN_ID })).toEqual({
+			ok: false,
+			refusal: { code: 'forbidden' },
+		})
+		expect(await dispatcher.run(1, 'void', ADMIN, {})).toEqual({
+			ok: false,
+			refusal: { code: 'not_for_type' },
+		})
 		expect(world.events).toEqual([])
 	})
 
@@ -259,7 +267,7 @@ describe('the dispatcher', () => {
 		expect(world.events.map((e) => e.kind)).toEqual(['acted', 'reopened'])
 	})
 
-	it("lifts a ban the item's players hold, moderators only chat and queue bans", async () => {
+	it("lifts a ban the item's players hold, for admins only", async () => {
 		const { dispatcher, world, external } = setup(item())
 		await dispatcher.run(1, 'account_ban', ADMIN, { duration: '7d' })
 		expect(await dispatcher.run(1, 'unban', MOD, { banId: BAN_ID })).toEqual({ ok: false, refusal: { code: 'forbidden' } })

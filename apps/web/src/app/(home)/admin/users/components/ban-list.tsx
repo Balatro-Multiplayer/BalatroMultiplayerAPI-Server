@@ -13,10 +13,13 @@ interface Ban {
 
 export function BanList({
   bans,
+  canLift,
   liftPending,
   onLift,
 }: {
   bans: Ban[]
+  // Only admins lift a ban.
+  canLift: boolean
   liftPending: boolean
   onLift: (banId: number) => void
 }) {
@@ -52,7 +55,7 @@ export function BanList({
                 </p>
               )}
             </div>
-            {active && (
+            {active && canLift && (
               <Button
                 variant='outline'
                 size='sm'

@@ -8,7 +8,11 @@ import { apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { BanList } from './components/ban-list'
-import { IssueBanForm } from './components/issue-ban-form'
+import {
+  type BanPreset,
+  IssueBanForm,
+  presetExpiry,
+} from './components/issue-ban-form'
 import { type NetworkBan, NetworkBanList } from './components/network-ban-list'
 import { PlayerList } from './components/player-list'
 import { PrivilegeManager } from './components/privilege-manager'
@@ -67,6 +71,7 @@ export default function AdminUsersPage() {
   const [banReason, setBanReason] = useState('')
   const [banType, setBanType] = useState<BanType>('chat')
   const [banExpiry, setBanExpiry] = useState('')
+  const [banPreset, setBanPreset] = useState<BanPreset>('7d')
   const [privInput, setPrivInput] = useState('')
 
   useEffect(() => {
@@ -92,7 +97,7 @@ export default function AdminUsersPage() {
   const networkBansQuery = useQuery<{ networkBans: NetworkBan[] }>({
     queryKey: ['admin-player-network-bans', selectedId],
     queryFn: () => apiFetch(`/webadmin/players/${selectedId}/network-bans`),
-    enabled: !!selectedId,
+    enabled: !!selectedId && isAdmin,
     retry: false,
   })
 
@@ -183,10 +188,14 @@ export default function AdminUsersPage() {
                 <CardContent className='space-y-4'>
                   <BanList
                     bans={detail.bans}
+                    canLift={isAdmin}
                     liftPending={liftBanMutation.isPending}
                     onLift={(banId) => liftBanMutation.mutate({ playerId: detail.id, banId })}
                   />
                   <IssueBanForm
+                    isAdmin={isAdmin}
+                    banPreset={banPreset}
+                    onPresetChange={setBanPreset}
                     banType={banType}
                     banReason={banReason}
                     banExpiry={banExpiry}
@@ -199,14 +208,19 @@ export default function AdminUsersPage() {
                         playerId: detail.id,
                         reason: banReason,
                         type: banType,
-                        expiresAt: banExpiry ? new Date(banExpiry).toISOString() : null,
+                        expiresAt: isAdmin
+                          ? banExpiry
+                            ? new Date(banExpiry).toISOString()
+                            : null
+                          : presetExpiry(banPreset),
                       })
                     }
                   />
                 </CardContent>
               </Card>
 
-              {/* Lifting a network ban is admin-only, like lifting an account ban. */}
+              {/* Network data is for admins only: the server sends it to no one else. */}
+              {isAdmin && (
               <Card>
                 <CardHeader>
                   <CardTitle className='text-base'>Network bans</CardTitle>
@@ -221,6 +235,7 @@ export default function AdminUsersPage() {
                   />
                 </CardContent>
               </Card>
+              )}
 
               {/* Granting/revoking privileges is admin-only (matches the server-side
                   gate on PATCH .../privileges) -- moderators can do everything else

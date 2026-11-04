@@ -57,11 +57,12 @@ const FEATURE_FLAGS: { key: FeatureFlag; label: string; description: string }[] 
 ]
 
 export default function AdminConfigPage() {
-  const { isAdmin, isModerator, pending } = useAuth()
+  const { isAdmin, pending } = useAuth()
   const router = useRouter()
   const qc = useQueryClient()
 
-  const canView = isAdmin || isModerator
+  // An admin page: the server sends moderators nothing from it.
+  const canView = isAdmin
 
   useEffect(() => {
     if (!pending && !canView) router.replace('/')

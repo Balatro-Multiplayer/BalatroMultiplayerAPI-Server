@@ -1,21 +1,27 @@
-import { Router } from 'express'
 import { and, count, desc, eq, gt, ilike, isNull, or, sql } from 'drizzle-orm'
+import { Router } from 'express'
 import { db } from '../../infrastructure/db/index.js'
 import { playerBans, players } from '../../infrastructure/db/schema.js'
+import {
+	isBanType,
+	liftBan,
+	listBans,
+} from '../../infrastructure/gateways/ban.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
-import { isBanType, liftBan, listBans } from '../../infrastructure/gateways/ban.gateway.js'
-import { AppError } from '../../shared/utils/errors.js'
-import { parseExpiresAt } from '../../shared/utils/parse-expires-at.js'
 import {
 	liftBanInNakama,
 	liftNetworkBanInNakama,
 	networkBansInNakama,
 } from '../../infrastructure/nakama/moderation-sync.js'
 import { editNakamaProfile } from '../../infrastructure/nakama/profile-sync.js'
-import { issueBan } from './ban.service.js'
+import { AppError } from '../../shared/utils/errors.js'
+import { parseExpiresAt } from '../../shared/utils/parse-expires-at.js'
+import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
+import { requireAdmin } from '../../shared/utils/require-admin.js'
+import { isOwnerId, redactPlayerFor } from '../../shared/utils/staff-role.js'
 import { mayIssueBan, mayLiftBan } from '../service-queue/permissions.js'
 import { staffOf } from '../service-queue/staff.js'
-import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
+import { issueBan } from './ban.service.js'
 
 // Privilege names are free-form identifiers (a lowercase letter followed by
 // lowercase letters/digits/underscores). Validated by format rather than a fixed
@@ -64,7 +70,14 @@ router.get('/players', async (req, res, next) => {
 			.limit(limit)
 			.offset(offset)
 
-		res.json({ players: rows, total, page, limit, pages: Math.ceil(total / limit) })
+		const staff = await staffOf(req)
+		res.json({
+			players: rows.map((row) => redactPlayerFor(staff?.role ?? null, row)),
+			total,
+			page,
+			limit,
+			pages: Math.ceil(total / limit),
+		})
 	} catch (err) {
 		next(err)
 	}
@@ -75,7 +88,8 @@ router.get('/players/:id', async (req, res, next) => {
 		const player = await findPlayerById(req.params.id)
 		if (!player) throw new AppError('Player not found', 404)
 		const bans = await listBans(req.params.id)
-		res.json({ player, bans })
+		const staff = await staffOf(req)
+		res.json({ player: redactPlayerFor(staff?.role ?? null, player), bans })
 	} catch (err) {
 		next(err)
 	}
@@ -88,17 +102,18 @@ router.patch('/players/:id/privileges', async (req, res, next) => {
 		// alone would let a moderator hand themselves (or anyone) 'admin', a live
 		// self-escalation bug. Matches the design doc's "only ever granted
 		// directly by an admin."
-		const actingPlayer = await findPlayerById(req.player!.playerId)
-		if (!actingPlayer?.privileges.includes('admin')) {
-			throw new AppError('Only admins can grant or revoke privileges', 403)
-		}
+		await requireAdmin(req)
 
 		const { privileges } = req.body as { privileges?: unknown }
 		if (!Array.isArray(privileges) || !privileges.every((p) => typeof p === 'string')) {
 			throw new AppError('privileges must be an array of strings', 400)
 		}
 		const invalid = privileges.filter((p) => !PRIVILEGE_PATTERN.test(p))
-		if (invalid.length > 0) throw new AppError(`Invalid privilege names: ${invalid.join(', ')}`, 400)
+		if (invalid.length > 0)
+			throw new AppError(`Invalid privilege names: ${invalid.join(', ')}`, 400)
+		// The owner is always an admin: no change may take that role away.
+		if (isOwnerId(req.params.id) && !privileges.includes('admin'))
+			throw new AppError("The owner's admin role cannot be removed", 403)
 
 		const [updated] = await db
 			.update(players)
@@ -167,10 +182,11 @@ router.delete('/players/:id/bans/:banId', async (req, res, next) => {
 	}
 })
 
-// Network bans (ADR 0005) live only in Nakama. Staff see the ones that touch
-// a player; only an admin lifts one, as with an account ban.
+// Network bans (ADR 0005) live only in Nakama. Only admins see the ones
+// that touch a player, and only an admin lifts one.
 router.get('/players/:id/network-bans', async (req, res, next) => {
 	try {
+		await requireAdmin(req)
 		const networkBans = await networkBansInNakama(req.params.id)
 		if (!networkBans.ok) throw new AppError('Nakama is unavailable', 503)
 		res.json({ networkBans: networkBans.value })

@@ -1,4 +1,3 @@
-import { EVIDENCE_KEEP_MS } from '../../shared/retention-periods.js'
 // The service queue's pure rules: the role table, request bodies, claims,
 // durations, priority, the integrity-flag decision, retention, source ids,
 // source transitions, targets and overturn plans.
@@ -18,6 +17,18 @@ import {
 	reportedLobbyPurgeable,
 } from '../../features/service-queue/purge.js'
 import { httpOf } from '../../features/service-queue/refusals.js'
+import { pickTarget, targetsOf } from '../../features/service-queue/targets.js'
+import {
+	closes,
+	sourceStatusFor,
+} from '../../features/service-queue/transitions.js'
+import {
+	actorOf,
+	contextOf,
+	playerIdOfActor,
+	roleOf,
+} from '../../features/service-queue/types.js'
+import { EVIDENCE_KEEP_MS } from '../../shared/retention-periods.js'
 import {
 	antiCheatSourceId,
 	integritySourceId,
@@ -25,9 +36,6 @@ import {
 	parseAntiCheatSourceId,
 	parseIntegritySourceId,
 } from '../../shared/service-queue/source-ids.js'
-import { pickTarget, targetsOf } from '../../features/service-queue/targets.js'
-import { closes, sourceStatusFor } from '../../features/service-queue/transitions.js'
-import { actorOf, contextOf, playerIdOfActor, roleOf } from '../../features/service-queue/types.js'
 
 const NOW = new Date('2026-10-21T12:00:00.000Z')
 const DAY = 24 * 60 * 60 * 1000
@@ -36,23 +44,65 @@ const BAN_ID = '00000000-0000-4000-8000-000000000001'
 describe('the role table', () => {
 	const openReport = { itemType: 'report' as const, status: 'open' as const }
 
-	it('lets moderators dismiss, resolve, warn, mute and queue-ban for up to 7 days', () => {
-		for (const action of ['dismiss', 'resolve', 'warn', 'chat_mute', 'queue_ban'] as const)
+	it('lets moderators dismiss, resolve, warn, mute and queue-ban with every preset', () => {
+		for (const action of [
+			'dismiss',
+			'resolve',
+			'warn',
+			'chat_mute',
+			'queue_ban',
+		] as const)
 			expect(permissionFor(action, openReport, 'moderator').ok).toBe(true)
-		expect(permissionFor('queue_ban', openReport, 'moderator', '7d').ok).toBe(true)
-		expect(permissionFor('queue_ban', openReport, 'moderator', '30d')).toEqual({ ok: false, refusal: 'forbidden' })
-		expect(permissionFor('chat_mute', openReport, 'moderator', '30d').ok).toBe(true)
-		expect(permissionFor('chat_mute', openReport, 'moderator', 'permanent')).toEqual({ ok: false, refusal: 'forbidden' })
+		for (const preset of ['24h', '7d', '30d', 'permanent'] as const)
+			for (const action of ['chat_mute', 'queue_ban'] as const)
+				expect(
+					permissionFor(action, openReport, 'moderator', preset).ok,
+					`${action} ${preset}`,
+				).toBe(true)
 	})
 
-	it('keeps void, overturn, account bans and permanent bans to admins', () => {
-		const conflict = { itemType: 'match_conflict' as const, status: 'open' as const }
-		expect(permissionFor('void', conflict, 'moderator')).toEqual({ ok: false, refusal: 'forbidden' })
-		expect(permissionFor('overturn', conflict, 'moderator')).toEqual({ ok: false, refusal: 'forbidden' })
-		expect(permissionFor('account_ban', openReport, 'moderator')).toEqual({ ok: false, refusal: 'forbidden' })
-		for (const action of ['void', 'overturn'] as const) expect(permissionFor(action, conflict, 'admin').ok).toBe(true)
-		expect(permissionFor('account_ban', openReport, 'admin', 'permanent').ok).toBe(true)
-		expect(permissionFor('queue_ban', openReport, 'admin', 'permanent').ok).toBe(true)
+	it('lets moderators set a result and void a match where the item type allows it', () => {
+		const conflict = {
+			itemType: 'match_conflict' as const,
+			status: 'open' as const,
+		}
+		for (const action of ['void', 'overturn'] as const) {
+			expect(permissionFor(action, conflict, 'moderator').ok).toBe(true)
+			expect(permissionFor(action, openReport, 'moderator')).toEqual({
+				ok: false,
+				refusal: 'not_for_type',
+			})
+		}
+		expect(
+			allowedActionsFor(conflict, 'moderator').map((a) => a.action),
+		).toEqual(expect.arrayContaining(['void', 'overturn']))
+	})
+
+	it('keeps account bans to admins', () => {
+		expect(permissionFor('account_ban', openReport, 'moderator')).toEqual({
+			ok: false,
+			refusal: 'forbidden',
+		})
+		expect(
+			permissionFor('account_ban', openReport, 'admin', 'permanent').ok,
+		).toBe(true)
+		expect(
+			permissionFor('queue_ban', openReport, 'admin', 'permanent').ok,
+		).toBe(true)
+	})
+
+	it('keeps lifting a punishment to admins', () => {
+		expect(permissionFor('unban', openReport, 'moderator')).toEqual({
+			ok: false,
+			refusal: 'forbidden',
+		})
+		expect(permissionFor('unban', openReport, 'admin').ok).toBe(true)
+		expect(
+			allowedActionsFor(openReport, 'moderator').map((a) => a.action),
+		).not.toContain('unban')
+		expect(
+			allowedActionsFor(openReport, 'admin').map((a) => a.action),
+		).toContain('unban')
 	})
 
 	it('refuses an action the type does not take, and one for the wrong status', () => {
@@ -70,29 +120,56 @@ describe('the role table', () => {
 	})
 
 	it('a preset the action does not have is not for it', () => {
-		expect(permissionFor('queue_ban', openReport, 'admin', '24h')).toEqual({ ok: false, refusal: 'not_for_type' })
+		expect(permissionFor('account_ban', openReport, 'admin', '24h')).toEqual({
+			ok: false,
+			refusal: 'not_for_type',
+		})
 	})
 
 	it("sends each role's actions with the presets narrowed to it", () => {
 		const forMod = allowedActionsFor(openReport, 'moderator')
-		expect(forMod.map((a) => a.action)).toEqual(['dismiss', 'resolve', 'warn', 'chat_mute', 'queue_ban', 'unban', 'note'])
+		expect(forMod.map((a) => a.action)).toEqual([
+			'dismiss',
+			'resolve',
+			'warn',
+			'chat_mute',
+			'queue_ban',
+			'note',
+		])
 		expect(forMod.find((a) => a.action === 'queue_ban')).toEqual({
 			action: 'queue_ban',
-			presets: ['7d'],
+			presets: ['24h', '7d', '30d', 'permanent'],
 			targeted: true,
 			destructive: true,
 		})
-		expect(forMod.find((a) => a.action === 'chat_mute')?.presets).toEqual(['24h', '7d', '30d'])
+		expect(forMod.find((a) => a.action === 'chat_mute')?.presets).toEqual([
+			'24h',
+			'7d',
+			'30d',
+			'permanent',
+		])
 		const forAdmin = allowedActionsFor(openReport, 'admin')
 		expect(forAdmin.find((a) => a.action === 'account_ban')?.presets).toEqual(['7d', '30d', 'permanent'])
 		expect(allowedActionsFor({ itemType: 'forfeit_reconciliation', status: 'open' }, 'moderator').map((a) => a.action)).toEqual(
-			['dismiss', 'resolve', 'unban', 'note'],
+			['dismiss', 'resolve', 'void', 'note'],
 		)
 		expect(allowedActionsFor({ itemType: 'integrity', status: 'resolved' }, 'admin').map((a) => a.action)).toEqual([
 			'reopen',
 			'unban',
 			'note',
 		])
+		expect(
+			allowedActionsFor(
+				{ itemType: 'forfeit_reconciliation', status: 'open' },
+				'moderator',
+			).map((a) => a.action),
+		).toEqual(['dismiss', 'resolve', 'void', 'note'])
+		expect(
+			allowedActionsFor(
+				{ itemType: 'integrity', status: 'resolved' },
+				'admin',
+			).map((a) => a.action),
+		).toEqual(['reopen', 'unban', 'note'])
 	})
 
 	it('every allowed action passes the same check the dispatcher makes', () => {
@@ -106,11 +183,11 @@ describe('the role table', () => {
 					}
 	})
 
-	it('lets moderators lift chat and queue bans, admins account bans too', () => {
-		expect(mayLiftBan('moderator', 'chat')).toBe(true)
-		expect(mayLiftBan('moderator', 'queue')).toBe(true)
-		expect(mayLiftBan('moderator', 'account')).toBe(false)
-		expect(mayLiftBan('admin', 'account')).toBe(true)
+	it('lets only admins lift a ban of any kind', () => {
+		for (const kind of ['chat', 'queue', 'account'] as const) {
+			expect(mayLiftBan('moderator', kind)).toBe(false)
+			expect(mayLiftBan('admin', kind)).toBe(true)
+		}
 	})
 })
 
@@ -134,10 +211,22 @@ describe('request bodies', () => {
 	})
 
 	it("checks each sanction's presets", () => {
-		expect(parseCommand('chat_mute', { duration: '24h' })).toMatchObject({ ok: true, value: { duration: '24h', reason: '' } })
-		expect(parseCommand('queue_ban', { duration: '24h' })).toMatchObject({ ok: false, refusal: { field: 'duration' } })
-		expect(parseCommand('account_ban', { duration: 'forever' })).toMatchObject({ ok: false, refusal: { field: 'duration' } })
-		const ban = parseCommand('queue_ban', { duration: '7d', reason: 'griefing' })
+		expect(parseCommand('chat_mute', { duration: '24h' })).toMatchObject({
+			ok: true,
+			value: { duration: '24h', reason: '' },
+		})
+		expect(parseCommand('queue_ban', { duration: '24h' })).toMatchObject({
+			ok: true,
+			value: { duration: '24h' },
+		})
+		expect(parseCommand('account_ban', { duration: 'forever' })).toMatchObject({
+			ok: false,
+			refusal: { field: 'duration' },
+		})
+		const ban = parseCommand('queue_ban', {
+			duration: '7d',
+			reason: 'griefing',
+		})
 		expect(ban.ok && presetOf(ban.value)).toBe('7d')
 		expect(ban.ok && ban.value.action === 'queue_ban' && banTypeOf(ban.value)).toBe('queue')
 	})
@@ -403,7 +492,7 @@ describe('contest items', () => {
 			expect(permissionFor(action, open, 'moderator').ok).toBe(true)
 		expect(permissionFor('account_ban', open, 'admin', '7d').ok).toBe(true)
 		for (const action of ['void', 'overturn'] as const) {
-			expect(permissionFor(action, open, 'moderator')).toEqual({ ok: false, refusal: 'forbidden' })
+			expect(permissionFor(action, open, 'moderator').ok).toBe(true)
 			expect(permissionFor(action, open, 'admin').ok).toBe(true)
 		}
 		expect(permissionFor('resolve', open, 'admin')).toEqual({ ok: false, refusal: 'not_for_type' })
@@ -478,22 +567,24 @@ describe('vocabulary', () => {
 describe('bans issued outside the queue (players page)', () => {
 	const inDays = (days: number) => new Date(NOW.getTime() + days * DAY)
 
-	it('lets moderators issue chat bans up to 30 days and queue bans up to 7', () => {
-		expect(mayIssueBan('moderator', 'chat', inDays(1), NOW)).toBe(true)
-		expect(mayIssueBan('moderator', 'chat', inDays(30), NOW)).toBe(true)
-		expect(mayIssueBan('moderator', 'queue', inDays(7), NOW)).toBe(true)
+	it('lets moderators issue chat and queue bans of every preset length', () => {
+		for (const type of ['chat', 'queue'] as const) {
+			for (const days of [1, 7, 30])
+				expect(mayIssueBan('moderator', type, inDays(days), NOW)).toBe(true)
+			expect(mayIssueBan('moderator', type, null, NOW)).toBe(true)
+		}
 		// A client's expiry computed a moment before the request still passes.
 		expect(mayIssueBan('moderator', 'queue', new Date(inDays(7).getTime() + 30 * 1000), NOW)).toBe(true)
 	})
 
-	it('keeps longer, permanent and account bans for admins', () => {
+	it('keeps custom lengths and account bans for admins', () => {
 		expect(mayIssueBan('moderator', 'queue', inDays(8), NOW)).toBe(false)
-		expect(mayIssueBan('moderator', 'queue', null, NOW)).toBe(false)
-		expect(mayIssueBan('moderator', 'chat', inDays(31), NOW)).toBe(false)
-		expect(mayIssueBan('moderator', 'chat', null, NOW)).toBe(false)
-		expect(mayIssueBan('moderator', 'account', inDays(1), NOW)).toBe(false)
+		expect(mayIssueBan('moderator', 'chat', inDays(3), NOW)).toBe(false)
+		expect(mayIssueBan('moderator', 'chat', inDays(365), NOW)).toBe(false)
+		expect(mayIssueBan('moderator', 'account', inDays(7), NOW)).toBe(false)
+		expect(mayIssueBan('moderator', 'account', null, NOW)).toBe(false)
 		expect(mayIssueBan('admin', 'account', null, NOW)).toBe(true)
 		expect(mayIssueBan('admin', 'queue', inDays(365), NOW)).toBe(true)
-		expect(mayIssueBan('admin', 'chat', null, NOW)).toBe(true)
+		expect(mayIssueBan('admin', 'chat', inDays(3), NOW)).toBe(true)
 	})
 })
