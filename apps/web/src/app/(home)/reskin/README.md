@@ -56,6 +56,27 @@ a ZIP expanding to a 70 MiB game archive. A test-only worker delay exercised
 visible loading/elapsed time and cancellation; malformed ZIP feedback was checked
 with an existing game still loaded. No actual macOS dialog was exercised.
 
+## Sprite image drag-and-drop
+
+Drop one local image directly onto the current preview in the asset editor.
+The target highlights while dragging and uses the same crop, border/mask, GIF,
+and selected **Upload as** processing as the file picker. For layered cards,
+**Combined** and **Background** replace the background; **Overlay** replaces only
+that layer. The hint below the preview names the target. The existing buttons
+remain available as an alternative.
+
+Links, folders, multiple files, non-images, and empty images are rejected without
+changing the current sprite. Undecodable images show an error with a **Back**
+action; edits are not committed until processing succeeds. Drops are disabled
+while processing and the crop screen does not accept a second replacement.
+No URL is fetched and preview images themselves cannot be dragged into edits.
+
+Regression tests cover file validation/identity, layer targeting, target hints,
+busy feedback, and non-draggable originals. Manual browser check: drop a PNG on
+Driver, cancel the crop and verify it is unchanged, then repeat and **Apply**.
+Try an invalid/multiple-file drop, a corrupt PNG, GIF/sprite-sheet upload modes,
+and both layer targets on a legendary. Native Finder drops need a manual pass.
+
 ## Layered card art
 
 The five legendary Jokers, Hologram, and The Soul have independent background

@@ -40,6 +40,7 @@ export function SpritePreview({
           {/* Local data URLs: Next image optimization must not upload game art. */}
           {/* biome-ignore lint/performance/noImgElement: local browser-only sprite */}
           <img
+            draggable={false}
             src={base}
             alt={`${label} background${preview ? '' : ' (original)'}`}
             className='absolute inset-0 h-full w-full object-contain'
@@ -59,6 +60,7 @@ export function SpritePreview({
         >
           {/* biome-ignore lint/performance/noImgElement: local browser-only sprite */}
           <img
+            draggable={false}
             src={soul}
             alt={`${label} overlay${overlay ? '' : ' (original)'}`}
             className='absolute inset-0 h-full w-full object-contain'

@@ -43,12 +43,14 @@ import {
   type Rect,
   renderSprite,
 } from '../lib/image'
+import { spriteUploadFile, spriteUploadTarget } from '../lib/spriteDrop'
 import {
   type EdgeMode,
   type ObjectEdit,
   type RenderSettings,
   SHADER_OPTIONS,
 } from '../lib/types'
+import { SpriteDropZone } from './sprite-drop-zone'
 import { type PreviewLayer, SpritePreview } from './sprite-preview'
 
 // --- request shapes ---------------------------------------------------------
@@ -194,6 +196,8 @@ function AssetModal({
     target: 'main' | 'soul' | 'cell' | 'icon'
   } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const uploadActive = useRef(false)
   const [defaultPreview, setDefaultPreview] = useState(request.defaultPreview)
   const [defaultLoading, setDefaultLoading] = useState(
     !request.defaultPreview && Boolean(request.loadDefaultPreview)
@@ -329,6 +333,21 @@ function AssetModal({
     [request, work, commitObject, animMode]
   )
 
+  const pickImage = async (file: File, target: 'main' | 'soul' = 'main') => {
+    if (busy || cropping || uploadActive.current) return
+    uploadActive.current = true
+    setUploadError(null)
+    try {
+      spriteUploadFile([file])
+      if (target === 'soul') setCropping({ file, target })
+      else await onPickMain(file)
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : String(error))
+    } finally {
+      uploadActive.current = false
+    }
+  }
+
   // Render an object sprite from a base + settings, applying the edge.
   const buildObjectSprite = useCallback(
     async (base: string, render: RenderSettings): Promise<string> => {
@@ -421,6 +440,8 @@ function AssetModal({
           request.commit(final)
           setCellValue(final)
         }
+      } catch (error) {
+        setUploadError(error instanceof Error ? error.message : String(error))
       } finally {
         setBusy(false)
         setCropping(null)
@@ -546,8 +567,22 @@ function AssetModal({
           >
             {/* Preview shrinks to the dialog even for a 923px-wide sheet. */}
             <div className='flex min-w-0 flex-col items-center gap-2'>
-              <div
-                className='relative bg-[length:12px_12px] bg-[repeating-conic-gradient(#0002_0_25%,transparent_0_50%)]'
+              <SpriteDropZone
+                disabled={busy}
+                target={
+                  caps?.soul
+                    ? activeLayer === 'soul'
+                      ? 'overlay'
+                      : 'background'
+                    : 'image'
+                }
+                onFile={(file) => {
+                  void pickImage(
+                    file,
+                    spriteUploadTarget(Boolean(caps?.soul), activeLayer)
+                  )
+                }}
+                onError={setUploadError}
                 style={{
                   width: dispW,
                   maxWidth: '100%',
@@ -577,7 +612,12 @@ function AssetModal({
                           : 'No image'}
                   </span>
                 )}
-              </div>
+              </SpriteDropZone>
+              {uploadError && (
+                <p role='alert' className='text-destructive text-sm'>
+                  Could not replace image: {uploadError}
+                </p>
+              )}
               <p className='text-muted-foreground text-xs'>
                 {request.targetW}×{request.targetH}
               </p>
@@ -640,7 +680,7 @@ function AssetModal({
                 className='hidden'
                 onChange={(e) => {
                   const f = e.target.files?.[0]
-                  if (f) onPickMain(f)
+                  if (f) void pickImage(f)
                   if (mainRef.current) mainRef.current.value = ''
                 }}
               />
@@ -731,7 +771,7 @@ function AssetModal({
                     className='hidden'
                     onChange={(e) => {
                       const f = e.target.files?.[0]
-                      if (f) setCropping({ file: f, target: 'soul' })
+                      if (f) void pickImage(f, 'soul')
                       if (soulRef.current) soulRef.current.value = ''
                     }}
                   />
@@ -966,6 +1006,7 @@ function CropStage({
   const [rect, setRect] = useState<Rect | null>(null)
   const [mode, setMode] = useState<CropMode>(initialFit)
   const [preview, setPreview] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const dragRef = useRef<DragState | null>(null)
 
@@ -978,13 +1019,20 @@ function CropStage({
 
   useEffect(() => {
     let live = true
-    fileToDataUrl(file).then(async (url) => {
-      const img = await loadImage(url)
-      if (!live) return
-      setSrc(url)
-      setImgSize({ w: img.width, h: img.height })
-      setRect({ x: 0, y: 0, w: img.width, h: img.height })
-    })
+    fileToDataUrl(file)
+      .then(async (url) => {
+        const img = await loadImage(url)
+        if (!live) return
+        setSrc(url)
+        setImgSize({ w: img.width, h: img.height })
+        setRect({ x: 0, y: 0, w: img.width, h: img.height })
+      })
+      .catch(() => {
+        if (live)
+          setError(
+            'This image could not be decoded. Go back and choose another image, such as PNG or JPEG. Your existing sprite has not changed.'
+          )
+      })
     return () => {
       live = false
     }
@@ -1003,7 +1051,10 @@ function CropStage({
       const cropped = await cropImage(src, rect)
       const out = await fitInto(cropped, targetW, targetH, fillMode)
       if (live) setPreview(out)
-    })()
+    })().catch(() => {
+      if (live)
+        setError('Could not prepare this image. Go back and try another image.')
+    })
     return () => {
       live = false
     }
@@ -1062,6 +1113,8 @@ function CropStage({
     setBusy(true)
     try {
       onApply(await cropImage(src, rect), fillMode)
+    } catch {
+      setError('Could not crop this image. Go back and try another image.')
     } finally {
       setBusy(false)
     }
@@ -1184,6 +1237,11 @@ function CropStage({
         </div>
       </div>
 
+      {error && (
+        <p role='alert' className='text-destructive text-sm'>
+          {error}
+        </p>
+      )}
       <DialogFooter>
         <Button variant='ghost' onClick={onCancel} disabled={busy}>
           Back

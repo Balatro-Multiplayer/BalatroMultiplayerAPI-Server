@@ -16,10 +16,11 @@ test('combined preview draws original background then original portrait without 
   assert.ok(html.includes('Caino background (original)'))
   assert.ok(html.includes('Caino overlay (original)'))
   assert.ok(
-    html.indexOf('<img src=' + `"${originals.defaultPreview}"`) <
-      html.indexOf('<img src=' + `"${originals.defaultOverlay}"`)
+    html.indexOf(`src="${originals.defaultPreview}"`) <
+      html.indexOf(`src="${originals.defaultOverlay}"`)
   )
   assert.equal((html.match(/opacity-40/g) ?? []).length, 2)
+  assert.equal((html.match(/draggable="false"/g) ?? []).length, 2)
 })
 
 test('replacing either layer independently keeps the other original', () => {
