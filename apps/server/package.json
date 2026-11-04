@@ -1,6 +1,6 @@
 {
 	"name": "balatro-multiplayer-api-server",
-	"version": "1.0.4",
+	"version": "1.0.5",
 	"type": "module",
 	"scripts": {
 		"build": "tsc",
