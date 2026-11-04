@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import type { NextFunction, Request, Response } from 'express'
-import { authenticate } from '../../middleware/authenticate.js'
+import { authenticateActive } from '../../middleware/authenticate-active.js'
 import { currentStaffRole, roleGuard } from '../../shared/utils/staff-role.js'
 import achievementsRouter from './achievements.route.js'
 import archivesRouter from './archives.route.js'
@@ -12,6 +12,7 @@ import forfeitReconciliationRouter from './forfeit-reconciliation.route.js'
 import launcherReleasesRouter from './launcher-releases.route.js'
 import lobbiesRouter from './lobbies.route.js'
 import matchConflictsRouter from './match-conflicts.route.js'
+import matchEditRouter from './match-edit.route.js'
 import matchesRouter from './matches.route.js'
 import modsRouter from './mods.route.js'
 import playerPageRouter from './player-page.route.js'
@@ -25,7 +26,7 @@ import staffLogRouter from './staff-log.route.js'
 const router = Router()
 
 function webAdmin(req: Request, res: Response, next: NextFunction) {
-	authenticate(req, res, async () => {
+	authenticateActive(req, res, async () => {
 		try {
 			if ((await currentStaffRole(req)) === null) {
 				res.status(403).json({ error: 'Forbidden' })
@@ -50,6 +51,7 @@ router.use(chatLabelsRouter)
 router.use(reportsRouter)
 router.use(seasonsRouter)
 router.use(matchesRouter)
+router.use(matchEditRouter)
 router.use(lobbiesRouter)
 router.use(matchConflictsRouter)
 router.use(forfeitReconciliationRouter)

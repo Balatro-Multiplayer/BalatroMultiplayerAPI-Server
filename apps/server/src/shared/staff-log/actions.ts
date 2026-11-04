@@ -15,6 +15,8 @@ export const STAFF_ACTIONS = [
 	'void',
 	'overturn',
 	'reopen',
+	'match_result',
+	'match_void',
 	'role_grant',
 	'role_remove',
 	'ladder_edit',

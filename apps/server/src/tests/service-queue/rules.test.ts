@@ -6,7 +6,6 @@ import { CLAIM_TTL_MS, activeClaimant, decideClaim, decideRelease, heldByOther }
 import { banTypeOf, parseCommand, presetOf } from '../../features/service-queue/command.js'
 import { expiresAtOf } from '../../features/service-queue/durations.js'
 import {
-	REPEAT_THRESHOLD,
 	decideIntegrityFlag,
 	utcDayStart,
 } from '../../features/service-queue/integrity-flag.js'
@@ -317,22 +316,16 @@ describe('priority', () => {
 
 describe('the integrity flag', () => {
 	it('raises a failure while ranked-queued or in a ranked game', () => {
-		expect(decideIntegrityFlag({ ranked: { queued: true, inGame: false }, failuresToday: 1 })).toEqual({
+		expect(decideIntegrityFlag({ ranked: { queued: true, inGame: false } })).toEqual({
 			kind: 'raise',
 			trigger: 'ranked',
 		})
-		expect(decideIntegrityFlag({ ranked: { queued: false, inGame: true }, failuresToday: 1 }).kind).toBe('raise')
+		expect(decideIntegrityFlag({ ranked: { queued: false, inGame: true } }).kind).toBe('raise')
 	})
 
-	it(`raises the ${REPEAT_THRESHOLD}rd failure of a day, and nothing before`, () => {
-		const idle = { queued: false, inGame: false }
-		expect(decideIntegrityFlag({ ranked: idle, failuresToday: REPEAT_THRESHOLD - 1 })).toEqual({ kind: 'none' })
-		expect(decideIntegrityFlag({ ranked: idle, failuresToday: REPEAT_THRESHOLD })).toEqual({
-			kind: 'raise',
-			trigger: 'repeated',
-		})
-		expect(decideIntegrityFlag({ ranked: null, failuresToday: REPEAT_THRESHOLD }).kind).toBe('raise')
-		expect(decideIntegrityFlag({ ranked: null, failuresToday: 1 }).kind).toBe('none')
+	it('raises nothing for a failure outside ranked play, however often it repeats', () => {
+		expect(decideIntegrityFlag({ ranked: { queued: false, inGame: false } })).toEqual({ kind: 'none' })
+		expect(decideIntegrityFlag({ ranked: null })).toEqual({ kind: 'none' })
 	})
 
 	it('keys one item per player per UTC day', () => {

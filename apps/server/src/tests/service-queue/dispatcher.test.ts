@@ -1,7 +1,6 @@
 // The dispatcher over an in-memory queue: a transaction is a snapshot that
 // a thrown error restores, so a rollback leaves nothing behind.
 import { describe, expect, it, vi } from 'vitest'
-import type { StaffActionEntry } from '../../shared/staff-log/actions.js'
 import { DEFAULT_LADDER_STEPS } from '../../features/strikes/ladder.js'
 import {
 	type BanRow,
@@ -10,6 +9,7 @@ import {
 	type QueueItem,
 	createDispatcher,
 } from '../../features/service-queue/dispatcher.js'
+import type { StaffActionEntry } from '../../shared/staff-log/actions.js'
 
 const NOW = new Date('2026-10-21T12:00:00.000Z')
 const MOD = { playerId: 'mod', role: 'moderator' as const }
@@ -317,6 +317,37 @@ describe('the dispatcher', () => {
 		expect(result).toMatchObject({ ok: true, value: { effects: { voided: { runId: 'run-1', rerated: true } } } })
 		expect(external.voidGame).toHaveBeenCalledWith({ runId: 'run-1', matchmade: true, ranked: true })
 		expect(world.sourceStatus.get(1)).toBe('voided')
+	})
+
+	it('keeps the old and new result and the rating changes in the staff log', async () => {
+		const edit = {
+			previous: [{ playerId: 'a', place: 1 }],
+			next: null,
+			ratingChanges: [
+				{
+					playerId: 'a',
+					oldDelta: 20,
+					newDelta: null,
+					rating: -20,
+					wins: -1,
+					losses: 0,
+					gamesPlayed: -1,
+				},
+			],
+		}
+		const { dispatcher, world, external } = setup(
+			item({ itemType: 'forfeit_reconciliation', sourceId: '5' }),
+		)
+		external.voidGame.mockResolvedValueOnce({
+			kind: 'voided',
+			rerated: true,
+			edit,
+		} as never)
+		await dispatcher.run(1, 'void', ADMIN, {})
+		expect(world.staffLog[0]).toMatchObject({
+			action: 'void',
+			detail: { edit },
+		})
 	})
 
 	it('voids a private game by closing it only, and refuses an unresolved match', async () => {
