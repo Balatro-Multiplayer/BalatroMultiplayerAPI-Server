@@ -29,9 +29,10 @@ export const TYPE_TABS: { type: ItemType | null; label: string }[] = [
   { type: 'match_conflict', label: 'Match results' },
   { type: 'forfeit_reconciliation', label: 'Forfeits' },
   { type: 'contest', label: 'Contests' },
-  { type: 'anti_cheat', label: 'Anti-cheat' },
-  { type: 'integrity', label: 'Integrity' },
 ]
+
+// Items the server raises on its own; they have the Automatic tab.
+export const AUTOMATIC_TYPES: readonly ItemType[] = ['anti_cheat', 'integrity']
 
 export const ACTION_LABELS: Record<ActionKey, string> = {
   dismiss: 'Dismiss',

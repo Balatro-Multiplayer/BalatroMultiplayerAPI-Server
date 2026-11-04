@@ -33,6 +33,7 @@ const urlState = {
   mine: parseAsBoolean.withDefault(false),
   age: parseAsInteger.withDefault(0),
   page: parseAsInteger.withDefault(1),
+  automatic: parseAsBoolean.withDefault(false),
   item: parseAsInteger,
 }
 
@@ -85,6 +86,8 @@ function ServiceQueue() {
 
   const filters: ListFilters = useMemo(
     () => ({
+      // A player search looks through every item, automatic ones too.
+      lane: url.subject.trim() ? null : ('main' as const),
       itemType: url.type,
       status: url.status,
       sort: url.sort,
@@ -133,7 +136,13 @@ function ServiceQueue() {
     (playerId: string) => {
       setSubjectDraft(playerId)
       setCursor(0)
-      void setUrl({ subject: playerId, type: null, status: 'all', page: 1 })
+      void setUrl({
+        subject: playerId,
+        type: null,
+        status: 'all',
+        automatic: false,
+        page: 1,
+      })
     },
     [setUrl]
   )
@@ -169,6 +178,8 @@ function ServiceQueue() {
             setCursor={setCursor}
             now={now}
             onOpen={openItem}
+            automaticTab={url.automatic}
+            setAutomaticTab={(on) => void setUrl({ automatic: on })}
           />
         </div>
         <div

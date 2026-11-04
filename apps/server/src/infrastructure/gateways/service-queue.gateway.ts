@@ -1,4 +1,5 @@
-import { and, asc, count, countDistinct, desc, eq, gt, ilike, inArray, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, count, countDistinct, desc, eq, gt, ilike, inArray, isNull, lte, notInArray, or, sql } from 'drizzle-orm'
+import { AUTOMATIC_TYPES, PLAYER_MADE_TYPES, type QueueLane } from '../../features/service-queue/lanes.js'
 import { priorityOf } from '../../features/service-queue/priority.js'
 import {
 	ITEM_TYPES,
@@ -136,6 +137,8 @@ export interface ListFilters {
 	page: number
 	limit: number
 	itemType?: ServiceQueueItemType
+	// The main tab or the automatic tab; unset lists both.
+	lane?: QueueLane
 	status: QueueStatusFilter
 	// A player id, or part of a player's name.
 	subject?: string
@@ -169,6 +172,8 @@ export async function listServiceQueueItems(opts: ListFilters): Promise<{ items:
 		: undefined
 	const conditions = [
 		opts.itemType ? eq(serviceQueueItems.itemType, opts.itemType) : undefined,
+		opts.lane === 'main' ? notInArray(serviceQueueItems.itemType, [...AUTOMATIC_TYPES]) : undefined,
+		opts.lane === 'automatic' ? inArray(serviceQueueItems.itemType, [...AUTOMATIC_TYPES]) : undefined,
 		opts.status !== 'all' ? eq(serviceQueueItems.status, opts.status) : undefined,
 		subjectMatch,
 		opts.claimedBy
@@ -187,7 +192,10 @@ export async function listServiceQueueItems(opts: ListFilters): Promise<{ items:
 
 	const order =
 		opts.sort === 'priority'
-			? [sql`${serviceQueueItems.priority} DESC NULLS LAST`, asc(serviceQueueItems.createdAt)]
+			? [
+					// Items players made come first, then the rest by priority.
+					sql`CASE WHEN ${inArray(serviceQueueItems.itemType, [...PLAYER_MADE_TYPES])} THEN 0 ELSE 1 END`,
+					sql`${serviceQueueItems.priority} DESC NULLS LAST`, asc(serviceQueueItems.createdAt)]
 			: [desc(serviceQueueItems.createdAt)]
 	const rows = await db
 		.select({ item: serviceQueueItems, subjectName: players.steamName })
@@ -208,6 +216,71 @@ export async function listServiceQueueItems(opts: ListFilters): Promise<{ items:
 		})),
 		total,
 	}
+}
+
+export interface AutomaticGroup {
+	playerId: string
+	playerName: string | null
+	openItems: number
+	latestItem: { id: number; itemType: string; summary: string; createdAt: Date }
+}
+
+// One row per player with open automatic items, most items first.
+export async function listAutomaticGroups(): Promise<AutomaticGroup[]> {
+	const open = and(
+		inArray(serviceQueueItems.itemType, [...AUTOMATIC_TYPES]),
+		eq(serviceQueueItems.status, 'open'),
+		sql`${serviceQueueItems.subjectPlayerId} IS NOT NULL`,
+	)
+	const counts = await db
+		.select({ playerId: serviceQueueItems.subjectPlayerId, n: count() })
+		.from(serviceQueueItems)
+		.where(open)
+		.groupBy(serviceQueueItems.subjectPlayerId)
+		.orderBy(desc(count()), asc(serviceQueueItems.subjectPlayerId))
+	if (counts.length === 0) return []
+	const ids = counts.map((c) => c.playerId as string)
+	const latest = await db
+		.selectDistinctOn([serviceQueueItems.subjectPlayerId])
+		.from(serviceQueueItems)
+		.where(and(open, inArray(serviceQueueItems.subjectPlayerId, ids)))
+		.orderBy(serviceQueueItems.subjectPlayerId, desc(serviceQueueItems.createdAt), desc(serviceQueueItems.id))
+	const latestOf = new Map(latest.map((i) => [i.subjectPlayerId as string, i]))
+	const names = new Map(
+		(
+			await db
+				.select({ id: sql<string>`${players.id}::text`, name: players.steamName })
+				.from(players)
+				.where(inArray(sql`${players.id}::text`, ids))
+		).map((p) => [p.id, p.name]),
+	)
+	return counts.flatMap((c) => {
+		const item = latestOf.get(c.playerId as string)
+		if (!item) return []
+		return [
+			{
+				playerId: c.playerId as string,
+				playerName: names.get(c.playerId as string) ?? null,
+				openItems: Number(c.n),
+				latestItem: { id: item.id, itemType: item.itemType, summary: item.summary, createdAt: item.createdAt },
+			},
+		]
+	})
+}
+
+export async function openAutomaticItemIds(playerId: string): Promise<number[]> {
+	const rows = await db
+		.select({ id: serviceQueueItems.id })
+		.from(serviceQueueItems)
+		.where(
+			and(
+				eq(serviceQueueItems.subjectPlayerId, playerId),
+				inArray(serviceQueueItems.itemType, [...AUTOMATIC_TYPES]),
+				eq(serviceQueueItems.status, 'open'),
+			),
+		)
+		.orderBy(asc(serviceQueueItems.id))
+	return rows.map((r) => r.id)
 }
 
 async function openItemCounts(subjects: string[]): Promise<Map<string, number>> {
