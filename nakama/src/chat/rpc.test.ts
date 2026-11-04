@@ -137,6 +137,36 @@ describe('chat_send moderation', () => {
 		expect(logged(nk)).toEqual([])
 	})
 
+	it('logs the guard score of an allowed message without flagging it', () => {
+		const nk = seated({ verdict: 'allow', band: 'clean', guardSafety: 'Safe', guardScore: 0.02, guardContextUsed: false })
+		say(nk, 'nice hand')
+		expect(logged(nk)).toEqual([
+			{
+				lobbyCode: 'ABCDEF',
+				lobbyId: 'm1',
+				lobbyKind: null,
+				userId: USER,
+				message: 'nice hand',
+				flagged: false,
+				verdict: { source: 'remote', band: 'clean', guardSafety: 'Safe', guardScore: 0.02, guardContextUsed: false },
+			},
+		])
+	})
+
+	it('logs the guard score of a blocked message', () => {
+		const nk = seated({ verdict: 'reject', band: 'high', guardSafety: 'Unsafe', guardScore: 0.97, guardContextUsed: true })
+		expect(() => say(nk, 'bad words')).toThrow(/blocked/)
+		expect(logged(nk)[0].verdict).toEqual({ source: 'remote', band: 'high', guardSafety: 'Unsafe', guardScore: 0.97, guardContextUsed: true })
+	})
+
+	it('logs the guard score of a message published for review', () => {
+		const nk = seated({ verdict: 'allow', band: 'review', guardSafety: 'Controversial', guardScore: 0.5, guardContextUsed: false })
+		say(nk, 'borderline')
+		const [line] = logged(nk)
+		expect(line.flagged).toBe(true)
+		expect(line.verdict).toEqual({ source: 'remote', band: 'review', guardSafety: 'Controversial', guardScore: 0.5, guardContextUsed: false })
+	})
+
 	it('skips the service for an allowlisted message', () => {
 		const nk = seated({ verdict: 'reject', band: 'high' }, { chatAllowlist: ['good game'] })
 		expect(say(nk, 'Good game!')).toEqual({ text: 'Good game!' })
