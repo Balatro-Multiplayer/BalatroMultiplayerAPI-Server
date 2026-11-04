@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ApiError, apiFetch } from '@/lib/api'
+import { ApiError, apiFetch, apiFetchWithReason } from '@/lib/api'
 import { BlogPreviewCard } from './blog-preview-card'
 import { BlogTiptapEditor } from './blog-tiptap-editor'
 import {
@@ -64,14 +64,14 @@ export function BlogPostEditor({
   const saveMutation = useMutation({
     mutationFn: () =>
       isEdit && post
-        ? apiFetch<{ post: BlogPost }>(`/webadmin/blog/posts/${post.id}`, {
+        ? apiFetchWithReason<{ post: BlogPost }>(`/webadmin/blog/posts/${post.id}`, {
             method: 'PATCH',
             body: JSON.stringify({
               title: form.title,
               bodyHtml: form.bodyHtml,
             }),
           })
-        : apiFetch<{ post: BlogPost }>('/webadmin/blog/posts', {
+        : apiFetchWithReason<{ post: BlogPost }>('/webadmin/blog/posts', {
             method: 'POST',
             body: JSON.stringify(form),
           }),
@@ -91,7 +91,7 @@ export function BlogPostEditor({
 
   const publishMutation = useMutation({
     mutationFn: () =>
-      apiFetch<{ post: BlogPost }>(`/webadmin/blog/posts/${post?.id}/publish`, {
+      apiFetchWithReason<{ post: BlogPost }>(`/webadmin/blog/posts/${post?.id}/publish`, {
         method: 'POST',
       }),
     onSuccess: () => {
@@ -104,7 +104,7 @@ export function BlogPostEditor({
 
   const unpublishMutation = useMutation({
     mutationFn: () =>
-      apiFetch<{ post: BlogPost }>(
+      apiFetchWithReason<{ post: BlogPost }>(
         `/webadmin/blog/posts/${post?.id}/unpublish`,
         {
           method: 'POST',

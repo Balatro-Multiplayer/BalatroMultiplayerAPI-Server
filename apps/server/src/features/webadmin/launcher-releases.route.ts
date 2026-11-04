@@ -17,6 +17,7 @@ import {
 	listRecentReleases,
 	resolveReleaseByTag,
 } from '../launcher-releases/launcher-github-releases.service.js'
+import { logStaffAction, requireReason } from './staff-action.js'
 
 // Admin surface for importing the new (private) launcher's releases from
 // GitHub -- see features/launcher/launcher.route.ts for the public "check
@@ -62,6 +63,7 @@ router.get('/launcher-releases/github-releases', async (_req, res, next) => {
 router.post('/launcher-releases/from-github', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 
 		const tag = typeof req.body.tag === 'string' ? req.body.tag.trim() : ''
 		if (!tag) throw new AppError('tag is required', 400)
@@ -86,6 +88,11 @@ router.post('/launcher-releases/from-github', async (req, res, next) => {
 			})
 		}
 
+		await logStaffAction(req, {
+			action: 'launcher_release_import',
+			reason,
+			detail: { releaseId: release.id, version: resolved.version, tag, platforms: resolved.assets.map((a) => a.platform) },
+		})
 		console.log(
 			`[webadmin] ${req.player!.playerId} imported launcher release ${resolved.version} from tag '${tag}' (${resolved.assets.map((a) => a.platform).join(', ')})`,
 		)
@@ -100,6 +107,7 @@ router.post('/launcher-releases/from-github', async (req, res, next) => {
 router.delete('/launcher-releases/:id/:platform', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const id = Number(req.params.id)
 		if (!Number.isInteger(id)) throw new AppError('Invalid release id', 400)
 		const platform = req.params.platform as LauncherPlatform
@@ -108,6 +116,11 @@ router.delete('/launcher-releases/:id/:platform', async (req, res, next) => {
 
 		const assetRow = await deleteAssetRow(id, platform)
 		if (!assetRow) throw new AppError('Asset not found', 404)
+		await logStaffAction(req, {
+			action: 'launcher_release_delete',
+			reason,
+			detail: { releaseId: id, platform },
+		})
 		res.json({ ok: true })
 	} catch (err) {
 		next(err)
@@ -117,11 +130,17 @@ router.delete('/launcher-releases/:id/:platform', async (req, res, next) => {
 router.delete('/launcher-releases/:id', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const id = Number(req.params.id)
 		if (!Number.isInteger(id)) throw new AppError('Invalid release id', 400)
 
 		const release = await deleteRelease(id)
 		if (!release) throw new AppError('Release not found', 404)
+		await logStaffAction(req, {
+			action: 'launcher_release_delete',
+			reason,
+			detail: { releaseId: id, version: release.version },
+		})
 		res.json({ ok: true })
 	} catch (err) {
 		next(err)

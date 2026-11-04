@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ApiError, apiFetch } from '@/lib/api'
+import { ApiError, apiFetch, apiFetchWithReason } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 
 interface PostsResponse {
@@ -63,7 +63,7 @@ export default function AdminBlogPage() {
     mutationFn: (post: BlogPost) => {
       setPendingPostId(post.id)
       const action = post.status === 'published' ? 'unpublish' : 'publish'
-      return apiFetch(`/webadmin/blog/posts/${post.id}/${action}`, {
+      return apiFetchWithReason(`/webadmin/blog/posts/${post.id}/${action}`, {
         method: 'POST',
       })
     },
@@ -79,7 +79,7 @@ export default function AdminBlogPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) =>
-      apiFetch(`/webadmin/blog/posts/${id}`, { method: 'DELETE' }),
+      apiFetchWithReason(`/webadmin/blog/posts/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       toast.success('Post deleted')
       setDeleteTarget(null)

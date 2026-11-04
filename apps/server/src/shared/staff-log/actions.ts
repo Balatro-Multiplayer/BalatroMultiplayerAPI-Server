@@ -19,6 +19,22 @@ export const STAFF_ACTIONS = [
 	'match_void',
 	'role_grant',
 	'role_remove',
+	'lobby_kick',
+	'lobby_close',
+	'config_change',
+	'allowlist_add',
+	'allowlist_remove',
+	'season_start',
+	'season_activate',
+	'season_end',
+	'mod_pin',
+	'launcher_release_import',
+	'launcher_release_delete',
+	'blog_create',
+	'blog_update',
+	'blog_publish',
+	'blog_unpublish',
+	'blog_delete',
 ] as const
 export type StaffAction = (typeof STAFF_ACTIONS)[number]
 

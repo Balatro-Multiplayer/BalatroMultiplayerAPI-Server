@@ -141,7 +141,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
-			.send({ rankedVersion: '1.0.0' })
+			.send({ reason: 'test', rankedVersion: '1.0.0' })
 
 		expect(res.status).toBe(403)
 		expect(modsGateway.setRankedVersion).not.toHaveBeenCalled()
@@ -152,7 +152,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
-			.send({ rankedVersion: 5 })
+			.send({ reason: 'test', rankedVersion: 5 })
 
 		expect(res.status).toBe(400)
 	})
@@ -171,7 +171,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
-			.send({ rankedVersion: '9.9.9' })
+			.send({ reason: 'test', rankedVersion: '9.9.9' })
 
 		expect(res.status).toBe(400)
 	})
@@ -183,7 +183,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
-			.send({ rankedVersion: null })
+			.send({ reason: 'test', rankedVersion: null })
 
 		expect(res.status).toBe(200)
 		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith(
@@ -199,7 +199,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
-			.send({ rankedVersion: '1.0.0' })
+			.send({ reason: 'test', rankedVersion: '1.0.0' })
 
 		expect(res.status).toBe(200)
 		expect(res.body).toEqual({ ok: true })
@@ -216,7 +216,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
-			.send({ rankedCommit: ' abc1234 ' })
+			.send({ reason: 'test', rankedCommit: ' abc1234 ' })
 
 		expect(res.status).toBe(200)
 		expect(modsGateway.pinCommit).toHaveBeenCalledWith('Author@Mod', 'abc1234')
@@ -232,7 +232,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 			const res = await request(app)
 				.put('/api/webadmin/mods/Author-Mod')
 				.set('Authorization', token)
-				.send({ rankedCommit: 'abc1234' })
+				.send({ reason: 'test', rankedCommit: 'abc1234' })
 
 			expect(res.status).toBe(400)
 		},
@@ -243,7 +243,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
-			.send({ rankedVersion: '1.0.0', rankedCommit: 'abc1234' })
+			.send({ reason: 'test', rankedVersion: '1.0.0', rankedCommit: 'abc1234' })
 
 		expect(res.status).toBe(400)
 		expect(modsGateway.setRankedVersion).not.toHaveBeenCalled()
@@ -257,7 +257,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
-			.send({ trackGithub: true })
+			.send({ reason: 'test', trackGithub: true })
 
 		expect(res.status).toBe(200)
 		expect(modsGateway.setTrackGithub).toHaveBeenCalledWith('Author@Mod', true)
@@ -273,7 +273,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
-			.send({ rankedVersion: '1.0.0' })
+			.send({ reason: 'test', rankedVersion: '1.0.0' })
 
 		expect(res.status).toBe(404)
 	})
@@ -285,7 +285,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Nobody-Nothing')
 			.set('Authorization', token)
-			.send({ featured: true })
+			.send({ reason: 'test', featured: true })
 
 		expect(res.status).toBe(404)
 	})
@@ -295,7 +295,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
-			.send({ featured: true, hidden: false })
+			.send({ reason: 'test', featured: true, hidden: false })
 
 		expect(res.status).toBe(200)
 		expect(modsGateway.setModFlags).toHaveBeenCalledWith('Author@Mod', {
@@ -310,7 +310,7 @@ describe('PUT /api/webadmin/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
-			.send({ hidden: 'yes' })
+			.send({ reason: 'test', hidden: 'yes' })
 
 		expect(res.status).toBe(400)
 		expect(modsGateway.setModFlags).not.toHaveBeenCalled()
@@ -325,7 +325,7 @@ describe('custom mod admin routes', () => {
 		const res = await request(app)
 			.post('/api/webadmin/mods')
 			.set('Authorization', token)
-			.send({ id: 'Partner', title: 'P', author: 'a' })
+			.send({ reason: 'test', id: 'Partner', title: 'P', author: 'a' })
 
 		expect(res.status).toBe(403)
 		expect(modsGateway.createCustomMod).not.toHaveBeenCalled()
@@ -336,7 +336,7 @@ describe('custom mod admin routes', () => {
 		const res = await request(app)
 			.post('/api/webadmin/mods')
 			.set('Authorization', token)
-			.send({ id: 'Partner', title: 'P' })
+			.send({ reason: 'test', id: 'Partner', title: 'P' })
 
 		expect(res.status).toBe(400)
 	})
@@ -348,7 +348,7 @@ describe('custom mod admin routes', () => {
 		const res = await request(app)
 			.post('/api/webadmin/mods')
 			.set('Authorization', token)
-			.send({
+			.send({ reason: 'test',
 				id: 'Partner',
 				title: 'P',
 				author: 'a',
@@ -378,7 +378,7 @@ describe('custom mod admin routes', () => {
 		const res = await request(app)
 			.post('/api/webadmin/mods')
 			.set('Authorization', token)
-			.send({
+			.send({ reason: 'test',
 				id: 'Partner',
 				title: 'P',
 				author: 'a',
@@ -409,7 +409,7 @@ describe('custom mod admin routes', () => {
 		const res = await request(app)
 			.post('/api/webadmin/mods')
 			.set('Authorization', token)
-			.send({
+			.send({ reason: 'test',
 				id: 'Partner',
 				title: 'P',
 				author: 'a',
@@ -429,7 +429,7 @@ describe('custom mod admin routes', () => {
 		const res = await request(app)
 			.post('/api/webadmin/mods')
 			.set('Authorization', token)
-			.send({ id: 'Taken', title: 'P', author: 'a' })
+			.send({ reason: 'test', id: 'Taken', title: 'P', author: 'a' })
 
 		expect(res.status).toBe(409)
 	})
@@ -441,7 +441,7 @@ describe('custom mod admin routes', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Partner/custom')
 			.set('Authorization', token)
-			.send({ description: 'new', thumbnailUrl: null })
+			.send({ reason: 'test', description: 'new', thumbnailUrl: null })
 
 		expect(res.status).toBe(200)
 		expect(modsGateway.updateCustomMod).toHaveBeenCalledWith(
@@ -457,7 +457,7 @@ describe('custom mod admin routes', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author-Mod/custom')
 			.set('Authorization', token)
-			.send({ title: 'hijacked' })
+			.send({ reason: 'test', title: 'hijacked' })
 
 		expect(res.status).toBe(404)
 	})
@@ -471,7 +471,7 @@ describe('custom mod admin routes', () => {
 		const token = authAsAdmin('cm-del-1', 'Admin')
 		const res = await request(app)
 			.delete('/api/webadmin/mods/Partner')
-			.set('Authorization', token)
+			.set('Authorization', token).send({ reason: 'test' })
 
 		expect(res.status).toBe(200)
 		expect(modsGateway.deleteCustomMod).toHaveBeenCalledWith('Partner')
@@ -481,7 +481,7 @@ describe('custom mod admin routes', () => {
 		const token = authAsAdmin('cm-del-2', 'Admin')
 		const res = await request(app)
 			.delete('/api/webadmin/mods/Author@Mod')
-			.set('Authorization', token)
+			.set('Authorization', token).send({ reason: 'test' })
 
 		expect(res.status).toBe(400)
 		expect(modsGateway.deleteCustomMod).not.toHaveBeenCalled()
@@ -496,7 +496,7 @@ describe('custom mod admin routes', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Partner')
 			.set('Authorization', token)
-			.send({ trackGithub: false })
+			.send({ reason: 'test', trackGithub: false })
 
 		expect(res.status).toBe(400)
 		expect(modsGateway.setTrackGithub).not.toHaveBeenCalled()
@@ -512,7 +512,7 @@ describe('custom mod admin routes', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Partner')
 			.set('Authorization', token)
-			.send({ rankedVersion: 'v1' })
+			.send({ reason: 'test', rankedVersion: 'v1' })
 
 		expect(res.status).toBe(200)
 		expect(modsGateway.setRankedVersion).toHaveBeenCalledWith('Partner', 'v1')
@@ -533,7 +533,7 @@ describe('custom mod admin routes', () => {
 			const res = await request(app)
 				.put('/api/webadmin/mods/Partner')
 				.set('Authorization', token)
-				.send({ rankedVersion: 'v0' })
+				.send({ reason: 'test', rankedVersion: 'v0' })
 
 			expect(res.status).toBe(400)
 		},
@@ -545,14 +545,14 @@ describe('SMODS ids', () => {
 		vi.mocked(loadConfigFromDb).mockClear()
 		vi.mocked(modsGateway.setRankedVersion).mockResolvedValue({ ok: true })
 		const token = authAsAdmin('admin-smods-1', 'Admin')
-		await request(app).put('/api/webadmin/mods/Author-Mod').set('Authorization', token).send({ rankedVersion: '1.0.0' })
+		await request(app).put('/api/webadmin/mods/Author-Mod').set('Authorization', token).send({ reason: 'test', rankedVersion: '1.0.0' })
 		expect(loadConfigFromDb).toHaveBeenCalledTimes(1)
 	})
 
 	it('does not push for a featured/hidden change', async () => {
 		vi.mocked(loadConfigFromDb).mockClear()
 		const token = authAsAdmin('admin-smods-2', 'Admin')
-		await request(app).put('/api/webadmin/mods/Author-Mod').set('Authorization', token).send({ featured: true })
+		await request(app).put('/api/webadmin/mods/Author-Mod').set('Authorization', token).send({ reason: 'test', featured: true })
 		expect(loadConfigFromDb).not.toHaveBeenCalled()
 	})
 
@@ -563,7 +563,7 @@ describe('SMODS ids', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
-			.send({ smodsIds: [' Bravo', 'Alpha', 'Bravo'] })
+			.send({ reason: 'test', smodsIds: [' Bravo', 'Alpha', 'Bravo'] })
 		expect(res.status).toBe(200)
 		expect(modsGateway.setSmodsIds).toHaveBeenCalledWith('Author@Mod', ['Alpha', 'Bravo'])
 		expect(loadConfigFromDb).toHaveBeenCalledTimes(1)
@@ -574,13 +574,13 @@ describe('SMODS ids', () => {
 		const bad = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
-			.send({ smodsIds: ['two words'] })
+			.send({ reason: 'test', smodsIds: ['two words'] })
 		expect(bad.status).toBe(400)
 		vi.mocked(modsGateway.setSmodsIds).mockResolvedValue({ ok: false, reason: 'not-pinned' })
 		const unpinned = await request(app)
 			.put('/api/webadmin/mods/Author-Mod')
 			.set('Authorization', token)
-			.send({ smodsIds: ['Alpha'] })
+			.send({ reason: 'test', smodsIds: ['Alpha'] })
 		expect(unpinned.status).toBe(400)
 		expect(unpinned.body.error ?? unpinned.text).toMatch(/pinned/)
 	})
@@ -588,9 +588,9 @@ describe('SMODS ids', () => {
 	it('backfills for an admin only and reports the new allowlist', async () => {
 		vi.mocked(backfillSmodsIds).mockResolvedValue({ read: 2, failed: 0, skipped: 1 })
 		const moderator = authAsModerator('mod-smods-5', 'Mod')
-		expect((await request(app).post('/api/webadmin/mods/smods-ids/backfill').set('Authorization', moderator)).status).toBe(403)
+		expect((await request(app).post('/api/webadmin/mods/smods-ids/backfill').set('Authorization', moderator).send({ reason: 'test' })).status).toBe(403)
 		const admin = authAsAdmin('admin-smods-5', 'Admin')
-		const res = await request(app).post('/api/webadmin/mods/smods-ids/backfill').set('Authorization', admin)
+		const res = await request(app).post('/api/webadmin/mods/smods-ids/backfill').set('Authorization', admin).send({ reason: 'test' })
 		expect(res.status).toBe(200)
 		expect(res.body).toEqual({ ok: true, read: 2, failed: 0, skipped: 1, queueAllowedModIds: ['AuthorMod'] })
 	})
@@ -623,7 +623,7 @@ describe('mod profile admin routes', () => {
 		const res = await request(app)
 			.post('/api/webadmin/mods/profiles')
 			.set('Authorization', token)
-			.send({ name: 'PvP', slug: 'mppvp' })
+			.send({ reason: 'test', name: 'PvP', slug: 'mppvp' })
 
 		expect(res.status).toBe(403)
 		expect(modsGateway.createProfile).not.toHaveBeenCalled()
@@ -639,7 +639,7 @@ describe('mod profile admin routes', () => {
 		const res = await request(app)
 			.post('/api/webadmin/mods/profiles')
 			.set('Authorization', token)
-			.send({ name: ' PvP ', slug: 'mppvp', description: '' })
+			.send({ reason: 'test', name: ' PvP ', slug: 'mppvp', description: '' })
 
 		expect(res.status).toBe(201)
 		expect(modsGateway.createProfile).toHaveBeenCalledWith({
@@ -655,7 +655,7 @@ describe('mod profile admin routes', () => {
 		const res = await request(app)
 			.post('/api/webadmin/mods/profiles')
 			.set('Authorization', token)
-			.send({ name: 'PvP', slug: 'My Profile' })
+			.send({ reason: 'test', name: 'PvP', slug: 'My Profile' })
 
 		expect(res.status).toBe(400)
 	})
@@ -669,7 +669,7 @@ describe('mod profile admin routes', () => {
 		const taken = await request(app)
 			.put('/api/webadmin/mods/profiles/p-1')
 			.set('Authorization', token)
-			.send({ name: 'PvP', slug: 'mpspdrn' })
+			.send({ reason: 'test', name: 'PvP', slug: 'mpspdrn' })
 		expect(taken.status).toBe(409)
 
 		vi.mocked(modsGateway.updateProfile).mockResolvedValueOnce({
@@ -679,7 +679,7 @@ describe('mod profile admin routes', () => {
 		const missing = await request(app)
 			.put('/api/webadmin/mods/profiles/p-x')
 			.set('Authorization', token)
-			.send({ name: 'PvP', slug: 'mppvp' })
+			.send({ reason: 'test', name: 'PvP', slug: 'mppvp' })
 		expect(missing.status).toBe(404)
 	})
 
@@ -688,7 +688,7 @@ describe('mod profile admin routes', () => {
 		const token = authAsAdmin('prof-admin-4', 'Admin')
 		const res = await request(app)
 			.delete('/api/webadmin/mods/profiles/p-1')
-			.set('Authorization', token)
+			.set('Authorization', token).send({ reason: 'test' })
 
 		expect(res.status).toBe(200)
 		expect(modsGateway.deleteProfile).toHaveBeenCalledWith('p-1')
@@ -703,7 +703,7 @@ describe('mod profile admin routes', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/profiles/p-1/entries/smods')
 			.set('Authorization', token)
-			.send({ versionMode: 'exact', pinnedVersion: '1.0.0-beta-1620a' })
+			.send({ reason: 'test', versionMode: 'exact', pinnedVersion: '1.0.0-beta-1620a' })
 
 		expect(res.status).toBe(200)
 		expect(modsGateway.setProfileEntry).toHaveBeenCalledWith({
@@ -724,7 +724,7 @@ describe('mod profile admin routes', () => {
 		await request(app)
 			.put('/api/webadmin/mods/profiles/p-1/entries/smods')
 			.set('Authorization', token)
-			.send({ versionMode: 'latestRanked', pinnedVersion: '1.0', allowed: false })
+			.send({ reason: 'test', versionMode: 'latestRanked', pinnedVersion: '1.0', allowed: false })
 
 		expect(modsGateway.setProfileEntry).toHaveBeenCalledWith(
 			expect.objectContaining({ pinnedVersion: null, allowed: false }),
@@ -736,13 +736,13 @@ describe('mod profile admin routes', () => {
 		const badMode = await request(app)
 			.put('/api/webadmin/mods/profiles/p-1/entries/smods')
 			.set('Authorization', token)
-			.send({ versionMode: 'newest' })
+			.send({ reason: 'test', versionMode: 'newest' })
 		expect(badMode.status).toBe(400)
 
 		const noVersion = await request(app)
 			.put('/api/webadmin/mods/profiles/p-1/entries/smods')
 			.set('Authorization', token)
-			.send({ versionMode: 'exact' })
+			.send({ reason: 'test', versionMode: 'exact' })
 		expect(noVersion.status).toBe(400)
 		expect(modsGateway.setProfileEntry).not.toHaveBeenCalled()
 
@@ -753,7 +753,7 @@ describe('mod profile admin routes', () => {
 		const unknown = await request(app)
 			.put('/api/webadmin/mods/profiles/p-1/entries/smods')
 			.set('Authorization', token)
-			.send({ versionMode: 'exact', pinnedVersion: '9.9.9' })
+			.send({ reason: 'test', versionMode: 'exact', pinnedVersion: '9.9.9' })
 		expect(unknown.status).toBe(400)
 	})
 
@@ -766,7 +766,7 @@ describe('mod profile admin routes', () => {
 		const res = await request(app)
 			.put('/api/webadmin/mods/profiles/p-1/entries/nope')
 			.set('Authorization', token)
-			.send({ versionMode: 'latest' })
+			.send({ reason: 'test', versionMode: 'latest' })
 		expect(res.status).toBe(404)
 	})
 
@@ -775,7 +775,7 @@ describe('mod profile admin routes', () => {
 		const token = authAsAdmin('prof-admin-9', 'Admin')
 		const res = await request(app)
 			.delete('/api/webadmin/mods/profiles/p-1/entries/smods')
-			.set('Authorization', token)
+			.set('Authorization', token).send({ reason: 'test' })
 
 		expect(res.status).toBe(200)
 		expect(modsGateway.removeProfileEntry).toHaveBeenCalledWith('p-1', 'smods')

@@ -43,6 +43,22 @@ export async function apiFetch<T>(
   return res.json() as Promise<T>
 }
 
+// A staff action needs a written reason (it goes in the staff log). Asks for
+// one, adds it to the JSON body and sends the request. A cancelled or empty
+// answer throws, and nothing is sent.
+export async function apiFetchWithReason<T>(
+  path: string,
+  init?: RequestInit
+): Promise<T> {
+  const reason = window.prompt('Reason for this action (saved in the staff log):')?.trim()
+  if (!reason) throw new Error('A reason is required')
+  const body =
+    typeof init?.body === 'string' && init.body
+      ? { ...JSON.parse(init.body), reason }
+      : { reason }
+  return apiFetch<T>(path, { ...init, body: JSON.stringify(body) })
+}
+
 // Auth here is a Bearer header, not a cookie -- a plain <img>/<video> src
 // can't attach one, so authenticated binary content (e.g. archived channel
 // attachments) has to be fetched as a Blob and turned into an object URL

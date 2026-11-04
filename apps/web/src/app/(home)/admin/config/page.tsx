@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { ApiError, apiFetch } from '@/lib/api'
+import { ApiError, apiFetch, apiFetchWithReason } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -80,7 +80,7 @@ export default function AdminConfigPage() {
 
   const flagsMut = useMutation({
     mutationFn: (patch: Partial<Pick<ConfigResponse, FeatureFlag>>) =>
-      apiFetch('/webadmin/config/feature-flags', { method: 'PATCH', body: JSON.stringify(patch) }),
+      apiFetchWithReason('/webadmin/config/feature-flags', { method: 'PATCH', body: JSON.stringify(patch) }),
     onSuccess: () => {
       toast.success('Feature flag updated')
       invalidate()
@@ -91,7 +91,7 @@ export default function AdminConfigPage() {
   const [modForm, setModForm] = useState({ modId: '', displayName: '', version: '', downloadUrl: '' })
   const upsertModMut = useMutation({
     mutationFn: (mod: ModEntry) =>
-      apiFetch(`/webadmin/config/mods/${encodeURIComponent(mod.modId)}`, {
+      apiFetchWithReason(`/webadmin/config/mods/${encodeURIComponent(mod.modId)}`, {
         method: 'PUT',
         body: JSON.stringify({ displayName: mod.displayName, version: mod.version, downloadUrl: mod.downloadUrl }),
       }),
@@ -104,7 +104,7 @@ export default function AdminConfigPage() {
   })
 
   const deleteModMut = useMutation({
-    mutationFn: (modId: string) => apiFetch(`/webadmin/config/mods/${encodeURIComponent(modId)}`, { method: 'DELETE' }),
+    mutationFn: (modId: string) => apiFetchWithReason(`/webadmin/config/mods/${encodeURIComponent(modId)}`, { method: 'DELETE' }),
     onSuccess: () => {
       toast.success('Mod entry removed')
       invalidate()
@@ -115,7 +115,7 @@ export default function AdminConfigPage() {
   const [allowlistMessage, setAllowlistMessage] = useState('')
   const addAllowlistMut = useMutation({
     mutationFn: (message: string) =>
-      apiFetch('/webadmin/config/chat-allowlist', { method: 'POST', body: JSON.stringify({ message }) }),
+      apiFetchWithReason('/webadmin/config/chat-allowlist', { method: 'POST', body: JSON.stringify({ message }) }),
     onSuccess: () => {
       toast.success('Added to chat allowlist')
       setAllowlistMessage('')
@@ -126,7 +126,7 @@ export default function AdminConfigPage() {
 
   const removeAllowlistMut = useMutation({
     mutationFn: (message: string) =>
-      apiFetch(`/webadmin/config/chat-allowlist/${encodeURIComponent(message)}`, { method: 'DELETE' }),
+      apiFetchWithReason(`/webadmin/config/chat-allowlist/${encodeURIComponent(message)}`, { method: 'DELETE' }),
     onSuccess: () => {
       toast.success('Removed from chat allowlist')
       invalidate()
