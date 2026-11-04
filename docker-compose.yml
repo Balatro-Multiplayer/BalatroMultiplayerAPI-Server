@@ -123,7 +123,7 @@ services:
       # The Official server: the API refuses to start with a dev flag on.
       BMP_SERVER_KIND: official
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/bmp
-      WEB_BASE_URL: ${WEB_BASE_URL:-https://new.balatromp.com}
+      WEB_BASE_URL: ${WEB_BASE_URL:-https://balatromp.com}
       # The API mirrors Nakama's games into Postgres and drives it through
       # its server-only admin RPCs (NAKAMA_HTTP_KEY = Nakama's
       # runtime.http_key); INTERNAL_API_KEY guards /internal/nakama/*.
