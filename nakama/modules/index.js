@@ -9980,6 +9980,7 @@ var FAKE_ENTRANT_PREFIX = "dev-bot-";
 function isFakeEntrant(id) {
   return id.indexOf(FAKE_ENTRANT_PREFIX) === 0;
 }
+var OFFICIAL_PRIVILEGE = "tournament_official";
 var NAME_MAX = 48;
 var DESCRIPTION_MAX = 500;
 var CO_ORGANISERS_MAX = 5;
@@ -10081,7 +10082,7 @@ function validTimetable(value) {
   return err("timetable.kind must be preset or custom");
 }
 function validSettings(input, now, partial) {
-  var _a, _b, _c;
+  var _a, _b, _c, _d;
   const out = {};
   const has = (key) => input[key] !== void 0;
   if (has("name") || !partial) {
@@ -10093,8 +10094,13 @@ function validSettings(input, now, partial) {
     if (typeof input.description !== "string" || input.description.length > DESCRIPTION_MAX) return err(`description must be at most ${DESCRIPTION_MAX} characters`);
     out.description = input.description;
   } else if (!partial) out.description = "";
+  if (has("official") || !partial) {
+    const official = (_a = input.official) != null ? _a : false;
+    if (typeof official !== "boolean") return err("official must be true or false");
+    out.official = official;
+  }
   if (has("visibility") || !partial) {
-    const v = (_a = input.visibility) != null ? _a : "public";
+    const v = (_b = input.visibility) != null ? _b : "public";
     if (v !== "public" && v !== "private") return err("visibility must be public or private");
     out.visibility = v;
   }
@@ -10132,12 +10138,12 @@ function validSettings(input, now, partial) {
     out.startsAt = input.startsAt;
   }
   if (has("checkInMinutes") || !partial) {
-    const c = (_b = input.checkInMinutes) != null ? _b : null;
+    const c = (_c = input.checkInMinutes) != null ? _c : null;
     if (c !== null && (!int(c) || c < 10 || c > 60)) return err("checkInMinutes must be 10-60, or null for no check-in");
     out.checkInMinutes = c;
   }
   if (has("seeding") || !partial) {
-    const s = (_c = input.seeding) != null ? _c : { kind: "rating" };
+    const s = (_d = input.seeding) != null ? _d : { kind: "rating" };
     if (!isInputObject(s) || ["rating", "random", "manual"].indexOf(s.kind) === -1) return err("seeding.kind must be rating, random or manual");
     if (s.board !== void 0 && (typeof s.board !== "string" || !KEY_PATTERN.test(s.board))) return err("seeding.board is not a board key");
     out.seeding = { kind: s.kind, board: s.board };
@@ -10840,7 +10846,8 @@ function summaryOf(t) {
     checkInAt: t.checkInMinutes === null ? null : t.startsAt - t.checkInMinutes * MINUTE_MS,
     gameMode: t.rounds.defaults.gameMode,
     ruleset: t.rounds.defaults.ruleset,
-    registrationOpen: t.status === "registration" && !t.registrationClosed
+    registrationOpen: t.status === "registration" && !t.registrationClosed,
+    official: t.official === true
   };
 }
 function nameMap(t) {
@@ -13480,6 +13487,12 @@ function changeTournament(nk, logger, ctx, payload, apply2) {
   });
   return respond(saved, userId, real);
 }
+function requireOfficialRight(nk, userId, input) {
+  if (input.official !== true) return;
+  if (profileFor(nk, userId).privileges.indexOf(OFFICIAL_PRIVILEGE) === -1) {
+    throw runtimeError(PERMISSION_DENIED, "Only players with official rights can run official tournaments");
+  }
+}
 function displayNameFor(nk, ctx, userId) {
   return displayNameOf(profileFor(nk, userId, ctx.username));
 }
@@ -13500,6 +13513,7 @@ function rpcTournamentList(ctx, logger, nk, payload) {
   const entries = scanIndex(nk, (e) => e.visibility === "public" && keep.indexOf(e.status) !== -1, LIST_LIMIT);
   entries.sort((a, b) => {
     var _a2, _b;
+    if (!!a.official !== !!b.official) return a.official ? -1 : 1;
     return want === "finished" ? ((_a2 = b.finishedAt) != null ? _a2 : 0) - ((_b = a.finishedAt) != null ? _b : 0) : a.startsAt - b.startsAt;
   });
   return JSON.stringify({ serverNow: Date.now(), tournaments: entries.map(publicSummary) });
@@ -13577,6 +13591,7 @@ function rpcTournamentCreate(ctx, logger, nk, payload) {
   const refused = entryRefusal(nk, ctx, userId, real);
   if (refused) throw runtimeError(PERMISSION_DENIED, refused);
   ensureClock(nk);
+  requireOfficialRight(nk, userId, input);
   spendTournamentCreate(nk, userId, real);
   const id = nk.uuidv4();
   const code = reserveInviteCode(nk, id);
@@ -13589,6 +13604,7 @@ function rpcTournamentCreate(ctx, logger, nk, payload) {
 function rpcTournamentUpdate(ctx, logger, nk, payload) {
   return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
     const _a = input, { id } = _a, settings = __objRest(_a, ["id"]);
+    requireOfficialRight(nk, userId, settings);
     return updateSettings(t, userId, settings, now);
   });
 }

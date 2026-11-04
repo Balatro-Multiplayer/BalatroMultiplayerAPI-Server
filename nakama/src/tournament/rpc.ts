@@ -36,7 +36,7 @@ import {
 	start,
 	updateSettings,
 } from './lifecycle'
-import { TOURNAMENT_MOD_ID, type Input, type Tournament, isFakeEntrant, isManager, nowFor, roleOf } from './model'
+import { OFFICIAL_PRIVILEGE, TOURNAMENT_MOD_ID, type Input, type Tournament, isFakeEntrant, isManager, nowFor, roleOf } from './model'
 export { nowFor }
 import {
 	type IndexEntry,
@@ -138,6 +138,14 @@ function changeTournament(
 	return respond(saved, userId, real)
 }
 
+// Making (or keeping) a tournament official needs the official privilege.
+function requireOfficialRight(nk: nkruntime.Nakama, userId: string, input: Input) {
+	if (input.official !== true) return
+	if (profileFor(nk, userId).privileges.indexOf(OFFICIAL_PRIVILEGE) === -1) {
+		throw runtimeError(PERMISSION_DENIED, 'Only players with official rights can run official tournaments')
+	}
+}
+
 function displayNameFor(nk: nkruntime.Nakama, ctx: nkruntime.Context, userId: string): string {
 	return displayNameOf(profileFor(nk, userId, ctx.username))
 }
@@ -159,7 +167,11 @@ export function rpcTournamentList(ctx: nkruntime.Context, logger: nkruntime.Logg
 	if (!keep) throw runtimeError(INVALID_ARGUMENT, 'status must be upcoming, running or finished')
 	ensureClock(nk)
 	const entries = scanIndex(nk, (e) => e.visibility === 'public' && keep.indexOf(e.status) !== -1, LIST_LIMIT)
-	entries.sort((a, b) => (want === 'finished' ? (b.finishedAt ?? 0) - (a.finishedAt ?? 0) : a.startsAt - b.startsAt))
+	// Official tournaments first, then by start (newest finish first for finished ones).
+	entries.sort((a, b) => {
+		if (!!a.official !== !!b.official) return a.official ? -1 : 1
+		return want === 'finished' ? (b.finishedAt ?? 0) - (a.finishedAt ?? 0) : a.startsAt - b.startsAt
+	})
 	return JSON.stringify({ serverNow: Date.now(), tournaments: entries.map(publicSummary) })
 }
 
@@ -253,6 +265,7 @@ export function rpcTournamentCreate(ctx: nkruntime.Context, logger: nkruntime.Lo
 	const refused = entryRefusal(nk, ctx, userId, real)
 	if (refused) throw runtimeError(PERMISSION_DENIED, refused)
 	ensureClock(nk)
+	requireOfficialRight(nk, userId, input)
 	spendTournamentCreate(nk, userId, real)
 	const id = nk.uuidv4()
 	const code = reserveInviteCode(nk, id)
@@ -267,6 +280,7 @@ export function rpcTournamentCreate(ctx: nkruntime.Context, logger: nkruntime.Lo
 export function rpcTournamentUpdate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
 	return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
 		const { id, ...settings } = input
+		requireOfficialRight(nk, userId, settings)
 		return updateSettings(t, userId, settings, now)
 	})
 }

@@ -74,6 +74,9 @@ export interface Tournament {
 	organiserName: string
 	coOrganiserIds: string[]
 	visibility: 'public' | 'private'
+	// Run by the game's own organisers: highlighted in the client. Only players
+	// with the OFFICIAL_PRIVILEGE may create or set it (rpc.ts checks).
+	official?: boolean
 	inviteCode: string
 	format: Format
 	formatOptions: { grandFinalReset?: boolean; groupSize?: number; swissRounds?: number }
@@ -132,6 +135,10 @@ export interface TournamentLobbyRef {
 	tournamentId: string
 	matchId: string
 }
+
+// The privilege (Profile.privileges, set by the web admin or admin_profile_set)
+// that lets a player create official tournaments.
+export const OFFICIAL_PRIVILEGE = 'tournament_official'
 
 export const NAME_MAX = 48
 export const DESCRIPTION_MAX = 500
@@ -261,6 +268,11 @@ export function validSettings(input: Input, now: number, partial: boolean): Resu
 		if (typeof input.description !== 'string' || input.description.length > DESCRIPTION_MAX) return err(`description must be at most ${DESCRIPTION_MAX} characters`)
 		out.description = input.description
 	} else if (!partial) out.description = ''
+	if (has('official') || !partial) {
+		const official = input.official ?? false
+		if (typeof official !== 'boolean') return err('official must be true or false')
+		out.official = official
+	}
 	if (has('visibility') || !partial) {
 		const v = input.visibility ?? 'public'
 		if (v !== 'public' && v !== 'private') return err('visibility must be public or private')

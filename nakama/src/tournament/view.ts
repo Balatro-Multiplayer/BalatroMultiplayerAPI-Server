@@ -25,6 +25,7 @@ export interface TournamentSummary {
 	gameMode: string
 	ruleset: string
 	registrationOpen: boolean
+	official: boolean
 }
 
 export function summaryOf(t: Tournament): TournamentSummary {
@@ -43,6 +44,7 @@ export function summaryOf(t: Tournament): TournamentSummary {
 		gameMode: t.rounds.defaults.gameMode,
 		ruleset: t.rounds.defaults.ruleset,
 		registrationOpen: t.status === 'registration' && !t.registrationClosed,
+		official: t.official === true,
 	}
 }
 

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_CONFIG, writeConfig } from '../config'
 import { writeBans } from '../moderation/bans'
+import { defaultProfile, writeProfile } from '../player/profile'
 import { writeModReport } from '../standing/storage'
 import { type FakeNk, fakeLogger, fakeNk, playerCtx } from '../testing/fake_nk'
 import { sweep } from './clock'
@@ -17,6 +18,7 @@ import {
 	rpcTournamentMine,
 	rpcTournamentOpen,
 	rpcTournamentStart,
+	rpcTournamentUpdate,
 } from './rpc'
 import { TOURNAMENT_DUE, TOURNAMENT_MINE } from './storage'
 
@@ -219,5 +221,33 @@ describe('dev helpers', () => {
 		const t = call(rpcTournamentDevTime, ORG, { id, minutes: 60 }).tournament
 		expect(t.summary.status).toBe('running')
 		expect(t.entrants.length).toBe(4)
+	})
+})
+
+describe('official tournaments', () => {
+	function grant(userId: string) {
+		writeProfile(nk as unknown as nkruntime.Nakama, userId, { ...defaultProfile(userId), privileges: ['tournament_official'] })
+	}
+
+	it('can only be created by players with official rights', () => {
+		expect(fails(rpcTournamentCreate, P(1), { ...SETTINGS, official: true }).message).toMatch(/official rights/)
+		grant(P(1))
+		expect(call(rpcTournamentCreate, P(1), { ...SETTINGS, official: true }).tournament.summary.official).toBe(true)
+	})
+
+	it('are flagged and listed first', () => {
+		const plain = created({ startsAt: T0 + 30 * MIN }).summary.id
+		grant(P(2))
+		const official = call(rpcTournamentCreate, P(2), { ...SETTINGS, name: 'BMP Official Cup', official: true }).tournament.summary.id
+		call(rpcTournamentOpen, ORG, { id: plain })
+		call(rpcTournamentOpen, P(2), { id: official })
+		const list = call(rpcTournamentList, P(3)).tournaments
+		expect(list.map((t: { id: string }) => t.id)).toEqual([official, plain])
+		expect(list.map((t: { official: boolean }) => t.official)).toEqual([true, false])
+	})
+
+	it("can't be switched on without the rights", () => {
+		const id = created().summary.id
+		expect(fails(rpcTournamentUpdate, ORG, { id, official: true }).message).toMatch(/official rights/)
 	})
 })
