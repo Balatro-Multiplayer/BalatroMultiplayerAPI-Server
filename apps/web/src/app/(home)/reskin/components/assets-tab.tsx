@@ -171,6 +171,13 @@ export function AssetsTab({
           read. You can still add your own art.
         </p>
       )}
+      {category?.id === 'Enhanced' && (
+        <p className='text-muted-foreground text-sm'>
+          Default Card Background changes the blank base beneath the rank/suit
+          art on unenhanced cards. Other enhancement backgrounds stay separate;
+          use Playing Card Faces to change rank/suit art.
+        </p>
+      )}
       {category && (
         <CategoryGrid
           catalog={catalog}

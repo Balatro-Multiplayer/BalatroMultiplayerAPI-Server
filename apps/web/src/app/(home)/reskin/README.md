@@ -123,6 +123,28 @@ skin separately for each suit, inspect 2/J/Q/K/A at both texture scales and
 contrast palettes, and restart to confirm Steamodded persists the selection.
 This multi-skin flow still needs browser and actual in-game verification.
 
+## Default playing-card background
+
+Under **Card Enhancements**, **Default Card Background** edits the blank base
+underneath the rank/suit art on unenhanced playing cards. Upload or drop a single
+71×95 image (or a higher-resolution image through the crop editor), just like
+Bonus, Mult, and the other enhancement sprites. With a game imported, the tile
+previews the original `Enhancers.png` cell at column 1, row 0 (zero-based).
+
+This is a global replacement of `G.P_CENTERS.c_base`, not another named face skin
+or a new gameplay enhancement. It works with vanilla faces and the named skins
+in **Playing Card Faces**. Enhanced cards retain their own backgrounds unless
+you edit those separately. Clearing this edit restores the read-only original
+preview; regenerate the pack to remove the replacement in-game. Export/reimport
+uses the existing object-edit format and does not bundle original game art.
+
+Regression tests cover catalog generation/grouping, original preview coordinates,
+1x/2x exports with and without face skins, reimport, and loader mocks preserving
+the base card's gameplay metadata, other enhancements, and both face atlases.
+Manual in-game check: install a pack with a distinctive base background, inspect
+plain cards of all suits, apply/remove an enhancement, and switch face skins.
+Actual in-game rendering still needs that manual pass.
+
 ## Layered card art
 
 The five legendary Jokers, Hologram, and The Soul have independent background

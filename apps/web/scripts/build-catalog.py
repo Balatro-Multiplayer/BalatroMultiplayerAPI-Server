@@ -381,7 +381,7 @@ def field_str(body, name):
 
 
 def parse_centers(g):
-    """P_CENTERS split by set/prefix into per-object categories."""
+    """P_CENTERS split into editor categories; the base card joins enhancements."""
     body = table_body(g, "P_CENTERS")
     if body is None:
         sys.exit("could not locate P_CENTERS")
@@ -398,7 +398,8 @@ def parse_centers(g):
     )
     objs = []
     for key, eb in entries(body):
-        s = field_str(eb, "set")
+        # Editor grouping only: c_base keeps its own runtime key and set.
+        s = "Enhanced" if key == "c_base" else field_str(eb, "set")
         if not s:
             # consumables (c_) always carry set; otherwise infer from prefix
             for pre, val in prefix_set.items():
@@ -411,7 +412,7 @@ def parse_centers(g):
             {
                 "key": key,
                 "set": s,
-                "name": field_str(eb, "name") or key,
+                "name": "Default Card Background" if key == "c_base" else field_str(eb, "name") or key,
                 "soul": bool(parse_pos(eb, "soul_pos")) or key == "c_soul",
                 "soulPos": shared_soul_pos if key == "c_soul" else parse_pos(eb, "soul_pos"),
                 **({"soulShader": "hologram"} if key == "j_hologram" else {}),

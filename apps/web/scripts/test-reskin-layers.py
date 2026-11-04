@@ -44,6 +44,24 @@ class ReskinLayers(unittest.TestCase):
         self.assertEqual(parsed["j_hologram"]["soulShader"], "hologram")
         self.assertFalse(parsed["j_joker"]["soul"])
 
+    def test_default_base_is_grouped_with_enhancements_without_changing_other_defaults(self):
+        fixture = """self.P_CENTERS = {
+            c_base = {set='Default', name='Default Base', pos={x=1,y=0}},
+            m_bonus = {set='Enhanced', name='Bonus', pos={x=1,y=1}},
+            c_other = {set='Default', name='Other', pos={x=0,y=0}}
+        }"""
+        parsed = {obj["key"]: obj for obj in builder.parse_centers(fixture)}
+        base = parsed["c_base"]
+        self.assertEqual(base["set"], "Enhanced")
+        self.assertIn(base["set"], builder.CATEGORY_LABELS)
+        self.assertEqual(builder.REGISTRY_BY_SET[base["set"]], "P_CENTERS")
+        self.assertEqual(builder.ATLAS_FILE_BY_SET[base["set"]], "Enhancers.png")
+        self.assertEqual(base["name"], "Default Card Background")
+        self.assertEqual(base["pos"], {"x": 1, "y": 0})
+        self.assertFalse(base["soul"])
+        self.assertEqual(parsed["m_bonus"]["set"], "Enhanced")
+        self.assertEqual(parsed["c_other"]["set"], "Default")
+
     @unittest.skipUnless(shutil.which("luatex"), "LuaTeX is not installed")
     def test_loader_with_mock_registries_and_shared_sprite(self):
         template = (HERE.parent / "src/app/(home)/reskin/templates/coreLua.ts").read_text()

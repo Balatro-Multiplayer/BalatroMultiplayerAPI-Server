@@ -81,6 +81,26 @@ assert(binds == 1, 'unrelated cards must not rebind the shared sprite')
 steps[1].func({config = {center = soul}})
 assert(binds == 2 and G.shared_soul.atlas == G.ASSET_ATLAS.reskin_gem)
 
+-- The unenhanced card background is a normal center rebind, not a face-sheet
+-- override or a new enhancement. Preserve its runtime type, abilities and the
+-- backgrounds of all unedited enhancements.
+local plain_config = {}
+local plain = {set = 'Default', name = 'Default Base', effect = 'Base', config = plain_config, pos = {x = 1, y = 0}}
+local bonus = {set = 'Enhanced', atlas = 'centers', pos = {x = 1, y = 1}}
+local _, _, background_skins, background_atlases = run(
+  {object('c_base', {atlas = 'cat_Enhanced', x = 0, y = 0})},
+  {c_base = plain, m_bonus = bonus}, nil,
+  {atlases = {{key = 'cat_Enhanced', path = 'cat_Enhanced.png', px = 71, py = 95}}}
+)
+assert(plain.atlas == 'reskin_cat_Enhanced' and G.ASSET_ATLAS[plain.atlas])
+assert(plain.pos.x == 0 and plain.pos.y == 0)
+assert(plain.set == 'Default' and plain.name == 'Default Base' and plain.effect == 'Base' and plain.config == plain_config)
+assert(plain.soul_atlas == nil and plain.soul_pos == nil)
+assert(bonus.atlas == 'centers' and bonus.pos.x == 1 and bonus.pos.y == 1 and bonus.set == 'Enhanced')
+assert(#background_skins == 0 and #background_atlases == 1 and not background_atlases[1].raw_key)
+assert(G.ASSET_ATLAS.cards_1 == 'vanilla_lc' and G.ASSET_ATLAS.cards_2 == 'vanilla_hc')
+assert(G.SETTINGS.CUSTOM_DECK.Collabs.Spades == 'existing_spade_skin' and G.SETTINGS.colourblind_option)
+
 -- A whole-deck upload is opt-in for every suit, not a default atlas override.
 local _, _, skins, atlases = run({}, {}, nil, {
   atlases = {{key = 'cards_1', path = 'cards_1.png', px = 71, py = 95}},

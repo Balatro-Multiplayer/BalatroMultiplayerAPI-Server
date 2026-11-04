@@ -237,6 +237,43 @@ test('deck-skin name uses the metadata fallback and safely serializes custom mod
   }
 })
 
+test('default card background exports independently of enhancements and named face skins', async () => {
+  const skin = { id: 'faces', name: 'Face Art', low: overlay }
+  for (const deckSkins of [[], [skin]]) {
+    const { files, manifest, result } = await pack(
+      { sprites: [background] },
+      'Enhanced/c_base',
+      {},
+      undefined,
+      deckSkins
+    )
+    assert.match(
+      manifest,
+      /registry = "P_CENTERS",\s+key = "c_base",\s+atlas = "cat_Enhanced",\s+x = 0,\s+y = 0/
+    )
+    assert.equal((manifest.match(/registry = "P_CENTERS"/g) ?? []).length, 1)
+    assert.ok(!manifest.includes('key = "m_bonus"'))
+    assert.ok(!manifest.includes('raw = true'))
+    assert.ok(!manifest.includes('key = "cards_1"'))
+    assert.ok(!manifest.includes('key = "cards_2"'))
+    for (const scale of [1, 2]) {
+      assert.deepEqual(atlas(files, 'cat_Enhanced', scale), {
+        width: 71 * scale,
+        height: 95 * scale,
+        draws: [[background, 0, 0, 71 * scale, 95 * scale]],
+      })
+      if (deckSkins.length) {
+        assert.equal(atlas(files, 'deck_faces_lc', scale).draws[0][0], overlay)
+      }
+    }
+    const imported = await importPack(
+      new File([new Uint8Array(result.bytes)], 'background.zip')
+    )
+    assert.deepEqual(imported.objects['Enhanced/c_base']?.sprites, [background])
+    assert.deepEqual(imported.deckSkins, deckSkins)
+  }
+})
+
 test('overlay-only edits export no vanilla or replacement background, and survive reimport', async () => {
   const { files, manifest, result } = await pack({ sprites: [], soul: overlay })
   assert.ok(manifest.includes('soul_atlas = "cat_Joker_soul"'))

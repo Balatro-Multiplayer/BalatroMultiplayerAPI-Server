@@ -94,6 +94,29 @@ test('The Soul reads its shared gem from Enhancers, not its Tarot background atl
   assert.equal(category('Spectral').soul, true)
 })
 
+test('default card background is editable alongside enhancements and previews its own cell', () => {
+  const cat = category('Enhanced')
+  assert.equal(cat.registry, 'P_CENTERS')
+  const base = catalog.spriteObjects.Enhanced?.find((o) => o.key === 'c_base')
+  assert.equal(base?.name, 'Default Card Background')
+  assert.deepEqual(base?.pos, { x: 1, y: 0 })
+  const cells = objectPreviewPlan(catalog, cat).get('Enhancers.png')
+  assert.deepEqual(cells?.find((cell) => cell.id === 'base:c_base')?.rect, {
+    x: 71,
+    y: 0,
+    w: 71,
+    h: 95,
+  })
+  assert.deepEqual(cells?.find((cell) => cell.id === 'base:m_bonus')?.rect, {
+    x: 71,
+    y: 95,
+    w: 71,
+    h: 95,
+  })
+  assert.equal(cells?.filter((cell) => cell.id === 'base:c_base').length, 1)
+  assert.ok(!cells?.some((cell) => cell.id === 'soul:c_base'))
+})
+
 test('seal position overrides still work after the layered preview refactor', () => {
   const plan = objectPreviewPlan(catalog, category('Seal'))
   assert.deepEqual(
