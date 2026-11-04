@@ -6,7 +6,7 @@ import { INVALID_ARGUMENT, runtimeError } from '../errors'
 import { RATINGS_COLLECTION } from '../lobby/protocol'
 import { parsePayload, requireServer } from '../rpc'
 import { boardId, type RatingRecord } from './apply'
-import { PLACEMENT_GAMES } from './elo'
+import { syncLeaderboardEntry } from './board_sync'
 
 const USER_ID_PATTERN = /^[0-9a-f-]{36}$/
 const MODE_PATTERN = /^[A-Za-z0-9_:.-]{1,64}$/
@@ -103,23 +103,8 @@ export function rpcAdminRatingsSet(
 	if (cleared.length > 0) {
 		nk.storageDelete(cleared.map((e) => ({ collection: RATINGS_COLLECTION, key, userId: e.userId })))
 	}
-	nk.leaderboardCreate(key, true, 'desc', 'set', null, { modId: request.modId, mode: request.mode })
-	for (const e of request.entries) {
-		const record = e.record
-		if (record && record.gamesPlayed >= PLACEMENT_GAMES) {
-			nk.leaderboardRecordWrite(key, e.userId, e.name, record.rating, record.wins, {
-				losses: record.losses,
-				gamesPlayed: record.gamesPlayed,
-				seasonBest: record.seasonBest,
-			}, 'set')
-		} else {
-			try {
-				nk.leaderboardRecordDelete(key, e.userId)
-			} catch (err) {
-				// Never on the board.
-			}
-		}
-	}
+	for (const e of request.entries)
+		syncLeaderboardEntry(nk, logger, key, { modId: request.modId, mode: request.mode }, e.userId, e.name, e.record)
 	logger.info('Ratings on %s set by the API: %d written, %d cleared', key, written.length, cleared.length)
 	return JSON.stringify({ written: written.length, cleared: cleared.length })
 }

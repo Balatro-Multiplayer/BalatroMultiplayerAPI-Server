@@ -31,6 +31,8 @@ const ACTION_LABELS: Record<string, string> = {
   void: 'Void match',
   overturn: 'Change result',
   reopen: 'Reopen',
+  match_result: 'Edit match result',
+  match_void: 'Void match (match page)',
   role_grant: 'Give role',
   role_remove: 'Remove role',
 }

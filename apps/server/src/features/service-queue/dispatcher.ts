@@ -1,10 +1,11 @@
 // Runs a moderator's action on a queue item. The order is fixed: load the
 // item, check the role table, the body and the claim, pick the target; run
-// any external step that must happen first (a void's rating rebuild, an
-// overturn's new result -- both idempotent, so a retry after a failed
-// commit is safe); then one transaction for the source row, the queue row,
+// any external step that must happen first (a void's or an overturn's match
+// edit, which moves only that match's players' ratings -- both idempotent, so
+// a retry after a failed commit is safe); then one transaction for the source row, the queue row,
 // the ban/warning row and the audit event; then, after the commit, tell
 // Nakama (the ban, the warning notification). Every refusal is a value.
+import type { MatchEditSummary } from '../ratings/match-edit.service.js'
 import { heldByOther } from './claim.js'
 import { type QueueCommand, type SanctionCommand, banTypeOf, parseCommand, presetOf } from './command.js'
 import { expiresAtOf } from './durations.js'
@@ -63,11 +64,11 @@ export interface GameRef {
 }
 
 export type VoidResult =
-	| { kind: 'voided'; rerated: boolean }
+	| { kind: 'voided'; rerated: boolean; edit?: MatchEditSummary }
 	| { kind: 'not_resolved'; status: string }
 	| { kind: 'failed'; reason: string }
 
-export type OverturnResult = { kind: 'applied'; rerated: boolean } | { kind: 'failed'; reason: string }
+export type OverturnResult = { kind: 'applied'; rerated: boolean; edit?: MatchEditSummary } | { kind: 'failed'; reason: string }
 
 export interface DispatcherDeps<Tx> {
 	now(): Date
@@ -422,6 +423,7 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		const game = await deps.gameOf(item)
 		if (!game) return refuse({ code: 'source_missing' })
 		let rerated = false
+		let edit: MatchEditSummary | undefined
 		// A private game has no matchmade record and no ratings: nothing to undo.
 		if (game.matchmade) {
 			const result = await deps.voidGame(game)
@@ -429,10 +431,11 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 				return refuse({ code: 'not_voidable', reason: `The match is ${result.status}, not resolved` })
 			if (result.kind === 'failed') return refuse({ code: 'nakama_failed', reason: result.reason })
 			rerated = result.rerated
+			edit = result.edit
 		}
 		const voided = { runId: game.runId, rerated }
 		await deps.transaction((tx) =>
-			closeIn(tx, item, itemType, 'void', command.note, actor, now, { ...voided, matchmade: game.matchmade }, log, {
+			closeIn(tx, item, itemType, 'void', command.note, actor, now, { ...voided, matchmade: game.matchmade, edit }, log, {
 				reason: command.reason,
 				targetPlayerId: item.subjectPlayerId,
 			}),
@@ -464,7 +467,7 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		if (result.kind === 'failed') return refuse({ code: 'nakama_failed', reason: result.reason })
 		const overturned = { runId: game.runId, placements: plan.placements, rerated: result.rerated }
 		await deps.transaction((tx) =>
-			closeIn(tx, item, itemType, 'overturn', command.note, actor, now, overturned, log, {
+			closeIn(tx, item, itemType, 'overturn', command.note, actor, now, { ...overturned, edit: result.edit }, log, {
 				reason: command.reason,
 				targetPlayerId: item.subjectPlayerId,
 			}),

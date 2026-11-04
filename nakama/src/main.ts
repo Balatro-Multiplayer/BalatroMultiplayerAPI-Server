@@ -66,6 +66,7 @@ import { rpcLeaderboardGet, rpcRatingGet } from './rating/rpc'
 import { rpcAdminCheckpointsSweep } from './lobby/checkpoint_sweep'
 import { rpcAdminRunsExpired, rpcAdminRunsPurgeNamed } from './lobby/retention'
 import { rpcAdminRatingsSet } from './rating/admin'
+import { rpcAdminMatchEdit } from './rating/match_edit'
 import { rpcAdminRatingsReplayFold, rpcAdminRatingsReplayList } from './rating/replay'
 import {
 	rpcAdminRatingsBoardExport,
@@ -201,6 +202,7 @@ function InitModule(
 	initializer.registerRpc('admin_ratings_season_clear', rpcAdminRatingsSeasonClear)
 	initializer.registerRpc('admin_run_get', rpcAdminRunGet)
 	initializer.registerRpc('admin_run_set_result', rpcAdminRunSetResult)
+	initializer.registerRpc('admin_match_edit', rpcAdminMatchEdit)
 	logger.info('BMP lobby module loaded')
 }
 

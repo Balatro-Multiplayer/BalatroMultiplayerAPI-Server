@@ -4,14 +4,13 @@ import { and, eq, isNotNull } from 'drizzle-orm'
 import { db } from '../../infrastructure/db/index.js'
 import type { DbTransaction } from '../../infrastructure/db/executor.js'
 import { matchRunLogs, matchmakingMatches } from '../../infrastructure/db/schema.js'
-import { setMatchResult, voidMatch } from '../../infrastructure/db/void-match.js'
 import { getBanById, insertBan, liftBan } from '../../infrastructure/gateways/ban.gateway.js'
 import {
 	getForfeitReconciliationFlag,
 	setForfeitFlagStatus,
 } from '../../infrastructure/gateways/forfeit-reconciliation.gateway.js'
 import { getMatchConflict, setMatchConflictStatus } from '../../infrastructure/gateways/match-conflict.gateway.js'
-import { findNakamaUserIds, findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
+import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { getReportById, setReportStatus } from '../../infrastructure/gateways/report.gateway.js'
 import {
 	type ServiceQueueItemRecord,
@@ -30,10 +29,12 @@ import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gatew
 import { insertWarning } from '../../infrastructure/gateways/warning.gateway.js'
 import { callNakamaRpc } from '../../infrastructure/nakama/admin-client.js'
 import { banInNakama, liftBanInNakama, nakamaUserIdOf } from '../../infrastructure/nakama/moderation-sync.js'
+import { matchEditorFor } from '../ratings/match-edit.deps.js'
+import type { MatchEditSummary } from '../ratings/match-edit.service.js'
 import { dismissAutomaticItems } from './automatic.js'
 import { decideClaim, decideRelease } from './claim.js'
 import { type DispatcherDeps, type GameRef, type QueueItem, createDispatcher } from './dispatcher.js'
-import { type Placement, samePlaces } from './overturn.js'
+import type { Placement } from './overturn.js'
 import { type QueueResult, refuse } from './refusals.js'
 import { numericSourceId, parseAntiCheatSourceId } from '../../shared/service-queue/source-ids.js'
 import { type StaffRole, actorOf, contextOf } from './types.js'
@@ -73,28 +74,28 @@ export async function gameOf(item: QueueItem): Promise<GameRef | null> {
 	return { runId, matchmade: !!match, ranked: !!match && match.gameMode.startsWith('ranked:') }
 }
 
-// Nakama's result for the run, pushed first (Nakama owns run records), then
-// the matchmade record and its ratings.
+const editMatchOf = matchEditorFor()
+
+// The new result for the run: one edit that moves only its players' ratings
+// (Nakama first, then the match row and rating rows).
 async function overturnGame(
 	game: GameRef,
 	placements: (Placement & { rated?: boolean })[],
-): Promise<{ kind: 'applied'; rerated: boolean } | { kind: 'failed'; reason: string }> {
-	const nakamaIds = await findNakamaUserIds(placements.map((p) => p.playerId))
-	if (placements.some((p) => !nakamaIds.has(p.playerId)))
-		return { kind: 'failed', reason: 'a player in that result has no Nakama account' }
-	const nakamaPlacements = placements.map((p) => ({ playerId: nakamaIds.get(p.playerId) as string, place: p.place }))
-	const set = await callNakamaRpc('admin_run_set_result', { runId: game.runId, placements: nakamaPlacements })
-	if (!set.ok) {
-		// Already the result (a retried overturn) is success.
-		const current = await callNakamaRpc<{ run: { placements: Placement[] } }>('admin_run_get', { runId: game.runId })
-		if (!current.ok || !samePlaces(current.value.run.placements, nakamaPlacements))
-			return { kind: 'failed', reason: `admin_run_set_result ${set.error}` }
+): Promise<{ kind: 'applied'; rerated: boolean; edit?: MatchEditSummary } | { kind: 'failed'; reason: string }> {
+	const outcome = await editMatchOf(game, {
+		kind: 'result',
+		placements: placements.map(({ playerId, place }) => ({ playerId, place })),
+	})
+	switch (outcome.kind) {
+		case 'edited':
+			return { kind: 'applied', rerated: outcome.rerated, edit: outcome.summary }
+		case 'not_found':
+			return { kind: 'failed', reason: 'the matchmade record is gone' }
+		case 'not_resolved':
+			return { kind: 'failed', reason: `the match is ${outcome.status}, not resolved` }
+		case 'failed':
+			return outcome
 	}
-	if (!game.matchmade) return { kind: 'applied', rerated: false }
-	const outcome = await setMatchResult(game.runId, placements)
-	if (outcome.kind === 'failed') return { kind: 'failed', reason: outcome.reason }
-	if (outcome.kind === 'not_found') return { kind: 'failed', reason: 'the matchmade record is gone' }
-	return { kind: 'applied', rerated: outcome.rerated }
 }
 
 const deps: DispatcherDeps<DbTransaction> = {
@@ -152,10 +153,10 @@ const deps: DispatcherDeps<DbTransaction> = {
 		return new Set(rows.map((r) => r.playerId))
 	},
 	async voidGame(game) {
-		const outcome = await voidMatch(game.runId)
+		const outcome = await editMatchOf(game, { kind: 'void' })
 		switch (outcome.kind) {
-			case 'voided':
-				return { kind: 'voided', rerated: outcome.ranked }
+			case 'edited':
+				return { kind: 'voided', rerated: outcome.rerated, edit: outcome.summary }
 			case 'not_resolved':
 				return outcome
 			case 'failed':

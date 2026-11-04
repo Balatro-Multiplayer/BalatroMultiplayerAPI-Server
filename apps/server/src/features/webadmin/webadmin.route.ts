@@ -11,6 +11,7 @@ import forfeitReconciliationRouter from './forfeit-reconciliation.route.js'
 import launcherReleasesRouter from './launcher-releases.route.js'
 import lobbiesRouter from './lobbies.route.js'
 import matchConflictsRouter from './match-conflicts.route.js'
+import matchEditRouter from './match-edit.route.js'
 import matchesRouter from './matches.route.js'
 import modsRouter from './mods.route.js'
 import playersRouter from './players.route.js'
@@ -45,6 +46,7 @@ router.use(chatLogsRouter)
 router.use(reportsRouter)
 router.use(seasonsRouter)
 router.use(matchesRouter)
+router.use(matchEditRouter)
 router.use(lobbiesRouter)
 router.use(matchConflictsRouter)
 router.use(forfeitReconciliationRouter)

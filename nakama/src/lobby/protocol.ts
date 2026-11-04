@@ -278,6 +278,18 @@ export interface RatingResult {
 	gamesPlayed: number
 }
 
+// What a staff edit of a finished game did to one player's stored rating:
+// the match's rating change before and after the edit (null: not rated, or
+// still in the placement games), and the amounts added to the stored record.
+export interface RatingChange {
+	oldDelta: number | null
+	newDelta: number | null
+	rating: number
+	wins: number
+	losses: number
+	gamesPlayed: number
+}
+
 // A stored replay log against the client's own closing hash (log_check.ts).
 export type LogCheck = 'match' | 'mismatch' | 'unavailable'
 
@@ -311,6 +323,12 @@ export interface RunRecord {
 	// Set when a moderator replaced the recorded result (review/result.ts):
 	// the placements it had before, and when.
 	overturned?: { at: number; previous: Placement[] }
+	// Set when staff voided the game (rating/match_edit.ts); its ratings were
+	// taken back and `ratings` removed.
+	voided?: { at: number }
+	// The last staff edit's effect on each player's stored rating, kept so a
+	// repeated edit can answer with it (the API applies it to its own copy).
+	ratingChanges?: { [userId: string]: RatingChange }
 	// Set for a contested run: who contested whom, and when.
 	contest?: Contest
 }
