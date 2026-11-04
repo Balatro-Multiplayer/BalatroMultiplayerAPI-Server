@@ -718,6 +718,61 @@ describe('replay logs', () => {
 		expect(rejection(step)).toBeUndefined()
 	})
 
+	describe('ack on a log action', () => {
+		const acks = (step: Step) =>
+			step.out.filter(
+				(o): o is Send => o.kind === 'send' && o.op === ServerOp.ACTION && o.to.includes('a') && o.to.length === 1,
+			)
+
+		it('answers the sender of a batch with the request cid, and stores no ack', () => {
+			const lobby = started('a', 'b')
+			const runId = lobby.game.started!.runId
+			const events = [
+				{ t: 1, opcode: 'play', run: runId },
+				{ t: 2, opcode: 'play', run: runId },
+			]
+			const step = send(lobby, 'a', 'mpapi_log_events', { events, ack: true })
+			expect(step.lobby.game.logs.a.lines).toEqual(['[1,"play",null]', '[2,"play",null]'])
+			const reply = acks(step)
+			expect(reply).toHaveLength(1)
+			expect(reply[0].payload).toEqual({
+				cid: 'mpapi_log_events-a',
+				action: 'mpapi_log_events',
+				from: 'server',
+				to: '*',
+				params: { ack: true },
+			})
+		})
+
+		it('answers the sender of a single event, and stores no ack', () => {
+			const lobby = started('a', 'b')
+			const step = send(lobby, 'a', 'mpapi_log_event', { t: 1, opcode: 'play', ack: true })
+			expect(step.lobby.game.logs.a.lines).toEqual(['[1,"play",null]'])
+			expect(acks(step)).toHaveLength(1)
+			expect(acks(step)[0].payload).toMatchObject({ cid: 'mpapi_log_event-a', params: { ack: true } })
+		})
+
+		it('answers even when every event was dropped as another run', () => {
+			const lobby = started('a', 'b')
+			const step = send(lobby, 'a', 'mpapi_log_events', { events: [{ t: 1, opcode: 'play', run: 'old' }], ack: true })
+			expect(acks(step)).toHaveLength(1)
+		})
+
+		it('says nothing extra without ack', () => {
+			const lobby = started('a', 'b')
+			const step = send(lobby, 'a', 'mpapi_log_events', { events: [{ t: 1, opcode: 'play' }] })
+			expect(acks(step)).toEqual([])
+			expect(acks(send(lobby, 'a', 'mpapi_log_event', { t: 1, opcode: 'play', ack: false }))).toEqual([])
+		})
+
+		it('does not ack a refused batch, it rejects it', () => {
+			const lobby = started('a', 'b')
+			const step = send(lobby, 'a', 'mpapi_log_events', { events: [], ack: true })
+			expect(rejection(step)).toBe('bad_params')
+			expect(acks(step)).toEqual([])
+		})
+	})
+
 	describe('batches (mpapi_log_events)', () => {
 		const batch = (lobby: Lobby, from: string, events: unknown[], now = 1500) =>
 			send(lobby, from, 'mpapi_log_events', { events }, now)

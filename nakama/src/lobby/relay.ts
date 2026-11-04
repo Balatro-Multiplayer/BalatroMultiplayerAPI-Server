@@ -64,7 +64,7 @@ function spend(
 	now: number,
 	cost = 1,
 ): Lobby | null {
-	const isLog = key === LOG_EVENT_KEY || key === LOG_EVENTS_KEY
+	const isLog = isLogAction(key)
 	const budgetKey = isLog ? logBudgetKey(userId) : userId
 	const burst = isLog ? LOG_BURST : BURST
 	const rate = isLog ? LOG_RATE_PER_SECOND : RATE_PER_SECOND
@@ -88,6 +88,14 @@ function spendCost(key: string, params: unknown): number {
 	if (key !== LOG_EVENTS_KEY) return 1
 	const events = (params as { events?: unknown } | null)?.events
 	return Array.isArray(events) ? Math.max(1, events.length) : 1
+}
+
+function isLogAction(key: string): boolean {
+	return key === LOG_EVENT_KEY || key === LOG_EVENTS_KEY
+}
+
+function isAck(params: unknown): boolean {
+	return typeof params === 'object' && params !== null && (params as { ack?: unknown }).ack === true
 }
 
 function stringField(data: { [key: string]: unknown }, key: string): string {
@@ -190,6 +198,16 @@ function relayAction(
 					.filter((id) => audience === 'all' || id !== senderId),
 			})
 		}
+		// A log action is answered to nobody by default. With `ack: true` the sender
+		// gets a small reply, so a client that is about to leave knows the batch was
+		// handled first (a leave signal runs before the next tick's match data).
+		if (isLogAction(key) && isAck(params))
+			out.push({
+				kind: 'send',
+				op: ServerOp.ACTION,
+				payload: { cid, action: key, from: SERVER_TARGET, to: BROADCAST_TARGET, params: { ack: true } },
+				to: [senderId],
+			})
 		if (result.out) out.push(...result.out)
 		if (key === LOG_EVENT_KEY && audience !== 'none' && result.params)
 			out.push(...spectateEvent(next, result.params as SpectateEvent))

@@ -8454,7 +8454,7 @@ function reject(to, rejection) {
   };
 }
 function spend(lobby, userId, key, now, cost = 1) {
-  const isLog = key === LOG_EVENT_KEY || key === LOG_EVENTS_KEY;
+  const isLog = isLogAction(key);
   const budgetKey = isLog ? logBudgetKey(userId) : userId;
   const burst = isLog ? LOG_BURST : BURST;
   const rate = isLog ? LOG_RATE_PER_SECOND : RATE_PER_SECOND;
@@ -8474,6 +8474,12 @@ function spendCost(key, params) {
   if (key !== LOG_EVENTS_KEY) return 1;
   const events = params == null ? void 0 : params.events;
   return Array.isArray(events) ? Math.max(1, events.length) : 1;
+}
+function isLogAction(key) {
+  return key === LOG_EVENT_KEY || key === LOG_EVENTS_KEY;
+}
+function isAck(params) {
+  return typeof params === "object" && params !== null && params.ack === true;
 }
 function stringField(data, key) {
   const value = data[key];
@@ -8543,6 +8549,13 @@ function relayAction(lobby, senderId, data, ctx) {
         to: next.players.map((p) => p.id).filter((id) => audience === "all" || id !== senderId)
       });
     }
+    if (isLogAction(key) && isAck(params))
+      out.push({
+        kind: "send",
+        op: ServerOp.ACTION,
+        payload: { cid, action: key, from: SERVER_TARGET, to: BROADCAST_TARGET, params: { ack: true } },
+        to: [senderId]
+      });
     if (result.out) out.push(...result.out);
     if (key === LOG_EVENT_KEY && audience !== "none" && result.params)
       out.push(...spectateEvent(next, result.params));
