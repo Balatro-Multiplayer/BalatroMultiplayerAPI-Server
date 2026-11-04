@@ -9365,13 +9365,21 @@ function verdictOf(value) {
   const record = value;
   return record.verdict === "allow" || record.verdict === "reject" ? record : null;
 }
+function guardOf(body) {
+  if (typeof body.guardScore !== "number" || typeof body.guardSafety !== "string" || typeof body.guardContextUsed !== "boolean")
+    return {};
+  return { guard: { safety: body.guardSafety, score: body.guardScore, contextUsed: body.guardContextUsed } };
+}
 function decideModerationOutcome(attempt) {
   const body = attempt && attempt.status === 200 ? verdictOf(attempt.body) : null;
   if (!body) return { allowed: false, reason: "unavailable" };
-  if (body.verdict === "allow") return { allowed: true, review: body.band === REVIEW_BAND };
+  if (body.verdict === "allow") return __spreadValues(__spreadValues({
+    allowed: true,
+    review: body.band === REVIEW_BAND
+  }, typeof body.band === "string" ? { band: body.band } : {}), guardOf(body));
   const band = typeof body.band === "string" ? body.band : void 0;
   if (band === "guard_unavailable") return { allowed: false, reason: "unavailable" };
-  return { allowed: false, reason: "moderated", band };
+  return __spreadValues({ allowed: false, reason: "moderated", band }, guardOf(body));
 }
 var DEFAULT_TIMEOUT_MS = 3e3;
 var MODERATION_SERVICE_URL = "http://moderation-lb:8001";
@@ -9509,7 +9517,8 @@ function rpcChatSend(ctx, logger, nk, payload) {
     lobbyId: lobbyIdOf(current.matchId),
     lobbyKind: lobbyKindOfLabel(match ? match.label : null)
   };
-  let flag2 = null;
+  let flagged = false;
+  let verdict = null;
   if (!isAllowlisted(message, config.chatAllowlist)) {
     if (settingsOf(ctx).moderationRemote) {
       const outcome = decideModerationOutcome(
@@ -9522,16 +9531,21 @@ function rpcChatSend(ctx, logger, nk, payload) {
       );
       if (!outcome.allowed) {
         if (outcome.reason === "moderated") {
-          logChat(nk, logger, lobby, userId, message, { source: "remote", band: outcome.band || "unknown" });
+          logChat(nk, logger, lobby, userId, message, true, __spreadValues({
+            source: "remote",
+            band: outcome.band || "unknown"
+          }, guardFields(outcome.guard)));
           throw runtimeError(PERMISSION_DENIED, "Message blocked by moderation");
         }
         throw runtimeError(UNAVAILABLE, "Chat is unavailable right now");
       }
-      if (outcome.review) flag2 = { source: "remote", band: REVIEW_BAND };
+      flagged = outcome.review;
+      if (outcome.review) verdict = __spreadValues({ source: "remote", band: REVIEW_BAND }, guardFields(outcome.guard));
+      else if (outcome.guard) verdict = __spreadValues({ source: "remote", band: outcome.band || "unknown" }, guardFields(outcome.guard));
     } else {
       const matches = obscenityMatches(message);
       if (matches.length > 0) {
-        logChat(nk, logger, lobby, userId, message, { source: "local", matches });
+        logChat(nk, logger, lobby, userId, message, true, { source: "local", matches });
         throw runtimeError(PERMISSION_DENIED, "Message blocked by moderation");
       }
     }
@@ -9540,15 +9554,18 @@ function rpcChatSend(ctx, logger, nk, payload) {
     current.matchId,
     JSON.stringify({ type: "chat_post", userId, text: message })
   );
-  logChat(nk, logger, lobby, userId, message, flag2);
+  logChat(nk, logger, lobby, userId, message, flagged, verdict);
   return JSON.stringify({ text: message });
 }
-function logChat(nk, logger, lobby, userId, message, flag2) {
+function guardFields(guard) {
+  return guard ? { guardSafety: guard.safety, guardScore: guard.score, guardContextUsed: guard.contextUsed } : {};
+}
+function logChat(nk, logger, lobby, userId, message, flagged, verdict) {
   try {
     enqueue(nk, {
       kind: "chat",
       at: Date.now(),
-      line: __spreadProps(__spreadValues({}, lobby), { userId, message, flagged: flag2 !== null, verdict: flag2 })
+      line: __spreadProps(__spreadValues({}, lobby), { userId, message, flagged, verdict })
     });
   } catch (e) {
     logger.error("Could not queue a chat line for the API: %v", e);

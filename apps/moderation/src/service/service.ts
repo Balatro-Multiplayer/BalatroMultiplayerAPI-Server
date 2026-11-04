@@ -8,6 +8,7 @@ import { DEFAULT_POLICY } from '../pipeline/policy.js'
 import type {
 	Decision,
 	GuardInput,
+	GuardSafetyLevel,
 	ModerationPolicy,
 	TokenBucket,
 } from '../pipeline/types.js'
@@ -47,6 +48,10 @@ export type ModerateResponse = {
 	verdict: 'allow' | 'reject'
 	band: Decision['band'] | 'shed'
 	reason?: string
+	/** Only when the guard judged the message. */
+	guardSafety?: GuardSafetyLevel
+	guardScore?: number
+	guardContextUsed?: boolean
 	latency_ms: number
 }
 
@@ -329,6 +334,9 @@ export function createModerationService(
 				band: decision.band,
 				latency_ms,
 			}
+			if (v.guardSafety !== undefined) response.guardSafety = v.guardSafety
+			if (v.guardScore !== undefined) response.guardScore = v.guardScore
+			if (v.guardContextUsed !== undefined) response.guardContextUsed = v.guardContextUsed
 			if (decision.decision === 'reject') {
 				response.reason = decision.band
 			}

@@ -55,7 +55,14 @@ export interface ChatLogLine {
 }
 
 export type ChatVerdict =
-	| { source: 'remote'; band: string }
+	| {
+			source: 'remote'
+			band: string
+			// Only on a message the guard judged. Older lines have none.
+			guardSafety?: string
+			guardScore?: number
+			guardContextUsed?: boolean
+	  }
 	| { source: 'local'; matches: { word: string; startIndex: number; endIndex: number }[] }
 
 // Key order is pull order: the time, zero-padded, then a uuid for entries

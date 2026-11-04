@@ -251,6 +251,24 @@ describe('chatRowsOf', () => {
 		expect(rows.flaggedMessage).toMatchObject({ matches: { source: 'remote', band: 'high' }, mirrorKey: 'k-chat' })
 	})
 
+	it('stores the guard score with the verdict, and still files the flag with band only', () => {
+		const verdict = { source: 'remote', band: 'review', guardSafety: 'Controversial', guardScore: 0.5, guardContextUsed: true }
+		const rows = chatRowsOf({ ...line(true), line: { ...line(true).line, verdict } }, 'pg-a', null)
+		expect(rows.chat.moderationVerdict).toEqual(verdict)
+		expect(rows.flaggedMessage?.matches).toEqual({ source: 'remote', band: 'review' })
+	})
+
+	it('stores the guard score of a line that was not flagged', () => {
+		const verdict = { source: 'remote', band: 'clean', guardSafety: 'Safe', guardScore: 0.01, guardContextUsed: false }
+		const rows = chatRowsOf({ ...line(false), line: { ...line(false).line, verdict } }, 'pg-a', 'hash')
+		expect(rows.chat).toMatchObject({ flagged: false, moderationVerdict: verdict })
+		expect(rows.flaggedMessage).toBeNull()
+	})
+
+	it('stores no verdict for an older line that has none', () => {
+		expect(chatRowsOf(line(false), 'pg-a', 'hash').chat.moderationVerdict).toBeNull()
+	})
+
 	it('keeps what the local word filter matched as the API wrote it', () => {
 		const matches = [{ word: 'fuck', startIndex: 0, endIndex: 3 }]
 		const entry = line(true)
