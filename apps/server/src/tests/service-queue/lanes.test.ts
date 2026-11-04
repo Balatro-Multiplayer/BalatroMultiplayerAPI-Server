@@ -20,8 +20,8 @@ describe('queue lanes', () => {
 		expect(laneOf('flagged_chat')).toBe('main')
 	})
 
-	it('treats reports and contests as made by players', () => {
-		expect([...PLAYER_MADE_TYPES].sort()).toEqual(['contest', 'report'])
+	it('treats reports, contests and appeals as made by players', () => {
+		expect([...PLAYER_MADE_TYPES].sort()).toEqual(['appeal', 'contest', 'report'])
 	})
 })
 

@@ -5,7 +5,7 @@ import { INVALID_ARGUMENT, runtimeError } from '../errors'
 import { parsePayload, requireServer } from '../rpc'
 import { settingsOf } from '../server_kind'
 import {
-	isNetworkBanned,
+	networkBanIdsOn,
 	liftNetworkBan,
 	networkBansFor,
 	networkHash,
@@ -48,9 +48,11 @@ export function rpcAdminPlayerNetworks(
 	return JSON.stringify({ networks })
 }
 
-// {ip} -> {banned}: whether the address is on a banned network. For the
-// website, which shows a blocked player that their network is banned. It never
-// says which account caused the ban (ADR 0005).
+// {ip} -> {banned, banIds}: whether the address is on a banned network, and the
+// network bans in force on it. For the website, which shows a blocked player
+// that their network is banned and keeps the ban ids with their appeal. The API
+// never sends the ids to a player, and nothing says which account caused the
+// ban (ADR 0005).
 export function rpcAdminNetworkCheck(
 	ctx: nkruntime.Context,
 	logger: nkruntime.Logger,
@@ -62,9 +64,10 @@ export function rpcAdminNetworkCheck(
 	if (typeof ip !== 'string' || !ip)
 		throw runtimeError(INVALID_ARGUMENT, 'ip is required')
 	const salt = ctx.env.IP_HASH_SALT
-	if (!settingsOf(ctx).networkBans || !salt) return JSON.stringify({ banned: false })
+	if (!settingsOf(ctx).networkBans || !salt) return JSON.stringify({ banned: false, banIds: [] })
 	const hash = networkHash((input) => nk.sha256Hash(input), salt, ip)
-	return JSON.stringify({ banned: hash !== null && isNetworkBanned(nk, hash) })
+	const banIds = hash === null ? [] : networkBanIdsOn(nk, hash)
+	return JSON.stringify({ banned: banIds.length > 0, banIds })
 }
 
 // {banId} -> {lifted}: lifted is false when no such network ban is in force.

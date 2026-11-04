@@ -20,6 +20,7 @@ export const TYPE_LABELS: Record<ItemType, string> = {
   contest: 'Contest',
   anti_cheat: 'Anti-cheat',
   integrity: 'Integrity',
+  appeal: 'Appeal',
 }
 
 // The tab strip's order and wording.
@@ -30,6 +31,7 @@ export const TYPE_TABS: { type: ItemType | null; label: string }[] = [
   { type: 'match_conflict', label: 'Match results' },
   { type: 'forfeit_reconciliation', label: 'Forfeits' },
   { type: 'contest', label: 'Contests' },
+  { type: 'appeal', label: 'Appeals' },
 ]
 
 // Items the server raises on its own; they have the Automatic tab.

@@ -8,10 +8,11 @@ export const AUTOMATIC_TYPES = [
 	'integrity',
 ] as const satisfies readonly ItemType[]
 
-// Items a player raised themselves. Appeals join this list when they exist.
+// Items a player raised themselves.
 export const PLAYER_MADE_TYPES = [
 	'report',
 	'contest',
+	'appeal',
 ] as const satisfies readonly ItemType[]
 
 export type QueueLane = 'main' | 'automatic'

@@ -452,8 +452,42 @@ export const playerWarnings = pgTable(
 		issuedAt: timestamp('issued_at', { withTimezone: true })
 			.notNull()
 			.defaultNow(),
+		// Set when staff lift the warning (a granted appeal); a lifted warning no longer counts as a strike.
+		liftedAt: timestamp('lifted_at', { withTimezone: true }),
+		liftedBy: text('lifted_by'),
 	},
 	(t) => [index('player_warnings_player_idx').on(t.playerId)],
+)
+
+// A player's appeal of one punishment, or of the network ban that blocks them.
+// Each one is also a service queue item (itemType 'appeal', sourceId = this id).
+// A punishment is a player_bans or player_warnings row, told apart by id alone.
+export const appeals = pgTable(
+	'appeals',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		playerId: uuid('player_id')
+			.notNull()
+			.references(() => players.id),
+		// 'punishment' | 'network_ban'
+		targetKind: varchar('target_kind', { length: 16 }).notNull(),
+		punishmentId: uuid('punishment_id'),
+		// The network bans that covered the player's address when they appealed.
+		networkBanIds: jsonb('network_ban_ids').notNull().default(sql`'[]'::jsonb`),
+		message: text('message').notNull(),
+		// 'open' | 'denied' | 'granted'
+		status: varchar('status', { length: 16 }).notNull().default('open'),
+		decisionReason: text('decision_reason'),
+		// 'lifted' | 'shortened' on a granted appeal
+		outcome: varchar('outcome', { length: 16 }),
+		decidedBy: text('decided_by'),
+		decidedAt: timestamp('decided_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [
+		index('appeals_player_idx').on(t.playerId, t.createdAt),
+		index('appeals_punishment_idx').on(t.punishmentId),
+	],
 )
 
 // A staff note on a player (the player page). Staff read it; the player never does.

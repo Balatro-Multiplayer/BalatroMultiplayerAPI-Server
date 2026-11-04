@@ -3,6 +3,7 @@
 import {
   AlertTriangleIcon,
   FlagIcon,
+  GavelIcon,
   type LucideIcon,
   MessageSquareWarningIcon,
   ScaleIcon,
@@ -51,6 +52,7 @@ const TYPE_ICONS: Record<ItemType, LucideIcon> = {
   contest: SwordsIcon,
   anti_cheat: ShieldAlertIcon,
   integrity: AlertTriangleIcon,
+  appeal: GavelIcon,
 }
 
 const PRIORITY_DOT: Record<PriorityBand, string> = {

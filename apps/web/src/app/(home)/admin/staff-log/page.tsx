@@ -32,6 +32,8 @@ const ACTION_LABELS: Record<string, string> = {
   void: 'Void match',
   overturn: 'Change result',
   reopen: 'Reopen',
+  appeal_deny: 'Deny appeal',
+  appeal_grant: 'Grant appeal',
   match_result: 'Edit match result',
   match_void: 'Void match (match page)',
   role_grant: 'Give role',

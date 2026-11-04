@@ -10,12 +10,41 @@ export interface Punishment {
   permanent: boolean
   status: 'active' | 'ended' | 'lifted'
   reason: string
+  // The latest appeal of this punishment, and whether another can be made now.
+  appeal: Appeal | null
+  canAppeal: boolean
+  // When the wait after a denial ends (null when no wait is running).
+  appealAvailableAt: string | null
+}
+
+export interface Appeal {
+  status: 'open' | 'denied' | 'granted'
+  // Why staff decided as they did (null while the appeal is open).
+  reason: string | null
+  createdAt: string
+  decidedAt: string | null
+}
+
+export interface AppealState {
+  appeal: Appeal | null
+  canAppeal: boolean
+  appealAvailableAt: string | null
 }
 
 export interface PunishmentsResponse {
   punishments: Punishment[]
   networkBanned: boolean
+  // The appeal state of the network ban (null when no network ban blocks the player).
+  networkAppeal: AppealState | null
 }
+
+export const APPEAL_STATUS_LABEL: Record<Appeal['status'], string> = {
+  open: 'Appeal open',
+  denied: 'Appeal denied',
+  granted: 'Appeal granted',
+}
+
+export const MAX_APPEAL_LENGTH = 2000
 
 export const PUNISHMENT_LABEL: Record<PunishmentType, string> = {
   warning: 'Warning',

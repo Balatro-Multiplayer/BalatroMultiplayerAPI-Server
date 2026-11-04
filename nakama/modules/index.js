@@ -5371,6 +5371,9 @@ function recordNetworkLogin(nk, userId, hash, now) {
 function isNetworkBanned(nk, hash) {
   return readIndex(nk, hash).length > 0;
 }
+function networkBanIdsOn(nk, hash) {
+  return readIndex(nk, hash);
+}
 function banNetworks(nk, settings, userId, ban, now) {
   if (!settings.networkBans || ban.expiresAt !== null) return false;
   if (readNetworkBan(nk, ban.banId)) return false;
@@ -11095,9 +11098,10 @@ function rpcAdminNetworkCheck(ctx, logger, nk, payload) {
   if (typeof ip !== "string" || !ip)
     throw runtimeError(INVALID_ARGUMENT, "ip is required");
   const salt = ctx.env.IP_HASH_SALT;
-  if (!settingsOf(ctx).networkBans || !salt) return JSON.stringify({ banned: false });
+  if (!settingsOf(ctx).networkBans || !salt) return JSON.stringify({ banned: false, banIds: [] });
   const hash = networkHash((input) => nk.sha256Hash(input), salt, ip);
-  return JSON.stringify({ banned: hash !== null && isNetworkBanned(nk, hash) });
+  const banIds = hash === null ? [] : networkBanIdsOn(nk, hash);
+  return JSON.stringify({ banned: banIds.length > 0, banIds });
 }
 function rpcAdminNetworkBanLift(ctx, logger, nk, payload) {
   requireServer(ctx);

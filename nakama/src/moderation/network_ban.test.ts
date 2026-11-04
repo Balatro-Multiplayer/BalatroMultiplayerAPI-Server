@@ -303,14 +303,14 @@ describe('Network check for the website', () => {
 		const w = world()
 		w.login(A, HOME)
 		w.ban(A, 'ban-1', null)
-		expect(w.check(HOME)).toEqual({ banned: true })
-		expect(w.check(CAFE)).toEqual({ banned: false })
+		expect(w.check(HOME)).toEqual({ banned: true, banIds: ['ban-1'] })
+		expect(w.check(CAFE)).toEqual({ banned: false, banIds: [] })
 		w.lift('ban-1')
-		expect(w.check(HOME)).toEqual({ banned: false })
+		expect(w.check(HOME)).toEqual({ banned: false, banIds: [] })
 	})
 
 	it('says not banned on a server without network bans', () => {
 		const w = world('community')
-		expect(w.check(HOME)).toEqual({ banned: false })
+		expect(w.check(HOME)).toEqual({ banned: false, banIds: [] })
 	})
 })

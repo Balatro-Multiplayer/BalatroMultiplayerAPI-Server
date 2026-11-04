@@ -162,3 +162,19 @@ export async function downloadChatLabels(): Promise<void> {
     URL.revokeObjectURL(url)
   }
 }
+
+export interface AppealDecisionBody {
+  decision: 'deny' | 'grant'
+  reason: string
+  outcome?: 'lift' | 'shorten'
+  duration?: '24h' | '7d' | '30d'
+}
+
+export const decideAppeal = (
+  id: number,
+  body: AppealDecisionBody
+): Promise<{ appeal: { status: string } }> =>
+  apiFetch(`${BASE}/${id}/appeal`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })

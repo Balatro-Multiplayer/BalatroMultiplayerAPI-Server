@@ -10,9 +10,10 @@ import {
 	avatarsFor,
 	setNakamaAvatar,
 } from '../../infrastructure/nakama/avatar-sync.js'
+import { listAppealsOf } from '../../infrastructure/gateways/appeal.gateway.js'
 import { listBans } from '../../infrastructure/gateways/ban.gateway.js'
 import { listWarnings } from '../../infrastructure/gateways/warning.gateway.js'
-import { isNetworkBannedInNakama } from '../../infrastructure/nakama/moderation-sync.js'
+import { networkBanIdsAt } from '../../infrastructure/nakama/moderation-sync.js'
 import {
 	editNakamaProfile,
 	linkNakamaDiscord,
@@ -23,7 +24,9 @@ import { isOwner } from '../../shared/utils/require-owner.js'
 import { effectivePrivileges } from '../../shared/utils/staff-role.js'
 import { getSession, removeSession } from '../../state/index.js'
 import type { PlayerSession } from '../../state/index.js'
-import { buildPunishmentList } from '../punishments/player-punishments.js'
+import type { SubmitRefusal } from '../appeals/appeals.service.js'
+import { appealService } from '../appeals/appeals.deps.js'
+import { appealStateOf, buildPunishmentList } from '../punishments/player-punishments.js'
 import { discordLinkService } from '../nakama/discord-link.js'
 import type { AuthService } from './auth.service.js'
 import { getDiscordAuthUrl, validateDiscordCode } from './discord.js'
@@ -34,6 +37,30 @@ import {
 	getSteamPlayerName,
 	validateSteamOpenIdResponse,
 } from './steam.js'
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function appealRefusalHttp(refusal: SubmitRefusal): { status: number; body: Record<string, unknown> } {
+	switch (refusal.code) {
+		case 'invalid_message':
+			return { status: 400, body: { error: refusal.message, code: refusal.code } }
+		case 'not_found':
+			return { status: 404, body: { error: 'Punishment not found', code: refusal.code } }
+		case 'not_blocked':
+			return { status: 409, body: { error: 'No network ban blocks you', code: refusal.code } }
+		case 'already_lifted':
+			return { status: 409, body: { error: 'That punishment is already lifted', code: refusal.code } }
+		case 'open':
+			return { status: 409, body: { error: 'You already have an open appeal', code: refusal.code } }
+		case 'granted':
+			return { status: 409, body: { error: 'That appeal was granted', code: refusal.code } }
+		case 'cooling_down':
+			return {
+				status: 409,
+				body: { error: 'You can appeal again later', code: refusal.code, availableAt: refusal.availableAt.toISOString() },
+			}
+	}
+}
 
 function playerPayload(session: PlayerSession) {
 	return {
@@ -165,20 +192,59 @@ export function createAuthRouter(service: AuthService): Router {
 		}
 	})
 
-	// The account page's punishment list. It works for a banned account (plain
-	// `authenticate`), and shows a network ban that the player's address is
-	// under, without naming the account that caused it.
+	// The account page's punishment list, with each punishment's appeal. It works
+	// for a banned account (plain `authenticate`), and shows a network ban that
+	// the player's address is under, without naming the account that caused it.
 	router.get('/punishments', authenticate, async (req, res, next) => {
 		try {
 			const playerId = req.player!.playerId
-			const [bans, warnings, networkBanned] = await Promise.all([
+			const [bans, warnings, networkBanIds, appeals] = await Promise.all([
 				listBans(playerId),
 				listWarnings(playerId, 200),
-				isNetworkBannedInNakama(req.ip ?? ''),
+				networkBanIdsAt(req.ip ?? ''),
+				listAppealsOf(playerId),
 			])
+			const now = new Date()
+			const networkBanned = networkBanIds.length > 0
 			res.json({
-				punishments: buildPunishmentList(bans, warnings, new Date()),
+				punishments: buildPunishmentList(bans, warnings, now, appeals),
 				networkBanned,
+				networkAppeal: networkBanned
+					? appealStateOf(
+							appeals.filter((a) => a.targetKind === 'network_ban'),
+							now,
+						)
+					: null,
+			})
+		} catch (err) {
+			next(err)
+		}
+	})
+
+	// A player appeals one punishment, or (no punishmentId) the network ban that
+	// blocks them. Works for a banned account.
+	router.post('/appeals', authenticate, async (req, res, next) => {
+		try {
+			const { punishmentId, message } = (req.body ?? {}) as { punishmentId?: unknown; message?: unknown }
+			if (typeof message !== 'string') throw new AppError('message must be text', 400)
+			if (punishmentId !== undefined && punishmentId !== null && (typeof punishmentId !== 'string' || !UUID.test(punishmentId))) {
+				res.status(404).json({ error: 'Punishment not found', code: 'not_found' })
+				return
+			}
+			const playerId = req.player!.playerId
+			const result = await appealService.submit({
+				playerId,
+				punishmentId: typeof punishmentId === 'string' ? punishmentId : null,
+				message,
+				networkBanIds: typeof punishmentId === 'string' ? [] : await networkBanIdsAt(req.ip ?? ''),
+			})
+			if (!result.ok) {
+				const { status, body } = appealRefusalHttp(result.refusal)
+				res.status(status).json(body)
+				return
+			}
+			res.status(201).json({
+				appeal: appealStateOf([result.value], new Date()).appeal,
 			})
 		} catch (err) {
 			next(err)

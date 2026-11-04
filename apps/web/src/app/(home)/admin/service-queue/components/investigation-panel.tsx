@@ -21,6 +21,7 @@ import {
 } from '../lib/format'
 import type { ItemDetail } from '../lib/types'
 import { ActionBar } from './action-bar'
+import { AppealDecisionBar } from './appeal-decision-bar'
 import { ItemEvidence } from './evidence/item-evidence'
 import { Empty } from './evidence/shared'
 import { HistoryTimeline } from './history-timeline'
@@ -202,6 +203,10 @@ export function InvestigationPanel({
         )}
         <ItemEvidence detail={detail} names={names} />
       </div>
+      <AppealDecisionBar
+        detail={detail}
+        heldByOther={outcome?.kind === 'held'}
+      />
       <ActionBar
         detail={detail}
         names={names}

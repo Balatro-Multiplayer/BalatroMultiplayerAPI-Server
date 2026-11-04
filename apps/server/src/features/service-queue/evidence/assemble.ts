@@ -19,10 +19,11 @@ import {
 	reports,
 	serviceQueueItems,
 } from '../../../infrastructure/db/schema.js'
+import { appealHistory, findPunishmentRef, getAppealById } from '../../../infrastructure/gateways/appeal.gateway.js'
 import { loadFlaggedMembers, lobbyConversation } from '../../../infrastructure/gateways/flagged-chat.gateway.js'
 import { listWarnings } from '../../../infrastructure/gateways/warning.gateway.js'
 import { callNakamaRpc } from '../../../infrastructure/nakama/admin-client.js'
-import type { ServiceQueueItemRecord } from '../../../infrastructure/gateways/service-queue.gateway.js'
+import { type ServiceQueueItemRecord, actorNames } from '../../../infrastructure/gateways/service-queue.gateway.js'
 import { numericSourceId, parseAntiCheatSourceId, parseIntegritySourceId } from '../../../shared/service-queue/source-ids.js'
 import { guardReadingOf } from '../flagged-chat.js'
 import { contextOf } from '../types.js'
@@ -587,6 +588,47 @@ async function integrityEvidence(item: ServiceQueueItemRecord) {
 	}
 }
 
+// An appeal: what the player wrote, the punishment it is about (none for a
+// network ban, whose ban ids and networks staff never see here), and the
+// appeals they made before for the same target.
+async function appealEvidence(item: ServiceQueueItemRecord) {
+	const appeal = await getAppealById(item.sourceId)
+	if (!appeal) return null
+	const punishment = appeal.punishmentId ? await findPunishmentRef(appeal.punishmentId) : null
+	const earlier = (await appealHistory(appeal.playerId, appeal.punishmentId)).filter((a) => a.id !== appeal.id)
+	const names = punishment ? await actorNames([punishment.issuedBy]) : {}
+	return {
+		appeal: {
+			id: appeal.id,
+			message: appeal.message,
+			status: appeal.status,
+			createdAt: appeal.createdAt,
+			decisionReason: appeal.decisionReason,
+			decidedAt: appeal.decidedAt,
+			outcome: appeal.outcome,
+		},
+		target: appeal.targetKind,
+		punishment: punishment
+			? {
+					id: punishment.id,
+					type: punishment.banType ?? 'warning',
+					reason: punishment.reason,
+					issuedBy: punishment.issuedBy,
+					issuedByName: names[punishment.issuedBy] ?? null,
+					expiresAt: punishment.expiresAt,
+					liftedAt: punishment.liftedAt,
+				}
+			: null,
+		earlier: earlier.map((a) => ({
+			status: a.status,
+			message: a.message,
+			decisionReason: a.decisionReason,
+			createdAt: a.createdAt,
+			decidedAt: a.decidedAt,
+		})),
+	}
+}
+
 export async function evidenceOf(item: ServiceQueueItemRecord, now: Date): Promise<unknown> {
 	switch (item.itemType) {
 		case 'report':
@@ -603,6 +645,8 @@ export async function evidenceOf(item: ServiceQueueItemRecord, now: Date): Promi
 			return antiCheatEvidence(item)
 		case 'integrity':
 			return integrityEvidence(item)
+		case 'appeal':
+			return appealEvidence(item)
 		default:
 			return null
 	}

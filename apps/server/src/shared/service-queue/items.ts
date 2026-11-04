@@ -10,6 +10,7 @@ export const ITEM_TYPES = [
 	'contest',
 	'anti_cheat',
 	'integrity',
+	'appeal',
 ] as const
 export type ItemType = (typeof ITEM_TYPES)[number]
 

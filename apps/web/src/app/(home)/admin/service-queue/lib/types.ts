@@ -10,6 +10,7 @@ export const ITEM_TYPES = [
   'contest',
   'anti_cheat',
   'integrity',
+  'appeal',
 ] as const
 export type ItemType = (typeof ITEM_TYPES)[number]
 export const isItemType = (value: unknown): value is ItemType =>
@@ -512,6 +513,41 @@ export type TypedEvidence =
   | { itemType: 'contest'; evidence: ContestEvidence | null }
   | { itemType: 'anti_cheat'; evidence: AntiCheatEvidence | null }
   | { itemType: 'integrity'; evidence: IntegrityEvidence | null }
+  | { itemType: 'appeal'; evidence: AppealEvidence | null }
+
+export interface AppealEvidence {
+  appeal: {
+    id: string
+    message: string
+    status: 'open' | 'denied' | 'granted'
+    createdAt: string
+    decisionReason: string | null
+    decidedAt: string | null
+    outcome: 'lift' | 'shorten' | null
+  }
+  target: 'ban' | 'warning' | 'network'
+  punishment: {
+    id: string
+    type: string
+    reason: string | null
+    issuedBy: string
+    issuedByName: string | null
+    expiresAt: string | null
+    liftedAt: string | null
+  } | null
+  earlier: {
+    status: 'open' | 'denied' | 'granted'
+    message: string
+    decisionReason: string | null
+    createdAt: string
+    decidedAt: string | null
+  }[]
+}
+
+export interface AppealDecisions {
+  deny: boolean
+  grant: boolean
+}
 
 export interface ItemDetail {
   item: QueueItem
@@ -521,6 +557,7 @@ export interface ItemDetail {
   role: StaffRole
   claim: Claim | null
   targets: Target[]
+  appealDecisions?: AppealDecisions
 }
 
 export interface ItemEvent {

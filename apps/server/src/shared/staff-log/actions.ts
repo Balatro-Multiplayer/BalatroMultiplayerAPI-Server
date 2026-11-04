@@ -15,6 +15,8 @@ export const STAFF_ACTIONS = [
 	'void',
 	'overturn',
 	'reopen',
+	'appeal_deny',
+	'appeal_grant',
 	'match_result',
 	'match_void',
 	'role_grant',

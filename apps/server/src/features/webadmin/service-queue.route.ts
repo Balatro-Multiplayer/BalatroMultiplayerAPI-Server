@@ -14,6 +14,8 @@ import {
 	recordItemEvent,
 	viewedSince,
 } from '../../infrastructure/gateways/service-queue.gateway.js'
+import { decisionsFor } from '../appeals/appeal-rules.js'
+import { appealService } from '../appeals/appeals.deps.js'
 import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
 import { activeClaimant } from '../service-queue/claim.js'
 import { evidenceOf, subjectCard } from '../service-queue/evidence/assemble.js'
@@ -173,6 +175,11 @@ router.get('/service-queue/:id', async (req, res, next) => {
 				staff.role,
 			),
 			role: staff.role,
+			// What this staff member may decide on an appeal (the appeal's own buttons).
+			appealDecisions:
+				item.itemType === 'appeal'
+					? decisionsFor(staff, (evidence as { punishment?: { issuedBy?: string } | null } | null)?.punishment?.issuedBy ?? null)
+					: undefined,
 			claim: await namedClaimOf(item, now),
 			targets: targetsFor(item, evidence),
 		})
@@ -218,6 +225,22 @@ router.delete('/service-queue/:id/claim', async (req, res, next) => {
 		const result = await release(id, staff, force)
 		if (!result.ok) return sendRefusal(res, result.refusal)
 		res.json({ item: result.value, claim: claimOf(result.value, new Date()) })
+	} catch (err) {
+		next(err)
+	}
+})
+
+// Decides an appeal: deny, or grant by lifting or shortening (appeals.service.ts).
+router.post('/service-queue/:id/appeal', async (req, res, next) => {
+	try {
+		const id = itemIdOf(req.params.id)
+		if (id === null) return sendRefusal(res, { code: 'not_found' })
+		const staff = await staffOf(req)
+		if (!staff) return sendRefusal(res, { code: 'forbidden' })
+		const result = await appealService.decide(id, staff, (req.body ?? {}) as Record<string, unknown>)
+		if (!result.ok) return sendNamedRefusal(res, result.refusal)
+		console.log(`[webadmin] ${staff.role}:${staff.playerId} decided appeal item ${id}: ${result.value.appeal.status}`)
+		res.json({ appeal: result.value.appeal })
 	} catch (err) {
 		next(err)
 	}
