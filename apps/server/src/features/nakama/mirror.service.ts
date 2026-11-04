@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { seasonBestColumns } from '../ratings/season-best.js'
+import { raisesAntiCheatItem } from '../service-queue/automatic-rules.js'
 import { compressToBase64 } from '../../shared/utils/compression.js'
 import { DELETED_PLAYER_ID, DELETED_PLAYER_NAME } from '../../shared/deleted-player.js'
 import { CHAT_KEEP_MS, EVIDENCE_KEEP_MS } from '../../shared/retention-periods.js'
@@ -196,6 +197,8 @@ export interface RunRows {
 	}[]
 	// Flagged players: an anti_cheat service-queue item.
 	flagged: { playerId: string; reason: FlagReason }[]
+	// False when every player of the match is flagged: no item is made.
+	raiseAntiCheatItems: boolean
 	// A disputed game (matchmade or private): each report that differs from the result,
 	// against the first report that agrees with it (match_result_conflicts).
 	conflicts: {
@@ -303,6 +306,16 @@ function ratedDespiteFlag(run: PulledRun['run'], hasFlag: boolean): boolean {
 	)
 }
 
+function logCheckOf(run: PulledRun['run'], userId: string, log: NakamaLog | undefined) {
+	return (run.logChecks && run.logChecks[userId]) || (log ? log.check : 'unavailable')
+}
+
+// Runs stored before flags existed have only their log checks.
+function flagReasonOf(run: PulledRun['run'], userId: string, log: NakamaLog | undefined): FlagReason | null {
+	if (run.flags) return run.flags[userId] || null
+	return logCheckOf(run, userId, log) === 'mismatch' ? 'hash_mismatch' : null
+}
+
 // ids maps every Nakama user in the run to their player id.
 export function runRowsOf(entry: PulledRun, ids: Map<string, string>): RunRows {
 	const { run } = entry
@@ -314,15 +327,8 @@ export function runRowsOf(entry: PulledRun, ids: Map<string, string>): RunRows {
 	const flagged: RunRows['flagged'] = []
 	for (const player of seated) {
 		const log = entry.logs[player.id]
-		const check =
-			(run.logChecks && run.logChecks[player.id]) ||
-			(log ? log.check : 'unavailable')
-		// Runs stored before flags existed have only their log checks.
-		const flagReason: FlagReason | null = run.flags
-			? run.flags[player.id] || null
-			: check === 'mismatch'
-				? 'hash_mismatch'
-				: null
+		const check = logCheckOf(run, player.id, log)
+		const flagReason = flagReasonOf(run, player.id, log)
 		if (flagReason)
 			flagged.push({ playerId: pg(player.id), reason: flagReason })
 		logs.push({
@@ -416,6 +422,10 @@ export function runRowsOf(entry: PulledRun, ids: Map<string, string>): RunRows {
 		match,
 		ratings,
 		flagged,
+		raiseAntiCheatItems: raisesAntiCheatItem({
+			playerCount: run.players.length,
+			flaggedCount: run.players.filter((p) => flagReasonOf(run, p.id, entry.logs[p.id])).length,
+		}),
 	}
 }
 

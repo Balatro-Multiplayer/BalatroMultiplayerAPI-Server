@@ -88,7 +88,7 @@ export async function storeMirroredRun(rows: RunRows): Promise<void> {
 	})
 	// After the commit: the queue item points at rows that now exist. One
 	// item per flagged player (sourceId = 'runId:playerId', the run log's key).
-	for (const flag of rows.flagged) {
+	for (const flag of rows.raiseAntiCheatItems ? rows.flagged : []) {
 		await enqueueServiceQueueItem({
 			itemType: 'anti_cheat',
 			sourceId: antiCheatSourceId(rows.lobbyRun.id, flag.playerId),

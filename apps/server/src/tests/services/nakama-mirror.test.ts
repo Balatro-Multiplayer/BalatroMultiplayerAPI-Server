@@ -151,6 +151,14 @@ describe('runRowsOf: flags and disputes', () => {
 		expect(runRowsOf(run(), ids).match?.resultPlacements[0]).not.toHaveProperty('rated')
 	})
 
+	it('makes no anti-cheat item when every player of the match is flagged, and one when a single player is', () => {
+		const both = runRowsOf(run({ flags: { na: 'hash_mismatch', nb: 'hash_mismatch' } }), ids)
+		expect(both.flagged).toHaveLength(2)
+		expect(both.raiseAntiCheatItems).toBe(false)
+		const one = runRowsOf(run({ flags: { nb: 'hash_mismatch' } }), ids)
+		expect(one.raiseAntiCheatItems).toBe(true)
+	})
+
 	it('takes the run\'s own flags over its log checks', () => {
 		const rows = runRowsOf(run({ flags: { na: 'elapsed_time_gate' } }), ids)
 		expect(rows.logs.map((l) => l.flagReason)).toEqual(['elapsed_time_gate', null])
