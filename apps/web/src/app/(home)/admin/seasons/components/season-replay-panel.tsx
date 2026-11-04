@@ -13,7 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { ApiError, apiFetch } from '@/lib/api'
+import { ApiError, apiFetch, apiFetchWithReason } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import {
   Table,
@@ -75,7 +75,7 @@ export function SeasonReplayPanel() {
   const [confirming, setConfirming] = useState(false)
   const applyMut = useMutation<ApplyResponse, Error, string>({
     mutationFn: (token) =>
-      apiFetch('/webadmin/ratings/season-replay/apply', {
+      apiFetchWithReason('/webadmin/ratings/season-replay/apply', {
         method: 'POST',
         body: JSON.stringify({ token }),
       }),

@@ -18,7 +18,7 @@ import {
   type BanPreset,
   IssueBanForm,
   presetExpiry,
-} from '../../users/components/issue-ban-form'
+} from '../components/issue-ban-form'
 import { LadderPick } from '../components/ladder-pick'
 import {
   defaultLadderOf,

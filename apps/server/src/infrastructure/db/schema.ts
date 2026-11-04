@@ -327,10 +327,9 @@ export const forfeitReconciliationFlags = pgTable(
 // (reports, match_result_conflicts, forfeit_reconciliation_flags): reports.status
 // has a real independent reader today (the player-scoped GET /api/reports/:id
 // status page) so it must stay accurate -- resolving one of those 3 types
-// writes BOTH the source table's own status column (via the existing
-// resolveReport/resolveMatchConflict/dismissForfeitReconciliationFlag/
-// voidForfeitReconciliationFlag gateway functions, unchanged) and this row's
-// status, in one transaction. For the 2 gap types (flagged_chat, anti_cheat)
+// writes BOTH the source table's own status column (via the queue's
+// setReportStatus/setMatchConflictStatus/setForfeitFlagStatus writes) and this
+// row's status, in one transaction. For the 2 gap types (flagged_chat, anti_cheat)
 // -- confirmed via grep to have zero other readers of any status-like
 // concept -- this table alone is authoritative; no status column was added
 // to flagged_messages or match_run_logs for this.

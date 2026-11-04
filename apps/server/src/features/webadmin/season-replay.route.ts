@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { getSeasonForReplay } from '../../infrastructure/gateways/rating.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
+import { logStaffAction, requireReason } from './staff-action.js'
 import { requireOwner } from '../../shared/utils/require-owner.js'
 import { activeRankedGames } from '../ratings/active-ranked-games.js'
 import { seasonReplayApplyFor } from '../ratings/season-replay-apply.deps.js'
@@ -73,6 +74,7 @@ router.post('/ratings/season-replay', async (req, res, next) => {
 router.post('/ratings/season-replay/apply', async (req, res, next) => {
 	try {
 		await requireOwner(req)
+		const reason = requireReason(req)
 		const { token } = req.body ?? {}
 		if (typeof token !== 'string' || token === '')
 			throw new AppError('token is required: apply the dry run you saw', 400)
@@ -93,6 +95,11 @@ router.post('/ratings/season-replay/apply', async (req, res, next) => {
 			})
 			return
 		}
+		await logStaffAction(req, {
+			action: 'season_replay_apply',
+			reason,
+			detail: { seasonId: season.id, result: result.value },
+		})
 		res.json(result.value)
 	} catch (err) {
 		next(err)
@@ -103,6 +110,7 @@ router.post('/ratings/season-replay/apply', async (req, res, next) => {
 router.post('/ratings/season-replay/restore', async (req, res, next) => {
 	try {
 		await requireOwner(req)
+		const reason = requireReason(req)
 		const { backupId } = req.body ?? {}
 		if (typeof backupId !== 'string' || backupId === '')
 			throw new AppError('backupId is required', 400)
@@ -116,6 +124,11 @@ router.post('/ratings/season-replay/restore', async (req, res, next) => {
 			})
 			return
 		}
+		await logStaffAction(req, {
+			action: 'season_replay_restore',
+			reason,
+			detail: { backupId, result: result.value },
+		})
 		res.json(result.value)
 	} catch (err) {
 		next(err)

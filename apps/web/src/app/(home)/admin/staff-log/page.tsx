@@ -55,6 +55,8 @@ const ACTION_LABELS: Record<string, string> = {
   blog_unpublish: 'Unpublish blog post',
   blog_delete: 'Delete blog post',
   ladder_edit: 'Edit strike ladder',
+  season_replay_apply: 'Apply season replay',
+  season_replay_restore: 'Restore season replay backup',
 }
 
 interface StaffLogEntry {

@@ -246,36 +246,33 @@ router.post('/service-queue/:id/appeal', async (req, res, next) => {
 	}
 })
 
-// POST is the action route; PATCH is kept for the old web client.
-for (const method of ['post', 'patch'] as const) {
-	router[method]('/service-queue/:id/actions/:action', async (req, res, next) => {
-		try {
-			const id = itemIdOf(req.params.id)
-			if (id === null) return sendRefusal(res, { code: 'not_found' })
-			const staff = await staffOf(req)
-			if (!staff) return sendRefusal(res, { code: 'forbidden' })
-			const result = await serviceQueueDispatcher.run(
-				id,
-				req.params.action,
-				staff,
-				(req.body ?? {}) as Record<string, unknown>,
-			)
-			if (!result.ok) return sendNamedRefusal(res, result.refusal)
-			const { item, action, effects } = result.value
-			console.log(`[webadmin] ${staff.role}:${staff.playerId} ran service-queue action '${action}' on item ${id}`)
-			res.json({
-				item,
-				action,
-				effects,
-				allowedActions: allowedActionsFor(
-					{ itemType: item.itemType as ItemType, status: item.status as ItemStatus },
-					staff.role,
-				),
-			})
-		} catch (err) {
-			next(err)
-		}
-	})
-}
+router.post('/service-queue/:id/actions/:action', async (req, res, next) => {
+	try {
+		const id = itemIdOf(req.params.id)
+		if (id === null) return sendRefusal(res, { code: 'not_found' })
+		const staff = await staffOf(req)
+		if (!staff) return sendRefusal(res, { code: 'forbidden' })
+		const result = await serviceQueueDispatcher.run(
+			id,
+			req.params.action,
+			staff,
+			(req.body ?? {}) as Record<string, unknown>,
+		)
+		if (!result.ok) return sendNamedRefusal(res, result.refusal)
+		const { item, action, effects } = result.value
+		console.log(`[webadmin] ${staff.role}:${staff.playerId} ran service-queue action '${action}' on item ${id}`)
+		res.json({
+			item,
+			action,
+			effects,
+			allowedActions: allowedActionsFor(
+				{ itemType: item.itemType as ItemType, status: item.status as ItemStatus },
+				staff.role,
+			),
+		})
+	} catch (err) {
+		next(err)
+	}
+})
 
 export default router

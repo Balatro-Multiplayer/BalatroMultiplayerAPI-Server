@@ -42,9 +42,11 @@ export function NavAuth() {
               <DropdownMenuItem asChild>
                 <Link href='/admin/players'>Players</Link>
               </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href='/admin/users'>Users &amp; Bans</Link>
-              </DropdownMenuItem>
+              {isAdmin && (
+                <DropdownMenuItem asChild>
+                  <Link href='/admin/users'>Staff Roles</Link>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem asChild>
                 <Link href='/admin/service-queue'>Service Queue</Link>
               </DropdownMenuItem>

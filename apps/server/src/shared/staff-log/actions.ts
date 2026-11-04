@@ -38,6 +38,8 @@ export const STAFF_ACTIONS = [
 	'blog_unpublish',
 	'blog_delete',
 	'ladder_edit',
+	'season_replay_apply',
+	'season_replay_restore',
 ] as const
 export type StaffAction = (typeof STAFF_ACTIONS)[number]
 

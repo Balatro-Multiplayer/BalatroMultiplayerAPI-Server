@@ -2,8 +2,7 @@ import { Router } from 'express'
 import { asc, count, desc, eq } from 'drizzle-orm'
 import { db } from '../../infrastructure/db/index.js'
 import { players, reportedLobbyMessages, reports } from '../../infrastructure/db/schema.js'
-import { getReportById, resolveReport } from '../../infrastructure/gateways/report.gateway.js'
-import { dispatchLegacy } from '../service-queue/legacy.js'
+import { getReportById } from '../../infrastructure/gateways/report.gateway.js'
 import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
 
 const router = Router()
@@ -82,31 +81,6 @@ router.get('/reports/:id', async (req, res, next) => {
 		}
 
 		res.json({ report: await enrichReport(row, 200) })
-	} catch (err) {
-		next(err)
-	}
-})
-
-router.patch('/reports/:id/resolve', async (req, res, next) => {
-	try {
-		const id = Number(req.params.id)
-		if (!Number.isInteger(id)) {
-			res.status(400).json({ error: 'Invalid report id' })
-			return
-		}
-
-		const dispatched = await dispatchLegacy(req, 'report', id, 'resolve')
-		if (dispatched.kind === 'refused') {
-			res.status(dispatched.status).json(dispatched.body)
-			return
-		}
-		const updated = dispatched.kind === 'done' ? await getReportById(id) : await resolveReport(id)
-		if (!updated) {
-			res.status(404).json({ error: 'Report not found' })
-			return
-		}
-
-		res.json({ report: updated })
 	} catch (err) {
 		next(err)
 	}

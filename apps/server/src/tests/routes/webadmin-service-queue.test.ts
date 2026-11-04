@@ -241,7 +241,7 @@ describe('POST /api/webadmin/service-queue/:id/actions/:action', () => {
 			value: { item: { ...ITEM, status: 'resolved' }, action: 'warn', effects: { warningId: 3, delivered: true } },
 		})
 		const res = await request(app)
-			.patch('/api/webadmin/service-queue/1/actions/warn')
+			.post('/api/webadmin/service-queue/1/actions/warn')
 			.set('Authorization', token)
 			.send({ message: 'be nice' })
 		expect(res.status).toBe(200)

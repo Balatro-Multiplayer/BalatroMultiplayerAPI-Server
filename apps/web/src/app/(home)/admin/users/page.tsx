@@ -3,17 +3,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import type { BanType, Privilege } from '@bmp/types'
+import type { Privilege } from '@bmp/types'
 import { apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { BanList } from './components/ban-list'
-import {
-  type BanPreset,
-  IssueBanForm,
-  presetExpiry,
-} from './components/issue-ban-form'
-import { type NetworkBan, NetworkBanList } from './components/network-ban-list'
 import { PlayerList } from './components/player-list'
 import { PrivilegeManager } from './components/privilege-manager'
 
@@ -40,18 +33,8 @@ interface PlayersResponse {
   limit: number
 }
 
-interface Ban {
-  id: number
-  reason: string
-  banType: BanType
-  expiresAt: string | null
-  liftedAt: string | null
-  createdAt: string
-}
-
 interface PlayerDetailResponse {
   player: AdminPlayer
-  bans: Ban[]
 }
 
 // Every staff action needs a reason for the staff log; nothing is sent without one.
@@ -67,17 +50,13 @@ function noticeLine(player: Pick<AdminPlayer, 'tosAcceptedVersion' | 'noticeAcce
 }
 
 export default function AdminUsersPage() {
-  const { isAdmin, isModerator, pending } = useAuth()
+  const { isAdmin, pending } = useAuth()
   const router = useRouter()
   const qc = useQueryClient()
-  const canAccess = isAdmin || isModerator
+  const canAccess = isAdmin
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [banReason, setBanReason] = useState('')
-  const [banType, setBanType] = useState<BanType>('chat')
-  const [banExpiry, setBanExpiry] = useState('')
-  const [banPreset, setBanPreset] = useState<BanPreset>('7d')
   const [privInput, setPrivInput] = useState('')
 
   useEffect(() => {
@@ -98,51 +77,12 @@ export default function AdminUsersPage() {
     queryFn: () => apiFetch(`/webadmin/players/${selectedId}`),
     enabled: !!selectedId,
   })
-  const detail = detailResp ? { ...detailResp.player, bans: detailResp.bans } : null
-
-  const networkBansQuery = useQuery<{ networkBans: NetworkBan[] }>({
-    queryKey: ['admin-player-network-bans', selectedId],
-    queryFn: () => apiFetch(`/webadmin/players/${selectedId}/network-bans`),
-    enabled: !!selectedId && isAdmin,
-    retry: false,
-  })
+  const detail = detailResp?.player ?? null
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['admin-player-detail', selectedId] })
-    qc.invalidateQueries({ queryKey: ['admin-player-network-bans', selectedId] })
     qc.invalidateQueries({ queryKey: ['admin-players'] })
   }
-
-  const banMutation = useMutation({
-    mutationFn: (vars: { playerId: string; reason: string; type: string; expiresAt: string | null }) =>
-      apiFetch(`/webadmin/players/${vars.playerId}/bans`, {
-        method: 'POST',
-        body: JSON.stringify({ reason: vars.reason, type: vars.type, expiresAt: vars.expiresAt }),
-      }),
-    onSuccess: () => {
-      refresh()
-      setBanReason('')
-      setBanExpiry('')
-    },
-  })
-
-  const liftBanMutation = useMutation({
-    mutationFn: (vars: { playerId: string; banId: number; reason: string }) =>
-      apiFetch(`/webadmin/players/${vars.playerId}/bans/${vars.banId}`, {
-        method: 'DELETE',
-        body: JSON.stringify({ reason: vars.reason }),
-      }),
-    onSuccess: refresh,
-  })
-
-  const liftNetworkBanMutation = useMutation({
-    mutationFn: (vars: { playerId: string; banId: string; reason: string }) =>
-      apiFetch(`/webadmin/players/${vars.playerId}/network-bans/${vars.banId}`, {
-        method: 'DELETE',
-        body: JSON.stringify({ reason: vars.reason }),
-      }),
-    onSuccess: refresh,
-  })
 
   const privMutation = useMutation({
     mutationFn: (vars: { playerId: string; privileges: Privilege[]; reason: string }) =>
@@ -163,9 +103,9 @@ export default function AdminUsersPage() {
   return (
     <div className='container py-8 space-y-6'>
       <div>
-        <h1 className='text-2xl font-bold tracking-tight'>Users &amp; Bans</h1>
+        <h1 className='text-2xl font-bold tracking-tight'>Staff roles</h1>
         <p className='text-sm text-muted-foreground'>
-          Search players, manage bans, and grant privileges.
+          Search players and grant or remove staff roles. Bans and warnings are on the player page.
         </p>
       </div>
 
@@ -198,68 +138,6 @@ export default function AdminUsersPage() {
                 </a>
                 <p className='text-xs text-muted-foreground'>{noticeLine(detail)}</p>
               </div>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className='text-base'>Bans</CardTitle>
-                </CardHeader>
-                <CardContent className='space-y-4'>
-                  <BanList
-                    bans={detail.bans}
-                    canLift={isAdmin}
-                    liftPending={liftBanMutation.isPending}
-                    onLift={(banId) => {
-                      const reason = askReason('Reason for lifting this ban')
-                      if (reason) liftBanMutation.mutate({ playerId: detail.id, banId, reason })
-                    }}
-                  />
-                  <IssueBanForm
-                    isAdmin={isAdmin}
-                    banPreset={banPreset}
-                    onPresetChange={setBanPreset}
-                    banType={banType}
-                    banReason={banReason}
-                    banExpiry={banExpiry}
-                    isPending={banMutation.isPending}
-                    onBanTypeChange={setBanType}
-                    onReasonChange={setBanReason}
-                    onExpiryChange={setBanExpiry}
-                    onSubmit={() =>
-                      banMutation.mutate({
-                        playerId: detail.id,
-                        reason: banReason,
-                        type: banType,
-                        expiresAt: isAdmin
-                          ? banExpiry
-                            ? new Date(banExpiry).toISOString()
-                            : null
-                          : presetExpiry(banPreset),
-                      })
-                    }
-                  />
-                </CardContent>
-              </Card>
-
-              {/* Network data is for admins only: the server sends it to no one else. */}
-              {isAdmin && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className='text-base'>Network bans</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <NetworkBanList
-                    networkBans={networkBansQuery.data?.networkBans ?? []}
-                    unavailable={networkBansQuery.isError}
-                    canLift={isAdmin}
-                    liftPending={liftNetworkBanMutation.isPending}
-                    onLift={(banId) => {
-                      const reason = askReason('Reason for lifting this network ban')
-                      if (reason) liftNetworkBanMutation.mutate({ playerId: detail.id, banId, reason })
-                    }}
-                  />
-                </CardContent>
-              </Card>
-              )}
 
               {/* Granting/revoking privileges is admin-only (matches the server-side
                   gate on PATCH .../privileges) -- moderators can do everything else
