@@ -190,6 +190,12 @@ export default function AdminUsersPage() {
               <div>
                 <h2 className='text-lg font-bold tracking-tight'>{detail.steamName}</h2>
                 <p className='font-mono text-xs text-muted-foreground'>{detail.id}</p>
+                <a
+                  href={`/admin/players/${detail.id}`}
+                  className='text-xs text-bal-blue hover:underline'
+                >
+                  Open player page
+                </a>
                 <p className='text-xs text-muted-foreground'>{noticeLine(detail)}</p>
               </div>
 

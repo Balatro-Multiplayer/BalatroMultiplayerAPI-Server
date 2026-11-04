@@ -21,6 +21,7 @@ const PAGE_SIZE = 50
 // The server's STAFF_ACTIONS (apps/server shared/staff-log/actions.ts).
 const ACTION_LABELS: Record<string, string> = {
   warn: 'Warning',
+  note: 'Note',
   chat_ban: 'Chat ban',
   queue_ban: 'Queue ban',
   account_ban: 'Account ban',
@@ -89,7 +90,7 @@ function paramsOf(filters: Filters, page: number): string {
 function PlayerLink({ id, name }: { id: string | null; name: string | null }) {
   if (!id) return <span className='text-muted-foreground'>-</span>
   return (
-    <a href={`/players/${id}`} className='text-bal-blue hover:underline'>
+    <a href={`/admin/players/${id}`} className='text-bal-blue hover:underline'>
       {name ?? `${id.slice(0, 8)}…`}
     </a>
   )

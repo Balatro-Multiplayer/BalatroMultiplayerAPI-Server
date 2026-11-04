@@ -187,6 +187,9 @@ export const PLAYER_ID_COLUMNS: readonly PlayerIdColumn[] = [
 	{ table: 'staff_log', column: 'target_player_id', kind: 'id', data: 'moderation' },
 	{ table: 'staff_log', column: 'reason', kind: 'text', data: 'moderation' },
 	{ table: 'staff_log', column: 'detail', kind: 'json', data: 'moderation' },
+	{ table: 'player_notes', column: 'player_id', kind: 'id', data: 'moderation' },
+	{ table: 'player_notes', column: 'author_id', kind: 'id', data: 'moderation' },
+	{ table: 'player_notes', column: 'note', kind: 'text', data: 'moderation' },
 	{ table: 'grace_periods', column: 'player_id', kind: 'id', data: 'own' },
 	{
 		table: 'matchmaking_ratings',
@@ -370,6 +373,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 	service_queue_item_events: ['id', 'item_id', 'kind', 'action', 'note', 'at'],
 	player_warnings: ['id', 'item_id', 'message', 'issued_at'],
 	staff_log: ['id', 'staff_role', 'action', 'item_id', 'at'],
+	player_notes: ['id', 'created_at'],
 	grace_periods: [
 		'id',
 		'lobby_code',

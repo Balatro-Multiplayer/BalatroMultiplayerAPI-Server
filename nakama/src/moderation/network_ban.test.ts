@@ -14,6 +14,7 @@ import {
 	rpcAdminIpHashesPurge,
 	rpcAdminNetworkBanLift,
 	rpcAdminNetworkBans,
+	rpcAdminPlayerNetworks,
 } from './network_admin'
 
 const A = '11111111-1111-4111-8111-111111111111'
@@ -106,6 +107,16 @@ function world(kind: Kind = 'official', salt = 'test-salt') {
 				),
 			)
 		},
+		networks(userId: string) {
+			return JSON.parse(
+				rpcAdminPlayerNetworks(
+					serverCall,
+					fakeLogger,
+					nk as any,
+					JSON.stringify({ userId }),
+				),
+			)
+		},
 		lift(banId: string) {
 			return JSON.parse(
 				rpcAdminNetworkBanLift(
@@ -134,6 +145,20 @@ describe('Network bans', () => {
 		w.ban(A, 'ban-1', null)
 		expect(() => w.login(B, HOME)).toThrow(NETWORK_BANNED)
 		expect(() => w.login(B, CAFE)).not.toThrow()
+	})
+
+	it('lists the networks an account logged in from, each with its last login', () => {
+		const w = world()
+		expect(w.networks(A).networks).toEqual([])
+		w.login(A, HOME)
+		w.login(A, CAFE)
+		const { networks } = w.networks(A)
+		expect(networks).toHaveLength(2)
+		for (const network of networks) {
+			expect(network.hash).toMatch(/^[0-9a-f]{64}$/)
+			expect(network.lastSeen).toBeGreaterThan(Date.now() - 60 * 1000)
+		}
+		expect(w.networks(B).networks).toEqual([])
 	})
 
 	it('a timed account ban never bans a network', () => {

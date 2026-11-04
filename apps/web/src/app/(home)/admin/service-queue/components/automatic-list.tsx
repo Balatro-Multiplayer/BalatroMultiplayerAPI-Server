@@ -71,6 +71,12 @@ function GroupItems({
           </span>
         </button>
       ))}
+      <a
+        href={`/admin/players/${group.playerId}`}
+        className='block px-3 pt-2 text-bal-blue text-xs hover:underline'
+      >
+        Open player page
+      </a>
       <div className='flex items-center gap-2 px-3 py-2'>
         <Input
           className='h-8 flex-1'

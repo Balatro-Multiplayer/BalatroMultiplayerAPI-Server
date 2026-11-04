@@ -449,6 +449,13 @@
       "when": 1793900000000,
       "tag": "0063_chat_review_labels",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1794000000000,
+      "tag": "0064_player_notes",
+      "breakpoints": true
     }
   ]
 }

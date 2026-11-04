@@ -29,7 +29,7 @@ import {
 import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gateway.js'
 import { insertWarning } from '../../infrastructure/gateways/warning.gateway.js'
 import { callNakamaRpc } from '../../infrastructure/nakama/admin-client.js'
-import { banInNakama, liftBanInNakama, nakamaUserIdOf } from '../../infrastructure/nakama/moderation-sync.js'
+import { banInNakama, liftBanInNakama, notifyWarnedInNakama } from '../../infrastructure/nakama/moderation-sync.js'
 import { matchEditorFor } from '../ratings/match-edit.deps.js'
 import type { MatchEditSummary } from '../ratings/match-edit.service.js'
 import { dismissAutomaticItems } from './automatic.js'
@@ -41,9 +41,6 @@ import { numericSourceId, parseAntiCheatSourceId } from '../../shared/service-qu
 import { type StaffRole, actorOf, contextOf } from './types.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-// NotifyCode.WARNED in nakama/src/notify.ts.
-const NOTIFY_WARNED = 109
 
 // The run an item is about: a conflict's or forfeit flag's match id (the run
 // id), a contest's source id (the run id), or an anti-cheat item's run.
@@ -199,19 +196,7 @@ const deps: DispatcherDeps<DbTransaction> = {
 
 	banInNakama: (ban) => banInNakama(ban),
 	liftBanInNakama: (playerId, banId) => liftBanInNakama(playerId, banId),
-	async notifyWarned(playerId, payload) {
-		const userId = await nakamaUserIdOf(playerId)
-		if (!userId) return false
-		const result = await callNakamaRpc('admin_notify', {
-			userId,
-			code: NOTIFY_WARNED,
-			subject: 'warned',
-			content: payload,
-			persistent: true,
-		})
-		if (!result.ok) console.warn(`[service-queue] Warning for ${playerId} not sent: ${result.error}`)
-		return result.ok
-	},
+	notifyWarned: (playerId, payload) => notifyWarnedInNakama(playerId, payload),
 	async rescore(item, playerIds) {
 		try {
 			for (const playerId of new Set(playerIds)) await rescoreSubject(playerId)
