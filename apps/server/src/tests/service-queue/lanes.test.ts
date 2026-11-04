@@ -38,7 +38,7 @@ describe('dismissAutomaticItems', () => {
 		expect(run).not.toHaveBeenCalled()
 	})
 
-	it('dismisses each open item with the one reason as its note', async () => {
+	it('dismisses each open item with the one reason', async () => {
 		const run = vi.fn(async () => ({ ok: true as const }))
 		const result = await dismissAutomaticItems(
 			{ openItemIds: async () => [3, 4], run },
@@ -48,10 +48,10 @@ describe('dismissAutomaticItems', () => {
 		)
 		expect(run).toHaveBeenCalledTimes(2)
 		expect(run).toHaveBeenCalledWith(3, 'dismiss', MOD, {
-			note: 'known false positive',
+			reason: 'known false positive',
 		})
 		expect(run).toHaveBeenCalledWith(4, 'dismiss', MOD, {
-			note: 'known false positive',
+			reason: 'known false positive',
 		})
 		expect(result).toEqual({ ok: true, dismissed: 2, failed: [] })
 	})

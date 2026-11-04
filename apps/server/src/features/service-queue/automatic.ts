@@ -8,7 +8,7 @@ export interface AutomaticDismissDeps {
 		itemId: number,
 		action: 'dismiss',
 		staff: Staff,
-		body: { note: string },
+		body: { reason: string },
 	): Promise<{ ok: true } | { ok: false; code: string }>
 }
 
@@ -27,7 +27,7 @@ export async function dismissAutomaticItems(
 	let dismissed = 0
 	const failed: { itemId: number; code: string }[] = []
 	for (const itemId of await deps.openItemIds(playerId)) {
-		const result = await deps.run(itemId, 'dismiss', staff, { note })
+		const result = await deps.run(itemId, 'dismiss', staff, { reason: note })
 		if (result.ok) dismissed++
 		else failed.push({ itemId, code: result.code })
 	}
