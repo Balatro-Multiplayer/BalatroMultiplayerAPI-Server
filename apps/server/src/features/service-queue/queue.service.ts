@@ -18,6 +18,7 @@ import {
 	claimItem,
 	getServiceQueueItemById,
 	markServiceQueueItemReopened,
+	openAutomaticItemIds,
 	markServiceQueueItemResolved,
 	recordItemEvent,
 	releaseItem,
@@ -28,6 +29,7 @@ import {
 import { insertWarning } from '../../infrastructure/gateways/warning.gateway.js'
 import { callNakamaRpc } from '../../infrastructure/nakama/admin-client.js'
 import { banInNakama, liftBanInNakama, nakamaUserIdOf } from '../../infrastructure/nakama/moderation-sync.js'
+import { dismissAutomaticItems } from './automatic.js'
 import { decideClaim, decideRelease } from './claim.js'
 import { type DispatcherDeps, type GameRef, type QueueItem, createDispatcher } from './dispatcher.js'
 import { type Placement, samePlaces } from './overturn.js'
@@ -265,3 +267,18 @@ export async function release(
 	})
 	return { ok: true, value: released ?? item }
 }
+
+// Dismisses all of a player's open automatic items with one reason.
+export const dismissAutomaticItemsOf = (playerId: string, staff: { playerId: string; role: StaffRole }, reason: string) =>
+	dismissAutomaticItems(
+		{
+			openItemIds: openAutomaticItemIds,
+			async run(itemId, action, who, body) {
+				const result = await serviceQueueDispatcher.run(itemId, action, who, body)
+				return result.ok ? { ok: true } : { ok: false, code: result.refusal.code }
+			},
+		},
+		playerId,
+		staff,
+		reason,
+	)

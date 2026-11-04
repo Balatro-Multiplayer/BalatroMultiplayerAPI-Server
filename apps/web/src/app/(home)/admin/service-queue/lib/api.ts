@@ -4,6 +4,7 @@ import { ApiError, apiFetch } from '@/lib/api'
 import type {
   ActionBody,
   ActionResult,
+  AutomaticGroup,
   Claim,
   ItemDetail,
   ItemEvents,
@@ -17,6 +18,7 @@ import type {
 const BASE = '/webadmin/service-queue'
 
 export interface ListFilters {
+  lane: 'main' | null
   itemType: ItemType | null
   status: StatusFilter
   sort: QueueSort
@@ -29,6 +31,7 @@ export interface ListFilters {
 export const queueKeys = {
   all: ['service-queue'] as const,
   list: (filters: ListFilters) => ['service-queue', 'list', filters] as const,
+  automatic: ['service-queue', 'automatic'] as const,
   detail: (id: number) => ['service-queue', 'item', id] as const,
   events: (id: number) => ['service-queue', 'events', id] as const,
 }
@@ -42,6 +45,7 @@ export function listQueue(filters: ListFilters): Promise<QueueList> {
     status: filters.status,
     sort: filters.sort,
   })
+  if (filters.lane) params.set('lane', filters.lane)
   if (filters.itemType) params.set('itemType', filters.itemType)
   if (filters.subject.trim()) params.set('subject', filters.subject.trim())
   if (filters.claimedByMe) params.set('claimedByMe', '1')
@@ -49,6 +53,23 @@ export function listQueue(filters: ListFilters): Promise<QueueList> {
     params.set('olderThanHours', String(filters.olderThanHours))
   return apiFetch(`${BASE}?${params}`)
 }
+
+export const listAutomatic = (): Promise<{ groups: AutomaticGroup[] }> =>
+  apiFetch(`${BASE}/automatic`)
+
+export interface BulkDismissResult {
+  dismissed: number
+  failed: { itemId: number; code: string }[]
+}
+
+export const dismissAutomatic = (
+  playerId: string,
+  reason: string
+): Promise<BulkDismissResult> =>
+  apiFetch(`${BASE}/automatic/${encodeURIComponent(playerId)}/dismiss`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
 
 export const getItem = (id: number): Promise<ItemDetail> =>
   apiFetch(`${BASE}/${id}`)

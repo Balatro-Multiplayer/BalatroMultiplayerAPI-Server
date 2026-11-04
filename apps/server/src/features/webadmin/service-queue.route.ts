@@ -7,6 +7,7 @@ import {
 	actorNames,
 	getServiceQueueItemById,
 	isServiceQueueItemType,
+	listAutomaticGroups,
 	listItemEvents,
 	listServiceQueueItems,
 	openCountsByType,
@@ -16,8 +17,9 @@ import {
 import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
 import { activeClaimant } from '../service-queue/claim.js'
 import { evidenceOf, subjectCard } from '../service-queue/evidence/assemble.js'
+import type { QueueLane } from '../service-queue/lanes.js'
 import { allowedActionsFor } from '../service-queue/permissions.js'
-import { claim, release, serviceQueueDispatcher } from '../service-queue/queue.service.js'
+import { claim, dismissAutomaticItemsOf, release, serviceQueueDispatcher } from '../service-queue/queue.service.js'
 import { type QueueRefusal, httpOf } from '../service-queue/refusals.js'
 import { staffOf } from '../service-queue/staff.js'
 import { targetsOf } from '../service-queue/targets.js'
@@ -83,6 +85,8 @@ router.get('/service-queue', async (req, res, next) => {
 		const itemType = isServiceQueueItemType(req.query.itemType) ? req.query.itemType : undefined
 		// Unfiltered (the old default) is every status.
 		const status = STATUS_FILTERS.find((s) => s === req.query.status) ?? 'all'
+		const lane: QueueLane | undefined =
+			req.query.lane === 'main' || req.query.lane === 'automatic' ? req.query.lane : undefined
 		const sort: QueueSort = req.query.sort === 'age' ? 'age' : 'priority'
 		const subject =
 			typeof req.query.subject === 'string' && req.query.subject.trim() ? req.query.subject.trim() : undefined
@@ -95,6 +99,7 @@ router.get('/service-queue', async (req, res, next) => {
 				page,
 				limit,
 				itemType,
+				lane,
 				status,
 				subject,
 				claimedBy: claimedByMe ? req.player!.playerId : undefined,
@@ -113,6 +118,32 @@ router.get('/service-queue', async (req, res, next) => {
 			pages: Math.ceil(total / limit),
 			counts,
 		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+// The Automatic tab: one row per player with open anti-cheat or integrity items.
+router.get('/service-queue/automatic', async (_req, res, next) => {
+	try {
+		res.json({ groups: await listAutomaticGroups() })
+	} catch (err) {
+		next(err)
+	}
+})
+
+// Dismisses all of one player's open automatic items with one reason.
+router.post('/service-queue/automatic/:playerId/dismiss', async (req, res, next) => {
+	try {
+		const staff = await staffOf(req)
+		if (!staff) return sendRefusal(res, { code: 'forbidden' })
+		const reason = typeof req.body?.reason === 'string' ? req.body.reason : ''
+		const result = await dismissAutomaticItemsOf(req.params.playerId, staff, reason)
+		if (!result.ok) return res.status(400).json({ error: 'A reason is required', code: result.error })
+		console.log(
+			`[webadmin] ${staff.role}:${staff.playerId} dismissed ${result.dismissed} automatic items of ${req.params.playerId}`,
+		)
+		res.json(result)
 	} catch (err) {
 		next(err)
 	}
