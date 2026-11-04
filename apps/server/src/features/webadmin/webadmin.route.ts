@@ -14,6 +14,7 @@ import lobbiesRouter from './lobbies.route.js'
 import matchConflictsRouter from './match-conflicts.route.js'
 import matchesRouter from './matches.route.js'
 import modsRouter from './mods.route.js'
+import playerPageRouter from './player-page.route.js'
 import playersRouter from './players.route.js'
 import reportsRouter from './reports.route.js'
 import seasonReplayRouter from './season-replay.route.js'
@@ -42,6 +43,7 @@ const admin = roleGuard('admin')
 
 router.use(webAdmin)
 router.use(playersRouter)
+router.use(playerPageRouter)
 router.use(chatLogsRouter)
 router.use('/chat-labels', admin)
 router.use(chatLabelsRouter)

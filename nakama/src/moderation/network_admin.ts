@@ -10,6 +10,7 @@ import {
 	networkBansFor,
 	networkHash,
 	purgeIpHashes,
+	readIpHashes,
 } from './network'
 
 // Accounts looked at per call at most; the caller repeats while `more` is set.
@@ -26,6 +27,25 @@ export function rpcAdminNetworkBans(
 	requireServer(ctx)
 	const userId = requireUserId(nk, parsePayload(payload))
 	return JSON.stringify({ networkBans: networkBansFor(nk, userId) })
+}
+
+// {userId} -> {networks}: the salted hashes of the networks the account
+// logged in from in the last 30 days, each with the time of its last login.
+// For admins only; the hashes are never sent to moderators.
+export function rpcAdminPlayerNetworks(
+	ctx: nkruntime.Context,
+	logger: nkruntime.Logger,
+	nk: nkruntime.Nakama,
+	payload: string,
+) {
+	requireServer(ctx)
+	const userId = requireUserId(nk, parsePayload(payload))
+	const hashes = readIpHashes(nk, userId)
+	const networks = Object.keys(hashes).map((hash) => ({
+		hash,
+		lastSeen: hashes[hash],
+	}))
+	return JSON.stringify({ networks })
 }
 
 // {ip} -> {banned}: whether the address is on a banned network. For the

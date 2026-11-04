@@ -10759,6 +10759,16 @@ function rpcAdminNetworkBans(ctx, logger, nk, payload) {
   const userId = requireUserId2(nk, parsePayload(payload));
   return JSON.stringify({ networkBans: networkBansFor(nk, userId) });
 }
+function rpcAdminPlayerNetworks(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const userId = requireUserId2(nk, parsePayload(payload));
+  const hashes = readIpHashes(nk, userId);
+  const networks = Object.keys(hashes).map((hash) => ({
+    hash,
+    lastSeen: hashes[hash]
+  }));
+  return JSON.stringify({ networks });
+}
 function rpcAdminNetworkCheck(ctx, logger, nk, payload) {
   requireServer(ctx);
   const ip = parsePayload(payload).ip;
@@ -10859,6 +10869,7 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("admin_network_bans", rpcAdminNetworkBans);
   initializer.registerRpc("admin_network_ban_lift", rpcAdminNetworkBanLift);
   initializer.registerRpc("admin_network_check", rpcAdminNetworkCheck);
+  initializer.registerRpc("admin_player_networks", rpcAdminPlayerNetworks);
   initializer.registerRpc("admin_ip_hashes_purge", rpcAdminIpHashesPurge);
   initializer.registerRpc("admin_lobby_list", rpcAdminLobbyList);
   initializer.registerRpc("admin_lobby_get", rpcAdminLobbyGet);

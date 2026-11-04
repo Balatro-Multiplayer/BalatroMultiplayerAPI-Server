@@ -3,6 +3,9 @@ import { findPlayerById } from '../gateways/player.gateway.js'
 import { type Result, err, ok } from '../../shared/utils/result.js'
 import { callNakamaRpc, isNakamaAdminEnabled } from './admin-client.js'
 
+// NotifyCode.WARNED in nakama/src/notify.ts.
+const NOTIFY_WARNED = 109
+
 // Bans and webadmin lobby actions reaching players on Nakama
 // (nakama/src/admin.ts). Postgres stays the ban history; Nakama keeps the bans
 // in force and acts on them at once. Best effort: a failure is logged, and the
@@ -28,6 +31,24 @@ export async function banInNakama(ban: BanRecord): Promise<boolean> {
 	return result.ok
 }
 
+// The warning pop-up (WARNED, 109) for a player, kept until they see it.
+export async function notifyWarnedInNakama(
+	playerId: string,
+	payload: { message: string; itemType: string; warnedAt: number },
+): Promise<boolean> {
+	const userId = await nakamaUserIdOf(playerId)
+	if (!userId) return false
+	const result = await callNakamaRpc('admin_notify', {
+		userId,
+		code: NOTIFY_WARNED,
+		subject: 'warned',
+		content: payload,
+		persistent: true,
+	})
+	if (!result.ok) console.warn(`[nakama] Warning for ${playerId} not sent: ${result.error}`)
+	return result.ok
+}
+
 export async function liftBanInNakama(playerId: string, banId: string): Promise<boolean> {
 	const userId = await nakamaUserIdOf(playerId)
 	if (!userId) return false
@@ -42,6 +63,8 @@ export async function liftBanInNakama(playerId: string, banId: string): Promise<
 export interface NetworkBanSummary {
 	banId: string
 	own: boolean
+	// The Nakama account whose permanent ban made this network ban.
+	bannedUserId: string
 	networks: number
 	bannedAt: number
 	liftedAt: number | null
@@ -62,6 +85,7 @@ export async function networkBansInNakama(playerId: string): Promise<Result<Netw
 	return ok(result.value.networkBans.map((b) => ({
 		banId: b.banId,
 		own: b.userId === userId,
+		bannedUserId: b.userId,
 		networks: b.networks,
 		bannedAt: b.bannedAt,
 		liftedAt: b.liftedAt,
@@ -74,6 +98,20 @@ export async function networkBansInNakama(playerId: string): Promise<Result<Netw
 export async function isNetworkBannedInNakama(ip: string): Promise<boolean> {
 	const result = await callNakamaRpc<{ banned: boolean }>('admin_network_check', { ip })
 	return result.ok && result.value.banned
+}
+
+// A network the account logged in from in the last 30 days: a salted hash and
+// when it was last seen.
+export interface PlayerNetwork {
+	hash: string
+	lastSeen: number
+}
+
+export async function playerNetworksInNakama(playerId: string): Promise<Result<PlayerNetwork[], NetworkBansError>> {
+	const userId = await nakamaUserIdOf(playerId)
+	if (!userId) return isNakamaAdminEnabled() ? ok([]) : err('unavailable')
+	const result = await callNakamaRpc<{ networks: PlayerNetwork[] }>('admin_player_networks', { userId })
+	return result.ok ? ok(result.value.networks) : err('unavailable')
 }
 
 // not_found: no such network ban in force. unavailable: Nakama cannot answer.

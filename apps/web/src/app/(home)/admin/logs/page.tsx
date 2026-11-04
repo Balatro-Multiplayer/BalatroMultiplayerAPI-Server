@@ -86,7 +86,7 @@ export default function AdminLogsPage() {
                     {new Date(log.sentAt).toLocaleString()}
                   </TableCell>
                   <TableCell>
-                    <a href={`/players/${log.playerId}`} className='font-mono text-xs text-bal-blue hover:underline'>
+                    <a href={`/admin/players/${log.playerId}`} className='font-mono text-xs text-bal-blue hover:underline'>
                       {log.playerId.slice(0, 8)}…
                     </a>
                   </TableCell>

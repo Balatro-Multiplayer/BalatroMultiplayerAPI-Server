@@ -456,6 +456,21 @@ export const playerWarnings = pgTable(
 	(t) => [index('player_warnings_player_idx').on(t.playerId)],
 )
 
+// A staff note on a player (the player page). Staff read it; the player never does.
+export const playerNotes = pgTable(
+	'player_notes',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		playerId: uuid('player_id')
+			.notNull()
+			.references(() => players.id),
+		authorId: uuid('author_id').notNull(),
+		note: text('note').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [index('player_notes_player_idx').on(t.playerId, t.createdAt)],
+)
+
 // Unused since the move to Nakama (which holds disconnect grace itself); kept
 // so the old rows survive. Was a disconnected player's 2-minute countdown
 // before auto-forfeit, durable across a bmp-api restart. No FK on playerId, same
