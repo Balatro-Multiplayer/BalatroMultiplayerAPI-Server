@@ -18,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AssetModalProvider } from './components/asset-modal'
 import { AssetsTab } from './components/assets-tab'
 import { ExeImport } from './components/exe-import'
+import { type ImportFeedback, ImportStatus } from './components/import-status'
 import { LocalizationTab } from './components/localization-tab'
 import { OptionsTab } from './components/options-tab'
 import catalogJson from './data/catalog.json'
@@ -32,6 +33,9 @@ import {
   type SavedExe,
   supportsFsAccess,
 } from './lib/exeStore'
+import { GameArchive } from './lib/gameArchive'
+import { findAppLove, type GameImportProgress } from './lib/gameImport'
+import { importGame } from './lib/gameImportClient'
 import { generatePack } from './lib/generate'
 import { importPack } from './lib/importProject'
 import {
@@ -47,77 +51,137 @@ const catalog = catalogJson as unknown as Catalog
 export function ReskinStudio() {
   const [project, setProject] = useState<ProjectState>(emptyProject)
   const [busy, setBusy] = useState(false)
-  const [exeBuf, setExeBuf] = useState<Uint8Array | null>(null)
+  const [exeBuf, setExeBuf] = useState<GameArchive | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
 
-  // Optional: read the user's own Balatro.exe locally to lift a card-border
-  // template, vanilla art defaults, and in-game text. Never uploaded; only
-  // their own generated pack uses it. We remember it (a file handle on
-  // Chromium, else the raw bytes) so a reload can re-import it in one click.
+  // Optional local game import (.exe/.love, or the .love inside a Mac app).
+  // Remember a handle or archive bytes so a reload can re-import in one click.
+  // The legacy exe names/IndexedDB store are retained for saved-file compatibility.
   const [canPickHandle, setCanPickHandle] = useState(false)
   const [savedExe, setSavedExe] = useState<SavedExe | null>(null)
   const [reimportOpen, setReimportOpen] = useState(false)
 
-  // Read the given exe locally and light up the exe-backed features. Returns
-  // whether it succeeded so callers only persist a reference on success.
-  const applyExe = useCallback(async (file: File): Promise<boolean> => {
-    setBusy(true)
-    try {
-      const buf = new Uint8Array(await file.arrayBuffer())
-      setExeBuf(buf)
-      toast.success('Balatro.exe loaded', {
-        description:
-          'Vanilla art now shows as defaults, borders and shapes are available, and text can be edited.',
-      })
-      return true
-    } catch (e) {
-      setExeBuf(null)
-      toast.error('Could not read Balatro.exe', {
-        description: e instanceof Error ? e.message : String(e),
-      })
-      return false
-    } finally {
-      setBusy(false)
-    }
-  }, [])
+  const [importFeedback, setImportFeedback] = useState<ImportFeedback | null>(
+    null
+  )
+  const activeImport = useRef<AbortController | null>(null)
+  useEffect(() => () => activeImport.current?.abort(), [])
 
-  // Chromium path: pick a file handle we can persist and re-open later.
+  // Keep the busy state through persistence. Parsing/inflation runs in a worker,
+  // so the status can paint and cancellation works even during ZIP scans.
+  const applyExe = useCallback(
+    async (
+      source: File,
+      remember = false,
+      handle?: FileSystemFileHandle
+    ): Promise<void> => {
+      if (activeImport.current) return
+      const controller = new AbortController()
+      activeImport.current = controller
+      setBusy(true)
+      const report = (progress: GameImportProgress) =>
+        setImportFeedback({
+          state: 'working',
+          name: source.name,
+          size: source.size,
+          progress,
+        })
+      report({ stage: 'reading' })
+      try {
+        const { bytes, file } = await importGame(
+          source,
+          report,
+          controller.signal
+        )
+        controller.signal.throwIfAborted()
+        let remembered = true
+        if (remember) {
+          report({ stage: 'remembering' })
+          try {
+            if (handle && file === source) {
+              await rememberHandle(handle)
+              setSavedExe({ kind: 'handle', name: handle.name, handle })
+            } else {
+              await rememberBytes(file)
+              setSavedExe({ kind: 'bytes', name: file.name, blob: file })
+            }
+          } catch {
+            remembered = false
+            setSavedExe(null)
+            await forgetExe()
+          }
+        }
+        setExeBuf(new GameArchive(bytes))
+        const message = remembered
+          ? `${file.name} loaded. Vanilla art and text editing are available.`
+          : `${file.name} loaded, but could not be remembered. Choose it again next time; browser storage may be disabled or full.`
+        setImportFeedback({ state: 'success', message })
+        if (remembered) toast.success(`${file.name} loaded`)
+        else toast.warning('Game loaded, but could not be remembered')
+      } catch (e) {
+        if (controller.signal.aborted) {
+          setImportFeedback({
+            state: 'cancelled',
+            message:
+              'Import cancelled. Your previous game import is unchanged.',
+          })
+        } else {
+          const message = e instanceof Error ? e.message : String(e)
+          setImportFeedback({
+            state: 'error',
+            message: `Could not import ${source.name}: ${message}`,
+          })
+          toast.error('Could not read Balatro game', { description: message })
+        }
+      } finally {
+        activeImport.current = null
+        setBusy(false)
+      }
+    },
+    []
+  )
+
+  // Chromium: persist a handle for direct files, but only the inner .love for app ZIPs.
   const onPickExe = useCallback(async () => {
     try {
       const handle = await pickExeHandle()
       if (!handle) return
-      const file = await handle.getFile()
-      if (await applyExe(file)) {
-        await rememberHandle(handle)
-        setSavedExe({ kind: 'handle', name: handle.name, handle })
-      }
+      const source = await handle.getFile()
+      await applyExe(source, true, handle)
     } catch (e) {
-      toast.error('Could not read Balatro.exe', {
+      toast.error('Could not read Balatro game', {
         description: e instanceof Error ? e.message : String(e),
       })
     }
   }, [applyExe])
 
-  // Fallback path (non-Chromium <input>): persist the raw bytes instead.
+  // File/folder input: persist just the game archive, not the whole Mac bundle.
   const onExeFile = useCallback(
-    async (file: File | null) => {
-      if (!file) {
-        setExeBuf(null)
-        setSavedExe(null)
-        await forgetExe()
-        return
-      }
-      if (await applyExe(file)) {
-        await rememberBytes(file)
-        setSavedExe({ kind: 'bytes', name: file.name, blob: file })
-      }
+    async (source: File | null) => {
+      if (!source) return
+      await applyExe(source, true)
     },
     [applyExe]
+  )
+
+  const onAppFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return
+      try {
+        await onExeFile(findAppLove(files))
+      } catch (e) {
+        toast.error('Could not find Balatro.love in that folder', {
+          description: e instanceof Error ? e.message : String(e),
+        })
+      }
+    },
+    [onExeFile]
   )
 
   const onForgetExe = useCallback(async () => {
     setExeBuf(null)
     setSavedExe(null)
+    setImportFeedback(null)
     await forgetExe()
   }, [])
 
@@ -141,14 +205,14 @@ export function ReskinStudio() {
     try {
       const file = await fileFromSaved(savedExe)
       if (!file) {
-        toast.error('Balatro.exe permission was declined', {
+        toast.error('Balatro game permission was declined', {
           description: 'It is still remembered — reload to try again.',
         })
         return
       }
       await applyExe(file)
     } catch (e) {
-      toast.error('Could not re-import Balatro.exe', {
+      toast.error('Could not re-import Balatro game', {
         description: e instanceof Error ? e.message : String(e),
       })
     }
@@ -165,7 +229,12 @@ export function ReskinStudio() {
       setProject((p) => {
         const objects = { ...p.objects }
         const id = objId(catId, key)
-        if (edit && (edit.sprites.some(Boolean) || edit.soul || edit.shader))
+        if (
+          edit &&
+          (edit.sprites.some(Boolean) ||
+            edit.soul ||
+            edit.shader)
+        )
           objects[id] = edit
         else delete objects[id]
         return { ...p, objects }
@@ -297,116 +366,126 @@ export function ReskinStudio() {
 
   return (
     <AssetModalProvider>
-    <div className='space-y-4'>
-      <div className='flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-3'>
-        <div className='text-muted-foreground text-sm'>
-          <span className='font-medium text-foreground'>{spriteCount}</span>{' '}
-          sprite
-          {spriteCount === 1 ? '' : 's'} ·{' '}
-          <span className='font-medium text-foreground'>{textCount}</span> text
-          edit
-          {textCount === 1 ? '' : 's'} across{' '}
-          <span className='font-medium text-foreground'>{langs.length}</span>{' '}
-          language{langs.length === 1 ? '' : 's'}
+      <div className='space-y-4'>
+        <div className='flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-3'>
+          <div className='text-muted-foreground text-sm'>
+            <span className='font-medium text-foreground'>{spriteCount}</span>{' '}
+            sprite
+            {spriteCount === 1 ? '' : 's'} ·{' '}
+            <span className='font-medium text-foreground'>{textCount}</span>{' '}
+            text edit
+            {textCount === 1 ? '' : 's'} across{' '}
+            <span className='font-medium text-foreground'>{langs.length}</span>{' '}
+            language{langs.length === 1 ? '' : 's'}
+          </div>
+          <div className='flex items-center gap-2'>
+            <input
+              ref={importRef}
+              type='file'
+              accept='.zip'
+              className='hidden'
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) onImport(f)
+              }}
+            />
+            <Button
+              variant='ghost'
+              size='sm'
+              disabled={busy}
+              onClick={() => {
+                if (confirm('Clear all edits and start over?'))
+                  setProject(emptyProject())
+              }}
+            >
+              <RotateCcw className='mr-1 size-4' /> Reset
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={busy}
+              onClick={() => importRef.current?.click()}
+            >
+              <Upload className='mr-1 size-4' /> Import pack
+            </Button>
+            <Button size='sm' disabled={busy} onClick={onGenerate}>
+              <Download className='mr-1 size-4' />
+              {busy ? 'Working…' : 'Generate mod'}
+            </Button>
+          </div>
         </div>
-        <div className='flex items-center gap-2'>
-          <input
-            ref={importRef}
-            type='file'
-            accept='.zip'
-            className='hidden'
-            onChange={(e) => {
-              const f = e.target.files?.[0]
-              if (f) onImport(f)
-            }}
-          />
-          <Button
-            variant='ghost'
-            size='sm'
-            disabled={busy}
-            onClick={() => {
-              if (confirm('Clear all edits and start over?'))
-                setProject(emptyProject())
-            }}
-          >
-            <RotateCcw className='mr-1 size-4' /> Reset
-          </Button>
-          <Button
-            variant='outline'
-            size='sm'
-            disabled={busy}
-            onClick={() => importRef.current?.click()}
-          >
-            <Upload className='mr-1 size-4' /> Import pack
-          </Button>
-          <Button size='sm' disabled={busy} onClick={onGenerate}>
-            <Download className='mr-1 size-4' />
-            {busy ? 'Working…' : 'Generate mod'}
-          </Button>
-        </div>
+
+        <ExeImport
+          canPickHandle={canPickHandle}
+          onPickExe={onPickExe}
+          onExeFile={onExeFile}
+          onAppFiles={onAppFiles}
+          busy={busy}
+          onForgetExe={onForgetExe}
+          savedExeName={savedExe?.name ?? null}
+          borderReady={Boolean(exeBuf)}
+          importing={importFeedback?.state === 'working'}
+        >
+          {importFeedback && (
+            <ImportStatus
+              feedback={importFeedback}
+              onCancel={() => activeImport.current?.abort()}
+            />
+          )}
+        </ExeImport>
+
+        <Tabs defaultValue='sprites'>
+          <TabsList>
+            <TabsTrigger value='sprites'>Sprites</TabsTrigger>
+            <TabsTrigger value='localization'>Localization</TabsTrigger>
+            <TabsTrigger value='options'>Options</TabsTrigger>
+          </TabsList>
+          <TabsContent value='sprites'>
+            <AssetsTab
+              catalog={catalog}
+              project={project}
+              setObject={setObject}
+              setSheetCell={setSheetCell}
+              exeBuf={exeBuf}
+            />
+          </TabsContent>
+          <TabsContent value='localization'>
+            <LocalizationTab
+              catalog={catalog}
+              loc={project.loc}
+              setLocValue={setLocValue}
+              loadLoc={loadLoc}
+            />
+          </TabsContent>
+          <TabsContent value='options'>
+            <OptionsTab
+              options={project.options}
+              setOptions={setOptions}
+              exeBuf={exeBuf}
+            />
+          </TabsContent>
+        </Tabs>
+
+        <AlertDialog open={reimportOpen} onOpenChange={setReimportOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Import Balatro game again?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You imported{' '}
+                <span className='font-medium text-foreground'>
+                  {savedExe?.name ?? 'Balatro game'}
+                </span>{' '}
+                last time. Re-import it to show vanilla art, the Joker border,
+                and in-game text. Choosing <strong>No</strong> forgets it.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={onReimportNo}>No</AlertDialogCancel>
+              <AlertDialogAction onClick={onReimportYes}>Yes</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
-
-      <ExeImport
-        canPickHandle={canPickHandle}
-        onPickExe={onPickExe}
-        onExeFile={onExeFile}
-        onForgetExe={onForgetExe}
-        savedExeName={savedExe?.name ?? null}
-        borderReady={Boolean(exeBuf)}
-      />
-
-      <Tabs defaultValue='sprites'>
-        <TabsList>
-          <TabsTrigger value='sprites'>Sprites</TabsTrigger>
-          <TabsTrigger value='localization'>Localization</TabsTrigger>
-          <TabsTrigger value='options'>Options</TabsTrigger>
-        </TabsList>
-        <TabsContent value='sprites'>
-          <AssetsTab
-            catalog={catalog}
-            project={project}
-            setObject={setObject}
-            setSheetCell={setSheetCell}
-            exeBuf={exeBuf}
-          />
-        </TabsContent>
-        <TabsContent value='localization'>
-          <LocalizationTab
-            catalog={catalog}
-            loc={project.loc}
-            setLocValue={setLocValue}
-            loadLoc={loadLoc}
-          />
-        </TabsContent>
-        <TabsContent value='options'>
-          <OptionsTab
-            options={project.options}
-            setOptions={setOptions}
-            exeBuf={exeBuf}
-          />
-        </TabsContent>
-      </Tabs>
-
-      <AlertDialog open={reimportOpen} onOpenChange={setReimportOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Import Balatro.exe again?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You imported{' '}
-              <span className='font-medium text-foreground'>
-                {savedExe?.name ?? 'Balatro.exe'}
-              </span>{' '}
-              last time. Re-import it to show vanilla art, the Joker border, and
-              in-game text. Choosing <strong>No</strong> forgets it.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={onReimportNo}>No</AlertDialogCancel>
-            <AlertDialogAction onClick={onReimportYes}>Yes</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
     </AssetModalProvider>
   )
 }

@@ -120,8 +120,8 @@ export function LocalizationTab({
   if (!loadLoc) {
     return (
       <div className='rounded-md border bg-card p-8 text-center text-muted-foreground text-sm'>
-        Import your <strong>Balatro.exe</strong> in the <strong>Options</strong>{' '}
-        tab to edit in-game text. The file is read locally in your browser and
+        Import your <strong>Balatro game</strong> (.exe, .love, or Mac .app)
+        above to edit in-game text. Files are read locally in your browser and
         never uploaded.
       </div>
     )

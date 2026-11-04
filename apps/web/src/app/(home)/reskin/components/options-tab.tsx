@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { type EdgeOption, edgeOptionsFor } from '../lib/edges'
 import { getAtlasCell } from '../lib/exeAssets'
+import type { GameArchive } from '../lib/gameArchive'
 import type { ObjectEdit, ProjectOptions } from '../lib/types'
 import { useAssetModal } from './asset-modal'
 import { UploadTile } from './upload-tile'
@@ -16,7 +17,7 @@ export function OptionsTab({
 }: {
   options: ProjectOptions
   setOptions: (next: ProjectOptions) => void
-  exeBuf: Uint8Array | null
+  exeBuf: GameArchive | null
 }) {
   const { openAsset } = useAssetModal()
 

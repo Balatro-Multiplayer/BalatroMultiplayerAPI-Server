@@ -1,5 +1,6 @@
 'use client'
 
+import type { GameArchive } from '../lib/gameArchive'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ShaderCanvas } from './shader-canvas'
@@ -26,7 +27,7 @@ export function UploadTile({
   ratio?: number
   small?: boolean
   shaderOption?: string
-  shaderExe?: Uint8Array | null
+  shaderExe?: GameArchive | null
   onOpen: () => void
   onClear?: () => void
 }) {

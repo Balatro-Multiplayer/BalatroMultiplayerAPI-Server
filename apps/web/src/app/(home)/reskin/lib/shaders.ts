@@ -3,6 +3,7 @@
 // live. No shader source is shipped — it is read from the exe like the atlases.
 
 import { inflateRaw, readFusedZip } from './exeAssets'
+import type { GameArchive } from './gameArchive'
 
 // A studio shader option -> the actual .fs the game draws with. gold_seal is
 // rendered with the voucher shader in-game; everything else maps to itself.
@@ -27,10 +28,10 @@ export const VEC2_SHADERS = new Set([
   'voucher',
 ])
 
-async function readMember(exe: Uint8Array, path: string): Promise<string> {
+async function readMember(exe: Uint8Array | GameArchive, path: string): Promise<string> {
   const entry = readFusedZip(exe).get(path)
   if (!entry) throw new Error(`${path} not found in the game archive`)
-  const bytes = entry.method === 0 ? entry.data : await inflateRaw(entry.data)
+  const bytes = entry.method === 0 ? entry.data : await inflateRaw(entry.data, entry.size)
   return new TextDecoder('utf-8').decode(bytes)
 }
 
@@ -64,7 +65,7 @@ const fragCache = new Map<string, string>()
 
 /** Read a shader .fs from the exe and transpile it to a WebGL1 fragment shader. */
 export async function loadShaderFragment(
-  exe: Uint8Array,
+  exe: Uint8Array | GameArchive,
   file: string
 ): Promise<string> {
   const cached = fragCache.get(file)

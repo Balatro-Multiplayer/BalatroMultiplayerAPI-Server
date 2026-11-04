@@ -1,5 +1,6 @@
 'use client'
 
+import type { GameArchive } from '../lib/gameArchive'
 import { useEffect, useRef } from 'react'
 import { loadShaderFragment, shaderFile, VEC2_SHADERS } from '../lib/shaders'
 
@@ -54,7 +55,7 @@ export function ShaderCanvas({
 }: {
   sprite: string
   option: string
-  exeBuf: Uint8Array
+  exeBuf: GameArchive
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 

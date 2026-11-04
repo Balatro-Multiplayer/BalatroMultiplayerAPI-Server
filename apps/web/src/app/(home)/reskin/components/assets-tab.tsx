@@ -1,5 +1,6 @@
 'use client'
 
+import type { GameArchive } from '../lib/gameArchive'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -38,7 +39,7 @@ export function AssetsTab({
   project: ProjectState
   setObject: (catId: string, key: string, edit: ObjectEdit | null) => void
   setSheetCell: (sheetId: string, index: number, dataUrl: string | null) => void
-  exeBuf: Uint8Array | null
+  exeBuf: GameArchive | null
 }) {
   const groups = useMemo(() => {
     const objects = [
@@ -192,7 +193,7 @@ function CategoryGrid({
   query: string
   setObject: (catId: string, key: string, edit: ObjectEdit | null) => void
   defaults: Record<string, string>
-  exeBuf: Uint8Array | null
+  exeBuf: GameArchive | null
 }) {
   const { openAsset } = useAssetModal()
   const cat = catalog.spriteCategories.find((c) => c.id === categoryId)!
@@ -317,7 +318,7 @@ function SheetGrid({
   sheet: CatalogSheet
   project: ProjectState
   setSheetCell: (sheetId: string, index: number, dataUrl: string | null) => void
-  exeBuf: Uint8Array | null
+  exeBuf: GameArchive | null
 }) {
   const { openAsset } = useAssetModal()
   const edits: SheetEdit = project.sheets[sheet.id] ?? {}

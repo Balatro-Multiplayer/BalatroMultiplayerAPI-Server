@@ -1,5 +1,6 @@
 'use client'
 
+import type { GameArchive } from '../lib/gameArchive'
 import {
   createContext,
   type PointerEvent as ReactPointerEvent,
@@ -77,7 +78,7 @@ export type AssetRequest =
       defaultPreview?: string // the object's vanilla cell: silhouette + preview
       // Vanilla animation frames (blinds), for the chip shape + shine overlay.
       loadFrames?: () => Promise<string[]>
-      exeBuf?: Uint8Array | null // for the live shader preview (reads .fs from it)
+      exeBuf?: GameArchive | null // for the live shader preview (reads .fs from it)
       value: ObjectEdit | undefined
       commit: (edit: ObjectEdit) => void
     })
