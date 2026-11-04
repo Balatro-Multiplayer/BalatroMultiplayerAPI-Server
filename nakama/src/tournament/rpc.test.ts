@@ -123,6 +123,8 @@ describe('a tournament from creation to start', () => {
 		for (const n of [1, 2, 3]) expect(call(rpcTournamentJoin, P(n), { id }).tournament.role).toBe('entrant')
 		const mine = call(rpcTournamentMine, P(1))
 		expect(mine.tournaments.map((x: { id: string }) => x.id)).toEqual([id])
+		expect(mine.tournaments[0]).toMatchObject({ role: 'entrant', organiser: false })
+		expect(call(rpcTournamentMine, ORG).tournaments[0]).toMatchObject({ role: 'organiser', organiser: true })
 		expect(fails(rpcTournamentCheckIn, P(1), { id }).message).toMatch(/Check-in is not open/)
 
 		vi.setSystemTime(T0 + 30 * MIN)

@@ -13533,14 +13533,15 @@ function rpcTournamentMine(ctx, logger, nk, payload) {
   const ids = readMineIds(nk, userId);
   const entries = readIndexEntries(nk, ids);
   const out = entries.map((e) => {
-    if (e.status === "finished" || e.status === "cancelled" || e.status === "draft") return e;
-    const t = catchUpTournament(nk, logger, e.id, real);
-    return __spreadProps(__spreadValues({}, e), { status: t.status, players: t.entrants.length, startsAt: t.startsAt });
+    const over = e.status === "finished" || e.status === "cancelled" || e.status === "draft";
+    const t = over ? (readTournament(nk, e.id) || { t: null }).t : catchUpTournament(nk, logger, e.id, real);
+    if (!t) return __spreadProps(__spreadValues({}, publicSummary(e)), { organiser: e.organiserId === userId, role: "none" });
+    return __spreadProps(__spreadValues({}, publicSummary(__spreadProps(__spreadValues({}, e), { status: t.status, players: t.entrants.length, startsAt: t.startsAt }))), {
+      organiser: e.organiserId === userId,
+      role: roleOf(t, userId)
+    });
   });
-  return JSON.stringify({
-    serverNow: real,
-    tournaments: out.map((e) => __spreadProps(__spreadValues({}, publicSummary(e)), { organiser: e.organiserId === userId }))
-  });
+  return JSON.stringify({ serverNow: real, tournaments: out });
 }
 function rpcTournamentJoin(ctx, logger, nk, payload) {
   requireEnabled(nk);

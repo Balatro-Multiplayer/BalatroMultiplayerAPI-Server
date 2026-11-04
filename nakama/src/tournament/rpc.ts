@@ -36,7 +36,7 @@ import {
 	start,
 	updateSettings,
 } from './lifecycle'
-import { TOURNAMENT_MOD_ID, type Input, type Tournament, isFakeEntrant, isManager, nowFor } from './model'
+import { TOURNAMENT_MOD_ID, type Input, type Tournament, isFakeEntrant, isManager, nowFor, roleOf } from './model'
 export { nowFor }
 import {
 	type IndexEntry,
@@ -189,7 +189,8 @@ export function rpcTournamentGet(ctx: nkruntime.Context, logger: nkruntime.Logge
 }
 
 // {} -> summaries of every tournament the caller organises, helps run,
-// plays in or waits for, with their role.
+// plays in or waits for, each with the caller's role in it ('organiser',
+// 'co_organiser', 'entrant', 'waitlist'; 'none' once removed).
 export function rpcTournamentMine(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
 	requireEnabled(nk)
 	const userId = requireUser(ctx)
@@ -197,16 +198,18 @@ export function rpcTournamentMine(ctx: nkruntime.Context, logger: nkruntime.Logg
 	ensureClock(nk)
 	const ids = readMineIds(nk, userId)
 	const entries = readIndexEntries(nk, ids)
-	// Catch up the ones that are due, so countdowns and statuses are current.
+	// Catch up the ones still going, so countdowns and statuses are current.
 	const out = entries.map((e) => {
-		if (e.status === 'finished' || e.status === 'cancelled' || e.status === 'draft') return e
-		const t = catchUpTournament(nk, logger, e.id, real)
-		return { ...e, status: t.status, players: t.entrants.length, startsAt: t.startsAt }
+		const over = e.status === 'finished' || e.status === 'cancelled' || e.status === 'draft'
+		const t = over ? (readTournament(nk, e.id) || { t: null }).t : catchUpTournament(nk, logger, e.id, real)
+		if (!t) return { ...publicSummary(e), organiser: e.organiserId === userId, role: 'none' }
+		return {
+			...publicSummary({ ...e, status: t.status, players: t.entrants.length, startsAt: t.startsAt }),
+			organiser: e.organiserId === userId,
+			role: roleOf(t, userId),
+		}
 	})
-	return JSON.stringify({
-		serverNow: real,
-		tournaments: out.map((e) => ({ ...publicSummary(e), organiser: e.organiserId === userId })),
-	})
+	return JSON.stringify({ serverNow: real, tournaments: out })
 }
 
 // {id} or {code} -> joins (or joins the waitlist when full).
