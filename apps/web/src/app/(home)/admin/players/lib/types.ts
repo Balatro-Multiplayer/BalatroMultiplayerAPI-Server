@@ -33,6 +33,24 @@ export interface PageWarning {
   message: string
   issuedAt: string
   issuedByName: string | null
+  liftedAt: string | null
+}
+
+export interface PageAppeal {
+  id: string
+  punishment: {
+    id: string | null
+    kind: 'ban' | 'warning' | 'network_ban' | 'gone'
+    banType: string | null
+    reason: string | null
+  }
+  message: string
+  status: 'open' | 'denied' | 'granted'
+  outcome: 'lifted' | 'shortened' | null
+  decisionReason: string | null
+  decidedByName: string | null
+  decidedAt: string | null
+  createdAt: string
 }
 
 export interface PageMatch {
@@ -78,6 +96,7 @@ export interface PageIntegrityEvent {
 export interface PlayerPage {
   player: PagePlayer
   punishments: { bans: PageBan[]; warnings: PageWarning[] }
+  appeals: PageAppeal[]
   matches: PageMatch[]
   matchTotal: number
   chat: PageChatLine[]

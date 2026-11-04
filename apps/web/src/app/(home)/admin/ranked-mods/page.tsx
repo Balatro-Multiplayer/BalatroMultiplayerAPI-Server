@@ -137,12 +137,12 @@ export default function RankedModsPage() {
       if (!dialog) return
       const body = JSON.stringify(formToBody(form, dialog.mode, initialForm))
       if (dialog.editing) {
-        return apiFetch(
+        return apiFetchWithReason(
           `/webadmin/mods/${encodeURIComponent(dialog.editing.id)}/custom`,
           { method: 'PUT', body }
         )
       }
-      return apiFetch('/webadmin/mods', { method: 'POST', body })
+      return apiFetchWithReason('/webadmin/mods', { method: 'POST', body })
     },
     onSuccess: () => {
       setDialog(null)
@@ -154,7 +154,7 @@ export default function RankedModsPage() {
 
   const deleteModMut = useMutation({
     mutationFn: (mod: ModSummary) =>
-      apiFetch(`/webadmin/mods/${encodeURIComponent(mod.id)}`, {
+      apiFetchWithReason(`/webadmin/mods/${encodeURIComponent(mod.id)}`, {
         method: 'DELETE',
       }),
     onSuccess: () => {
@@ -169,7 +169,7 @@ export default function RankedModsPage() {
   // e.g. to pull in a newly-published mod without waiting for the next tick.
   const syncMut = useMutation({
     mutationFn: () =>
-      apiFetch<{
+      apiFetchWithReason<{
         ok: true
         modsSynced: number
         pruned: number
@@ -194,7 +194,7 @@ export default function RankedModsPage() {
   // (smods-ids-backfill.service.ts server-side) and pushes the allowlist.
   const backfillMut = useMutation({
     mutationFn: () =>
-      apiFetch<{
+      apiFetchWithReason<{
         ok: true
         read: number
         failed: number
@@ -254,12 +254,12 @@ export default function RankedModsPage() {
         description: profileForm.description || null,
       })
       if (profileDialog.editing) {
-        return apiFetch(
+        return apiFetchWithReason(
           `/webadmin/mods/profiles/${encodeURIComponent(profileDialog.editing.id)}`,
           { method: 'PUT', body }
         )
       }
-      return apiFetch('/webadmin/mods/profiles', { method: 'POST', body })
+      return apiFetchWithReason('/webadmin/mods/profiles', { method: 'POST', body })
     },
     onSuccess: () => {
       setProfileDialog(null)
@@ -270,7 +270,7 @@ export default function RankedModsPage() {
 
   const deleteProfileMut = useMutation({
     mutationFn: (profile: ModProfile) =>
-      apiFetch(`/webadmin/mods/profiles/${encodeURIComponent(profile.id)}`, {
+      apiFetchWithReason(`/webadmin/mods/profiles/${encodeURIComponent(profile.id)}`, {
         method: 'DELETE',
       }),
     onSuccess: () => {
@@ -291,7 +291,7 @@ export default function RankedModsPage() {
       pinnedVersion: string | null
       allowed: boolean
     }) =>
-      apiFetch(entryPath(input.profileId, input.modId), {
+      apiFetchWithReason(entryPath(input.profileId, input.modId), {
         method: 'PUT',
         body: JSON.stringify({
           versionMode: input.versionMode,
@@ -305,7 +305,7 @@ export default function RankedModsPage() {
 
   const removeEntryMut = useMutation({
     mutationFn: (input: { profileId: string; modId: string }) =>
-      apiFetch(entryPath(input.profileId, input.modId), { method: 'DELETE' }),
+      apiFetchWithReason(entryPath(input.profileId, input.modId), { method: 'DELETE' }),
     onSuccess: invalidateProfiles,
     onError: onErr,
   })

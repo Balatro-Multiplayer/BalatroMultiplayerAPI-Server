@@ -27,7 +27,7 @@ import {
   type Ladder,
   STEP_LABELS,
 } from '../lib/strikes'
-import type { PageBan, PlayerIdentity, PlayerPage } from '../lib/types'
+import type { PageAppeal, PageBan, PlayerIdentity, PlayerPage } from '../lib/types'
 
 // Every staff action needs a reason for the staff log; nothing is sent without one.
 function askReason(question: string): string | null {
@@ -80,6 +80,47 @@ function BanRow({
         )}
       </div>
     </Row>
+  )
+}
+
+function punishmentLabel(p: PageAppeal['punishment']): string {
+  if (p.kind === 'network_ban') return 'Network ban'
+  if (p.kind === 'gone') return 'Punishment no longer on record'
+  const what = p.kind === 'ban' ? `${p.banType ?? ''} ban` : 'Warning'
+  return p.reason ? `${what}: ${p.reason}` : what
+}
+
+function AppealsSection({ appeals }: { appeals: PageAppeal[] }) {
+  return (
+    <Section title={`Appeals (${appeals.length})`}>
+      {appeals.length === 0 ? (
+        <Empty>No appeals.</Empty>
+      ) : (
+        <ul className='space-y-1'>
+          {appeals.map((a) => (
+            <Row key={a.id}>
+              <Badge
+                variant={a.status === 'open' ? 'secondary' : 'outline'}
+              >
+                {a.status}
+                {a.outcome ? ` (${a.outcome})` : ''}
+              </Badge>{' '}
+              {punishmentLabel(a.punishment)}
+              <p className='text-muted-foreground text-xs'>
+                Made {formatTime(a.createdAt)}: {a.message}
+              </p>
+              {a.decidedAt && (
+                <p className='text-muted-foreground text-xs'>
+                  Decided by {a.decidedByName ?? 'unknown'} on{' '}
+                  {formatTime(a.decidedAt)}
+                  {a.decisionReason ? `: ${a.decisionReason}` : ''}
+                </p>
+              )}
+            </Row>
+          ))}
+        </ul>
+      )}
+    </Section>
   )
 }
 
@@ -229,6 +270,14 @@ export default function AdminPlayerPage() {
       }),
     onSuccess: () => void refresh(),
   })
+  const liftWarning = useMutation({
+    mutationFn: (vars: { warningId: string; reason: string }) =>
+      apiFetch(`/webadmin/players/${id}/warnings/${vars.warningId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ reason: vars.reason }),
+      }),
+    onSuccess: () => void refresh(),
+  })
   const warn = useMutation({
     mutationFn: () =>
       apiFetch(`/webadmin/players/${id}/warnings`, {
@@ -266,7 +315,7 @@ export default function AdminPlayerPage() {
     return <div className='container py-8'>Player not found.</div>
 
   const { player, punishments } = data
-  const failure = ban.error ?? warn.error ?? addNote.error ?? lift.error
+  const failure = ban.error ?? warn.error ?? addNote.error ?? lift.error ?? liftWarning.error
 
   return (
     <div className='container max-w-4xl space-y-4 py-8'>
@@ -322,11 +371,32 @@ export default function AdminPlayerPage() {
             ))}
             {punishments.warnings.map((w) => (
               <Row key={w.id}>
-                <Badge variant='outline'>warning</Badge> {w.message}
-                <p className='text-muted-foreground text-xs'>
-                  Given by {w.issuedByName ?? 'unknown'} on{' '}
-                  {formatTime(w.issuedAt)}
-                </p>
+                <div className='flex items-start justify-between gap-2'>
+                  <div>
+                    <Badge variant={w.liftedAt ? 'outline' : 'secondary'}>
+                      warning
+                    </Badge>{' '}
+                    {w.message}
+                    <p className='text-muted-foreground text-xs'>
+                      Given by {w.issuedByName ?? 'unknown'} on{' '}
+                      {formatTime(w.issuedAt)}
+                      {w.liftedAt ? `. Lifted ${formatTime(w.liftedAt)}` : ''}
+                    </p>
+                  </div>
+                  {isAdmin && !w.liftedAt && (
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      onClick={() => {
+                        const reason = askReason('Reason for lifting this warning')
+                        if (reason)
+                          liftWarning.mutate({ warningId: w.id, reason })
+                      }}
+                    >
+                      Lift
+                    </Button>
+                  )}
+                </div>
               </Row>
             ))}
           </ul>
