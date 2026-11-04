@@ -54,6 +54,12 @@ function nameMap(t: Tournament): { [id: string]: string } {
 	return names
 }
 
+function lobbyOf(t: Tournament, matchId: string) {
+	const lobby = t.lobbies ? t.lobbies[matchId] : undefined
+	if (!lobby || (lobby.status !== 'open' && lobby.status !== 'disputed')) return null
+	return { code: lobby.code, game: lobby.game, status: lobby.status }
+}
+
 export function tournamentView(t: Tournament, viewerId: string, now: number) {
 	const role: Role = roleOf(t, viewerId)
 	const names = nameMap(t)
@@ -85,6 +91,8 @@ export function tournamentView(t: Tournament, viewerId: string, now: number) {
 				gameMode: settings.gameMode,
 				ruleset: settings.ruleset,
 				clock: c ? { phase: c.phase, deadline: c.deadline, ready: c.ready, openedAt: c.openedAt } : null,
+				// The lobby for the current game (only seats its two players).
+				lobby: lobbyOf(t, m.def.id),
 			}
 		})
 		const tiebreakers = tiebreakersFor(t.bracket)

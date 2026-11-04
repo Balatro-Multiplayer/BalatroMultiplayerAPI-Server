@@ -10,7 +10,7 @@ import { activeBan, readBans } from '../moderation/bans'
 import { displayNameOf, profileFor } from '../player/profile'
 import { loadRatings } from '../rating/apply'
 import { currentSeason } from '../rating/season'
-import { parsePayload, requireUser } from '../rpc'
+import { parsePayload, requireServer, requireUser } from '../rpc'
 import { settingsOf } from '../server_kind'
 import { standingFor } from '../standing/current'
 import { standingRefusal, queueRefusalMessage } from '../matchmaking/queue_refusal'
@@ -22,6 +22,7 @@ import {
 	advance,
 	cancel,
 	checkInEntrant,
+	closeByModerator,
 	createTournament,
 	joinTournament,
 	leaveTournament,
@@ -35,7 +36,8 @@ import {
 	start,
 	updateSettings,
 } from './lifecycle'
-import { TOURNAMENT_MOD_ID, type Input, type Tournament, isManager } from './model'
+import { TOURNAMENT_MOD_ID, type Input, type Tournament, isFakeEntrant, isManager, nowFor } from './model'
+export { nowFor }
 import {
 	type IndexEntry,
 	insertTournament,
@@ -49,6 +51,8 @@ import {
 	tournamentIdForCode,
 } from './storage'
 import { tournamentView } from './view'
+import { checkLobbies, commit } from './effects'
+import { type ResultInput, clearResult, extend, readyUp, setPaused, setResult, startNextRound } from './matches'
 
 export const TOURNAMENT_ID_PATTERN = /^[0-9a-f-]{36}$/
 const LIST_LIMIT = 100
@@ -61,15 +65,10 @@ function requireEnabled(nk: nkruntime.Nakama) {
 	if (!tournamentsEnabled(nk)) throw runtimeError(FAILED_PRECONDITION, 'Tournaments are not enabled on this server')
 }
 
-// The tournament's own "now": real time, plus a dev time skip.
-export function nowFor(t: Tournament, real: number): number {
-	return real + (t.devClockOffsetMs ?? 0)
-}
-
 export function ratingsLookup(nk: nkruntime.Nakama, now: number): RatingsLookup {
 	return (userIds, board) => {
 		const out: { [id: string]: number | undefined } = {}
-		const real = userIds.filter((id) => id.indexOf('dev-bot-') !== 0)
+		const real = userIds.filter((id) => !isFakeEntrant(id))
 		if (real.length > 0) {
 			const { current } = loadRatings(nk, TOURNAMENT_MOD_ID, board, real, now, currentSeason(nk))
 			for (const id of Object.keys(current)) out[id] = current[id].rating
@@ -102,12 +101,13 @@ export function entryRefusal(nk: nkruntime.Nakama, ctx: nkruntime.Context, userI
 
 // Brings a tournament up to now (check-in opening, the start, the timetable)
 // and saves it if anything changed.
-export function catchUpTournament(nk: nkruntime.Nakama, id: string, real: number): Tournament {
-	return mutate(nk, id, (t) => {
-		const now = nowFor(t, real)
-		const next = advance(t, now, ratingsLookup(nk, now), seededRng(real))
+export function catchUpTournament(nk: nkruntime.Nakama, logger: nkruntime.Logger, id: string, real: number): Tournament {
+	const t = commit(nk, logger, id, (cur) => {
+		const now = nowFor(cur, real)
+		const next = advance(cur, now, ratingsLookup(nk, now), seededRng(real))
 		return next ? { ok: true, value: next } : null
 	})
+	return checkLobbies(nk, logger, t, real)
 }
 
 function respond(t: Tournament, viewerId: string, real: number): string {
@@ -118,6 +118,7 @@ function respond(t: Tournament, viewerId: string, real: number): string {
 // timetable, saves, and answers with the new view.
 function changeTournament(
 	nk: nkruntime.Nakama,
+	logger: nkruntime.Logger,
 	ctx: nkruntime.Context,
 	payload: string,
 	apply: (t: Tournament, userId: string, now: number, input: Input) => Change,
@@ -128,8 +129,8 @@ function changeTournament(
 	const id = tournamentIdOf(input)
 	const real = Date.now()
 	ensureClock(nk)
-	catchUpTournament(nk, id, real)
-	const saved = mutate(nk, id, (t) => {
+	catchUpTournament(nk, logger, id, real)
+	const saved = commit(nk, logger, id, (t) => {
 		const now = nowFor(t, real)
 		const r = apply(t, userId, now, input)
 		return r.ok ? { ok: true, value: settleTimetable(r.value, now) } : r
@@ -179,7 +180,7 @@ export function rpcTournamentGet(ctx: nkruntime.Context, logger: nkruntime.Logge
 	const real = Date.now()
 	ensureClock(nk)
 	if (!readTournament(nk, id)) throw runtimeError(NOT_FOUND, 'No such tournament')
-	const t = catchUpTournament(nk, id, real)
+	const t = catchUpTournament(nk, logger, id, real)
 	const member = readMineIds(nk, userId).indexOf(id) !== -1 || isManager(t, userId)
 	const viaCode = typeof input.code === 'string' && input.code.toUpperCase() === t.inviteCode
 	if (t.visibility === 'private' && !member && !viaCode) throw runtimeError(NOT_FOUND, 'No such tournament')
@@ -199,7 +200,7 @@ export function rpcTournamentMine(ctx: nkruntime.Context, logger: nkruntime.Logg
 	// Catch up the ones that are due, so countdowns and statuses are current.
 	const out = entries.map((e) => {
 		if (e.status === 'finished' || e.status === 'cancelled' || e.status === 'draft') return e
-		const t = catchUpTournament(nk, e.id, real)
+		const t = catchUpTournament(nk, logger, e.id, real)
 		return { ...e, status: t.status, players: t.entrants.length, startsAt: t.startsAt }
 	})
 	return JSON.stringify({
@@ -222,8 +223,8 @@ export function rpcTournamentJoin(ctx: nkruntime.Context, logger: nkruntime.Logg
 	if (refused) throw runtimeError(PERMISSION_DENIED, refused)
 	const name = displayNameFor(nk, ctx, userId)
 	ensureClock(nk)
-	catchUpTournament(nk, id, real)
-	const saved = mutate(nk, id, (t) => {
+	catchUpTournament(nk, logger, id, real)
+	const saved = commit(nk, logger, id, (t) => {
 		if (t.visibility === 'private' && !viaCode) return { ok: false, error: { code: NOT_FOUND, message: 'No such tournament' } }
 		return joinTournament(t, { id: userId, name }, nowFor(t, real))
 	})
@@ -231,11 +232,11 @@ export function rpcTournamentJoin(ctx: nkruntime.Context, logger: nkruntime.Logg
 }
 
 export function rpcTournamentLeave(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
-	return changeTournament(nk, ctx, payload, (t, userId, now) => leaveTournament(t, userId, now))
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now) => leaveTournament(t, userId, now))
 }
 
 export function rpcTournamentCheckIn(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
-	return changeTournament(nk, ctx, payload, (t, userId, now) => checkInEntrant(t, userId, now))
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now) => checkInEntrant(t, userId, now))
 }
 
 // --- Organisers
@@ -261,19 +262,19 @@ export function rpcTournamentCreate(ctx: nkruntime.Context, logger: nkruntime.Lo
 
 // {id, ...settings to change}
 export function rpcTournamentUpdate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
-	return changeTournament(nk, ctx, payload, (t, userId, now, input) => {
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
 		const { id, ...settings } = input
 		return updateSettings(t, userId, settings, now)
 	})
 }
 
 export function rpcTournamentOpen(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
-	return changeTournament(nk, ctx, payload, (t, userId, now) => openRegistration(t, userId, now))
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now) => openRegistration(t, userId, now))
 }
 
 // {id, closed: boolean}
 export function rpcTournamentRegistrationSet(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
-	return changeTournament(nk, ctx, payload, (t, userId, now, input) => {
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
 		if (typeof input.closed !== 'boolean') return { ok: false, error: { code: INVALID_ARGUMENT, message: 'closed must be true or false' } }
 		return setRegistrationClosed(t, userId, input.closed, now)
 	})
@@ -281,17 +282,17 @@ export function rpcTournamentRegistrationSet(ctx: nkruntime.Context, logger: nkr
 
 // {id, userId}
 export function rpcTournamentPromote(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
-	return changeTournament(nk, ctx, payload, (t, userId, now, input) => promote(t, userId, inputString(input, 'userId'), now))
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => promote(t, userId, inputString(input, 'userId'), now))
 }
 
 // {id, userId}
 export function rpcTournamentRemovePlayer(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
-	return changeTournament(nk, ctx, payload, (t, userId, now, input) => removePlayer(t, userId, inputString(input, 'userId'), now))
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => removePlayer(t, userId, inputString(input, 'userId'), now))
 }
 
 // {id, userIds: string[]}
 export function rpcTournamentCoOrganisersSet(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
-	return changeTournament(nk, ctx, payload, (t, userId, now, input) => {
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
 		const ids = input.userIds
 		if (!Array.isArray(ids) || !ids.every((i) => typeof i === 'string' && TOURNAMENT_ID_PATTERN.test(i))) {
 			return { ok: false, error: { code: INVALID_ARGUMENT, message: 'userIds must be player ids' } }
@@ -302,7 +303,7 @@ export function rpcTournamentCoOrganisersSet(ctx: nkruntime.Context, logger: nkr
 
 // {id, order: string[]} -> manual seeding.
 export function rpcTournamentSeedingSet(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
-	return changeTournament(nk, ctx, payload, (t, userId, now, input) => {
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
 		const order = input.order
 		if (!Array.isArray(order) || !order.every((i) => typeof i === 'string')) {
 			return { ok: false, error: { code: INVALID_ARGUMENT, message: 'order must be a list of entrant ids' } }
@@ -313,12 +314,82 @@ export function rpcTournamentSeedingSet(ctx: nkruntime.Context, logger: nkruntim
 
 // {id} -> starts now (before the scheduled time).
 export function rpcTournamentStart(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
-	return changeTournament(nk, ctx, payload, (t, userId, now) => {
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now) => {
 		if (t.organiserId !== userId) return { ok: false, error: { code: PERMISSION_DENIED, message: 'Only the organiser can do that' } }
 		return start(t, now, ratingsLookup(nk, now), seededRng(Date.now()))
 	})
 }
 
 export function rpcTournamentCancel(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
-	return changeTournament(nk, ctx, payload, (t, userId, now) => cancel(t, userId, now))
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now) => cancel(t, userId, now))
+}
+
+// --- Playing the matches
+
+// {id, matchId?, ready?: boolean (default true)} -> the caller's ready flag
+// for their current (or the given) match.
+export function rpcTournamentReady(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
+		const matchId = typeof input.matchId === 'string' ? input.matchId : null
+		return readyUp(t, userId, matchId, input.ready !== false, now)
+	})
+}
+
+// {id, matchId, scope: 'game' | 'match', winner?: userId, draw?, none?,
+// resetDownstream?} -- organisers and co-organisers.
+export function rpcTournamentResultSet(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
+		const scope = input.scope
+		if (scope !== 'game' && scope !== 'match') return { ok: false, error: { code: INVALID_ARGUMENT, message: 'scope must be game or match' } }
+		const result: ResultInput = {
+			matchId: inputString(input, 'matchId'),
+			scope,
+			winner: typeof input.winner === 'string' ? input.winner : undefined,
+			draw: input.draw === true,
+			none: input.none === true,
+			resetDownstream: input.resetDownstream === true,
+		}
+		return setResult(t, userId, result, now)
+	})
+}
+
+// {id, matchId, resetDownstream?}
+export function rpcTournamentResultClear(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) =>
+		clearResult(t, userId, inputString(input, 'matchId'), input.resetDownstream === true, now),
+	)
+}
+
+// {id, matchId, minutes}
+export function rpcTournamentExtend(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) =>
+		extend(t, userId, inputString(input, 'matchId'), typeof input.minutes === 'number' ? input.minutes : Number.NaN, now),
+	)
+}
+
+export function rpcTournamentPause(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now) => setPaused(t, userId, true, now))
+}
+
+export function rpcTournamentResume(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now) => setPaused(t, userId, false, now))
+}
+
+// {id} -> starts the next round block now.
+export function rpcTournamentRoundStart(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now) => startNextRound(t, userId, now))
+}
+
+// --- Moderators (server to server, from the web admin)
+
+// {id, reason} -> closes the tournament. Works with tournaments switched off.
+export function rpcAdminTournamentClose(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	requireServer(ctx)
+	const input = parsePayload(payload)
+	const id = tournamentIdOf(input)
+	const reason = typeof input.reason === 'string' ? input.reason : ''
+	const real = Date.now()
+	const saved = commit(nk, logger, id, (t) => closeByModerator(t, reason, nowFor(t, real)))
+	logger.info('Tournament %s closed by a moderator', id)
+	return JSON.stringify({ id: saved.id, status: saved.status })
 }

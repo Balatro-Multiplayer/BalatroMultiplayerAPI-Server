@@ -68,6 +68,15 @@ export interface MatchClock {
 	gamesSeen: number
 	unplayedSince?: number
 	remindersSent: number[]
+	// Who the clock was opened for: a correction that changes the pairing
+	// restarts it.
+	players?: [EntrantId, EntrantId]
+	// When the current game was handed to a lobby (in_game).
+	inGameSince?: number
+	// How many games this match has handed to a lobby: identifies the
+	// current hand-off, so a lobby's result only counts for the game it was
+	// made for (never reset, unlike inGameSince).
+	handoff?: number
 }
 
 export interface BlockClock {
@@ -89,6 +98,7 @@ export type TimetableEvent =
 	| { kind: 'block_started'; block: number }
 	| { kind: 'block_finished'; block: number }
 	| { kind: 'match_opened'; matchId: string; players: [EntrantId, EntrantId]; deadline: number | null }
+	| { kind: 'match_reset'; matchId: string }
 	| { kind: 'lobby_needed'; matchId: string; players: [EntrantId, EntrantId]; game: number }
 	| { kind: 'series_ready_up'; matchId: string; deadline: number }
 	| { kind: 'game_forfeited'; matchId: string; winner: Side }
@@ -260,6 +270,12 @@ function locate(bracket: Bracket, schedule: ScheduleBlock[]): { [key: string]: {
 	return out
 }
 
+// The schedule block a round belongs to (null if none does).
+export function blockOfRound(bracket: Bracket, schedule: ScheduleBlock[], stage: Stage, round: number): ScheduleBlock | null {
+	const loc = locate(bracket, schedule)[`${stage}${round}`]
+	return loc ? schedule[loc.block] : null
+}
+
 function blockStartTime(i: number, schedule: ScheduleBlock[], state: TimetableState): number | null {
 	const clock = state.blocks[i]
 	if (clock.startRequestedAt !== undefined) return clock.startRequestedAt
@@ -390,8 +406,19 @@ export function tickTimetable(input: TickInput): TickOutput {
 					readyLog: [],
 					gamesSeen: m.def.games.length,
 					remindersSent: [],
+					players: pair,
 				}
 				events.push({ kind: 'match_opened', matchId: m.def.id, players: pair, deadline })
+				changed = true
+				continue
+			}
+			// An organiser correction reopened this match, or changed who plays
+			// it: start its clock again from scratch.
+			const reopened = clock.phase === 'closed' && m.status !== 'done' && m.status !== 'void'
+			const repaired = clock.players !== undefined && pair !== null && (clock.players[0] !== pair[0] || clock.players[1] !== pair[1])
+			if (reopened || repaired) {
+				delete state.matches[m.def.id]
+				events.push({ kind: 'match_reset', matchId: m.def.id })
 				changed = true
 				continue
 			}
@@ -420,6 +447,8 @@ export function tickTimetable(input: TickInput): TickOutput {
 				if (clock.ready[0] && clock.ready[1]) {
 					clock.phase = 'in_game'
 					clock.deadline = null
+					clock.inGameSince = now
+					clock.handoff = (clock.handoff ?? 0) + 1
 					events.push({ kind: 'lobby_needed', matchId: m.def.id, players: pair, game: m.def.games.length + 1 })
 					changed = true
 					continue
@@ -562,4 +591,19 @@ export function resume(state: TimetableState, now: number): Result<TimetableStat
 	// A break counts from the previous block's finish, so moving that moves the break.
 	for (const b of next.blocks) if (b.finishedAt !== undefined) b.finishedAt += shift
 	return ok(next)
+}
+
+// The game handed to a lobby never produced a result (abandoned, or the
+// lobby closed first): ready up again, with the series ready-up time.
+export function reopenReadyUp(state: TimetableState, matchId: string, now: number, minutes: number): Result<TimetableState, EngineError> {
+	const r = openClock(state, matchId, 'in_game')
+	if (!r.ok) return r
+	const { clock } = r.value
+	clock.phase = 'ready_up'
+	clock.deadline = now + minutes * MINUTE_MS
+	clock.ready = [false, false]
+	clock.readiedAt = [null, null]
+	clock.inGameSince = undefined
+	clock.remindersSent = []
+	return ok(r.value.state)
 }

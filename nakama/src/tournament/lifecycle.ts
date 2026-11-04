@@ -9,11 +9,13 @@
 // then on advance() runs the engine's timetable.
 import { FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED } from '../errors'
 import { type Result, err, ok } from '../shared/result'
-import { createBracket, setRoundBestOf } from './engine/bracket'
+import { createBracket, recordGame, setRoundBestOf } from './engine/bracket'
+import { resolveBracket } from './engine/resolve'
+import { lobbiesToClose } from './lobby_state'
 import { splitGroups } from './engine/round_robin'
-import { MINUTE_MS, type ScheduleBlock, newTimetable, presetSchedule, roundSteps, tickTimetable, validateSchedule } from './engine/schedule'
+import { MINUTE_MS, type ScheduleBlock, newTimetable, presetSchedule, roundSteps, setReady, tickTimetable, validateSchedule } from './engine/schedule'
 import { type Rng, seedEntrants } from './engine/seeding'
-import type { Bracket, Format } from './engine/types'
+import type { Bracket, Format, Side } from './engine/types'
 import {
 	CO_ORGANISERS_MAX,
 	type Entrant,
@@ -22,6 +24,7 @@ import {
 	type Tournament,
 	type TournamentEvent,
 	addEvent,
+	isFakeEntrant,
 	isManager,
 	roleOf,
 	roundSettingsFor,
@@ -40,11 +43,11 @@ function fail(code: number, message: string): { ok: false; error: LifecycleError
 	return err({ code, message })
 }
 
-function touch(t: Tournament, now: number): Tournament {
+export function touch(t: Tournament, now: number): Tournament {
 	return { ...t, updatedAt: now }
 }
 
-function withEvent(t: Tournament, now: number, kind: string, fields: { [key: string]: unknown } = {}): Tournament {
+export function withEvent(t: Tournament, now: number, kind: string, fields: { [key: string]: unknown } = {}): Tournament {
 	return addEvent(t, { at: now, kind, ...fields } as TournamentEvent)
 }
 
@@ -302,6 +305,14 @@ export function cancel(t: Tournament, userId: string, now: number, reason = 'org
 	return ok(touch(withEvent({ ...t, status: 'cancelled', finishedAt: now }, now, 'cancelled', { reason }), now))
 }
 
+// A moderator closes a tournament (server-only admin RPC): like a cancel,
+// for any tournament not over, recorded with the reason.
+export function closeByModerator(t: Tournament, reason: string, now: number): Change {
+	const over = notOver(t)
+	if (!over.ok) return over
+	return ok(touch(withEvent({ ...t, status: 'cancelled', finishedAt: now }, now, 'cancelled', { reason: 'moderator', message: reason.slice(0, 200) }), now))
+}
+
 export type RatingsLookup = (userIds: string[], board: string) => { [userId: string]: number | undefined }
 
 // Starts the tournament now: check-in removals, seeding, bracket, timetable.
@@ -360,7 +371,7 @@ export function start(t: Tournament, now: number, ratingsFor: RatingsLookup, rng
 	return ok(touch(advanceRunning(next, now), now))
 }
 
-function advanceRunning(t: Tournament, now: number): Tournament {
+function tickOnce(t: Tournament, now: number): Tournament {
 	if (!t.bracket || !t.schedule || !t.clock) return t
 	const out = tickTimetable({
 		bracket: t.bracket,
@@ -381,9 +392,62 @@ function advanceRunning(t: Tournament, now: number): Tournament {
 	return next
 }
 
+// Dev-server bots (fake entrants) ready up as soon as a ready-up opens and
+// play their games at once: a random winner between two bots, the human
+// against a bot. Returns null when no bot had anything to do.
+function botsAct(t: Tournament, now: number): Tournament | null {
+	if (!t.bracket || !t.clock) return null
+	let clock = t.clock
+	let bracket = t.bracket
+	let acted = false
+	const resolved = resolveBracket(bracket, t.dropped)
+	for (const matchId of Object.keys(clock.matches)) {
+		const m = resolved.byId[matchId]
+		const c = clock.matches[matchId]
+		if (!m || typeof m.players[0] !== 'string' || typeof m.players[1] !== 'string') continue
+		const pair: [string, string] = [m.players[0], m.players[1]]
+		const bots: [boolean, boolean] = [isFakeEntrant(pair[0]), isFakeEntrant(pair[1])]
+		if (!bots[0] && !bots[1]) continue
+		if (c.phase === 'ready_up') {
+			for (const side of [0, 1] as Side[]) {
+				if (!bots[side] || c.ready[side]) continue
+				const r = setReady(clock, matchId, side, true, now)
+				if (r.ok) {
+					clock = r.value
+					acted = true
+				}
+			}
+		} else if (c.phase === 'in_game') {
+			// Deterministic per match and game, so a retried save plays the same.
+			const coin = (matchId.length * 7 + m.def.games.length * 13 + now) % 2 === 0 ? 0 : 1
+			const winner: Side = bots[0] && bots[1] ? (coin as Side) : bots[0] ? 1 : 0
+			const r = recordGame(bracket, matchId, winner, t.dropped)
+			if (r.ok) {
+				bracket = r.value
+				acted = true
+			}
+		}
+	}
+	return acted ? { ...t, bracket, clock } : null
+}
+
+// Runs the timetable, letting bots act between passes until they have
+// nothing left to do.
+function advanceRunning(t: Tournament, now: number): Tournament {
+	let next = tickOnce(t, now)
+	for (let i = 0; i < 1000 && next.status === 'running'; i++) {
+		const acted = botsAct(next, now)
+		if (!acted) break
+		next = tickOnce(acted, now)
+	}
+	return next
+}
+
 // When the clock next needs to look at this tournament (null: only a player
 // or organiser action can change anything).
 export function wakeAt(t: Tournament): number | null {
+	// A lobby to close (match decided, tournament over): due now.
+	if (lobbiesToClose(t).length > 0) return t.updatedAt
 	if (t.status === 'registration') {
 		const checkInAt = t.checkInMinutes === null ? null : t.startsAt - t.checkInMinutes * MINUTE_MS
 		return checkInAt !== null && checkInAt < t.startsAt ? checkInAt : t.startsAt

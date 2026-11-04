@@ -7,6 +7,14 @@ import type { Bracket, Format } from './engine/types'
 
 export const TOURNAMENT_MOD_ID = 'MultiplayerPvP'
 
+// Fake entrants added by the Dev-server fill (dev.ts). They have no account:
+// no notifications, no player list; they ready up and play by themselves.
+export const FAKE_ENTRANT_PREFIX = 'dev-bot-'
+
+export function isFakeEntrant(id: string): boolean {
+	return id.indexOf(FAKE_ENTRANT_PREFIX) === 0
+}
+
 export type TournamentStatus = 'draft' | 'registration' | 'check_in' | 'running' | 'finished' | 'cancelled'
 
 export type Role = 'organiser' | 'co_organiser' | 'entrant' | 'waitlist' | 'none'
@@ -50,6 +58,9 @@ export interface PresetOptions {
 export interface TournamentEvent {
 	at: number
 	kind: string
+	// Increases by one per event (Tournament.eventSeq): what is new since a
+	// save, so each notification goes out once.
+	seq?: number
 	[key: string]: unknown
 }
 
@@ -83,6 +94,10 @@ export interface Tournament {
 	clock?: TimetableState
 	// When the timetable next needs a tick (from the engine).
 	nextWakeAt?: number | null
+	// The lobby made for each match's current game (effects.ts).
+	lobbies?: { [matchId: string]: TournamentLobby }
+	// The last event's seq.
+	eventSeq?: number
 	// Recent happenings, newest last (capped): what Phase 3 notifies about and
 	// what the client's activity view shows.
 	events: TournamentEvent[]
@@ -92,6 +107,30 @@ export interface Tournament {
 	finishedAt?: number
 	// Dev servers only: how far this tournament's clock runs ahead.
 	devClockOffsetMs?: number
+}
+
+// The PvP lobby a match is played in: one per match, reused for every game
+// of a series, closed by the server once the match is decided (players are
+// sent back to the tournament). `handoff` is the timetable hand-off
+// (MatchClock.handoff) of the game it is playing now: a stored run only
+// counts when its lobby code and that hand-off are current.
+export interface TournamentLobby {
+	code: string
+	game: number
+	handoff: number
+	// creating: claimed, being made. open: live (between or during games).
+	// disputed: a game's result waits for an organiser. lost: vanished
+	// mid-game. closed: closed by the server after the match.
+	status: 'creating' | 'open' | 'disputed' | 'lost' | 'closed'
+	createdAt: number
+	runId?: string
+}
+
+// What a tournament lobby carries (Lobby.tournament), and hands back with
+// its results.
+export interface TournamentLobbyRef {
+	tournamentId: string
+	matchId: string
 }
 
 export const NAME_MAX = 48
@@ -301,6 +340,11 @@ export function roundSettingsFor(t: Tournament, stage: string, round: number): R
 	return { ...t.rounds.defaults, ...(t.rounds.overrides[`${stage}${round}`] ?? {}) } as RoundSettings
 }
 
+// The tournament's own "now": real time plus a Dev-server clock skip.
+export function nowFor(t: Tournament, real: number): number {
+	return real + (t.devClockOffsetMs ?? 0)
+}
+
 export function roleOf(t: Tournament, userId: string): Role {
 	if (t.organiserId === userId) return 'organiser'
 	if (t.coOrganiserIds.indexOf(userId) !== -1) return 'co_organiser'
@@ -315,6 +359,7 @@ export function isManager(t: Tournament, userId: string): boolean {
 }
 
 export function addEvent(t: Tournament, event: TournamentEvent): Tournament {
-	const events = t.events.concat([event])
-	return { ...t, events: events.length > EVENTS_KEPT ? events.slice(events.length - EVENTS_KEPT) : events }
+	const seq = (t.eventSeq ?? 0) + 1
+	const events = t.events.concat([{ ...event, seq }])
+	return { ...t, eventSeq: seq, events: events.length > EVENTS_KEPT ? events.slice(events.length - EVENTS_KEPT) : events }
 }

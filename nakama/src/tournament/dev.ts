@@ -9,9 +9,10 @@ import { FAILED_PRECONDITION, INVALID_ARGUMENT, PERMISSION_DENIED, runtimeError 
 import { parsePayload, requireUser } from '../rpc'
 import { settingsOf } from '../server_kind'
 import { ensureClock } from './clock'
-import { type Entrant, addEvent } from './model'
+import { type Entrant, FAKE_ENTRANT_PREFIX, addEvent } from './model'
 import { catchUpTournament, nowFor, tournamentIdOf, tournamentsEnabled } from './rpc'
-import { FAKE_ENTRANT_PREFIX, mutate, readTournament } from './storage'
+import { readTournament } from './storage'
+import { commit } from './effects'
 import { tournamentView } from './view'
 
 function requireDev(ctx: nkruntime.Context, nk: nkruntime.Nakama): string {
@@ -29,7 +30,7 @@ export function rpcTournamentDevFill(ctx: nkruntime.Context, logger: nkruntime.L
 	const checkIn = input.checkIn !== false
 	const real = Date.now()
 	ensureClock(nk)
-	const saved = mutate(nk, id, (t) => {
+	const saved = commit(nk, logger, id, (t) => {
 		if (t.status !== 'draft' && t.status !== 'registration' && t.status !== 'check_in') {
 			return { ok: false, error: { code: FAILED_PRECONDITION, message: 'Only before the start' } }
 		}
@@ -63,8 +64,8 @@ export function rpcTournamentDevTime(ctx: nkruntime.Context, logger: nkruntime.L
 	if (!readTournament(nk, id)) throw runtimeError(INVALID_ARGUMENT, 'No such tournament')
 	const real = Date.now()
 	ensureClock(nk)
-	mutate(nk, id, (t) => ({ ok: true, value: { ...t, devClockOffsetMs: (t.devClockOffsetMs ?? 0) + minutes * 60 * 1000 } }))
-	const saved = catchUpTournament(nk, id, real)
+	commit(nk, logger, id, (t) => ({ ok: true, value: { ...t, devClockOffsetMs: (t.devClockOffsetMs ?? 0) + minutes * 60 * 1000 } }))
+	const saved = catchUpTournament(nk, logger, id, real)
 	logger.info('Tournament %s: dev clock +%d min', id, minutes)
 	return JSON.stringify({ tournament: tournamentView(saved, userId, nowFor(saved, real)) })
 }

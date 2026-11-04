@@ -12,7 +12,7 @@ import { SYSTEM_USER_ID } from '../lobby/protocol'
 import { forEachStored } from '../shared/storage'
 import type { LifecycleError } from './lifecycle'
 import { wakeAt } from './lifecycle'
-import type { Tournament } from './model'
+import { type Tournament, isFakeEntrant } from './model'
 import { type TournamentSummary, summaryOf } from './view'
 import type { Result } from '../shared/result'
 
@@ -42,12 +42,6 @@ function tournamentMemberIds(t: Tournament | null): string[] {
 	const ids = [t.organiserId].concat(t.coOrganiserIds, t.entrants.map((e) => e.userId), t.waitlist.map((e) => e.userId))
 	// Fake entrants (dev fill) have no account to own a list.
 	return ids.filter((id, i) => ids.indexOf(id) === i && !isFakeEntrant(id))
-}
-
-export const FAKE_ENTRANT_PREFIX = 'dev-bot-'
-
-export function isFakeEntrant(id: string): boolean {
-	return id.indexOf(FAKE_ENTRANT_PREFIX) === 0
 }
 
 function readMine(nk: nkruntime.Nakama, userIds: string[]): { [userId: string]: { ids: string[]; version: string | undefined } } {

@@ -92,6 +92,7 @@ import { checkServerKind } from './server_kind'
 import { requireIpHashSalt } from './moderation/network'
 import { rpcAdminIpHashesPurge, rpcAdminNetworkBanLift, rpcAdminNetworkBans } from './moderation/network_admin'
 import {
+	rpcAdminTournamentClose,
 	rpcTournamentCancel,
 	rpcTournamentCheckIn,
 	rpcTournamentCoOrganisersSet,
@@ -102,9 +103,16 @@ import {
 	rpcTournamentList,
 	rpcTournamentMine,
 	rpcTournamentOpen,
+	rpcTournamentPause,
 	rpcTournamentPromote,
+	rpcTournamentReady,
 	rpcTournamentRegistrationSet,
 	rpcTournamentRemovePlayer,
+	rpcTournamentResultClear,
+	rpcTournamentResultSet,
+	rpcTournamentResume,
+	rpcTournamentRoundStart,
+	rpcTournamentExtend,
 	rpcTournamentSeedingSet,
 	rpcTournamentStart,
 	rpcTournamentUpdate,
@@ -258,6 +266,14 @@ function InitModule(
 	initializer.registerRpc('tournament_seeding_set', rpcTournamentSeedingSet)
 	initializer.registerRpc('tournament_start', rpcTournamentStart)
 	initializer.registerRpc('tournament_cancel', rpcTournamentCancel)
+	initializer.registerRpc('tournament_ready', rpcTournamentReady)
+	initializer.registerRpc('tournament_result_set', rpcTournamentResultSet)
+	initializer.registerRpc('tournament_result_clear', rpcTournamentResultClear)
+	initializer.registerRpc('tournament_extend', rpcTournamentExtend)
+	initializer.registerRpc('tournament_pause', rpcTournamentPause)
+	initializer.registerRpc('tournament_resume', rpcTournamentResume)
+	initializer.registerRpc('tournament_round_start', rpcTournamentRoundStart)
+	initializer.registerRpc('admin_tournament_close', rpcAdminTournamentClose)
 	initializer.registerRpc('tournament_dev_fill', rpcTournamentDevFill)
 	initializer.registerRpc('tournament_dev_time', rpcTournamentDevTime)
 	// Starting a match may not be allowed this early; any tournament RPC

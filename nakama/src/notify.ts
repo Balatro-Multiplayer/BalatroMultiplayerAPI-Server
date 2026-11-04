@@ -26,6 +26,17 @@ export const NotifyCode = {
 	// (lobby/late_result.ts). Sent to every player of it, leavers included.
 	// Transient: the match history shows the same result.
 	RESULT_RANKED: 111,
+	// In-client tournaments (tournament/effects.ts). Transient: the client
+	// reads tournament_mine at login for anything it missed.
+	// {tournamentId, name, matchId, kind: 'open' | 'series' | 'reminder',
+	// deadline, minutesLeft, opponent: {id, name}}: ready up for a match.
+	TOURNAMENT_MATCH: 112,
+	// {tournamentId, name, matchId, code, game}: the lobby for your game is
+	// ready; join it by code.
+	TOURNAMENT_LOBBY: 113,
+	// {tournamentId, name, kind, matchId?}: something changed (check-in open,
+	// started, a result, a dispute, finished, ...); refresh the view.
+	TOURNAMENT_UPDATED: 114,
 }
 
 const CODES: number[] = Object.keys(NotifyCode).map((k) => (NotifyCode as { [k: string]: number })[k])

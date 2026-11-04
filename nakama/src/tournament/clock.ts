@@ -24,13 +24,14 @@ export function ensureClock(nk: nkruntime.Nakama): void {
 }
 
 // Moves along every due tournament (at most TOURNAMENT_SWEEP_MAX per call).
-// advanceOne is rpc.ts's catchUpTournament, passed in (rpc.ts's) so this file doesn't import rpc.ts, which imports it.
-export function sweep(nk: nkruntime.Nakama, logger: nkruntime.Logger, real: number, advanceOne: (nk: nkruntime.Nakama, id: string, real: number) => unknown): number {
+// advanceOne is rpc.ts's catchUpTournament, passed in so this file doesn't
+// import rpc.ts (which imports this one).
+export function sweep(nk: nkruntime.Nakama, logger: nkruntime.Logger, real: number, advanceOne: (nk: nkruntime.Nakama, logger: nkruntime.Logger, id: string, real: number) => unknown): number {
 	if (!readConfig(nk).tournamentsEnabled) return 0
 	const ids = dueIds(nk, real).slice(0, TOURNAMENT_SWEEP_MAX)
 	for (const id of ids) {
 		try {
-			advanceOne(nk, id, real)
+			advanceOne(nk, logger, id, real)
 		} catch (e) {
 			logger.error('Tournament clock: %s failed: %s', id, e instanceof Error ? e.message : JSON.stringify(e))
 		}

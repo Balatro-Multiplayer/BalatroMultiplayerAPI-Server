@@ -201,9 +201,11 @@ describe('dev helpers', () => {
 		// 30 minutes ahead opens check-in; 30 more reach the start.
 		expect(call(rpcTournamentDevTime, ORG, { id, minutes: 30 }).tournament.summary.status).toBe('check_in')
 		const t = call(rpcTournamentDevTime, ORG, { id, minutes: 30 }).tournament
-		expect(t.summary.status).toBe('running')
-		// P(1) never checked in; the bots did.
+		// P(1) never checked in; the bots did -- and bots ready up and play
+		// by themselves, so an all-bot tournament plays out at once.
 		expect(t.entrants.length).toBe(15)
+		expect(t.summary.status).toBe('finished')
+		expect(t.placements.length).toBe(15)
 		expect(t.serverNow).toBe(T0 + 60 * MIN)
 	})
 
