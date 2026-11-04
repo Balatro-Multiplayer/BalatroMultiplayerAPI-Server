@@ -178,8 +178,8 @@ router.post('/players/:id/bans', async (req, res, next) => {
 
 		const expires = parseExpiresAt(expiresAt)
 		// The service queue's role table holds here too (permissions.ts): a
-		// moderator's chat bans run at most 30 days and queue bans 7; longer,
-		// permanent and account bans are an admin's.
+		// moderator may pick any preset for a chat or queue ban, permanent
+		// included, but not a custom length; account bans are an admin's.
 		const staff = await staffOf(req)
 		if (!staff || !mayIssueBan(staff.role, type, expires, new Date()))
 			throw new AppError('Your role may not issue this ban', 403)
