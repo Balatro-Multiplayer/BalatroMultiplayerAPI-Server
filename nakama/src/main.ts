@@ -90,7 +90,7 @@ import {
 } from './integrity'
 import { checkServerKind } from './server_kind'
 import { requireIpHashSalt } from './moderation/network'
-import { rpcAdminIpHashesPurge, rpcAdminNetworkBanLift, rpcAdminNetworkBans } from './moderation/network_admin'
+import { rpcAdminIpHashesPurge, rpcAdminNetworkBanLift, rpcAdminNetworkBans, rpcAdminNetworkCheck } from './moderation/network_admin'
 
 function InitModule(
 	ctx: nkruntime.Context,
@@ -173,6 +173,7 @@ function InitModule(
 	initializer.registerRpc('admin_ban_index_forget', rpcAdminBanIndexForget)
 	initializer.registerRpc('admin_network_bans', rpcAdminNetworkBans)
 	initializer.registerRpc('admin_network_ban_lift', rpcAdminNetworkBanLift)
+	initializer.registerRpc('admin_network_check', rpcAdminNetworkCheck)
 	initializer.registerRpc('admin_ip_hashes_purge', rpcAdminIpHashesPurge)
 	initializer.registerRpc('admin_lobby_list', rpcAdminLobbyList)
 	initializer.registerRpc('admin_lobby_get', rpcAdminLobbyGet)

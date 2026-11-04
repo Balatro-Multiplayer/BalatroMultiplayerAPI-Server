@@ -3,7 +3,14 @@
 import { requireUserId } from '../admin'
 import { INVALID_ARGUMENT, runtimeError } from '../errors'
 import { parsePayload, requireServer } from '../rpc'
-import { liftNetworkBan, networkBansFor, purgeIpHashes } from './network'
+import { settingsOf } from '../server_kind'
+import {
+	isNetworkBanned,
+	liftNetworkBan,
+	networkBansFor,
+	networkHash,
+	purgeIpHashes,
+} from './network'
 
 // Accounts looked at per call at most; the caller repeats while `more` is set.
 export const IP_HASH_PURGE_MAX = 500
@@ -19,6 +26,25 @@ export function rpcAdminNetworkBans(
 	requireServer(ctx)
 	const userId = requireUserId(nk, parsePayload(payload))
 	return JSON.stringify({ networkBans: networkBansFor(nk, userId) })
+}
+
+// {ip} -> {banned}: whether the address is on a banned network. For the
+// website, which shows a blocked player that their network is banned. It never
+// says which account caused the ban (ADR 0005).
+export function rpcAdminNetworkCheck(
+	ctx: nkruntime.Context,
+	logger: nkruntime.Logger,
+	nk: nkruntime.Nakama,
+	payload: string,
+) {
+	requireServer(ctx)
+	const ip = parsePayload(payload).ip
+	if (typeof ip !== 'string' || !ip)
+		throw runtimeError(INVALID_ARGUMENT, 'ip is required')
+	const salt = ctx.env.IP_HASH_SALT
+	if (!settingsOf(ctx).networkBans || !salt) return JSON.stringify({ banned: false })
+	const hash = networkHash((input) => nk.sha256Hash(input), salt, ip)
+	return JSON.stringify({ banned: hash !== null && isNetworkBanned(nk, hash) })
 }
 
 // {banId} -> {lifted}: lifted is false when no such network ban is in force.

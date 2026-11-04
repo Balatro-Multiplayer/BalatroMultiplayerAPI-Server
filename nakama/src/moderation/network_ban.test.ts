@@ -12,6 +12,7 @@ import {
 import { fakeLogger, fakeNk } from '../testing/fake_nk'
 import {
 	rpcAdminIpHashesPurge,
+	rpcAdminNetworkCheck,
 	rpcAdminNetworkBanLift,
 	rpcAdminNetworkBans,
 } from './network_admin'
@@ -113,6 +114,16 @@ function world(kind: Kind = 'official', salt = 'test-salt') {
 					fakeLogger,
 					nk as any,
 					JSON.stringify({ banId }),
+				),
+			)
+		},
+		check(ip: string) {
+			return JSON.parse(
+				rpcAdminNetworkCheck(
+					serverCall,
+					fakeLogger,
+					nk as any,
+					JSON.stringify({ ip }),
 				),
 			)
 		},
@@ -260,4 +271,21 @@ describe('Network bans', () => {
 			).toEqual([])
 		},
 	)
+})
+
+describe('Network check for the website', () => {
+	it('says whether an address is on a banned network, and nothing about the account', () => {
+		const w = world()
+		w.login(A, HOME)
+		w.ban(A, 'ban-1', null)
+		expect(w.check(HOME)).toEqual({ banned: true })
+		expect(w.check(CAFE)).toEqual({ banned: false })
+		w.lift('ban-1')
+		expect(w.check(HOME)).toEqual({ banned: false })
+	})
+
+	it('says not banned on a server without network bans', () => {
+		const w = world('community')
+		expect(w.check(HOME)).toEqual({ banned: false })
+	})
 })
