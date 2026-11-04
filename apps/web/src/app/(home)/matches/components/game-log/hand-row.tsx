@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 import { tagValue } from '../../lib/card-ref'
 import { formatScore } from '../../lib/game-log/score'
 import type { GameEvent } from '../../lib/game-log/types'
-import { CardChip } from '../card-chip'
+import { CardChip, JOKER_CHIP_WIDTH } from '../card-chip'
 import { PlayingCardVisual } from '../playing-card-visual'
 
 type HandEvent = Extract<GameEvent, { type: 'hand' }>
@@ -75,6 +75,7 @@ export function HandRow({ event }: { event: HandEvent }) {
                     enhancement={tagValue(card.tags, 'e:')}
                     edition={tagValue(card.tags, 'ed:')}
                     seal={tagValue(card.tags, 's:')}
+                    width={JOKER_CHIP_WIDTH}
                   />
                 </div>
               ) : (
