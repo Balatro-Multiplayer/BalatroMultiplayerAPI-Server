@@ -315,6 +315,48 @@ describe('rating a game for the first time', () => {
 	})
 })
 
+describe('a disputed ranked run stored with an empty ratings object', () => {
+	const disputed = () =>
+		drawRun({ status: 'disputed', placements: [], ratings: {} })
+
+	it('is overturned like a run with no ratings, without rating anyone', () => {
+		const plan = planMatchEdit(
+			disputed(),
+			{ [A]: record(), [B]: record() },
+			{ placements: aWins, season: 3, now: 9000 },
+		)
+		expect(plan.ok).toBe(true)
+		if (!plan.ok) return
+		expect(plan.run.overturned).toBeDefined()
+		expect(plan.changes).toEqual({})
+		expect(plan.records).toEqual({})
+	})
+
+	it('is voided without refusing and without changing any rating', () => {
+		const plan = planMatchEdit(
+			disputed(),
+			{ [A]: record(), [B]: record() },
+			{ placements: null, season: 3, now: 9000 },
+		)
+		expect(plan.ok).toBe(true)
+		if (!plan.ok) return
+		expect(plan.run.voided).toEqual({ at: 9000 })
+		expect(plan.records).toEqual({})
+		expect(plan.myRunRatings).toEqual({ [A]: null, [B]: null })
+	})
+
+	it('rates a confirmed result like a run with no ratings', () => {
+		const plan = planMatchEdit(
+			drawRun({ status: 'contested', placements: aWins, ratings: {} }),
+			{ [A]: record(), [B]: record() },
+			{ placements: aWins, season: 3, now: 9000 },
+		)
+		expect(plan.ok).toBe(true)
+		if (!plan.ok) return
+		expect(plan.records[A]).toMatchObject({ rating: 1020, gamesPlayed: 12 })
+	})
+})
+
 describe('admin_match_edit', () => {
 	function world(run: RunRecord, current: { [id: string]: RatingRecord }) {
 		const board = new Map<string, number>()

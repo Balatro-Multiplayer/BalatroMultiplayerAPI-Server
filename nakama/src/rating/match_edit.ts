@@ -98,7 +98,7 @@ export function planMatchEdit(
 	if (edit.placements !== null && run.voided) return refuse({ kind: 'voided' })
 
 	const rated = run.rankedMode !== undefined && edit.season !== null
-	const hadRatings = run.ratings !== undefined
+	const hadRatings = hasRatings(run)
 	let next: RunRecord = run
 	let places: { [userId: string]: number } = {}
 	if (edit.placements !== null) {
@@ -261,6 +261,11 @@ export function planMatchEdit(
 	}
 }
 
+// A disputed run is stored with `ratings: {}`: that means nobody was rated.
+function hasRatings(run: RunRecord): boolean {
+	return run.ratings !== undefined && Object.keys(run.ratings).length > 0
+}
+
 function nulls(run: RunRecord): { [userId: string]: null } {
 	const out: { [userId: string]: null } = {}
 	for (const p of run.players) out[p.id] = null
@@ -317,7 +322,7 @@ export function rpcAdminMatchEdit(
 		const versions: { [userId: string]: string | undefined } = {}
 		if (board) {
 			// A game nobody was rated for starts from the ratings a new game would.
-			const base = run.ratings
+			const base = hasRatings(run)
 				? null
 				: loadRatings(
 						nk,

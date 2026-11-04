@@ -10074,7 +10074,7 @@ function planMatchEdit(run, current, edit) {
     return refuse2({ kind: "unchanged" });
   if (edit.placements !== null && run.voided) return refuse2({ kind: "voided" });
   const rated = run.rankedMode !== void 0 && edit.season !== null;
-  const hadRatings = run.ratings !== void 0;
+  const hadRatings = hasRatings(run);
   let next = run;
   let places = {};
   if (edit.placements !== null) {
@@ -10207,6 +10207,9 @@ function planMatchEdit(run, current, edit) {
     records
   });
 }
+function hasRatings(run) {
+  return run.ratings !== void 0 && Object.keys(run.ratings).length > 0;
+}
 function nulls(run) {
   const out = {};
   for (const p of run.players) out[p.id] = null;
@@ -10242,7 +10245,7 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
     const stored = {};
     const versions = {};
     if (board) {
-      const base = run.ratings ? null : loadRatings(
+      const base = hasRatings(run) ? null : loadRatings(
         nk,
         run.modId,
         run.rankedMode,
