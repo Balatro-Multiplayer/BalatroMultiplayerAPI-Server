@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createBracket, placements, recordGame } from './bracket'
+import { createBracket, finalPlacements, recordGame } from './bracket'
 import { resolveBracket } from './resolve'
 import {
 	type ScheduleBlock,
@@ -14,7 +14,7 @@ import {
 	roundSteps,
 	setReady,
 	startBlock,
-	tick,
+	tickTimetable,
 	validateSchedule,
 } from './schedule'
 import { players, seededRng } from './test_helpers'
@@ -46,7 +46,7 @@ class Run {
 		this.state = newTimetable(T0, schedule)
 	}
 	tick(): TickOutput {
-		const out = tick({ bracket: this.bracket, schedule: this.schedule, state: this.state, now: this.now })
+		const out = tickTimetable({ bracket: this.bracket, schedule: this.schedule, state: this.state, now: this.now })
 		this.bracket = out.bracket
 		this.state = out.state
 		this.events.push(...out.events)
@@ -160,7 +160,7 @@ describe('live play', () => {
 		run.ready('W1-1', 1)
 		run.at(T0 + 23 * MIN)
 		expect(run.take().map((e) => e.kind)).toEqual(['game_forfeited', 'block_finished', 'finished'])
-		expect(placements(run.bracket)[0]).toEqual({ id: 'p2', place: 1 })
+		expect(finalPlacements(run.bracket)[0]).toEqual({ id: 'p2', place: 1 })
 	})
 
 	it('waits for the organiser when nobody readied, then applies the fallback', () => {
@@ -306,7 +306,7 @@ describe('whole tournaments', () => {
 				}
 			}
 			expect(run.state.finishedAt).toBeDefined()
-			expect(placements(run.bracket).length).toBe(n)
+			expect(finalPlacements(run.bracket).length).toBe(n)
 		})
 	}
 })

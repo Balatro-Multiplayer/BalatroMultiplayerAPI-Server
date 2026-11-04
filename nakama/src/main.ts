@@ -91,6 +91,35 @@ import {
 import { checkServerKind } from './server_kind'
 import { requireIpHashSalt } from './moderation/network'
 import { rpcAdminIpHashesPurge, rpcAdminNetworkBanLift, rpcAdminNetworkBans } from './moderation/network_admin'
+import {
+	rpcTournamentCancel,
+	rpcTournamentCheckIn,
+	rpcTournamentCoOrganisersSet,
+	rpcTournamentCreate,
+	rpcTournamentGet,
+	rpcTournamentJoin,
+	rpcTournamentLeave,
+	rpcTournamentList,
+	rpcTournamentMine,
+	rpcTournamentOpen,
+	rpcTournamentPromote,
+	rpcTournamentRegistrationSet,
+	rpcTournamentRemovePlayer,
+	rpcTournamentSeedingSet,
+	rpcTournamentStart,
+	rpcTournamentUpdate,
+} from './tournament/rpc'
+import { rpcTournamentDevFill, rpcTournamentDevTime } from './tournament/dev'
+import { ensureClock } from './tournament/clock'
+import {
+	tournamentClockInit,
+	tournamentClockJoin,
+	tournamentClockJoinAttempt,
+	tournamentClockLeave,
+	tournamentClockLoop,
+	tournamentClockSignal,
+	tournamentClockTerminate,
+} from './tournament/clock_match'
 
 function InitModule(
 	ctx: nkruntime.Context,
@@ -202,6 +231,39 @@ function InitModule(
 	initializer.registerRpc('admin_run_get', rpcAdminRunGet)
 	initializer.registerRpc('admin_run_set_result', rpcAdminRunSetResult)
 	logger.info('BMP lobby module loaded')
+
+	// In-client tournaments (tournament/), behind the tournamentsEnabled switch.
+	initializer.registerMatch('bmp_tournament_clock', {
+		matchInit: tournamentClockInit,
+		matchJoinAttempt: tournamentClockJoinAttempt,
+		matchJoin: tournamentClockJoin,
+		matchLeave: tournamentClockLeave,
+		matchLoop: tournamentClockLoop,
+		matchSignal: tournamentClockSignal,
+		matchTerminate: tournamentClockTerminate,
+	})
+	initializer.registerRpc('tournament_list', rpcTournamentList)
+	initializer.registerRpc('tournament_get', rpcTournamentGet)
+	initializer.registerRpc('tournament_mine', rpcTournamentMine)
+	initializer.registerRpc('tournament_join', rpcTournamentJoin)
+	initializer.registerRpc('tournament_leave', rpcTournamentLeave)
+	initializer.registerRpc('tournament_check_in', rpcTournamentCheckIn)
+	initializer.registerRpc('tournament_create', rpcTournamentCreate)
+	initializer.registerRpc('tournament_update', rpcTournamentUpdate)
+	initializer.registerRpc('tournament_open', rpcTournamentOpen)
+	initializer.registerRpc('tournament_registration_set', rpcTournamentRegistrationSet)
+	initializer.registerRpc('tournament_promote', rpcTournamentPromote)
+	initializer.registerRpc('tournament_remove_player', rpcTournamentRemovePlayer)
+	initializer.registerRpc('tournament_co_organisers_set', rpcTournamentCoOrganisersSet)
+	initializer.registerRpc('tournament_seeding_set', rpcTournamentSeedingSet)
+	initializer.registerRpc('tournament_start', rpcTournamentStart)
+	initializer.registerRpc('tournament_cancel', rpcTournamentCancel)
+	initializer.registerRpc('tournament_dev_fill', rpcTournamentDevFill)
+	initializer.registerRpc('tournament_dev_time', rpcTournamentDevTime)
+	// Starting a match may not be allowed this early; any tournament RPC
+	// starts the clock otherwise.
+	ensureClock(nk)
+	logger.info('BMP tournament module loaded')
 }
 
 // Nothing calls InitModule inside the bundle; this reference keeps esbuild

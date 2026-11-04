@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createBracket, decideMatch, isFinished, nextSwissRound, placements, recordGame } from './bracket'
+import { createBracket, decideMatch, isFinished, nextSwissRound, finalPlacements, recordGame } from './bracket'
 import { resolveBracket } from './resolve'
 import { circlePairings, splitGroups } from './round_robin'
 import { computeStandings } from './standings'
@@ -62,7 +62,7 @@ describe('round robin', () => {
 			})
 			const done = playOut(b, randomWinner(seededRng(n)))
 			expect(isFinished(done)).toBe(true)
-			expect(placements(done).length).toBe(n)
+			expect(finalPlacements(done).length).toBe(n)
 		})
 	}
 
@@ -93,7 +93,7 @@ describe('round robin', () => {
 		play(m12.id, [side(m12, 'p1'), side(m12, 'p1')])
 		play(m23.id, [side(m23, 'p2'), side(m23, 'p3'), side(m23, 'p2')])
 		play(m13.id, [side(m13, 'p3'), side(m13, 'p3')])
-		expect(placements(b).map((p) => p.id)).toEqual(['p3', 'p1', 'p2'])
+		expect(finalPlacements(b).map((p) => p.id)).toEqual(['p3', 'p1', 'p2'])
 	})
 
 	it('counts a drawn Bo1 as half a point each', () => {
@@ -146,7 +146,7 @@ describe('swiss', () => {
 				expect(seen.length).toBe(n)
 				expect(new Set(seen).size).toBe(n)
 			}
-			const places = placements(b)
+			const places = finalPlacements(b)
 			expect(places.map((p) => p.place)).toEqual(players(n).map((_, i) => i + 1))
 		})
 	}

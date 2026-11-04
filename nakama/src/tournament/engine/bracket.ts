@@ -73,7 +73,7 @@ function playable(resolved: ResolvedMatch): resolved is ResolvedMatch & { player
 	return (resolved.status === 'ready' || resolved.status === 'in_progress') && typeof resolved.players[0] === 'string' && typeof resolved.players[1] === 'string'
 }
 
-function find(bracket: Bracket, matchId: string, dropped: EntrantId[]): Result<{ resolved: ResolvedBracket; match: ResolvedMatch }, EngineError> {
+function findMatch(bracket: Bracket, matchId: string, dropped: EntrantId[]): Result<{ resolved: ResolvedBracket; match: ResolvedMatch }, EngineError> {
 	const resolved = resolveBracket(bracket, dropped)
 	const match = resolved.byId[matchId]
 	if (!match) return err({ code: 'unknown_match', message: `No match ${matchId}` })
@@ -83,7 +83,7 @@ function find(bracket: Bracket, matchId: string, dropped: EntrantId[]): Result<{
 // Records one finished game. In elimination a draw is replayed: it is kept
 // in the log but decides nothing.
 export function recordGame(bracket: Bracket, matchId: string, outcome: GameOutcome, dropped: EntrantId[] = []): Result<Bracket, EngineError> {
-	const found = find(bracket, matchId, dropped)
+	const found = findMatch(bracket, matchId, dropped)
 	if (!found.ok) return found
 	const m = found.value.match
 	if (!playable(m)) return err({ code: 'not_playable', message: `Match ${matchId} is ${m.status}` })
@@ -135,7 +135,7 @@ export function decideMatch(
 	options: { dropped?: EntrantId[]; resetDownstream?: boolean } = {},
 ): Result<Bracket, EngineError> {
 	const dropped = options.dropped ?? []
-	const found = find(bracket, matchId, dropped)
+	const found = findMatch(bracket, matchId, dropped)
 	if (!found.ok) return found
 	const m = found.value.match
 	if (m.status === 'waiting' || m.status === 'void') return err({ code: 'not_playable', message: `Match ${matchId} is ${m.status}` })
@@ -175,7 +175,7 @@ export function clearMatch(
 	options: { dropped?: EntrantId[]; resetDownstream?: boolean } = {},
 ): Result<Bracket, EngineError> {
 	const dropped = options.dropped ?? []
-	const found = find(bracket, matchId, dropped)
+	const found = findMatch(bracket, matchId, dropped)
 	if (!found.ok) return found
 	let next = replaceMatch(bracket, clearResults(found.value.match.def))
 	const before = found.value.resolved
@@ -248,7 +248,7 @@ export interface Placement {
 // they were knocked out (players knocked out in the same round share a
 // place). Round robin/Swiss: the standings (round robin groups are ranked
 // side by side: every group winner, then every runner-up, ...).
-export function placements(bracket: Bracket, dropped: EntrantId[] = []): Placement[] {
+export function finalPlacements(bracket: Bracket, dropped: EntrantId[] = []): Placement[] {
 	const resolved = resolveBracket(bracket, dropped)
 	if (bracket.format === 'round_robin' || bracket.format === 'swiss') {
 		const tiebreakers = tiebreakersFor(bracket)

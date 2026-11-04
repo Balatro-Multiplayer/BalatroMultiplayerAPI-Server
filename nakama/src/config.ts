@@ -23,6 +23,9 @@ export interface ServerConfig {
 	// Finished games count toward avatar achievements (achievements/record.ts).
 	// Locked avatars stay locked either way.
 	achievementsEnabled: boolean
+	// In-client tournaments (tournament/). Off until switched on: every
+	// tournament RPC refuses and the tournament clock does nothing.
+	tournamentsEnabled: boolean
 	// Chat messages that skip moderation, as webadmin lists them (looked up by
 	// chat/filter.ts normalizeForAllowlist).
 	chatAllowlist: string[]
@@ -46,6 +49,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
 	testingMode: false,
 	integrityEnforced: false,
 	achievementsEnabled: true,
+	tournamentsEnabled: false,
 	chatAllowlist: [],
 	season: 0,
 	queueAllowedModIds: [],
@@ -76,6 +80,7 @@ export function mergeConfig(current: ServerConfig, update: { [key: string]: unkn
 		'testingMode',
 		'integrityEnforced',
 		'achievementsEnabled',
+		'tournamentsEnabled',
 	]
 	for (const flag of flags) {
 		const value = update[flag]

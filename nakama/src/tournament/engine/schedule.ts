@@ -23,8 +23,8 @@ import { decideMatch, isFinished, nextSwissRound, recordGame, swissRoundsPlayed 
 import { resolveBracket } from './resolve'
 import type { Bracket, EngineError, EntrantId, ResolvedMatch, Side, Stage } from './types'
 
-const MINUTE = 60 * 1000
-const HOUR = 60 * MINUTE
+export const MINUTE_MS = 60 * 1000
+const HOUR_MS = 60 * MINUTE_MS
 
 export interface RoundRef {
 	stage: Stage
@@ -266,15 +266,15 @@ function blockStartTime(i: number, schedule: ScheduleBlock[], state: TimetableSt
 	const rule = schedule[i].start
 	if (rule.kind === 'at') return rule.at
 	if (rule.kind === 'manual') return null
-	if (i === 0) return state.startedAt + rule.breakMinutes * MINUTE
+	if (i === 0) return state.startedAt + rule.breakMinutes * MINUTE_MS
 	const previous = state.blocks[i - 1].finishedAt
-	return previous === undefined ? null : previous + rule.breakMinutes * MINUTE
+	return previous === undefined ? null : previous + rule.breakMinutes * MINUTE_MS
 }
 
 function deadlineFor(play: PlayRule, opened: number): number | null {
-	if (play.kind === 'live') return opened + play.readyUpMinutes * MINUTE
+	if (play.kind === 'live') return opened + play.readyUpMinutes * MINUTE_MS
 	if (play.closesAt !== undefined) return play.closesAt
-	return play.durationMinutes ? opened + play.durationMinutes * MINUTE : null
+	return play.durationMinutes ? opened + play.durationMinutes * MINUTE_MS : null
 }
 
 function cloneState(state: TimetableState): TimetableState {
@@ -291,7 +291,7 @@ function seedOf(bracket: Bracket, id: EntrantId): number {
 	return i === -1 ? Number.MAX_SAFE_INTEGER : i
 }
 
-function done(m: ResolvedMatch | undefined): boolean {
+function isSettled(m: ResolvedMatch | undefined): boolean {
 	return !m || m.status === 'done' || m.status === 'void'
 }
 
@@ -305,7 +305,7 @@ function unwrap(r: Result<Bracket, EngineError>): Bracket {
 	return r.value
 }
 
-export function tick(input: TickInput): TickOutput {
+export function tickTimetable(input: TickInput): TickOutput {
 	const dropped = input.dropped ?? []
 	const { schedule, now } = input
 	let bracket = input.bracket
@@ -329,7 +329,7 @@ export function tick(input: TickInput): TickOutput {
 		if (bracket.format === 'swiss') {
 			const played = swissRoundsPlayed(bracket)
 			const current = resolved.matches.filter((m) => m.def.round === played)
-			if (played < (bracket.options.swissRounds ?? 0) && current.every(done)) {
+			if (played < (bracket.options.swissRounds ?? 0) && current.every(isSettled)) {
 				const next = nextSwissRound(bracket, dropped, input.bestOfFor ? input.bestOfFor('SW', played + 1) : 1)
 				if (next.ok) {
 					bracket = next.value
@@ -342,7 +342,7 @@ export function tick(input: TickInput): TickOutput {
 		// Steps whose every match is done (an unpaired Swiss round is not).
 		const swissPaired = bracket.format === 'swiss' ? swissRoundsPlayed(bracket) : Number.MAX_SAFE_INTEGER
 		const stepDone: boolean[] = roundSteps(bracket).map((step) =>
-			step.every((r) => (r.stage === 'SW' && r.round > swissPaired ? false : resolved.matches.filter((m) => m.def.stage === r.stage && m.def.round === r.round).every(done))),
+			step.every((r) => (r.stage === 'SW' && r.round > swissPaired ? false : resolved.matches.filter((m) => m.def.stage === r.stage && m.def.round === r.round).every(isSettled))),
 		)
 
 		// Blocks: finish, then start.
@@ -409,7 +409,7 @@ export function tick(input: TickInput): TickOutput {
 				clock.phase = 'ready_up'
 				clock.ready = [false, false]
 				clock.readiedAt = [null, null]
-				clock.deadline = now + block.seriesReadyUpMinutes * MINUTE
+				clock.deadline = now + block.seriesReadyUpMinutes * MINUTE_MS
 				clock.remindersSent = []
 				events.push({ kind: 'series_ready_up', matchId: m.def.id, deadline: clock.deadline })
 				changed = true
@@ -426,7 +426,7 @@ export function tick(input: TickInput): TickOutput {
 				}
 				if (clock.deadline === null) continue
 				for (const minutes of block.reminders ?? []) {
-					const at = clock.deadline - minutes * MINUTE
+					const at = clock.deadline - minutes * MINUTE_MS
 					if (clock.remindersSent.indexOf(minutes) !== -1 || at <= clock.openedAt) continue
 					if (now >= at && now < clock.deadline) {
 						clock.remindersSent.push(minutes)
@@ -455,14 +455,14 @@ export function tick(input: TickInput): TickOutput {
 					clock.phase = 'unplayed'
 					clock.deadline = null
 					clock.unplayedSince = now
-					events.push({ kind: 'unplayed', matchId: m.def.id, fallbackAt: now + block.unplayed.fallbackAfterHours * HOUR })
+					events.push({ kind: 'unplayed', matchId: m.def.id, fallbackAt: now + block.unplayed.fallbackAfterHours * HOUR_MS })
 				}
 				changed = true
 				break
 			}
 
 			if (clock.phase === 'unplayed' && clock.unplayedSince !== undefined) {
-				const at = clock.unplayedSince + block.unplayed.fallbackAfterHours * HOUR
+				const at = clock.unplayedSince + block.unplayed.fallbackAfterHours * HOUR_MS
 				if (now < at) {
 					wake.push(at)
 					continue
@@ -522,10 +522,10 @@ export function extendMatch(state: TimetableState, matchId: string, minutes: num
 	const r = openClock(state, matchId)
 	if (!r.ok) return r
 	const { clock } = r.value
-	if (clock.phase === 'ready_up' && clock.deadline !== null) clock.deadline = Math.max(clock.deadline, now) + minutes * MINUTE
+	if (clock.phase === 'ready_up' && clock.deadline !== null) clock.deadline = Math.max(clock.deadline, now) + minutes * MINUTE_MS
 	else if (clock.phase === 'unplayed') {
 		clock.phase = 'ready_up'
-		clock.deadline = now + minutes * MINUTE
+		clock.deadline = now + minutes * MINUTE_MS
 		clock.unplayedSince = undefined
 		clock.ready = [false, false]
 		clock.readiedAt = [null, null]

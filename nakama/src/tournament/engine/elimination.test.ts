@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createBracket, isFinished, placements } from './bracket'
+import { createBracket, isFinished, finalPlacements } from './bracket'
 import { bracketSize, seedOrder } from './elimination'
 import { resolveBracket } from './resolve'
 import { favourite, playOut, players, randomWinner, seededRng } from './test_helpers'
@@ -62,7 +62,7 @@ describe('single elimination', () => {
 			const b = playOut(build('single_elim', n), favourite)
 			expect(isFinished(b)).toBe(true)
 			expect(b.matches.length).toBe(bracketSize(n) - 1)
-			const places = placements(b)
+			const places = finalPlacements(b)
 			expect(places.length).toBe(n)
 			expect(places[0]).toEqual({ id: 'p1', place: 1 })
 			if (n >= 2) expect(places[1]).toEqual({ id: 'p2', place: 2 })
@@ -72,7 +72,7 @@ describe('single elimination', () => {
 	}
 
 	it('shares places between same-round eliminations', () => {
-		const places = placements(playOut(build('single_elim', 8), favourite))
+		const places = finalPlacements(playOut(build('single_elim', 8), favourite))
 		expect(places.map((p) => p.place)).toEqual([1, 2, 3, 3, 5, 5, 5, 5])
 	})
 })
@@ -82,7 +82,7 @@ describe('double elimination', () => {
 		it(`plays out with ${n} entrants (random winners)`, () => {
 			const b = playOut(build('double_elim', n), randomWinner(seededRng(n)))
 			expect(isFinished(b)).toBe(true)
-			const places = placements(b)
+			const places = finalPlacements(b)
 			expect(places.length).toBe(n)
 			expect(new Set(places.map((p) => p.id)).size).toBe(n)
 			const champion = places[0].id
@@ -100,7 +100,7 @@ describe('double elimination', () => {
 		const b = playOut(build('double_elim', 4), favourite)
 		const gf2 = resolveBracket(b).byId.GF2
 		expect(gf2.status).toBe('void')
-		expect(placements(b).slice(0, 2)).toEqual([
+		expect(finalPlacements(b).slice(0, 2)).toEqual([
 			{ id: 'p1', place: 1 },
 			{ id: 'p2', place: 2 },
 		])
@@ -119,7 +119,7 @@ describe('double elimination', () => {
 		expect(r.byId.GF1.outcome?.winner).toBe('p4')
 		expect(r.byId.GF2.status).toBe('done')
 		expect(r.byId.GF2.outcome?.winner).toBe('p4')
-		expect(placements(b)[0]).toEqual({ id: 'p4', place: 1 })
+		expect(finalPlacements(b)[0]).toEqual({ id: 'p4', place: 1 })
 	})
 
 	it('ends after the first grand final when the reset is off', () => {

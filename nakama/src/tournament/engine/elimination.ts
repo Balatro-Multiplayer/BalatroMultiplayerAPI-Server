@@ -23,7 +23,7 @@ export function seedOrder(size: number): number[] {
 	return order
 }
 
-function match(id: string, stage: MatchDef['stage'], round: number, order: number, slots: [SlotSource, SlotSource], bestOf: number): MatchDef {
+function matchDef(id: string, stage: MatchDef['stage'], round: number, order: number, slots: [SlotSource, SlotSource], bestOf: number): MatchDef {
 	return { id, stage, round, order, slots, bestOf, games: [] }
 }
 
@@ -43,13 +43,13 @@ function winnersBracket(entrants: number, bestOf: number): { matches: MatchDef[]
 	let rounds = 0
 	for (let n = size; n > 1; n /= 2) rounds++
 	for (let i = 0; i < size / 2; i++) {
-		matches.push(match(winnersId(1, i + 1), 'W', 1, i + 1, [{ kind: 'seed', seed: order[2 * i] }, { kind: 'seed', seed: order[2 * i + 1] }], bestOf))
+		matches.push(matchDef(winnersId(1, i + 1), 'W', 1, i + 1, [{ kind: 'seed', seed: order[2 * i] }, { kind: 'seed', seed: order[2 * i + 1] }], bestOf))
 	}
 	for (let round = 2; round <= rounds; round++) {
 		const count = size / 2 ** round
 		for (let i = 1; i <= count; i++) {
 			matches.push(
-				match(
+				matchDef(
 					winnersId(round, i),
 					'W',
 					round,
@@ -96,7 +96,7 @@ export function doubleElimination(entrants: number, options: { bestOf?: number; 
 		const firstCount = size / 4
 		for (let i = 1; i <= firstCount; i++) {
 			matches.push(
-				match(
+				matchDef(
 					losersId(1, i),
 					'L',
 					1,
@@ -114,7 +114,7 @@ export function doubleElimination(entrants: number, options: { bestOf?: number; 
 			const count = size / 2 ** (j + 1)
 			for (let i = 1; i <= count; i++) {
 				matches.push(
-					match(
+					matchDef(
 						losersId(evenRound, i),
 						'L',
 						evenRound,
@@ -131,7 +131,7 @@ export function doubleElimination(entrants: number, options: { bestOf?: number; 
 				const oddRound = evenRound + 1
 				for (let i = 1; i <= count / 2; i++) {
 					matches.push(
-						match(
+						matchDef(
 							losersId(oddRound, i),
 							'L',
 							oddRound,
@@ -151,9 +151,9 @@ export function doubleElimination(entrants: number, options: { bestOf?: number; 
 
 	// Two entrants: the winners final's loser goes straight to the grand final.
 	const challenger: SlotSource = losersFinal ? { kind: 'winner', matchId: losersFinal } : { kind: 'loser', matchId: winnersFinal }
-	matches.push(match('GF1', 'GF', 1, 1, [{ kind: 'winner', matchId: winnersFinal }, challenger], bestOf))
+	matches.push(matchDef('GF1', 'GF', 1, 1, [{ kind: 'winner', matchId: winnersFinal }, challenger], bestOf))
 	if (options.grandFinalReset ?? true) {
-		const reset = match('GF2', 'GF', 2, 1, [{ kind: 'loser', matchId: 'GF1' }, { kind: 'winner', matchId: 'GF1' }], bestOf)
+		const reset = matchDef('GF2', 'GF', 2, 1, [{ kind: 'loser', matchId: 'GF1' }, { kind: 'winner', matchId: 'GF1' }], bestOf)
 		reset.onlyIf = { matchId: 'GF1', winner: 1 }
 		matches.push(reset)
 	}

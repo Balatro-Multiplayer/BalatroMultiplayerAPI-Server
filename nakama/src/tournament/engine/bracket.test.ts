@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clearMatch, createBracket, decideMatch, placements, recordGame, setRoundBestOf } from './bracket'
+import { clearMatch, createBracket, decideMatch, finalPlacements, recordGame, setRoundBestOf } from './bracket'
 import { resolveBracket } from './resolve'
 import { players } from './test_helpers'
 import type { Bracket, GameOutcome } from './types'
@@ -85,7 +85,7 @@ describe('forfeits, drops and overrides', () => {
 		const final = resolveBracket(b).byId['W2-1']
 		expect(final.players).toEqual([null, 'p2'])
 		expect(final.outcome).toMatchObject({ winner: 'p2', reason: 'bye' })
-		expect(placements(b)[0]).toEqual({ id: 'p2', place: 1 })
+		expect(finalPlacements(b)[0]).toEqual({ id: 'p2', place: 1 })
 	})
 
 	it('forfeits every unfinished match of a dropped player', () => {

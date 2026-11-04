@@ -50,7 +50,7 @@ function headToHead(id: EntrantId, group: Set<EntrantId>, matches: ResolvedMatch
 	return points
 }
 
-function keyOf(row: Tally, tiebreaker: Tiebreaker, group: Set<EntrantId>, matches: ResolvedMatch[]): number {
+function tiebreakKey(row: Tally, tiebreaker: Tiebreaker, group: Set<EntrantId>, matches: ResolvedMatch[]): number {
 	switch (tiebreaker) {
 		case 'buchholz':
 			return row.buchholz
@@ -132,7 +132,7 @@ export function computeStandings(
 	// Refine groups of tied players one tiebreaker at a time.
 	let groups: Tally[][] = [seeded.map((id) => rows[id])]
 	const order: ((group: Set<EntrantId>) => (row: Tally) => number)[] = [() => (row) => row.points]
-	for (const t of tiebreakers) order.push((group) => (row) => keyOf(row, t, group, matches))
+	for (const t of tiebreakers) order.push((group) => (row) => tiebreakKey(row, t, group, matches))
 	if (tiebreakers.indexOf('seed') === -1) order.push(() => (row) => -row.seed)
 	for (const makeKey of order) {
 		const next: Tally[][] = []
