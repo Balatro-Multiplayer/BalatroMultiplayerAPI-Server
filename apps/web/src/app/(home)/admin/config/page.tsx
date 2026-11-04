@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { LADDER_LABELS, LADDER_STEPS, LADDERS, type Ladder, type LadderStep, STEP_LABELS } from '../players/lib/strikes'
 
 interface ModEntry {
   modId: string
@@ -33,6 +34,7 @@ interface ConfigResponse {
   achievementsEnabled: boolean
   // The SMODS ids of every ranked-pinned mod (Ranked Mods page).
   queueAllowedModIds: string[]
+  strikeLadders: Record<Ladder, LadderStep[]>
 }
 
 type FeatureFlag =
@@ -83,6 +85,24 @@ export default function AdminConfigPage() {
       apiFetch('/webadmin/config/feature-flags', { method: 'PATCH', body: JSON.stringify(patch) }),
     onSuccess: () => {
       toast.success('Feature flag updated')
+      invalidate()
+    },
+    onError: onErr,
+  })
+
+  // One draft per ladder: the steps in order, and the reason for the edit.
+  const [ladderDrafts, setLadderDrafts] = useState<Partial<Record<Ladder, LadderStep[]>>>({})
+  const [ladderReason, setLadderReason] = useState('')
+  const saveLadderMut = useMutation({
+    mutationFn: ({ ladder, steps }: { ladder: Ladder; steps: LadderStep[] }) =>
+      apiFetch(`/webadmin/config/strike-ladders/${ladder}`, {
+        method: 'PUT',
+        body: JSON.stringify({ steps, reason: ladderReason }),
+      }),
+    onSuccess: (_result, { ladder }) => {
+      toast.success('Strike ladder saved')
+      setLadderDrafts((d) => ({ ...d, [ladder]: undefined }))
+      setLadderReason('')
       invalidate()
     },
     onError: onErr,
@@ -234,6 +254,64 @@ export default function AdminConfigPage() {
                   </Button>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Strike Ladders</CardTitle>
+              <CardDescription>
+                The next step on a ladder is the recommended punishment. The last step must be permanent. Each edit goes in the staff log.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              {LADDERS.map((ladder) => {
+                const steps = ladderDrafts[ladder] ?? data.strikeLadders[ladder]
+                const edit = (next: LadderStep[]) => setLadderDrafts((d) => ({ ...d, [ladder]: next }))
+                return (
+                  <div key={ladder} className='space-y-2' data-testid={`ladder-${ladder}`}>
+                    <Label>{LADDER_LABELS[ladder]}</Label>
+                    <div className='flex flex-wrap items-center gap-2'>
+                      {steps.map((step, i) => (
+                        <span key={`${step}-${i}`} className='inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-sm'>
+                          {i + 1}. {STEP_LABELS[step]}
+                          <button
+                            type='button'
+                            className='text-muted-foreground hover:text-destructive'
+                            onClick={() => edit(steps.filter((_, j) => j !== i))}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                      {LADDER_STEPS.map((step) => (
+                        <Button key={step} size='sm' variant='outline' onClick={() => edit([...steps, step])}>
+                          + {STEP_LABELS[step]}
+                        </Button>
+                      ))}
+                    </div>
+                    {ladderDrafts[ladder] && (
+                      <div className='flex gap-2'>
+                        <Input
+                          placeholder='Reason for the change (staff log)'
+                          value={ladderReason}
+                          onChange={(e) => setLadderReason(e.target.value)}
+                          className='max-w-sm'
+                        />
+                        <Button
+                          disabled={saveLadderMut.isPending || !ladderReason.trim()}
+                          onClick={() => saveLadderMut.mutate({ ladder, steps })}
+                        >
+                          Save
+                        </Button>
+                        <Button variant='ghost' onClick={() => setLadderDrafts((d) => ({ ...d, [ladder]: undefined }))}>
+                          Reset
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </CardContent>
           </Card>
 

@@ -17,6 +17,7 @@ export const STAFF_ACTIONS = [
 	'reopen',
 	'role_grant',
 	'role_remove',
+	'ladder_edit',
 ] as const
 export type StaffAction = (typeof STAFF_ACTIONS)[number]
 

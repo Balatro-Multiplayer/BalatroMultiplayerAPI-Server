@@ -7,6 +7,10 @@ import {
 	modVersions,
 	serverConfig,
 } from '../../infrastructure/db/schema.js'
+import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gateway.js'
+import { getLadderSteps, setLadderSteps } from '../../infrastructure/gateways/strike.gateway.js'
+import { isLadder, parseLadderSteps } from '../strikes/ladder.js'
+import { parseReason } from '../../shared/staff-log/actions.js'
 import { loadConfigFromDb } from '../../infrastructure/gateways/config.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { requireAdmin } from '../../shared/utils/require-admin.js'
@@ -43,7 +47,36 @@ router.get('/config', async (_req, res, next) => {
 			lobbyCreationEnabled: config.lobbyCreationEnabled,
 			achievementsEnabled: config.achievementsEnabled,
 			queueAllowedModIds: config.queueAllowedModIds,
+			strikeLadders: await getLadderSteps(),
 		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+// An admin changes the steps of a strike ladder. The edit is a staff action
+// and needs a reason.
+router.put('/config/strike-ladders/:ladder', async (req, res, next) => {
+	try {
+		await requireAdmin(req)
+		const { ladder } = req.params
+		if (!isLadder(ladder)) throw new AppError("ladder must be 'chat' or 'play'", 404)
+		const body = req.body as { steps?: unknown; reason?: unknown }
+		const parsed = parseLadderSteps(body.steps)
+		if (!parsed.ok) throw new AppError(parsed.message, 400)
+		const reason = parseReason(body.reason)
+		if (!reason.ok) throw new AppError(reason.message, 400)
+		const before = (await getLadderSteps())[ladder]
+		await db.transaction(async (tx) => {
+			await setLadderSteps(tx, ladder, parsed.steps)
+			await recordStaffAction(tx, {
+				staff: { playerId: req.player!.playerId, role: 'admin' },
+				action: 'ladder_edit',
+				reason: reason.reason,
+				detail: { ladder, before, after: parsed.steps },
+			})
+		})
+		res.json({ strikeLadders: await getLadderSteps() })
 	} catch (err) {
 		next(err)
 	}

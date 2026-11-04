@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { BanType } from '@bmp/types'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,6 +19,14 @@ import {
   IssueBanForm,
   presetExpiry,
 } from '../../users/components/issue-ban-form'
+import { LadderPick } from '../components/ladder-pick'
+import {
+  defaultLadderOf,
+  LADDER_LABELS,
+  LADDERS,
+  type Ladder,
+  STEP_LABELS,
+} from '../lib/strikes'
 import type { PageBan, PlayerIdentity, PlayerPage } from '../lib/types'
 
 // Every staff action needs a reason for the staff log; nothing is sent without one.
@@ -157,6 +165,11 @@ export default function AdminPlayerPage() {
   const [warnMessage, setWarnMessage] = useState('')
   const [warnReason, setWarnReason] = useState('')
   const [note, setNote] = useState('')
+  // The ladder each punishment counts on; null follows the ban type.
+  const [banLadder, setBanLadder] = useState<Ladder | null>(null)
+  const [banDeviation, setBanDeviation] = useState('')
+  const [warnLadder, setWarnLadder] = useState<Ladder>('play')
+  const [warnDeviation, setWarnDeviation] = useState('')
 
   const { data, isLoading, error } = useQuery<PlayerPage>({
     queryKey: ['admin-player-page', id],
@@ -164,6 +177,20 @@ export default function AdminPlayerPage() {
     enabled: canAccess,
     retry: false,
   })
+  const activeBanLadder: Ladder | null =
+    banType === 'account' ? null : (banLadder ?? defaultLadderOf(banType))
+  const banRecommended =
+    data && activeBanLadder ? data.strikes[activeBanLadder].recommended : null
+  // Preselect the recommended length (a staff member can pick another).
+  useEffect(() => {
+    if (banRecommended && banRecommended !== 'warning')
+      setBanPreset(banRecommended)
+  }, [banRecommended])
+  const banChosen = isAdmin
+    ? banExpiry
+      ? 'custom'
+      : 'permanent'
+    : banPreset
   const refresh = () =>
     qc.invalidateQueries({ queryKey: ['admin-player-page', id] })
 
@@ -174,6 +201,12 @@ export default function AdminPlayerPage() {
         body: JSON.stringify({
           type: banType,
           reason: banReason,
+          ...(activeBanLadder
+            ? {
+                ladder: activeBanLadder,
+                deviationReason: banDeviation.trim() || undefined,
+              }
+            : {}),
           expiresAt: isAdmin
             ? banExpiry
               ? new Date(banExpiry).toISOString()
@@ -184,6 +217,7 @@ export default function AdminPlayerPage() {
     onSuccess: () => {
       setBanReason('')
       setBanExpiry('')
+      setBanDeviation('')
       void refresh()
     },
   })
@@ -199,11 +233,17 @@ export default function AdminPlayerPage() {
     mutationFn: () =>
       apiFetch(`/webadmin/players/${id}/warnings`, {
         method: 'POST',
-        body: JSON.stringify({ message: warnMessage, reason: warnReason }),
+        body: JSON.stringify({
+          message: warnMessage,
+          reason: warnReason,
+          ladder: warnLadder,
+          deviationReason: warnDeviation.trim() || undefined,
+        }),
       }),
     onSuccess: () => {
       setWarnMessage('')
       setWarnReason('')
+      setWarnDeviation('')
       void refresh()
     },
   })
@@ -303,6 +343,23 @@ export default function AdminPlayerPage() {
           onReasonChange={setBanReason}
           onExpiryChange={setBanExpiry}
           onSubmit={() => ban.mutate()}
+          canSubmit={
+            !activeBanLadder ||
+            banChosen === banRecommended ||
+            banDeviation.trim() !== ''
+          }
+          ladderSlot={
+            activeBanLadder && (
+              <LadderPick
+                ladder={activeBanLadder}
+                onLadderChange={setBanLadder}
+                recommended={banRecommended}
+                chosen={banChosen}
+                deviationReason={banDeviation}
+                onDeviationReasonChange={setBanDeviation}
+              />
+            )
+          }
         />
         <div className='space-y-2 border-border border-t pt-3'>
           <Label className='text-muted-foreground text-xs'>
@@ -313,6 +370,14 @@ export default function AdminPlayerPage() {
             value={warnMessage}
             onChange={(e) => setWarnMessage(e.target.value)}
           />
+          <LadderPick
+            ladder={warnLadder}
+            onLadderChange={setWarnLadder}
+            recommended={data.strikes[warnLadder].recommended}
+            chosen='warning'
+            deviationReason={warnDeviation}
+            onDeviationReasonChange={setWarnDeviation}
+          />
           <div className='flex gap-2'>
             <Input
               placeholder='Reason (staff log)'
@@ -322,7 +387,11 @@ export default function AdminPlayerPage() {
             <Button
               onClick={() => warn.mutate()}
               disabled={
-                !warnMessage.trim() || !warnReason.trim() || warn.isPending
+                !warnMessage.trim() ||
+                !warnReason.trim() ||
+                warn.isPending ||
+                (data.strikes[warnLadder].recommended !== 'warning' &&
+                  !warnDeviation.trim())
               }
             >
               Warn
@@ -331,9 +400,37 @@ export default function AdminPlayerPage() {
         </div>
       </Section>
 
-      {/* Strikes (the strike ladders) get their own Section here, between
-          Punishments and Matches. Appeals are not built yet and have no
-          section. */}
+      <Section title='Strikes'>
+        {LADDERS.map((ladder) => {
+          const summary = data.strikes[ladder]
+          return (
+            <div key={ladder} className='space-y-1' data-testid={`strikes-${ladder}`}>
+              <h4 className='font-medium text-sm'>
+                {LADDER_LABELS[ladder]}: {summary.counting.length} counting,
+                next step {STEP_LABELS[summary.recommended]}
+              </h4>
+              {summary.counting.length === 0 ? (
+                <Empty>No strikes count now.</Empty>
+              ) : (
+                <ul className='space-y-1'>
+                  {summary.counting.map((s) => (
+                    <Row key={s.id}>
+                      {STEP_LABELS[s.appliedStep]}, given{' '}
+                      {formatTime(s.issuedAt)}
+                      <p className='text-muted-foreground text-xs'>
+                        Stops counting {formatTime(s.stopsCountingAt)}
+                        {s.deviationReason
+                          ? `. Recommended was ${STEP_LABELS[s.recommendedStep]}: ${s.deviationReason}`
+                          : ''}
+                      </p>
+                    </Row>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )
+        })}
+      </Section>
 
       <Section title={`Matches (${data.matchTotal})`}>
         {data.matches.length === 0 ? (

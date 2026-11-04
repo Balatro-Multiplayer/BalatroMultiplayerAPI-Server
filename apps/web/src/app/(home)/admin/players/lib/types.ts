@@ -1,4 +1,5 @@
 import type { BanType } from '@bmp/types'
+import type { StrikeSummary } from './strikes'
 
 // The shapes of GET /webadmin/players/:id/page and /identity
 // (apps/server features/webadmin/player-page.route.ts).
@@ -83,6 +84,7 @@ export interface PlayerPage {
   queueItems: PageQueueItem[]
   notes: PageNote[]
   integrityEvents: PageIntegrityEvent[]
+  strikes: StrikeSummary
 }
 
 export interface PlayerIdentity {

@@ -34,6 +34,7 @@ const ACTION_LABELS: Record<string, string> = {
   reopen: 'Reopen',
   role_grant: 'Give role',
   role_remove: 'Remove role',
+  ladder_edit: 'Edit strike ladder',
 }
 
 interface StaffLogEntry {

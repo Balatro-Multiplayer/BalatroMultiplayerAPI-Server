@@ -10,6 +10,7 @@ import { type QueueCommand, type SanctionCommand, banTypeOf, parseCommand, prese
 import { expiresAtOf } from './durations.js'
 import { type ChatLabel, type DismissLabel, labelOfAction } from './flagged-chat.js'
 import { type OverturnPlan, type Placement, planContestOverturn, planOverturn, ratedPlacements } from './overturn.js'
+import { type AppliedStep, type Ladder, type LadderStep, type Strike, judgePunishment } from '../strikes/ladder.js'
 import { mayLiftBan, permissionFor } from './permissions.js'
 import { type QueueRefusal, type QueueResult, refuse } from './refusals.js'
 import { type Target, type TargetSources, pickTarget, targetsOf } from './targets.js'
@@ -106,6 +107,22 @@ export interface DispatcherDeps<Tx> {
 	// A flagged chat item's decision: one training label for each message it holds.
 	saveChatLabels(tx: Tx, item: QueueItem, label: ChatLabel, decidedAt: Date): Promise<void>
 	insertWarning(tx: Tx, warning: { playerId: string; itemId: number; message: string; issuedBy: string }): Promise<{ id: string }>
+
+	// The steps of a strike ladder and a player's strikes on it.
+	ladderStateOf(playerId: string, ladder: Ladder): Promise<{ steps: readonly LadderStep[]; strikes: Strike[] }>
+	insertStrike(
+		tx: Tx,
+		strike: {
+			playerId: string
+			ladder: Ladder
+			banId: string | null
+			warningId: string | null
+			recommendedStep: LadderStep
+			appliedStep: AppliedStep
+			deviationReason: string | null
+			issuedAt: Date
+		},
+	): Promise<void>
 
 	// After the commit; failures are reported in the result, never undone.
 	banInNakama(ban: BanRow): Promise<boolean>
@@ -327,6 +344,21 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		return pick.target
 	}
 
+	// Judges a punishment against its ladder before anything is written. A
+	// different step than the recommended one needs the staff member's reason.
+	async function judged(
+		playerId: string,
+		ladder: Ladder,
+		applied: AppliedStep,
+		deviationReason: string | null,
+		now: Date,
+	) {
+		const state = await deps.ladderStateOf(playerId, ladder)
+		const judgement = judgePunishment(state.steps, state.strikes, now, applied, deviationReason)
+		if (!judgement.ok) throw new Rollback({ code: 'invalid_body', field: 'deviationReason', message: judgement.message })
+		return { ladder, recommended: judgement.recommended, applied: judgement.applied, deviationReason: judgement.deviationReason }
+	}
+
 	async function warn(
 		item: QueueItem,
 		itemType: ItemType,
@@ -336,6 +368,13 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		log: LogFn,
 	): Promise<QueueResult<ActionOutcome>> {
 		const target = await targetFor(item, command.targetPlayerId)
+		const strike = await judged(
+			target.playerId,
+			command.ladder ?? (itemType === 'flagged_chat' ? 'chat' : 'play'),
+			'warning',
+			command.deviationReason,
+			now,
+		)
 		const settled = await settleForTarget(item, itemType, target)
 		if (settled && !settled.ok) return refuse(settled.refusal)
 		const warning = await deps.transaction(async (tx) => {
@@ -345,10 +384,21 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 				message: command.message,
 				issuedBy: actor,
 			})
+			await deps.insertStrike(tx, {
+				playerId: target.playerId,
+				ladder: strike.ladder,
+				banId: null,
+				warningId: row.id,
+				recommendedStep: strike.recommended,
+				appliedStep: strike.applied,
+				deviationReason: strike.deviationReason,
+				issuedAt: now,
+			})
 			await closeIn(tx, item, itemType, 'warn', command.note, actor, now, {
 				target,
 				warningId: row.id,
 				message: command.message,
+				strike,
 				...(settled ? settled.detail : {}),
 			}, log, { reason: command.reason, targetPlayerId: target.playerId })
 			return row
@@ -371,6 +421,17 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		const target = await targetFor(item, command.targetPlayerId)
 		const banType = banTypeOf(command)
 		const expiresAt = expiresAtOf(command.duration, now)
+		// An account ban is on no ladder.
+		const strike =
+			command.action === 'account_ban'
+				? null
+				: await judged(
+						target.playerId,
+						command.ladder ?? (command.action === 'chat_mute' ? 'chat' : 'play'),
+						command.duration,
+						command.deviationReason,
+						now,
+					)
 		const settled = await settleForTarget(item, itemType, target)
 		if (settled && !settled.ok) return refuse(settled.refusal)
 		const ban = await deps.transaction(async (tx) => {
@@ -381,12 +442,24 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 				issuedBy: actor,
 				reason: command.reason,
 			})
+			if (strike)
+				await deps.insertStrike(tx, {
+					playerId: target.playerId,
+					ladder: strike.ladder,
+					banId: row.id,
+					warningId: null,
+					recommendedStep: strike.recommended,
+					appliedStep: strike.applied,
+					deviationReason: strike.deviationReason,
+					issuedAt: now,
+				})
 			await closeIn(tx, item, itemType, command.action, command.note, actor, now, {
 				target,
 				banId: row.id,
 				banType,
 				duration: command.duration,
 				expiresAt,
+				...(strike ? { strike } : {}),
 				...(settled ? settled.detail : {}),
 			}, log, { reason: command.reason, targetPlayerId: target.playerId })
 			return row

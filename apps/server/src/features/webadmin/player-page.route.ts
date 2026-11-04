@@ -24,6 +24,9 @@ import {
 	notifyWarnedInNakama,
 	playerNetworksInNakama,
 } from '../../infrastructure/nakama/moderation-sync.js'
+import { insertStrike } from '../../infrastructure/gateways/strike.gateway.js'
+import { isLadder } from '../strikes/ladder.js'
+import { judgeOnLadder, strikeSummaryOf } from '../strikes/strike.service.js'
 import { parseReason } from '../../shared/staff-log/actions.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { redactPlayerFor, requireRole } from '../../shared/utils/staff-role.js'
@@ -54,7 +57,7 @@ router.get('/players/:id/page', async (req, res, next) => {
 		const role = await requireRole(req, 'moderator')
 		const player = await playerOr404(req.params.id)
 		const id = req.params.id
-		const [bans, warnings, matches, chat, queueItems, notes, integrityEvents] =
+		const [bans, warnings, matches, chat, queueItems, notes, integrityEvents, strikes] =
 			await Promise.all([
 				listBans(id),
 				listWarnings(id),
@@ -63,6 +66,7 @@ router.get('/players/:id/page', async (req, res, next) => {
 				listPlayerQueueItems(id),
 				listPlayerNotes(id),
 				getIntegrityEventsForPlayer(id),
+				strikeSummaryOf(id),
 			])
 		const names = await namesOf([
 			...bans.flatMap((b) => [b.issuedBy, b.liftedBy]),
@@ -90,6 +94,7 @@ router.get('/players/:id/page', async (req, res, next) => {
 			queueItems,
 			notes: notes.map((n) => ({ ...n, authorName: nameOf(n.authorId) })),
 			integrityEvents,
+			strikes,
 		})
 	} catch (err) {
 		next(err)
@@ -99,6 +104,18 @@ router.get('/players/:id/page', async (req, res, next) => {
 // Steam and Discord ids, the networks the account used, the network bans on
 // them and the accounts those bans link. Admins only: a moderator is refused
 // before any of it is read.
+// The strikes that count on each ladder and the next recommended step, for the
+// punish forms.
+router.get('/players/:id/strikes', async (req, res, next) => {
+	try {
+		await requireRole(req, 'moderator')
+		await playerOr404(req.params.id)
+		res.json({ strikes: await strikeSummaryOf(req.params.id) })
+	} catch (err) {
+		next(err)
+	}
+})
+
 router.get('/players/:id/identity', async (req, res, next) => {
 	try {
 		await requireRole(req, 'admin')
@@ -162,7 +179,12 @@ router.post('/players/:id/notes', async (req, res, next) => {
 router.post('/players/:id/warnings', async (req, res, next) => {
 	try {
 		const role = await requireRole(req, 'moderator')
-		const body = req.body as { message?: unknown; reason?: unknown }
+		const body = req.body as {
+			message?: unknown
+			reason?: unknown
+			ladder?: unknown
+			deviationReason?: unknown
+		}
 		const message = typeof body.message === 'string' ? body.message.trim() : ''
 		if (!message) throw new AppError('message is required', 400)
 		if (message.length > MAX_WARNING_LENGTH)
@@ -172,6 +194,17 @@ router.post('/players/:id/warnings', async (req, res, next) => {
 			)
 		const reason = reasonOf(body.reason)
 		await playerOr404(req.params.id)
+		if (body.ladder !== undefined && !isLadder(body.ladder))
+			throw new AppError("ladder must be 'chat' or 'play'", 400)
+		const ladder = isLadder(body.ladder) ? body.ladder : 'play'
+		const now = new Date()
+		const strike = await judgeOnLadder(
+			req.params.id,
+			ladder,
+			'warning',
+			typeof body.deviationReason === 'string' ? body.deviationReason : null,
+			now,
+		)
 		const staffId = req.player!.playerId
 		const warning = await db.transaction(async (tx) => {
 			const row = await insertWarning(tx, {
@@ -180,12 +213,26 @@ router.post('/players/:id/warnings', async (req, res, next) => {
 				message,
 				issuedBy: `${role}:${staffId}`,
 			})
+			await insertStrike(tx, {
+				playerId: req.params.id,
+				ladder,
+				banId: null,
+				warningId: row.id,
+				recommendedStep: strike.recommended,
+				appliedStep: strike.applied,
+				deviationReason: strike.deviationReason,
+				issuedAt: now,
+			})
 			await recordStaffAction(tx, {
 				staff: { playerId: staffId, role },
 				action: 'warn',
 				targetPlayerId: req.params.id,
 				reason,
-				detail: { warningId: row.id, message },
+				detail: {
+					warningId: row.id,
+					message,
+					strike: { ladder, ...strike },
+				},
 			})
 			return row
 		})
