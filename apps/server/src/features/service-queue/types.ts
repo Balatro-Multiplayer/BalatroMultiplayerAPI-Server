@@ -45,6 +45,8 @@ export interface ItemContext {
 	integrityTrigger?: IntegrityTrigger
 	// A contest item: who contested, and whom (null when no one was named).
 	contest?: ContestParties
+	// A flagged chat item: the flagged messages it holds (flagged_messages ids).
+	flaggedMessageIds?: number[]
 }
 
 export interface ContestParties {
@@ -88,13 +90,21 @@ export function playerIdOfActor(actor: string | null): string | null {
 
 export function contextOf(value: unknown): ItemContext {
 	if (typeof value !== 'object' || value === null) return {}
-	const record = value as { lobbyKind?: unknown; integrityTrigger?: unknown; contest?: unknown }
+	const record = value as {
+		lobbyKind?: unknown
+		integrityTrigger?: unknown
+		contest?: unknown
+		flaggedMessageIds?: unknown
+	}
 	return {
 		...(isLobbyKind(record.lobbyKind) ? { lobbyKind: record.lobbyKind } : {}),
 		...(record.integrityTrigger === 'ranked' || record.integrityTrigger === 'repeated'
 			? { integrityTrigger: record.integrityTrigger }
 			: {}),
 		...contestOf(record.contest),
+		...(Array.isArray(record.flaggedMessageIds) && record.flaggedMessageIds.every((id) => Number.isInteger(id))
+			? { flaggedMessageIds: record.flaggedMessageIds as number[] }
+			: {}),
 	}
 }
 

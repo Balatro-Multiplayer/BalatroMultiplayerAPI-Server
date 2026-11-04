@@ -1,10 +1,12 @@
 'use client'
 
 import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 import { formatTime } from '../../lib/format'
 import type {
   ChatVerdict,
   FlaggedChatEvidence as Evidence,
+  FlaggedChatMessage,
 } from '../../lib/types'
 import { ChatTail, Empty, Facts, Section } from './shared'
 
@@ -38,34 +40,52 @@ export function highlightTerms(
     })
 }
 
+const bandText = (message: FlaggedChatMessage) =>
+  message.verdict.source === 'local'
+    ? 'Word list'
+    : `Band: ${message.band ?? message.verdict.band}`
+
+const scoreText = (score: number | null) =>
+  score === null ? 'no score' : `Guard score ${score.toFixed(2)}`
+
 export function FlaggedChatEvidence({ evidence }: { evidence: Evidence }) {
-  const terms =
-    evidence.verdict.source === 'local' ? evidence.verdict.matches : []
+  const byId = new Map(evidence.messages.map((m) => [m.id, m]))
   return (
     <div className='space-y-3'>
-      <Section title='Flagged message'>
-        <p className='rounded bg-destructive/10 px-3 py-2 font-mono text-sm'>
-          {highlightTerms(evidence.message.message, terms).map((piece) =>
-            piece.matched ? (
-              <mark
-                key={piece.at}
-                className='rounded bg-destructive px-0.5 text-white'
-              >
-                {piece.text}
-              </mark>
-            ) : (
-              <span key={piece.at}>{piece.text}</span>
-            )
-          )}
-        </p>
+      <Section title={`Flagged messages (${evidence.messages.length})`}>
+        <ul className='space-y-2'>
+          {evidence.messages.map((m) => (
+            <li key={m.id} className='space-y-1'>
+              <p className='rounded bg-destructive/10 px-3 py-2 font-mono text-sm'>
+                {highlightTerms(
+                  m.message,
+                  m.verdict.source === 'local' ? m.verdict.matches : []
+                ).map((piece) =>
+                  piece.matched ? (
+                    <mark
+                      key={piece.at}
+                      className='rounded bg-destructive px-0.5 text-white'
+                    >
+                      {piece.text}
+                    </mark>
+                  ) : (
+                    <span key={piece.at}>{piece.text}</span>
+                  )
+                )}
+              </p>
+              <div className='flex flex-wrap gap-1 text-xs'>
+                <Badge variant='outline'>{bandText(m)}</Badge>
+                <Badge variant='outline'>{scoreText(m.guardScore)}</Badge>
+                <span className='text-muted-foreground'>
+                  {formatTime(m.sentAt)}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
         <Facts
           rows={[
-            ['Verdict', verdictText(evidence.verdict)],
             ['Lobby', evidence.source?.lobbyCode ?? '—'],
-            [
-              'Sent',
-              formatTime(evidence.source?.sentAt ?? evidence.message.flaggedAt),
-            ],
             [
               'Already muted',
               evidence.alreadyMuted ? (
@@ -80,8 +100,47 @@ export function FlaggedChatEvidence({ evidence }: { evidence: Evidence }) {
         />
       </Section>
 
-      <Section title='Surrounding chat'>
-        <ChatTail lines={evidence.context} />
+      <Section title='Lobby conversation'>
+        {evidence.conversation.length === 0 ? (
+          <Empty>No chat recorded.</Empty>
+        ) : (
+          <ul className='max-h-96 space-y-1 overflow-y-auto font-mono text-xs'>
+            {evidence.conversation.map((line) => {
+              const flagged =
+                line.flaggedMessageId === null
+                  ? null
+                  : byId.get(line.flaggedMessageId)
+              return (
+                <li
+                  key={`${line.sentAt}-${line.playerId}-${line.message}`}
+                  className={cn(
+                    'rounded px-2 py-1',
+                    line.bySubject && 'bg-amber-500/10',
+                    flagged && 'bg-destructive/25 ring-1 ring-destructive'
+                  )}
+                >
+                  <span className='text-muted-foreground'>
+                    {new Date(line.sentAt).toLocaleTimeString()}
+                  </span>{' '}
+                  <span
+                    className={cn(
+                      'font-semibold',
+                      line.bySubject && 'text-amber-400'
+                    )}
+                  >
+                    {line.displayName}
+                  </span>
+                  : {line.message}
+                  {flagged && (
+                    <Badge variant='destructive' className='ml-2'>
+                      flagged, {bandText(flagged)}, {scoreText(flagged.guardScore)}
+                    </Badge>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </Section>
 
       <Section title='Other flagged messages (30 days)'>

@@ -310,26 +310,36 @@ export interface ReportEvidence {
   }[]
 }
 
+// The 2 dismiss buttons of a flagged chat item (the server's flagged-chat.ts).
+export type DismissLabel = 'not_harmful' | 'harmful_no_action'
+
 export type ChatVerdict =
   | { source: 'local'; matches: string[] }
   | { source: 'remote'; band: string }
 
-export interface FlaggedChatEvidence {
-  message: {
-    id: number
-    playerId: string
-    message: string
-    matches: unknown
-    flaggedAt: string
-  }
+export interface FlaggedChatMessage {
+  id: number
+  message: string
+  flaggedAt: string
+  sentAt: string
   verdict: ChatVerdict
-  source: {
-    lobbyCode: string | null
-    lobbyId: string | null
-    sentAt: string
-    chatLogId: number
-  } | null
-  context: ChatLine[]
+  // The guard's score and the moderation band; null for a message the guard
+  // did not judge (older lines, the word list).
+  guardScore: number | null
+  band: string | null
+  contextUsed: boolean | null
+}
+
+export interface ConversationLine extends ChatLine {
+  // The flagged message this line is, when it is one of the player's flagged ones.
+  flaggedMessageId: number | null
+}
+
+export interface FlaggedChatEvidence {
+  playerId: string
+  messages: FlaggedChatMessage[]
+  source: { lobbyCode: string | null; lobbyId: string | null } | null
+  conversation: ConversationLine[]
   otherFlags: {
     id: number
     message: string
@@ -548,9 +558,15 @@ export interface ActionResult {
 // What an action sends, per action (the server's command.ts).
 export type ActionBody =
   | {
-      action: 'dismiss' | 'resolve' | 'void' | 'reopen'
+      action: 'resolve' | 'void' | 'reopen'
       reason: string
       note?: string
+    }
+  | {
+      action: 'dismiss'
+      reason: string
+      note?: string
+      dismissLabel?: DismissLabel
     }
   | {
       action: 'warn'

@@ -8,6 +8,7 @@
 import { heldByOther } from './claim.js'
 import { type QueueCommand, type SanctionCommand, banTypeOf, parseCommand, presetOf } from './command.js'
 import { expiresAtOf } from './durations.js'
+import { type ChatLabel, type DismissLabel, labelOfAction } from './flagged-chat.js'
 import { type OverturnPlan, type Placement, planContestOverturn, planOverturn, ratedPlacements } from './overturn.js'
 import { mayLiftBan, permissionFor } from './permissions.js'
 import { type QueueRefusal, type QueueResult, refuse } from './refusals.js'
@@ -102,6 +103,8 @@ export interface DispatcherDeps<Tx> {
 	liftBan(tx: Tx, playerId: string, banId: string, liftedBy: string): Promise<BanRow | null>
 	// The staff log write (shared/staff-log/actions.ts), in the action's transaction.
 	recordStaffAction(tx: Tx, entry: StaffActionEntry): Promise<void>
+	// A flagged chat item's decision: one training label for each message it holds.
+	saveChatLabels(tx: Tx, item: QueueItem, label: ChatLabel, decidedAt: Date): Promise<void>
 	insertWarning(tx: Tx, warning: { playerId: string; itemId: number; message: string; issuedBy: string }): Promise<{ id: string }>
 
 	// After the commit; failures are reported in the result, never undone.
@@ -241,6 +244,7 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		detail: unknown,
 		log: LogFn,
 		logged: Logged,
+		dismissLabel: DismissLabel | null = null,
 	): Promise<void> {
 		if (!(await deps.markResolved(tx, item.id, actor, action, note, now)))
 			throw new Rollback({ code: 'wrong_status', status: 'resolved' })
@@ -248,6 +252,8 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		if (sourceStatus && !(await deps.setSourceStatus(tx, item, sourceStatus, note)))
 			throw new Rollback({ code: 'source_missing' })
 		await deps.recordEvent(tx, { itemId: item.id, kind: 'acted', actor, action, note, detail })
+		const label = itemType === 'flagged_chat' ? labelOfAction(action, dismissLabel) : null
+		if (label) await deps.saveChatLabels(tx, item, label, now)
 		await log(tx, action, logged, detail)
 	}
 
@@ -259,13 +265,26 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		now: Date,
 		log: LogFn,
 	): Promise<QueueResult<ActionOutcome>> {
+		const dismissLabel = command.action === 'dismiss' ? command.dismissLabel : null
+		// A flagged chat item is dismissed by one of 2 buttons; each one is a label.
+		if (itemType === 'flagged_chat' && command.action === 'dismiss' && !dismissLabel)
+			return refuse({ code: 'invalid_body', field: 'dismissLabel', message: "dismissLabel must be 'not_harmful' or 'harmful_no_action'" })
 		const settled = itemType === 'contest' ? await settleContest(item, 'rate_original') : null
 		if (settled && !settled.ok) return refuse(settled.refusal)
 		await deps.transaction((tx) =>
-			closeIn(tx, item, itemType, command.action, command.note, actor, now, settled ? settled.detail : null, log, {
-				reason: command.reason,
-				targetPlayerId: item.subjectPlayerId,
-			}),
+			closeIn(
+				tx,
+				item,
+				itemType,
+				command.action,
+				command.note,
+				actor,
+				now,
+				settled ? settled.detail : null,
+				log,
+				{ reason: command.reason, targetPlayerId: item.subjectPlayerId },
+				dismissLabel,
+			),
 		)
 		await deps.rescore(item, subjectsOf(item))
 		return done(item, command.action, {})

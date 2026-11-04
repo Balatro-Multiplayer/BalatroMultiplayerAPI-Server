@@ -294,6 +294,17 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'expires_at',
 		'mirror_key',
 	],
+	chat_review_labels: [
+		'id',
+		'item_id',
+		'flagged_message_id',
+		'message',
+		'context',
+		'score',
+		'band',
+		'label',
+		'decided_at',
+	],
 	reports: [
 		'id',
 		'lobby_id',

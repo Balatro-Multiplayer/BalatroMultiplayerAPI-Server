@@ -2,6 +2,7 @@
 import type {
   ActionEffects,
   ActionKey,
+  DismissLabel,
   Duration,
   ItemDetail,
   ItemEventKind,
@@ -46,6 +47,24 @@ export const ACTION_LABELS: Record<ActionKey, string> = {
   reopen: 'Reopen',
   unban: 'Lift ban',
   note: 'Add note',
+}
+
+// The 2 dismiss buttons of a flagged chat item, and what each one saves as the
+// training label of the item's messages.
+export const DISMISS_LABEL_TEXT: Record<
+  DismissLabel,
+  { button: string; consequence: string }
+> = {
+  not_harmful: {
+    button: 'Not harmful',
+    consequence:
+      'Closes the item. The guard was wrong: each flagged message is saved as not harmful.',
+  },
+  harmful_no_action: {
+    button: 'Harmful, no action',
+    consequence:
+      'Closes the item with no punishment. Each flagged message is saved as harmful.',
+  },
 }
 
 // What a confirmed action does, in the confirm dialog.

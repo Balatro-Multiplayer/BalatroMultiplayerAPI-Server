@@ -1034,3 +1034,26 @@ export const staffLog = pgTable(
 		index('staff_log_target_idx').on(t.targetPlayerId, t.at),
 	],
 )
+
+// One training label for one flagged chat message, saved when staff decide
+// the flagged chat item that holds it. No player id: it is training data.
+export const chatReviewLabels = pgTable(
+	'chat_review_labels',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		// The queue item that was decided and the flagged message in it; one label
+		// for each pair, so a reopened and decided item replaces its labels.
+		itemId: integer('item_id').notNull(),
+		flaggedMessageId: integer('flagged_message_id').notNull(),
+		message: text('message').notNull(),
+		// The lines said before the message in its lobby, oldest first.
+		context: jsonb('context').notNull().default(sql`'[]'::jsonb`),
+		// The guard's score and the moderation band; null when the guard did not judge it.
+		score: doublePrecision('score'),
+		band: varchar('band', { length: 64 }),
+		// 'not_harmful' | 'harmful_no_action' | 'harmful' (features/service-queue/flagged-chat.ts).
+		label: varchar('label', { length: 32 }).notNull(),
+		decidedAt: timestamp('decided_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [uniqueIndex('chat_review_labels_item_message_idx').on(t.itemId, t.flaggedMessageId)],
+)

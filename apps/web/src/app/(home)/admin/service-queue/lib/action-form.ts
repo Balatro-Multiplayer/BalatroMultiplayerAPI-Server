@@ -1,6 +1,6 @@
 // The action dialog's form and the request body it turns into. Pure: the
 // dialog holds an ActionForm, and bodyOf says what to send or what's missing.
-import type { ActionBody, AllowedAction, Duration } from './types'
+import type { ActionBody, AllowedAction, DismissLabel, Duration } from './types'
 
 export const WARNING_MAX = 500
 
@@ -12,6 +12,8 @@ export interface ActionForm {
   toReportOf: string | null
   banId: string | null
   note: string
+  // Which dismiss button a flagged chat item was opened with.
+  dismissLabel: DismissLabel | null
 }
 
 export function emptyForm(
@@ -20,6 +22,7 @@ export function emptyForm(
     targetPlayerId: string | null
     toReportOf: string | null
     banId: string | null
+    dismissLabel?: DismissLabel | null
   }
 ): ActionForm {
   return {
@@ -30,6 +33,7 @@ export function emptyForm(
     toReportOf: defaults.toReportOf,
     banId: defaults.banId,
     note: '',
+    dismissLabel: defaults.dismissLabel ?? null,
   }
 }
 
@@ -50,6 +54,15 @@ export function bodyOf(allowed: AllowedAction, form: ActionForm): BodyCheck {
   if (!reason) return { ok: false, missing: 'Write the reason.' }
   switch (allowed.action) {
     case 'dismiss':
+      return {
+        ok: true,
+        body: {
+          action: 'dismiss',
+          reason,
+          note,
+          ...(form.dismissLabel ? { dismissLabel: form.dismissLabel } : {}),
+        },
+      }
     case 'resolve':
     case 'void':
     case 'reopen':
