@@ -137,8 +137,7 @@ export function planMatchEdit(
 	} else if (
 		!rated ||
 		(!hadRatings &&
-			(run.status === 'disputed' ||
-				run.status === 'abandoned' ||
+			(run.status === 'abandoned' ||
 				run.status === 'restarted' ||
 				next.placements.length < 2))
 	) {

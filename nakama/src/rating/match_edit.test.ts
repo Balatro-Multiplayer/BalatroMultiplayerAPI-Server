@@ -319,7 +319,7 @@ describe('a disputed ranked run stored with an empty ratings object', () => {
 	const disputed = () =>
 		drawRun({ status: 'disputed', placements: [], ratings: {} })
 
-	it('is overturned like a run with no ratings, without rating anyone', () => {
+	it('is overturned like a game nobody was rated for, rating both players', () => {
 		const plan = planMatchEdit(
 			disputed(),
 			{ [A]: record(), [B]: record() },
@@ -328,8 +328,19 @@ describe('a disputed ranked run stored with an empty ratings object', () => {
 		expect(plan.ok).toBe(true)
 		if (!plan.ok) return
 		expect(plan.run.overturned).toBeDefined()
-		expect(plan.changes).toEqual({})
-		expect(plan.records).toEqual({})
+		expect(plan.records[A]).toMatchObject({
+			rating: 1020,
+			wins: 7,
+			losses: 5,
+			gamesPlayed: 12,
+		})
+		expect(plan.records[B]).toMatchObject({
+			rating: 980,
+			wins: 6,
+			losses: 6,
+			gamesPlayed: 12,
+		})
+		expect(plan.run.ratings?.[A]).toMatchObject({ delta: 20, newRating: 1020 })
 	})
 
 	it('is voided without refusing and without changing any rating', () => {

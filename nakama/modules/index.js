@@ -10101,7 +10101,7 @@ function planMatchEdit(run, current, edit) {
     next = __spreadProps(__spreadValues({}, rest), { voided: { at: edit.now } });
     if (!rated || !hadRatings)
       return __spreadProps(__spreadValues({}, empty), { run: next, myRunRatings: nulls(run) });
-  } else if (!rated || !hadRatings && (run.status === "disputed" || run.status === "abandoned" || run.status === "restarted" || next.placements.length < 2)) {
+  } else if (!rated || !hadRatings && (run.status === "abandoned" || run.status === "restarted" || next.placements.length < 2)) {
     return __spreadProps(__spreadValues({}, empty), { run: next });
   }
   const ids = run.players.map((p) => p.id);
