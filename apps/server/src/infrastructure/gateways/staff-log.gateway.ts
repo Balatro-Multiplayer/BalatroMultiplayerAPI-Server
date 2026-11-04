@@ -1,9 +1,10 @@
-import { type SQL, and, count, desc, eq, gte, ilike, isNotNull, lt, or } from 'drizzle-orm'
-import { alias } from 'drizzle-orm/pg-core'
+import { type SQL, and, count, desc, eq, exists, gte, ilike, inArray, isNotNull, lt, or } from 'drizzle-orm'
+import { QueryBuilder, alias } from 'drizzle-orm/pg-core'
+import { itemTypesVisibleTo } from '../../features/service-queue/permissions.js'
 import type { StaffAction, StaffActionEntry } from '../../shared/staff-log/actions.js'
 import type { DbExecutor } from '../db/executor.js'
 import { db } from '../db/index.js'
-import { players, staffLog } from '../db/schema.js'
+import { players, serviceQueueItems, staffLog } from '../db/schema.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -62,8 +63,28 @@ export async function listStaffLog(
 	filters: StaffLogFilters,
 ): Promise<{ entries: StaffLogRow[]; total: number }> {
 	const where: (SQL | undefined)[] = []
+	// A moderator reads their own entries and those on queue items they see: the
+	// item must still exist and be of a type the queue shows their role.
 	if (viewer.role !== 'admin')
-		where.push(or(eq(staffLog.staffPlayerId, viewer.playerId), isNotNull(staffLog.itemId)))
+		where.push(
+			or(
+				eq(staffLog.staffPlayerId, viewer.playerId),
+				and(
+					isNotNull(staffLog.itemId),
+					exists(
+						new QueryBuilder()
+							.select({ one: serviceQueueItems.id })
+							.from(serviceQueueItems)
+							.where(
+								and(
+									eq(serviceQueueItems.id, staffLog.itemId),
+									inArray(serviceQueueItems.itemType, itemTypesVisibleTo(viewer.role)),
+								),
+							),
+					),
+				),
+			),
+		)
 	if (filters.staff)
 		where.push(
 			UUID.test(filters.staff)

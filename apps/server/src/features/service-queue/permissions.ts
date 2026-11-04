@@ -6,6 +6,7 @@ import { expiresAtOf } from './durations.js'
 import {
 	type ActionKey,
 	BAN_DURATIONS,
+	ITEM_TYPES,
 	CHAT_MUTE_DURATIONS,
 	type Duration,
 	type ItemStatus,
@@ -174,6 +175,21 @@ export function allowedActionsFor(
 		allowed.push(entry)
 	}
 	return allowed
+}
+
+// The item types a role sees in the queue: those it may act on in some
+// status, plus appeals, which the appeal route decides outside the action
+// table. The staff log shows a moderator only entries on items of these types.
+export function itemTypesVisibleTo(role: StaffRole): ItemType[] {
+	return ITEM_TYPES.filter(
+		(itemType) =>
+			itemType === 'appeal' ||
+			(['open', 'resolved'] as const).some((status) =>
+				(Object.keys(ACTION_RULES) as ActionKey[]).some((action) =>
+					permissionFor(action, { itemType, status }, role).ok,
+				),
+			),
+	)
 }
 
 export type BanKind = 'chat' | 'queue' | 'account'

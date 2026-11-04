@@ -1,6 +1,7 @@
 import { PgDialect } from 'drizzle-orm/pg-core'
 import request from 'supertest'
 import { describe, expect, it, vi } from 'vitest'
+import { itemTypesVisibleTo } from '../../features/service-queue/permissions.js'
 import { signJwt } from '../../features/auth/jwt.js'
 import { db } from '../../infrastructure/db/index.js'
 import * as playerGateway from '../../infrastructure/gateways/player.gateway.js'
@@ -76,8 +77,16 @@ describe('the staff log query', () => {
 	it("limits a moderator to their own entries and the entries on queue items", async () => {
 		const { sql, params } = await whereOf({ playerId: 'mod-1', role: 'moderator' })
 		expect(sql).toContain('"item_id" is not null')
+		expect(sql).toContain('exists (select')
+		expect(sql).toContain('"service_queue_items"."id" = "staff_log"."item_id"')
+		expect(sql).toMatch(/"item_type" in \(/)
+		for (const type of itemTypesVisibleTo('moderator')) expect(params).toContain(type)
 		expect(sql).toMatch(/"staff_player_id" = \$\d+ or/)
 		expect(params).toContain('mod-1')
+	})
+
+	it('shows a moderator every item type, appeals included', () => {
+		expect(itemTypesVisibleTo('moderator')).toEqual(expect.arrayContaining(['report', 'anti_cheat', 'appeal']))
 	})
 
 	it('leaves an admin unlimited', async () => {
