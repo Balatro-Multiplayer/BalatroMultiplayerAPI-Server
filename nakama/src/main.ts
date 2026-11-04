@@ -95,6 +95,7 @@ import {
 	rpcAdminIpHashesPurge,
 	rpcAdminNetworkBanLift,
 	rpcAdminNetworkBans,
+	rpcAdminNetworkCheck,
 	rpcAdminPlayerNetworks,
 } from './moderation/network_admin'
 
@@ -179,6 +180,7 @@ function InitModule(
 	initializer.registerRpc('admin_ban_index_forget', rpcAdminBanIndexForget)
 	initializer.registerRpc('admin_network_bans', rpcAdminNetworkBans)
 	initializer.registerRpc('admin_network_ban_lift', rpcAdminNetworkBanLift)
+	initializer.registerRpc('admin_network_check', rpcAdminNetworkCheck)
 	initializer.registerRpc('admin_player_networks', rpcAdminPlayerNetworks)
 	initializer.registerRpc('admin_ip_hashes_purge', rpcAdminIpHashesPurge)
 	initializer.registerRpc('admin_lobby_list', rpcAdminLobbyList)

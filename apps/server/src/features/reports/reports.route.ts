@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { authenticate } from '../../middleware/authenticate.js'
+import { authenticateActive } from '../../middleware/authenticate-active.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { getReportById, setAdditionalDetail } from '../../infrastructure/gateways/report.gateway.js'
 
@@ -9,7 +9,7 @@ import { getReportById, setAdditionalDetail } from '../../infrastructure/gateway
 // participant-ownership pattern (replay-log.service.ts).
 export function createReportsRouter(): Router {
 	const router = Router()
-	router.use(authenticate)
+	router.use(authenticateActive)
 
 	router.get('/:id', async (req, res, next) => {
 		try {

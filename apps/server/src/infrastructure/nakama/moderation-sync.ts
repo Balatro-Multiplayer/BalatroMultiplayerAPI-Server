@@ -92,6 +92,14 @@ export async function networkBansInNakama(playerId: string): Promise<Result<Netw
 	})))
 }
 
+// Whether an address is on a banned network. False when the server has no
+// network bans or Nakama cannot answer: the website only uses it to show a
+// notice, never to block.
+export async function isNetworkBannedInNakama(ip: string): Promise<boolean> {
+	const result = await callNakamaRpc<{ banned: boolean }>('admin_network_check', { ip })
+	return result.ok && result.value.banned
+}
+
 // A network the account logged in from in the last 30 days: a salted hash and
 // when it was last seen.
 export interface PlayerNetwork {

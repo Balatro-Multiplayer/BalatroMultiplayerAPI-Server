@@ -1,15 +1,13 @@
 import { Router } from 'express'
-import {
-	authenticate,
-	optionalAuthenticate,
-} from '../../middleware/authenticate.js'
+import { optionalAuthenticate } from '../../middleware/authenticate.js'
+import { authenticateActive } from '../../middleware/authenticate-active.js'
 import type { ReplayLogService } from './replay-log.service.js'
 
 export function createReplayLogRouter(service: ReplayLogService): Router {
 	const router = Router()
 
 	// The website's "My Matches" list.
-	router.get('/mine', authenticate, async (req, res, next) => {
+	router.get('/mine', authenticateActive, async (req, res, next) => {
 		try {
 			const page = Math.max(
 				1,
@@ -49,7 +47,7 @@ export function createReplayLogRouter(service: ReplayLogService): Router {
 	})
 
 	// A player shares or unshares only their own side.
-	router.post('/:runId/share', authenticate, async (req, res, next) => {
+	router.post('/:runId/share', authenticateActive, async (req, res, next) => {
 		try {
 			await service.setShared(
 				String(req.params.runId),
@@ -62,7 +60,7 @@ export function createReplayLogRouter(service: ReplayLogService): Router {
 		}
 	})
 
-	router.delete('/:runId/share', authenticate, async (req, res, next) => {
+	router.delete('/:runId/share', authenticateActive, async (req, res, next) => {
 		try {
 			await service.setShared(
 				String(req.params.runId),

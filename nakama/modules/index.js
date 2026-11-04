@@ -11089,6 +11089,16 @@ function rpcAdminPlayerNetworks(ctx, logger, nk, payload) {
   }));
   return JSON.stringify({ networks });
 }
+function rpcAdminNetworkCheck(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const ip = parsePayload(payload).ip;
+  if (typeof ip !== "string" || !ip)
+    throw runtimeError(INVALID_ARGUMENT, "ip is required");
+  const salt = ctx.env.IP_HASH_SALT;
+  if (!settingsOf(ctx).networkBans || !salt) return JSON.stringify({ banned: false });
+  const hash = networkHash((input) => nk.sha256Hash(input), salt, ip);
+  return JSON.stringify({ banned: hash !== null && isNetworkBanned(nk, hash) });
+}
 function rpcAdminNetworkBanLift(ctx, logger, nk, payload) {
   requireServer(ctx);
   const banId = parsePayload(payload).banId;
@@ -11178,6 +11188,7 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("admin_ban_index_forget", rpcAdminBanIndexForget);
   initializer.registerRpc("admin_network_bans", rpcAdminNetworkBans);
   initializer.registerRpc("admin_network_ban_lift", rpcAdminNetworkBanLift);
+  initializer.registerRpc("admin_network_check", rpcAdminNetworkCheck);
   initializer.registerRpc("admin_player_networks", rpcAdminPlayerNetworks);
   initializer.registerRpc("admin_ip_hashes_purge", rpcAdminIpHashesPurge);
   initializer.registerRpc("admin_lobby_list", rpcAdminLobbyList);

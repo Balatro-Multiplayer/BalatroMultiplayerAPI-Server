@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import type { NextFunction, Request, Response } from 'express'
-import { authenticate } from '../../middleware/authenticate.js'
+import { authenticateActive } from '../../middleware/authenticate-active.js'
 import { currentStaffRole, roleGuard } from '../../shared/utils/staff-role.js'
 import achievementsRouter from './achievements.route.js'
 import archivesRouter from './archives.route.js'
@@ -26,7 +26,7 @@ import staffLogRouter from './staff-log.route.js'
 const router = Router()
 
 function webAdmin(req: Request, res: Response, next: NextFunction) {
-	authenticate(req, res, async () => {
+	authenticateActive(req, res, async () => {
 		try {
 			if ((await currentStaffRole(req)) === null) {
 				res.status(403).json({ error: 'Forbidden' })
