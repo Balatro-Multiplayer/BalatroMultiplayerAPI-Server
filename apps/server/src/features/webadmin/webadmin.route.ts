@@ -5,6 +5,7 @@ import { currentStaffRole, roleGuard } from '../../shared/utils/staff-role.js'
 import achievementsRouter from './achievements.route.js'
 import archivesRouter from './archives.route.js'
 import blogRouter from './blog.route.js'
+import chatLabelsRouter from './chat-labels.route.js'
 import chatLogsRouter from './chat-logs.route.js'
 import configRouter from './config.route.js'
 import forfeitReconciliationRouter from './forfeit-reconciliation.route.js'
@@ -44,6 +45,8 @@ router.use(webAdmin)
 router.use(playersRouter)
 router.use(playerPageRouter)
 router.use(chatLogsRouter)
+router.use('/chat-labels', admin)
+router.use(chatLabelsRouter)
 router.use(reportsRouter)
 router.use(seasonsRouter)
 router.use(matchesRouter)

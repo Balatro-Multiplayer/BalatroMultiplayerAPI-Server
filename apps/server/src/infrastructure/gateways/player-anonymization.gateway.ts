@@ -297,6 +297,17 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'expires_at',
 		'mirror_key',
 	],
+	chat_review_labels: [
+		'id',
+		'item_id',
+		'flagged_message_id',
+		'message',
+		'context',
+		'score',
+		'band',
+		'label',
+		'decided_at',
+	],
 	reports: [
 		'id',
 		'lobby_id',
@@ -362,6 +373,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 	service_queue_item_events: ['id', 'item_id', 'kind', 'action', 'note', 'at'],
 	player_warnings: ['id', 'item_id', 'message', 'issued_at'],
 	staff_log: ['id', 'staff_role', 'action', 'item_id', 'at'],
+	player_notes: ['id', 'created_at'],
 	grace_periods: [
 		'id',
 		'lobby_code',

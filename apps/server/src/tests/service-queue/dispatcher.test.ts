@@ -22,6 +22,7 @@ interface World {
 	bans: BanRow[]
 	warnings: { playerId: string; message: string }[]
 	staffLog: StaffActionEntry[]
+	labels: { itemId: number; label: string }[]
 }
 
 function item(over: Partial<QueueItem> = {}): QueueItem {
@@ -45,6 +46,7 @@ function setup(seed: QueueItem, over: Partial<DispatcherDeps<World>> = {}) {
 		bans: [],
 		warnings: [],
 		staffLog: [],
+		labels: [],
 	}
 	const snapshot = () => structuredClone({ ...world, items: [...world.items], sourceStatus: [...world.sourceStatus] })
 	const external = {
@@ -99,6 +101,7 @@ function setup(seed: QueueItem, over: Partial<DispatcherDeps<World>> = {}) {
 				world.bans = before.bans
 				world.warnings = before.warnings
 				world.staffLog = before.staffLog
+				world.labels = before.labels
 				throw err
 			}
 		},
@@ -137,6 +140,9 @@ function setup(seed: QueueItem, over: Partial<DispatcherDeps<World>> = {}) {
 		},
 		async recordStaffAction(tx, entry) {
 			tx.staffLog.push(entry)
+		},
+		async saveChatLabels(tx, it, label) {
+			tx.labels.push({ itemId: it.id, label })
 		},
 		async insertWarning(tx, w) {
 			tx.warnings.push({ playerId: w.playerId, message: w.message })
@@ -496,3 +502,45 @@ describe('the staff log', () => {
 		expect(world.staffLog).toEqual([])
 	})
 })
+
+describe('flagged chat decisions', () => {
+	const chat = () => item({ itemType: 'flagged_chat', sourceId: 'lobby:bad' })
+
+	it.each(['not_harmful', 'harmful_no_action'])('saves the %s label with a dismiss', async (label) => {
+		const { world, dispatcher } = setup(chat())
+		const result = await dispatcher.run(1, 'dismiss', MOD, { dismissLabel: label })
+		expect(result.ok).toBe(true)
+		expect(world.labels).toEqual([{ itemId: 1, label }])
+	})
+
+	it('refuses a dismiss that names no button', async () => {
+		const { world, dispatcher } = setup(chat())
+		expect(await dispatcher.run(1, 'dismiss', MOD, {})).toMatchObject({ ok: false, refusal: { code: 'invalid_body', field: 'dismissLabel' } })
+		expect(world.items.get(1)?.status).toBe('open')
+		expect(world.labels).toEqual([])
+	})
+
+	it('saves a harmful label with a warning and with a chat ban', async () => {
+		const warned = setup(chat())
+		await warned.dispatcher.run(1, 'warn', MOD, { message: 'be nice' })
+		expect(warned.world.labels).toEqual([{ itemId: 1, label: 'harmful' }])
+		const muted = setup(chat())
+		await muted.dispatcher.run(1, 'chat_mute', MOD, { duration: '24h' })
+		expect(muted.world.labels).toEqual([{ itemId: 1, label: 'harmful' }])
+	})
+
+	it('saves no label for another item type', async () => {
+		const { world, dispatcher } = setup(item())
+		await dispatcher.run(1, 'dismiss', MOD, {})
+		expect(world.labels).toEqual([])
+	})
+
+	it('keeps no label when the decision rolls back', async () => {
+		const { world, dispatcher } = setup(chat(), { recordStaffAction: async () => { throw new Rollbackish() } })
+		await expect(dispatcher.run(1, 'dismiss', MOD, { dismissLabel: 'not_harmful' })).rejects.toThrow()
+		expect(world.labels).toEqual([])
+	})
+})
+
+class Rollbackish extends Error {}
+

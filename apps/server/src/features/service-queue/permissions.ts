@@ -40,8 +40,13 @@ const ALL: readonly ItemType[] = [
 export const ACTION_RULES: Readonly<Record<ActionKey, ActionRule>> = {
 	dismiss: { itemTypes: ALL, status: 'open', minRole: 'moderator' },
 	// A contest is settled by its outcome (dismiss, void, overturn, a punishment),
-	// never by a bare resolve.
-	resolve: { itemTypes: ALL.filter((t) => t !== 'contest'), status: 'open', minRole: 'moderator' },
+	// never by a bare resolve. Flagged chat is settled by a dismiss or a
+	// punishment, which are the decisions that label its messages.
+	resolve: {
+		itemTypes: ALL.filter((t) => t !== 'contest' && t !== 'flagged_chat'),
+		status: 'open',
+		minRole: 'moderator',
+	},
 	warn: {
 		itemTypes: ['report', 'flagged_chat', 'match_conflict', 'contest', 'anti_cheat', 'integrity'],
 		status: 'open',

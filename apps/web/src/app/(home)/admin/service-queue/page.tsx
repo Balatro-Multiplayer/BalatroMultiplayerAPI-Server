@@ -15,7 +15,12 @@ import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import { InvestigationPanel } from './components/investigation-panel'
 import { QueueList } from './components/queue-list'
-import { type ListFilters, listQueue, queueKeys } from './lib/api'
+import {
+  downloadChatLabels,
+  type ListFilters,
+  listQueue,
+  queueKeys,
+} from './lib/api'
 import { ITEM_TYPES } from './lib/types'
 
 // The queue's state lives in the URL, so a link opens the same view.
@@ -65,7 +70,7 @@ export default function ServiceQueuePage() {
 }
 
 function ServiceQueue() {
-  const { isModerator, pending } = useAuth()
+  const { isAdmin, isModerator, pending } = useAuth()
   const router = useRouter()
   const [url, setUrl] = useQueryStates(urlState, { history: 'replace' })
   const [subjectDraft, setSubjectDraft] = useState(url.subject)
@@ -167,6 +172,16 @@ function ServiceQueue() {
               j / k to move, Enter to open. Opening an item claims it for 15
               minutes.
             </p>
+            {isAdmin && (
+              <Button
+                size='sm'
+                variant='outline'
+                className='mt-2'
+                onClick={() => void downloadChatLabels()}
+              >
+                Download chat labels
+              </Button>
+            )}
           </div>
           <QueueList
             filters={{ ...filters, subject: subjectDraft }}

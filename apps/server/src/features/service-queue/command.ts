@@ -8,13 +8,15 @@ import {
 	isBanDuration,
 	isChatMuteDuration,
 } from './types.js'
+import { type DismissLabel, dismissLabelOf, isDismissLabel } from './flagged-chat.js'
 import { parseReason } from '../../shared/staff-log/actions.js'
 
 export const MAX_NOTE_LENGTH = 2000
 export const MAX_WARNING_LENGTH = 500
 
 export type QueueCommand =
-	| { action: 'dismiss'; reason: string; note: string | null }
+	// dismissLabel: which dismiss button a flagged chat item was closed with.
+	| { action: 'dismiss'; reason: string; note: string | null; dismissLabel: DismissLabel | null }
 	| { action: 'resolve'; reason: string; note: string | null }
 	| { action: 'warn'; reason: string; targetPlayerId: string | null; message: string; note: string | null }
 	| { action: 'chat_mute'; targetPlayerId: string | null; duration: ChatMuteDuration; reason: string; note: string | null }
@@ -73,7 +75,12 @@ export function parseCommand(action: ActionKey, body: Record<string, unknown>): 
 	if (!why.ok) return bad('reason', why.message)
 	const reason = why.reason
 	switch (action) {
-		case 'dismiss':
+		case 'dismiss': {
+			const label = body.dismissLabel
+			if (label !== undefined && label !== null && !isDismissLabel(label))
+				return bad('dismissLabel', "dismissLabel must be 'not_harmful' or 'harmful_no_action'")
+			return ok({ action, reason, note: note.value, dismissLabel: dismissLabelOf(label) })
+		}
 		case 'resolve':
 		case 'void':
 		case 'reopen':
