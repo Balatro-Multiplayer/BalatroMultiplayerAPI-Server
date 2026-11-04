@@ -111,11 +111,17 @@ function throwSaveProfileError(
 router.post('/mods/profiles', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const result = await createProfile({
 			...readProfileFields(req.body as Record<string, unknown>),
 			createdBy: req.player!.playerId,
 		})
 		if (!result.ok) throwSaveProfileError(result)
+		await logStaffAction(req, {
+			action: 'mod_profile_create',
+			reason,
+			detail: { profileId: result.profile.id, slug: result.profile.slug },
+		})
 		res.status(201).json(result.profile)
 	} catch (err) {
 		next(err)
@@ -125,11 +131,15 @@ router.post('/mods/profiles', async (req, res, next) => {
 router.put('/mods/profiles/:id', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
-		const result = await updateProfile(
-			req.params.id,
-			readProfileFields(req.body as Record<string, unknown>),
-		)
+		const reason = requireReason(req)
+		const fields = readProfileFields(req.body as Record<string, unknown>)
+		const result = await updateProfile(req.params.id, fields)
 		if (!result.ok) throwSaveProfileError(result)
+		await logStaffAction(req, {
+			action: 'mod_profile_update',
+			reason,
+			detail: { profileId: req.params.id, new: fields },
+		})
 		res.json(result.profile)
 	} catch (err) {
 		next(err)
@@ -139,8 +149,14 @@ router.put('/mods/profiles/:id', async (req, res, next) => {
 router.delete('/mods/profiles/:id', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		if (!(await deleteProfile(req.params.id)))
 			throw new AppError('Profile not found', 404)
+		await logStaffAction(req, {
+			action: 'mod_profile_delete',
+			reason,
+			detail: { profileId: req.params.id },
+		})
 		res.json({ ok: true })
 	} catch (err) {
 		next(err)
@@ -152,6 +168,7 @@ router.delete('/mods/profiles/:id', async (req, res, next) => {
 router.put('/mods/profiles/:id/entries/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const { versionMode, pinnedVersion, allowed } = req.body as {
 			versionMode?: unknown
 			pinnedVersion?: unknown
@@ -189,6 +206,17 @@ router.put('/mods/profiles/:id/entries/:modId', async (req, res, next) => {
 					throw new AppError("That version is not one of this mod's versions", 400)
 			}
 		}
+		await logStaffAction(req, {
+			action: 'mod_profile_entry_set',
+			reason,
+			detail: {
+				profileId: req.params.id,
+				modId: req.params.modId,
+				versionMode,
+				pinnedVersion: versionMode === 'exact' ? pinnedVersion : null,
+				allowed: allowed ?? true,
+			},
+		})
 		res.json(result.entry)
 	} catch (err) {
 		next(err)
@@ -198,8 +226,14 @@ router.put('/mods/profiles/:id/entries/:modId', async (req, res, next) => {
 router.delete('/mods/profiles/:id/entries/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		if (!(await removeProfileEntry(req.params.id, req.params.modId)))
 			throw new AppError('That mod is not in this profile', 404)
+		await logStaffAction(req, {
+			action: 'mod_profile_entry_remove',
+			reason,
+			detail: { profileId: req.params.id, modId: req.params.modId },
+		})
 		res.json({ ok: true })
 	} catch (err) {
 		next(err)
@@ -212,8 +246,10 @@ router.delete('/mods/profiles/:id/entries/:modId', async (req, res, next) => {
 router.post('/mods/smods-ids/backfill', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const summary = await backfillSmodsIds()
 		const config = await loadConfigFromDb()
+		await logStaffAction(req, { action: 'smods_ids_backfill', reason, detail: summary })
 		res.json({ ok: true, ...summary, queueAllowedModIds: config.queueAllowedModIds })
 	} catch (err) {
 		next(err)
@@ -228,7 +264,9 @@ router.post('/mods/smods-ids/backfill', async (req, res, next) => {
 router.post('/mods/sync', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const summary = await syncModRegistry()
+		await logStaffAction(req, { action: 'mods_sync', reason, detail: summary })
 		res.json({ ok: true, ...summary })
 	} catch (err) {
 		next(err)
@@ -480,6 +518,7 @@ function readCustomModFields(body: Record<string, unknown>) {
 router.post('/mods', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const body = req.body as Record<string, unknown>
 		const { id, title, author } = body
 		if (typeof id !== 'string' || !id) throw new AppError('id is required', 400)
@@ -504,6 +543,11 @@ router.post('/mods', async (req, res, next) => {
 			}),
 		})
 		if (!mod) throw new AppError(`A mod with id '${id}' already exists`, 409)
+		await logStaffAction(req, {
+			action: 'custom_mod_create',
+			reason,
+			detail: { modId: id, title, author },
+		})
 		res.status(201).json(mod)
 	} catch (err) {
 		next(err)
@@ -517,10 +561,12 @@ router.post('/mods', async (req, res, next) => {
 router.put('/mods/:modId/custom', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const body = req.body as Record<string, unknown>
 		const resolved = await resolveSourceInputField(body)
+		const fields = readCustomModFields(body)
 		const mod = await updateCustomMod(req.params.modId, {
-			...readCustomModFields(body),
+			...fields,
 			...(resolved && {
 				latestDownloadUrl: resolved.latestDownloadUrl,
 				latestVersion: resolved.latestVersion,
@@ -528,6 +574,14 @@ router.put('/mods/:modId/custom', async (req, res, next) => {
 			}),
 		})
 		if (!mod) throw new AppError('Custom mod not found', 404)
+		await logStaffAction(req, {
+			action: 'custom_mod_update',
+			reason,
+			detail: {
+				modId: req.params.modId,
+				new: Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)),
+			},
+		})
 		res.json(mod)
 	} catch (err) {
 		next(err)
@@ -539,6 +593,7 @@ router.put('/mods/:modId/custom', async (req, res, next) => {
 router.delete('/mods/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const mod = await findModByIdOrFullName(req.params.modId)
 		if (!mod) throw new AppError('Mod not found', 404)
 		if (!mod.isCustom) {
@@ -548,6 +603,11 @@ router.delete('/mods/:modId', async (req, res, next) => {
 			)
 		}
 		await deleteCustomMod(mod.id)
+		await logStaffAction(req, {
+			action: 'custom_mod_delete',
+			reason,
+			detail: { modId: mod.id },
+		})
 		res.json({ ok: true })
 	} catch (err) {
 		next(err)

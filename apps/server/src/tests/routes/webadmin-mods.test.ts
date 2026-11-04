@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { signJwt } from '../../features/auth/jwt.js'
 import * as modsGateway from '../../infrastructure/gateways/mods.gateway.js'
 import * as playerGateway from '../../infrastructure/gateways/player.gateway.js'
+import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gateway.js'
 import { createSession } from '../../state/index.js'
 import { createTestApp } from './app.js'
 
@@ -780,4 +781,112 @@ describe('mod profile admin routes', () => {
 		expect(res.status).toBe(200)
 		expect(modsGateway.removeProfileEntry).toHaveBeenCalledWith('p-1', 'smods')
 	})
+})
+
+describe('the reason and the staff log entry on each mod admin write', () => {
+	const modBody = { id: 'Partner', title: 'P', author: 'a', latestVersion: 'v1', latestDownloadUrl: 'https://example.com/p.zip' }
+	const cases: {
+		name: string
+		method: 'post' | 'put' | 'delete'
+		path: string
+		body: Record<string, unknown>
+		action: string
+		setup: () => void
+	}[] = [
+		{
+			name: 'custom mod create',
+			method: 'post',
+			path: '/api/webadmin/mods',
+			body: modBody,
+			action: 'custom_mod_create',
+			setup: () => vi.mocked(modsGateway.createCustomMod).mockResolvedValue(customRow as any),
+		},
+		{
+			name: 'custom mod edit',
+			method: 'put',
+			path: '/api/webadmin/mods/Partner/custom',
+			body: { description: 'new' },
+			action: 'custom_mod_update',
+			setup: () => vi.mocked(modsGateway.updateCustomMod).mockResolvedValue(customRow as any),
+		},
+		{
+			name: 'custom mod delete',
+			method: 'delete',
+			path: '/api/webadmin/mods/Partner',
+			body: {},
+			action: 'custom_mod_delete',
+			setup: () => {
+				vi.mocked(modsGateway.findModByIdOrFullName).mockResolvedValue(customRow as any)
+				vi.mocked(modsGateway.deleteCustomMod).mockResolvedValue(true)
+			},
+		},
+		{
+			name: 'profile create',
+			method: 'post',
+			path: '/api/webadmin/mods/profiles',
+			body: { name: 'PvP', slug: 'mppvp' },
+			action: 'mod_profile_create',
+			setup: () =>
+				vi.mocked(modsGateway.createProfile).mockResolvedValue({ ok: true, profile: { id: 'p-1', slug: 'mppvp' } } as any),
+		},
+		{
+			name: 'profile edit',
+			method: 'put',
+			path: '/api/webadmin/mods/profiles/p-1',
+			body: { name: 'PvP', slug: 'mppvp' },
+			action: 'mod_profile_update',
+			setup: () => vi.mocked(modsGateway.updateProfile).mockResolvedValue({ ok: true, profile: { id: 'p-1' } } as any),
+		},
+		{
+			name: 'profile delete',
+			method: 'delete',
+			path: '/api/webadmin/mods/profiles/p-1',
+			body: {},
+			action: 'mod_profile_delete',
+			setup: () => vi.mocked(modsGateway.deleteProfile).mockResolvedValue(true),
+		},
+		{
+			name: 'profile entry set',
+			method: 'put',
+			path: '/api/webadmin/mods/profiles/p-1/entries/smods',
+			body: { versionMode: 'latest' },
+			action: 'mod_profile_entry_set',
+			setup: () => vi.mocked(modsGateway.setProfileEntry).mockResolvedValue({ ok: true, entry: {} } as any),
+		},
+		{
+			name: 'profile entry remove',
+			method: 'delete',
+			path: '/api/webadmin/mods/profiles/p-1/entries/smods',
+			body: {},
+			action: 'mod_profile_entry_remove',
+			setup: () => vi.mocked(modsGateway.removeProfileEntry).mockResolvedValue(true),
+		},
+		{
+			name: 'smods ids backfill',
+			method: 'post',
+			path: '/api/webadmin/mods/smods-ids/backfill',
+			body: {},
+			action: 'smods_ids_backfill',
+			setup: () => vi.mocked(backfillSmodsIds).mockResolvedValue({ read: 1, failed: 0, skipped: 0 }),
+		},
+	]
+
+	for (const c of cases) {
+		it(`${c.name} needs a reason and writes one staff log entry`, async () => {
+			const token = authAsAdmin(`log-${c.action}`, 'Admin')
+			c.setup()
+			vi.mocked(recordStaffAction).mockClear()
+			const without = await request(app)[c.method](c.path).set('Authorization', token).send(c.body)
+			expect(without.status).toBe(400)
+			expect(recordStaffAction).not.toHaveBeenCalled()
+
+			const done = await request(app)[c.method](c.path).set('Authorization', token).send({ ...c.body, reason: 'because' })
+			expect(done.status).toBeLessThan(300)
+			expect(recordStaffAction).toHaveBeenCalledTimes(1)
+			expect(recordStaffAction).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({ action: c.action, reason: 'because' }),
+			)
+		})
+	}
 })
