@@ -83,33 +83,77 @@ local function apply_object(o)
 	local tbl = get and get()
 	local entry = tbl and tbl[o.key]
 	if not entry then return false end
-	entry.atlas = prefixed(o.atlas)
-	entry.pos = { x = o.x or 0, y = o.y or 0 }
-	if o.soul_atlas then
+	if o.atlas then
+		-- Floating portraits fall back to the base atlas in Steamodded. Pin the
+		-- original before changing the background, or vanilla soul_pos reads the
+		-- replacement atlas at its old (often out-of-bounds) coordinates.
+		if entry.soul_pos and not o.soul_atlas then
+			entry.hc_soul_atlas = entry.hc_soul_atlas or entry.soul_atlas or entry.hc_atlas or entry.atlas or entry.set
+			entry.lc_soul_atlas = entry.lc_soul_atlas or entry.soul_atlas or entry.lc_atlas or entry.atlas or entry.set
+			entry.soul_atlas = entry.soul_atlas or entry.atlas or entry.set
+		end
+		entry.hc_atlas = nil
+		entry.lc_atlas = nil
+		entry.atlas = prefixed(o.atlas)
+		entry.pos = { x = o.x or 0, y = o.y or 0 }
+	end
+	if o.soul_atlas and not o.soul_shared then
+		entry.hc_soul_atlas = nil
+		entry.lc_soul_atlas = nil
 		entry.soul_atlas = prefixed(o.soul_atlas)
 		entry.soul_pos = { x = o.soul_x or 0, y = o.soul_y or 0 }
+	end
+	if o.soul_shared and o.soul_atlas then
+		-- The Soul's gem is not a floating center sprite. Keep its vanilla draw
+		-- animation, but replace the shared sprite's texture/quad (also handles
+		-- an explicit transparent cell when the overlay is hidden).
+		local atlas = G.ASSET_ATLAS and G.ASSET_ATLAS[prefixed(o.soul_atlas)]
+		if not G.shared_soul or not atlas then return false end
+		local pos = G.shared_soul.sprite_pos or {}
+		if G.shared_soul.atlas ~= atlas or pos.x ~= (o.soul_x or 0) or pos.y ~= (o.soul_y or 0) then
+			G.shared_soul.atlas = atlas
+			G.shared_soul:set_sprite_pos({ x = o.soul_x or 0, y = o.soul_y or 0 })
+		end
 	end
 	return true
 end
 
 local function apply_all()
+	local complete = true
 	for _, o in ipairs(objects) do
-		pcall(apply_object, o)
+		local ok, applied = pcall(apply_object, o)
+		if not ok or not applied then complete = false end
 	end
+	return complete
 end
 
 if #objects > 0 then
-	if G and G.P_CENTERS then
-		apply_all()
-	else
-		-- Registries not ready yet: apply once on the first game update.
+	mod._reskin_applied = G and G.P_CENTERS and apply_all() or false
+	if not mod._reskin_applied then
+		-- Shared Soul sprites may be created after the prototype tables.
 		local orig_update = Game.update
 		function Game:update(dt)
 			orig_update(self, dt)
 			if not mod._reskin_applied and G and G.P_CENTERS then
-				mod._reskin_applied = true
-				apply_all()
+				mod._reskin_applied = apply_all()
 			end
+		end
+	end
+end
+
+-- Texture-scaling changes can recreate G.shared_soul after initial application.
+-- Rebind just before Steamodded's order-50 Soul draw; its animation stays intact.
+if SMODS and SMODS.DrawStep then
+	for _, object in ipairs(objects) do
+		if object.soul_shared then
+			local o = object
+			SMODS.DrawStep({
+				key = 'reskin_shared_' .. o.key,
+				order = 49,
+				func = function(self)
+					if self.config.center == G.P_CENTERS[o.key] then apply_object(o) end
+				end,
+			})
 		end
 	end
 end

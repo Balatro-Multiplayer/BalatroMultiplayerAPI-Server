@@ -233,6 +233,7 @@ export function ReskinStudio() {
           edit &&
           (edit.sprites.some(Boolean) ||
             edit.soul ||
+            edit.hideSoul ||
             edit.shader)
         )
           objects[id] = edit

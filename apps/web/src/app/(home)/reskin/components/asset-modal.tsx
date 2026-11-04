@@ -1,10 +1,9 @@
 'use client'
 
-import type { GameArchive } from '../lib/gameArchive'
 import {
   createContext,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type PointerEvent as ReactPointerEvent,
   useCallback,
   useContext,
   useEffect,
@@ -31,7 +30,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { clipBlindFrames, composeBlindSingle } from '../lib/blinds'
 import { buildEdge, type EdgeOption } from '../lib/edges'
-import { ShaderCanvas } from './shader-canvas'
+import type { GameArchive } from '../lib/gameArchive'
 import {
   applyMask,
   cropImage,
@@ -50,6 +49,7 @@ import {
   type RenderSettings,
   SHADER_OPTIONS,
 } from '../lib/types'
+import { type PreviewLayer, SpritePreview } from './sprite-preview'
 
 // --- request shapes ---------------------------------------------------------
 
@@ -67,15 +67,19 @@ interface CommonReq {
   targetH: number
   artW?: number // internal footprint for the crop aspect lock
   artH?: number
+  defaultPreview?: string // read-only vanilla art, never an uploaded edit
+  loadDefaultPreview?: () => Promise<string | undefined>
 }
 
 export type AssetRequest =
   | (CommonReq & {
       kind: 'object'
       caps: AssetCaps
+      defaultSoulPreview?: string
+      loadDefaultSoulPreview?: () => Promise<string | undefined>
+      soulShader?: string
       framesCount?: number // category frame count (blinds)
       edges?: EdgeOption[] // shape/border options (sources pre-resolved)
-      defaultPreview?: string // the object's vanilla cell: silhouette + preview
       // Vanilla animation frames (blinds), for the chip shape + shine overlay.
       loadFrames?: () => Promise<string[]>
       exeBuf?: GameArchive | null // for the live shader preview (reads .fs from it)
@@ -106,15 +110,12 @@ const Ctx = createContext<AssetModalCtx | null>(null)
 
 export function useAssetModal(): AssetModalCtx {
   const c = useContext(Ctx)
-  if (!c) throw new Error('useAssetModal must be used within AssetModalProvider')
+  if (!c)
+    throw new Error('useAssetModal must be used within AssetModalProvider')
   return c
 }
 
-export function AssetModalProvider({
-  children,
-}: {
-  children: ReactNode
-}) {
+export function AssetModalProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState<{ req: AssetRequest; id: number } | null>(
     null
   )
@@ -193,6 +194,66 @@ function AssetModal({
     target: 'main' | 'soul' | 'cell' | 'icon'
   } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [defaultPreview, setDefaultPreview] = useState(request.defaultPreview)
+  const [defaultLoading, setDefaultLoading] = useState(
+    !request.defaultPreview && Boolean(request.loadDefaultPreview)
+  )
+  const [defaultError, setDefaultError] = useState<string | null>(null)
+  useEffect(() => {
+    if (request.defaultPreview || !request.loadDefaultPreview) return
+    let cancelled = false
+    request.loadDefaultPreview().then(
+      (image) => {
+        if (cancelled) return
+        setDefaultPreview(image)
+        setDefaultLoading(false)
+      },
+      (error) => {
+        if (cancelled) return
+        setDefaultError(error instanceof Error ? error.message : String(error))
+        setDefaultLoading(false)
+      }
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [request])
+  const [previewLayer, setPreviewLayer] = useState<PreviewLayer>('combined')
+  const [defaultSoul, setDefaultSoul] = useState(
+    request.kind === 'object' ? request.defaultSoulPreview : undefined
+  )
+  const [soulLoading, setSoulLoading] = useState(
+    request.kind === 'object' &&
+      !request.defaultSoulPreview &&
+      Boolean(request.loadDefaultSoulPreview)
+  )
+  const [soulError, setSoulError] = useState<string | null>(null)
+  useEffect(() => {
+    if (
+      request.kind !== 'object' ||
+      request.defaultSoulPreview ||
+      !request.loadDefaultSoulPreview
+    )
+      return
+    let cancelled = false
+    request.loadDefaultSoulPreview().then(
+      (image) => {
+        if (!cancelled) {
+          setDefaultSoul(image)
+          setSoulLoading(false)
+        }
+      },
+      (error) => {
+        if (!cancelled) {
+          setSoulError(error instanceof Error ? error.message : String(error))
+          setSoulLoading(false)
+        }
+      }
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [request])
   // Animated-object (blind) upload: how to read the file + whether to add the
   // game's shine when a single image is used.
   const [animMode, setAnimMode] = useState<'single' | 'sheet' | 'gif'>('single')
@@ -222,7 +283,12 @@ function AssetModal({
             const frames = await extractFrames(file, request.framesCount ?? 1)
             const vanilla = request.loadFrames ? await request.loadFrames() : []
             const sprites = await clipBlindFrames(frames, vanilla[0])
-            commitObject({ ...work, sprites, base: undefined, render: undefined })
+            commitObject({
+              ...work,
+              sprites,
+              base: undefined,
+              render: undefined,
+            })
             return
           }
           if (request.caps.gif && isGif(file)) {
@@ -244,7 +310,10 @@ function AssetModal({
           setCropping({ file, target: 'main' })
         } else if (request.kind === 'cell') {
           if (request.animatedStrip && animMode !== 'single') {
-            const slices = await extractFrames(file, request.animatedStrip.frames)
+            const slices = await extractFrames(
+              file,
+              request.animatedStrip.frames
+            )
             request.animatedStrip.onStrip(slices)
             setCellValue(slices[0])
             return
@@ -292,8 +361,16 @@ function AssetModal({
               overlay,
             })
           } else {
-            const one = await fitInto(cropped, request.targetW, request.targetH, fit)
-            sprites = Array.from({ length: request.framesCount ?? 1 }, () => one)
+            const one = await fitInto(
+              cropped,
+              request.targetW,
+              request.targetH,
+              fit
+            )
+            sprites = Array.from(
+              { length: request.framesCount ?? 1 },
+              () => one
+            )
           }
           commitObject({ ...work, sprites, base: undefined, render: undefined })
         } else if (request.kind === 'object' && target === 'main') {
@@ -308,21 +385,36 @@ function AssetModal({
           const final = await buildObjectSprite(cropped, render)
           commitObject({ ...work, base: cropped, render, sprites: [final] })
         } else if (request.kind === 'object' && target === 'soul') {
-          const soul = await fitInto(cropped, request.targetW, request.targetH, fit)
-          commitObject({ ...work, soul })
+          const soul = await fitInto(
+            cropped,
+            request.targetW,
+            request.targetH,
+            fit
+          )
+          commitObject({ ...work, soul, hideSoul: undefined })
         } else if (
           request.kind === 'cell' &&
           request.animatedStrip &&
           animMode === 'single'
         ) {
           // Single image → repeat across the animated sheet's frames.
-          const one = await fitInto(cropped, request.targetW, request.targetH, fit)
+          const one = await fitInto(
+            cropped,
+            request.targetW,
+            request.targetH,
+            fit
+          )
           request.animatedStrip.onStrip(
             Array.from({ length: request.animatedStrip.frames }, () => one)
           )
           setCellValue(one)
         } else if (request.kind === 'cell' || request.kind === 'icon') {
-          let final = await fitInto(cropped, request.targetW, request.targetH, fit)
+          let final = await fitInto(
+            cropped,
+            request.targetW,
+            request.targetH,
+            fit
+          )
           if (request.kind === 'cell' && request.clipShape) {
             final = await applyMask(final, request.clipShape)
           }
@@ -334,7 +426,15 @@ function AssetModal({
         setCropping(null)
       }
     },
-    [cropping, request, work, commitObject, buildObjectSprite, overlay, animMode]
+    [
+      cropping,
+      request,
+      work,
+      commitObject,
+      buildObjectSprite,
+      overlay,
+      animMode,
+    ]
   )
 
   const setEdge = useCallback(
@@ -345,7 +445,11 @@ function AssetModal({
         const render = { ...(work.render ?? {}), edge }
         // GIF object: re-apply the edge to every kept raw frame.
         if (work.baseFrames?.length) {
-          const sprites = await applyEdgeToFrames(request, work.baseFrames, render)
+          const sprites = await applyEdgeToFrames(
+            request,
+            work.baseFrames,
+            render
+          )
           commitObject({ ...work, render, sprites })
           return
         }
@@ -387,30 +491,36 @@ function AssetModal({
   const obj = request.kind === 'object' ? request : null
   const caps = obj?.caps
   const previewMain = obj ? work.sprites[0] : cellValue
-  const previewDefault =
-    obj && !work.sprites[0] ? obj.defaultPreview : undefined
-  const soul = obj ? work.soul : undefined
+  const previewDefault = !previewMain ? defaultPreview : undefined
+  const soul = obj && !work.hideSoul ? (work.soul ?? defaultSoul) : undefined
 
   const scale = Math.max(
     1,
     Math.floor(300 / Math.max(request.targetW, request.targetH))
   )
   const dispW = request.targetW * scale
-  const dispH = request.targetH * scale
 
-  const isAnim = Boolean(
-    obj && (work.sprites.length > 1 || obj.caps.animated)
-  )
+  const isAnim = Boolean(obj && (work.sprites.length > 1 || obj.caps.animated))
 
   // Live edition-shader preview: the real game shader on the current art.
   const shaderBase = previewMain ?? previewDefault
   const shaderExe = obj?.exeBuf ?? null
   const shaderOption =
     obj && work.shader && shaderExe && shaderBase ? work.shader : undefined
+  const activeLayer = caps?.soul ? previewLayer : 'combined'
+  const showBase = activeLayer !== 'soul'
+  const showSoul = Boolean(
+    caps?.soul && activeLayer !== 'base' && !work.hideSoul
+  )
+  const hasPreview =
+    (showBase && Boolean(shaderBase)) || (showSoul && Boolean(soul))
+  const previewLoading =
+    (showBase && defaultLoading) || (showSoul && soulLoading)
+  const previewError = (showBase && defaultError) || (showSoul && soulError)
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className='max-w-4xl'>
+      <DialogContent className='max-h-[90dvh] overflow-y-auto sm:max-w-[min(56rem,calc(100%-2rem))]'>
         <DialogHeader>
           <DialogTitle>{request.title}</DialogTitle>
         </DialogHeader>
@@ -427,64 +537,96 @@ function AssetModal({
             onApply={onCropApply}
           />
         ) : (
-          <div className='flex flex-wrap gap-6'>
-            {/* large preview */}
-            <div className='flex flex-col items-center gap-2'>
+          <div
+            className={
+              request.targetW > 400
+                ? 'grid min-w-0 gap-6'
+                : 'grid min-w-0 gap-6 md:grid-cols-[minmax(0,1fr)_minmax(12rem,1fr)]'
+            }
+          >
+            {/* Preview shrinks to the dialog even for a 923px-wide sheet. */}
+            <div className='flex min-w-0 flex-col items-center gap-2'>
               <div
                 className='relative bg-[length:12px_12px] bg-[repeating-conic-gradient(#0002_0_25%,transparent_0_50%)]'
-                style={{ width: dispW, height: dispH }}
+                style={{
+                  width: dispW,
+                  maxWidth: '100%',
+                  aspectRatio: `${request.targetW} / ${request.targetH}`,
+                }}
               >
-                {shaderOption && shaderBase && shaderExe ? (
-                  <>
-                    {/* base art, then the shader overlay on top (the game draws
-                        the card, then the edition as a second pass) */}
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={shaderBase}
-                      alt='preview'
-                      className='absolute inset-0 h-full w-full object-contain'
-                      style={{ imageRendering: 'pixelated' }}
-                    />
-                    <ShaderCanvas
-                      sprite={shaderBase}
-                      option={shaderOption}
-                      exeBuf={shaderExe}
-                    />
-                  </>
-                ) : previewMain ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={previewMain}
-                    alt='preview'
-                    className='absolute inset-0 h-full w-full object-contain'
-                    style={{ imageRendering: 'pixelated' }}
-                  />
-                ) : previewDefault ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={previewDefault}
-                    alt='vanilla default'
-                    className='absolute inset-0 h-full w-full object-contain opacity-40'
-                    style={{ imageRendering: 'pixelated' }}
-                  />
-                ) : (
+                <SpritePreview
+                  label={request.title}
+                  preview={previewMain}
+                  defaultPreview={previewDefault}
+                  overlay={obj ? work.soul : undefined}
+                  defaultOverlay={obj ? defaultSoul : undefined}
+                  overlayHidden={obj ? work.hideSoul : undefined}
+                  layer={activeLayer}
+                  shaderOption={shaderOption}
+                  overlayShader={obj?.soulShader}
+                  exeBuf={shaderExe}
+                />
+                {!hasPreview && (
                   <span className='absolute inset-0 flex items-center justify-center text-muted-foreground text-xs'>
-                    No image
+                    {previewLoading
+                      ? 'Loading original art…'
+                      : previewError
+                        ? 'Original art unavailable'
+                        : previewLayer === 'soul' && work.hideSoul
+                          ? 'Overlay hidden'
+                          : 'No image'}
                   </span>
-                )}
-                {soul && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={soul}
-                    alt='soul overlay'
-                    className='pointer-events-none absolute inset-0 h-full w-full object-contain'
-                    style={{ imageRendering: 'pixelated' }}
-                  />
                 )}
               </div>
               <p className='text-muted-foreground text-xs'>
                 {request.targetW}×{request.targetH}
               </p>
+              {caps?.soul && (
+                <fieldset className='flex flex-wrap justify-center gap-1'>
+                  <legend className='sr-only'>Preview layer</legend>
+                  {(['combined', 'base', 'soul'] as const).map((layer) => (
+                    <Button
+                      key={layer}
+                      size='sm'
+                      variant={previewLayer === layer ? 'secondary' : 'ghost'}
+                      aria-pressed={previewLayer === layer}
+                      onClick={() => setPreviewLayer(layer)}
+                    >
+                      {layer === 'combined'
+                        ? 'Combined'
+                        : layer === 'base'
+                          ? 'Background'
+                          : 'Overlay'}
+                    </Button>
+                  ))}
+                </fieldset>
+              )}
+              {soulLoading && (
+                <p role='status' className='text-muted-foreground text-xs'>
+                  Loading original overlay…
+                </p>
+              )}
+              {soulError && (
+                <p role='alert' className='text-sm'>
+                  Could not load original overlay: {soulError}
+                </p>
+              )}
+              {previewDefault && (
+                <p className='text-muted-foreground text-xs'>
+                  Original art from your imported game. Add an image to replace
+                  it.
+                </p>
+              )}
+              {defaultLoading && (
+                <p role='status' className='text-muted-foreground text-xs'>
+                  Loading original game art…
+                </p>
+              )}
+              {defaultError && (
+                <p role='alert' className='text-sm'>
+                  Could not load original art: {defaultError}
+                </p>
+              )}
             </div>
 
             {/* controls */}
@@ -492,7 +634,9 @@ function AssetModal({
               <input
                 ref={mainRef}
                 type='file'
-                accept={caps?.animated || caps?.gif ? 'image/*' : 'image/png,image/*'}
+                accept={
+                  caps?.animated || caps?.gif ? 'image/*' : 'image/png,image/*'
+                }
                 className='hidden'
                 onChange={(e) => {
                   const f = e.target.files?.[0]
@@ -541,7 +685,13 @@ function AssetModal({
                   disabled={busy}
                   onClick={() => mainRef.current?.click()}
                 >
-                  {previewMain ? 'Replace image' : 'Add image'}
+                  {caps?.soul
+                    ? previewMain
+                      ? 'Replace background'
+                      : 'Add background'
+                    : previewMain
+                      ? 'Replace image'
+                      : 'Add image'}
                 </Button>
                 {previewMain && (
                   <Button
@@ -568,7 +718,12 @@ function AssetModal({
               {/* soul */}
               {obj && caps?.soul && (
                 <div className='space-y-1'>
-                  <Label>Soul overlay</Label>
+                  <Label>Floating / soul overlay</Label>
+                  <p className='text-muted-foreground text-xs'>
+                    Separate from the background. Unchanged layers keep the
+                    original game art; reset restores it. Hide the overlay for a
+                    single-layer reskin.
+                  </p>
                   <input
                     ref={soulRef}
                     type='file'
@@ -580,23 +735,45 @@ function AssetModal({
                       if (soulRef.current) soulRef.current.value = ''
                     }}
                   />
-                  <div className='flex gap-2'>
+                  <div className='flex flex-wrap gap-2'>
                     <Button
                       size='sm'
                       variant='outline'
                       disabled={busy}
                       onClick={() => soulRef.current?.click()}
                     >
-                      {work.soul ? 'Replace soul' : 'Add soul'}
+                      {work.soul ? 'Replace overlay' : 'Add overlay'}
                     </Button>
-                    {work.soul && (
+                    {(work.soul || work.hideSoul) && (
                       <Button
                         size='sm'
                         variant='ghost'
                         disabled={busy}
-                        onClick={() => commitObject({ ...work, soul: undefined })}
+                        onClick={() =>
+                          commitObject({
+                            ...work,
+                            soul: undefined,
+                            hideSoul: undefined,
+                          })
+                        }
                       >
-                        Remove soul
+                        Reset overlay
+                      </Button>
+                    )}
+                    {!work.hideSoul && (
+                      <Button
+                        size='sm'
+                        variant='ghost'
+                        disabled={busy}
+                        onClick={() =>
+                          commitObject({
+                            ...work,
+                            soul: undefined,
+                            hideSoul: true,
+                          })
+                        }
+                      >
+                        Hide overlay
                       </Button>
                     )}
                   </div>
@@ -628,8 +805,8 @@ function AssetModal({
                   </Select>
                   <p className='text-muted-foreground text-xs'>
                     {obj.defaultPreview
-                      ? 'Shapes and borders are lifted from your Balatro.exe and composited onto this card.'
-                      : 'Import Balatro.exe for exact shapes and borders.'}
+                      ? 'Shapes and borders are lifted from your Balatro game and composited onto this card.'
+                      : 'Import Balatro game for exact shapes and borders.'}
                   </p>
                 </div>
               )}
@@ -660,8 +837,8 @@ function AssetModal({
                     </SelectContent>
                   </Select>
                   <p className='text-muted-foreground text-xs'>
-                    A default edition applied in-game — previewed live above with
-                    the real game shader (needs Balatro.exe).
+                    A default edition applied in-game — previewed live above
+                    with the real game shader (needs Balatro game).
                   </p>
                 </div>
               )}
@@ -739,7 +916,12 @@ function clampRect(
   h = Math.max(MIN_CROP, Math.min(h, ih))
   x = Math.max(0, Math.min(x, iw - w))
   y = Math.max(0, Math.min(y, ih - h))
-  return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) }
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    w: Math.round(w),
+    h: Math.round(h),
+  }
 }
 
 /** The largest `aspect`-ratio rect that fits inside the image, centered. */
@@ -897,7 +1079,10 @@ function CropStage({
         <div className='flex flex-col items-center gap-2 sm:shrink-0'>
           <div
             className='relative bg-[length:12px_12px] bg-[repeating-conic-gradient(#0002_0_25%,transparent_0_50%)]'
-            style={{ width: targetW * previewScale, height: targetH * previewScale }}
+            style={{
+              width: targetW * previewScale,
+              height: targetH * previewScale,
+            }}
           >
             {preview && (
               // eslint-disable-next-line @next/next/no-img-element

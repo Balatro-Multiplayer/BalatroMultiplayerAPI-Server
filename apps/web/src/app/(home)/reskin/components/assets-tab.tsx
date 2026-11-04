@@ -1,7 +1,6 @@
 'use client'
 
-import type { GameArchive } from '../lib/gameArchive'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -13,10 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { atlasFileFor, posFor } from '../lib/atlasOverrides'
 import { type EdgeOption, edgeOptionsFor } from '../lib/edges'
 import { getAtlasCell, getAtlasCells } from '../lib/exeAssets'
+import type { GameArchive } from '../lib/gameArchive'
 import { filledSilhouette } from '../lib/image'
+import { loadObjectPreviews, type ObjectPreviews } from '../lib/objectPreviews'
+import { loadSheetPreviews } from '../lib/sheetPreviews'
 import {
   type Catalog,
   type CatalogSheet,
@@ -59,45 +60,41 @@ export function AssetsTab({
   const category = catalog.spriteCategories.find((c) => c.id === active)
   const sheet = catalog.spriteSheets.find((s) => s.id === active)
 
-  // Vanilla art shown faded behind each tile once an exe is imported. Extracted
-  // per active category from its atlas and cached across category switches.
-  const [defaults, setDefaults] = useState<Record<string, string>>({})
-  const defaultsCache = useRef<Map<string, Record<string, string>>>(new Map())
-  const atlasFile = category ? atlasFileFor(category) : undefined
+  const [vanilla, setVanilla] = useState<{
+    archive: GameArchive
+    categoryId: string
+    images: ObjectPreviews
+    error?: boolean
+  } | null>(null)
   useEffect(() => {
-    if (!exeBuf || !category || !atlasFile) {
-      setDefaults({})
-      return
-    }
-    const cached = defaultsCache.current.get(category.id)
-    if (cached) {
-      setDefaults(cached)
-      return
-    }
+    if (!exeBuf || !category) return
     let cancelled = false
-    const cells = (catalog.spriteObjects[category.id] ?? [])
-      .map((o) => ({ o, pos: posFor(category.id, o) }))
-      .filter((x) => x.pos)
-      .map((x) => ({
-        id: x.o.key,
-        rect: {
-          x: x.pos!.x * category.px,
-          y: x.pos!.y * category.py,
-          w: category.px,
-          h: category.py,
-        },
-      }))
-    getAtlasCells(exeBuf, `resources/textures/1x/${atlasFile}`, cells)
-      .then((map) => {
-        if (cancelled) return
-        defaultsCache.current.set(category.id, map)
-        setDefaults(map)
-      })
-      .catch(() => !cancelled && setDefaults({}))
+    loadObjectPreviews(exeBuf, catalog, category).then(
+      (images) => {
+        if (!cancelled)
+          setVanilla({ archive: exeBuf, categoryId: category.id, images })
+      },
+      () => {
+        if (!cancelled)
+          setVanilla({
+            archive: exeBuf,
+            categoryId: category.id,
+            images: { base: {}, soul: {} },
+            error: true,
+          })
+      }
+    )
     return () => {
       cancelled = true
     }
-  }, [exeBuf, category, atlasFile, catalog])
+  }, [exeBuf, category, catalog])
+  const currentVanilla =
+    vanilla?.archive === exeBuf && vanilla?.categoryId === category?.id
+      ? vanilla
+      : null
+  const defaults = currentVanilla?.images ?? { base: {}, soul: {} }
+  const defaultsLoading = Boolean(exeBuf && category && !currentVanilla)
+  const defaultsError = currentVanilla?.error
 
   return (
     <div className='space-y-4 pt-4'>
@@ -141,6 +138,20 @@ export function AssetsTab({
         )}
       </div>
 
+      {defaultsLoading && (
+        <p
+          role='status'
+          className='animate-pulse text-muted-foreground text-sm motion-reduce:animate-none'
+        >
+          Loading vanilla art for {category?.label}…
+        </p>
+      )}
+      {defaultsError && (
+        <p role='alert' className='text-sm'>
+          The game archive loaded, but this category’s vanilla art could not be
+          read. You can still add your own art.
+        </p>
+      )}
       {category && (
         <CategoryGrid
           catalog={catalog}
@@ -154,6 +165,7 @@ export function AssetsTab({
       )}
       {sheet && (
         <SheetGrid
+          key={sheet.id}
           sheet={sheet}
           project={project}
           setSheetCell={setSheetCell}
@@ -166,9 +178,7 @@ export function AssetsTab({
 
 function editedInCategory(p: ProjectState, c: Catalog, catId: string): number {
   const objs = c.spriteObjects[catId] ?? []
-  return objs.filter((o) =>
-    p.objects[objId(catId, o.key)]?.sprites.some(Boolean)
-  ).length
+  return objs.filter((o) => Boolean(p.objects[objId(catId, o.key)])).length
 }
 
 /** Edit count for an Objects-group entry: a sprite category or an object-grouped sheet. */
@@ -192,7 +202,7 @@ function CategoryGrid({
   categoryId: string
   query: string
   setObject: (catId: string, key: string, edit: ObjectEdit | null) => void
-  defaults: Record<string, string>
+  defaults: ObjectPreviews
   exeBuf: GameArchive | null
 }) {
   const { openAsset } = useAssetModal()
@@ -206,7 +216,9 @@ function CategoryGrid({
   })
 
   const openObject = (key: string) => {
-    const o = (catalog.spriteObjects[categoryId] ?? []).find((x) => x.key === key)
+    const o = (catalog.spriteObjects[categoryId] ?? []).find(
+      (x) => x.key === key
+    )
     if (!o) return
     const caps: AssetCaps = {
       soul: Boolean(o.soul),
@@ -220,16 +232,16 @@ function CategoryGrid({
     const edges: EdgeOption[] = edgeOptionsFor(categoryId, o.key)
       .map((opt) => ({
         ...opt,
-        source: opt.sourceKey ? defaults[opt.sourceKey] : defaults[o.key],
+        source: opt.sourceKey
+          ? defaults.base[opt.sourceKey]
+          : defaults.base[o.key],
       }))
       .filter((opt) => opt.value === 'shape' || Boolean(opt.source))
     // Internal art footprint for the crop aspect lock. Prefer the catalog's
     // measured value; fall back to 69×93 for card-shaped P_CENTERS before the
     // catalog is regenerated with per-type artPx/artPy.
-    const artW =
-      cat.artPx ?? (cat.registry === 'P_CENTERS' ? 69 : undefined)
-    const artH =
-      cat.artPy ?? (cat.registry === 'P_CENTERS' ? 93 : undefined)
+    const artW = cat.artPx ?? (cat.registry === 'P_CENTERS' ? 69 : undefined)
+    const artH = cat.artPy ?? (cat.registry === 'P_CENTERS' ? 93 : undefined)
     // Blinds: load the vanilla animation frames (a row of the atlas) on demand,
     // for the chip silhouette and the shine overlay.
     const loadFrames =
@@ -246,9 +258,10 @@ function CategoryGrid({
               `resources/textures/1x/${cat.atlasFile}`,
               cells
             )
-            return Array.from({ length: cat.frames }, (_, f) => map[`f${f}`]).filter(
-              (s): s is string => Boolean(s)
-            )
+            return Array.from(
+              { length: cat.frames },
+              (_, f) => map[`f${f}`]
+            ).filter((s): s is string => Boolean(s))
           }
         : undefined
     openAsset({
@@ -261,7 +274,22 @@ function CategoryGrid({
       caps,
       framesCount: cat.frames,
       edges,
-      defaultPreview: defaults[key],
+      defaultPreview: defaults.base[key],
+      loadDefaultPreview: exeBuf
+        ? () =>
+            loadObjectPreviews(exeBuf, catalog, cat).then(
+              (images) => images.base[key]
+            )
+        : undefined,
+      defaultSoulPreview: defaults.soul[key],
+      loadDefaultSoulPreview:
+        exeBuf && o.soul
+          ? () =>
+              loadObjectPreviews(exeBuf, catalog, cat).then(
+                (images) => images.soul[key]
+              )
+          : undefined,
+      soulShader: o.soulShader,
       loadFrames,
       exeBuf,
       value: project.objects[objId(categoryId, key)],
@@ -278,8 +306,8 @@ function CategoryGrid({
         </p>
       ) : (
         <p className='text-muted-foreground text-xs'>
-          Click a tile to add art, a soul, a shader, or a border. Upload a GIF to
-          make the object animated in-game.
+          Click a tile to add art, a soul, a shader, or a border. Upload a GIF
+          to make the object animated in-game.
         </p>
       )}
       <div className='grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8'>
@@ -296,7 +324,12 @@ function CategoryGrid({
               }
               ratio={ratio}
               preview={edit?.sprites[0]}
-              defaultPreview={defaults[o.key]}
+              defaultPreview={defaults.base[o.key]}
+              overlay={edit?.soul}
+              defaultOverlay={defaults.soul[o.key]}
+              overlayHidden={edit?.hideSoul}
+              overlayShader={o.soulShader}
+              hasEdit={Boolean(edit)}
               shaderOption={edit?.shader}
               shaderExe={exeBuf}
               onOpen={() => openObject(o.key)}
@@ -323,6 +356,48 @@ function SheetGrid({
   const { openAsset } = useAssetModal()
   const edits: SheetEdit = project.sheets[sheet.id] ?? {}
   const ratio = sheet.px / sheet.py
+  const [vanilla, setVanilla] = useState<{
+    archive: GameArchive
+    images: Record<string, string>
+    error?: string
+  } | null>(null)
+  useEffect(() => {
+    if (!exeBuf) return
+    let cancelled = false
+    loadSheetPreviews(exeBuf, sheet).then(
+      (images) => !cancelled && setVanilla({ archive: exeBuf, images }),
+      (error) =>
+        !cancelled &&
+        setVanilla({
+          archive: exeBuf,
+          images: {},
+          error: error instanceof Error ? error.message : String(error),
+        })
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [exeBuf, sheet])
+  const defaults = vanilla?.archive === exeBuf ? (vanilla?.images ?? {}) : {}
+  const vanillaFor = (index: number) => ({
+    defaultPreview: defaults[index],
+    loadDefaultPreview: exeBuf
+      ? () => loadSheetPreviews(exeBuf, sheet).then((images) => images[index])
+      : undefined,
+  })
+  const previewStatus =
+    exeBuf &&
+    (vanilla?.archive !== exeBuf ? (
+      <p role='status' className='text-muted-foreground text-xs'>
+        Loading original game art…
+      </p>
+    ) : (
+      vanilla.error && (
+        <p role='alert' className='text-sm'>
+          Could not load original game art: {vanilla.error}
+        </p>
+      )
+    ))
 
   // Stake chips are circular — clip uploads to the vanilla chip silhouette.
   const [clipShape, setClipShape] = useState<string | undefined>(undefined)
@@ -357,11 +432,13 @@ function SheetGrid({
     return (
       <div className='space-y-3'>
         <p className='text-muted-foreground text-xs'>{sheet.note}</p>
+        {previewStatus}
         <div className='w-72'>
           <UploadTile
             label={sheet.label}
             ratio={wholeRatio}
             preview={edits[0]}
+            defaultPreview={defaults[0]}
             onOpen={() =>
               openAsset({
                 kind: 'cell',
@@ -369,6 +446,7 @@ function SheetGrid({
                 targetW: wholeW,
                 targetH: wholeH,
                 value: edits[0],
+                ...vanillaFor(0),
                 commit: (d: string | null) => setSheetCell(sheet.id, 0, d),
               })
             }
@@ -387,11 +465,13 @@ function SheetGrid({
     return (
       <div className='space-y-3'>
         <p className='text-muted-foreground text-xs'>{sheet.note}</p>
+        {previewStatus}
         <div className='w-40'>
           <UploadTile
             label={`${sheet.label} (${frames} frames)`}
             ratio={ratio}
             preview={edits[0]}
+            defaultPreview={defaults[0]}
             onOpen={() =>
               openAsset({
                 kind: 'cell',
@@ -399,6 +479,7 @@ function SheetGrid({
                 targetW: sheet.px,
                 targetH: sheet.py,
                 value: edits[0],
+                ...vanillaFor(0),
                 commit: (d: string | null) =>
                   d === null ? clearAll() : setSheetCell(sheet.id, 0, d),
                 animatedStrip: {
@@ -411,7 +492,8 @@ function SheetGrid({
             onClear={clearAll}
           />
         </div>
-        {Object.keys(edits).length > 0 && (
+        {(Object.keys(edits).length > 0 ||
+          Object.keys(defaults).length > 0) && (
           <div className='flex gap-1'>
             {Array.from({ length: frames }, (_, i) => (
               <div key={i} className='w-12'>
@@ -420,6 +502,7 @@ function SheetGrid({
                   small
                   ratio={ratio}
                   preview={edits[i]}
+                  defaultPreview={defaults[i]}
                   onOpen={() =>
                     openAsset({
                       kind: 'cell',
@@ -427,7 +510,9 @@ function SheetGrid({
                       targetW: sheet.px,
                       targetH: sheet.py,
                       value: edits[i],
-                      commit: (d: string | null) => setSheetCell(sheet.id, i, d),
+                      ...vanillaFor(i),
+                      commit: (d: string | null) =>
+                        setSheetCell(sheet.id, i, d),
                     })
                   }
                 />
@@ -448,6 +533,7 @@ function SheetGrid({
   return (
     <div className='space-y-3'>
       <p className='text-muted-foreground text-xs'>{sheet.note}</p>
+      {previewStatus}
       <div className='grid grid-cols-4 gap-3 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-13'>
         {Array.from({ length: cellCount }, (_, i) => {
           const cell = sheet.cells[i]
@@ -458,6 +544,7 @@ function SheetGrid({
               label={name}
               ratio={ratio}
               preview={edits[i]}
+              defaultPreview={defaults[i]}
               onOpen={() =>
                 openAsset({
                   kind: 'cell',
@@ -465,6 +552,7 @@ function SheetGrid({
                   targetW: sheet.px,
                   targetH: sheet.py,
                   value: edits[i],
+                  ...vanillaFor(i),
                   clipShape,
                   commit: (d: string | null) => setSheetCell(sheet.id, i, d),
                 })

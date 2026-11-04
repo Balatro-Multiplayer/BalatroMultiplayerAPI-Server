@@ -226,8 +226,11 @@ def encode_png_rgba(w, h, px):
     )
 
 
-def parse_pos(body):
-    m = re.search(r"pos\s*=\s*\{\s*x\s*=\s*(\d+)\s*,\s*y\s*=\s*(\d+)", body)
+def parse_pos(body, field="pos"):
+    m = re.search(
+        r"\b" + re.escape(field) + r"\s*=\s*\{\s*x\s*=\s*(\d+)\s*,\s*y\s*=\s*(\d+)",
+        body,
+    )
     return {"x": int(m.group(1)), "y": int(m.group(2))} if m else None
 
 
@@ -390,6 +393,9 @@ def parse_centers(g):
         "e_": "Edition",
         "p_": "Booster",
     }
+    shared_soul_pos = next(
+        (parse_pos(eb) for key, eb in entries(body) if key == "soul"), None
+    )
     objs = []
     for key, eb in entries(body):
         s = field_str(eb, "set")
@@ -406,7 +412,10 @@ def parse_centers(g):
                 "key": key,
                 "set": s,
                 "name": field_str(eb, "name") or key,
-                "soul": "soul_pos" in eb,
+                "soul": bool(parse_pos(eb, "soul_pos")) or key == "c_soul",
+                "soulPos": shared_soul_pos if key == "c_soul" else parse_pos(eb, "soul_pos"),
+                **({"soulShader": "hologram"} if key == "j_hologram" else {}),
+                **({"soulAtlasFile": "Enhancers.png", "soulTarget": "shared"} if key == "c_soul" else {}),
                 "pos": parse_pos(eb),
             }
         )
@@ -489,6 +498,10 @@ def main():
             entry["pos"] = o["pos"]
         if o["soul"]:
             entry["soul"] = True
+            entry["soulPos"] = o["soulPos"]
+        for field in ("soulShader", "soulAtlasFile", "soulTarget"):
+            if o.get(field):
+                entry[field] = o[field]
         mk = masks.get((s, o["key"]))
         if mk:
             entry["mask"], entry["maskBox"] = mk

@@ -25,8 +25,20 @@ function authorList(raw: string): string[] {
   return ['Virtualized', ...extra]
 }
 
-function manifestJson(p: ProjectState): string {
+function manifestJson(p: ProjectState, catalog: Catalog): string {
   const name = p.options.displayName || 'CustomReskin'
+  // Older Steamodded builds always read floating sprites from the base atlas.
+  // Only packs changing layered cards need the newer independent-atlas API.
+  const layered = catalog.spriteCategories.some((category) =>
+    (catalog.spriteObjects[category.id] ?? []).some((object) => {
+      const edit = p.objects[objId(category.id, object.key)]
+      return (
+        object.soul &&
+        edit &&
+        Boolean(edit.sprites.some(Boolean) || edit.soul || edit.hideSoul)
+      )
+    })
+  )
   return (
     JSON.stringify(
       {
@@ -42,7 +54,12 @@ function manifestJson(p: ProjectState): string {
         badge_colour: '5E3B76',
         badge_text_colour: 'FFFFFF',
         version: p.options.version || '1.0.0',
-        dependencies: ['Steamodded (>=1.0.0~BETA-1221a)', 'Lovely (>=0.8)'],
+        dependencies: [
+          layered
+            ? 'Steamodded (>=1.0.0~BETA-1814a)'
+            : 'Steamodded (>=1.0.0~BETA-1221a)',
+          'Lovely (>=0.8)',
+        ],
       },
       null,
       2
@@ -100,14 +117,15 @@ export async function generatePack(
   // --- per-object categories ------------------------------------------------
   for (const cat of catalog.spriteCategories) {
     const objects = catalog.spriteObjects[cat.id] ?? []
-    const edited = objects
+    const allEdits = objects
       .map((o) => ({ o, e: project.objects[objId(cat.id, o.key)] }))
-      .filter((x) => x.e && x.e.sprites.some(Boolean))
-    if (edited.length === 0) continue
+      .filter((x) => x.e)
+    const edited = allEdits.filter((x) => x.e!.sprites.some(Boolean))
+    if (allEdits.length === 0) continue
 
     const atlasName = `cat_${cat.id}`
 
-    if (cat.frames > 1) {
+    if (cat.frames > 1 && edited.length > 0) {
       // Animated category (blinds): all objects share one animation atlas, one
       // row of `frames` frames each.
       const cols = cat.frames
@@ -201,16 +219,23 @@ export async function generatePack(
       }
     }
 
-    // soul overlays (static; applies to any edited object, still or animated)
-    const souls = edited.filter((x) => x.e!.soul)
+    // Overlay-only edits must not require or export a copy of the vanilla base.
+    // Hidden overlays reserve a transparent cell in this atlas.
+    const souls = allEdits.filter((x) => x.e!.soul || x.e!.hideSoul)
     if (souls.length > 0) {
       const soulName = `${atlasName}_soul`
       const sg = gridFor(souls.length)
-      const soulCells: PlacedCell[] = souls.map((x, i) => ({
-        col: i % sg.cols,
-        row: Math.floor(i / sg.cols),
-        dataUrl: x.e!.soul!,
-      }))
+      const soulCells: PlacedCell[] = souls.flatMap((x, i) =>
+        x.e!.soul && !x.e!.hideSoul
+          ? [
+              {
+                col: i % sg.cols,
+                row: Math.floor(i / sg.cols),
+                dataUrl: x.e!.soul,
+              },
+            ]
+          : []
+      )
       await pushAtlasPng(soulName, sg.cols, sg.rows, cat.px, cat.py, soulCells)
       manifestAtlases.push({
         key: soulName,
@@ -219,14 +244,17 @@ export async function generatePack(
         py: cat.py,
       })
       souls.forEach((x, i) => {
-        const obj = manifestObjects.find(
+        let obj = manifestObjects.find(
           (m) => m.key === x.o.key && m.registry === cat.registry
         )
-        if (obj) {
-          obj.soul_atlas = soulName
-          obj.soul_x = i % sg.cols
-          obj.soul_y = Math.floor(i / sg.cols)
+        if (!obj) {
+          obj = { registry: cat.registry, key: x.o.key }
+          manifestObjects.push(obj)
         }
+        obj.soul_atlas = soulName
+        obj.soul_x = i % sg.cols
+        obj.soul_y = Math.floor(i / sg.cols)
+        if (x.o.soulTarget === 'shared') obj.soul_shared = true
       })
     }
   }
@@ -330,7 +358,7 @@ export async function generatePack(
   // --- static files ---------------------------------------------------------
   entries.push({
     name: 'CustomReskin.json',
-    data: zipText(manifestJson(project)),
+    data: zipText(manifestJson(project, catalog)),
   })
   entries.push({ name: 'core.lua', data: zipText(CORE_LUA) })
   entries.push({ name: PROJECT_FILE, data: zipText(JSON.stringify(project)) })

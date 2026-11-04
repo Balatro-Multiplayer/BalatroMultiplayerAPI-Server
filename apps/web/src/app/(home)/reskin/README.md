@@ -56,6 +56,36 @@ a ZIP expanding to a 70 MiB game archive. A test-only worker delay exercised
 visible loading/elapsed time and cancellation; malformed ZIP feedback was checked
 with an existing game still loaded. No actual macOS dialog was exercised.
 
+## Layered card art
+
+The five legendary Jokers, Hologram, and The Soul have independent background
+and overlay previews. Their editor offers **Combined / Background / Overlay**
+views, separate uploads, **Reset overlay** (restore the game's original), and
+**Hide overlay** (an explicit transparent layer). Hologram previews its special
+foreground shader. The Soul's gem comes from the shared `centers` sprite in
+`Enhancers.png`, not a Joker-style `soul_pos` in the background atlas.
+
+Original layers are read-only previews and do not count as edits. Replacing only
+one layer preserves the other in-game, without exporting vanilla art. Overlay-only
+and hidden-overlay edits survive export and pack reimport. Generated packs that
+change layered cards require Steamodded `1.0.0~BETA-1814a` or newer, since the
+previous minimum does not support independent floating-sprite atlases. The Soul's
+shared sprite is rebound before its normal draw step, retaining the game's motion;
+the browser preview shows layer placement, not the in-game floating animation.
+
+Regression checks cover layer metadata/crops, combined and isolated rendering,
+edit indicators, export/reimport, transparent overlays, and loader behavior against
+mock registries/shared sprites. No proprietary game Lua is executed. In-game
+installation and the new layer controls still need a manual visual pass:
+
+1. Import your game, search each legendary and Hologram, then open The Soul in
+   Spectral Cards. Confirm both original layers appear without adding edits.
+2. Switch between all three views. Replace only a background, then only an overlay;
+   the unchanged layer should remain. Hide/reset the overlay and clear the tile.
+3. Export each variation and install with the declared Steamodded version. Verify
+   the legendary portraits, Hologram effect, and Soul gem/animation, including
+   after changing texture scaling. Reimport a pack and confirm its layer choices.
+
 ## Automated checks
 
 From the repository root (pnpm 10.33.0 and Bun):
@@ -65,7 +95,13 @@ pnpm install --frozen-lockfile --filter balatro-multiplayer-web...
 pnpm --filter @bmp/types build
 pnpm --filter balatro-multiplayer-web typecheck
 bun test apps/web/src
+python3 -I apps/web/scripts/test-reskin-layers.py
 ```
+
+The Python check imports only the trusted catalog parser and uses synthetic Lua
+strings. It does not invoke the full catalog build or its localization evaluator.
+When LuaTeX is available it also executes the generated loader against trusted
+mocks; that runtime check is explicitly skipped when LuaTeX is absent.
 
 `lib/gameImport.test.ts` and `lib/exeStore.test.ts` use synthetic archives only;
 never commit game archives, extracted assets, or a real Mac bundle as fixtures.
