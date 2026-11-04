@@ -8,8 +8,15 @@ import {
 	isBanDuration,
 	isChatMuteDuration,
 } from './types.js'
+import { type Ladder, isLadder } from '../strikes/ladder.js'
 import { type DismissLabel, dismissLabelOf, isDismissLabel } from './flagged-chat.js'
 import { parseReason } from '../../shared/staff-log/actions.js'
+
+// Where a punishment counts as a strike, and why staff left the recommended step.
+export interface StrikeChoice {
+	ladder: Ladder | null
+	deviationReason: string | null
+}
 
 export const MAX_NOTE_LENGTH = 2000
 export const MAX_WARNING_LENGTH = 500
@@ -18,10 +25,10 @@ export type QueueCommand =
 	// dismissLabel: which dismiss button a flagged chat item was closed with.
 	| { action: 'dismiss'; reason: string; note: string | null; dismissLabel: DismissLabel | null }
 	| { action: 'resolve'; reason: string; note: string | null }
-	| { action: 'warn'; reason: string; targetPlayerId: string | null; message: string; note: string | null }
-	| { action: 'chat_mute'; targetPlayerId: string | null; duration: ChatMuteDuration; reason: string; note: string | null }
-	| { action: 'queue_ban'; targetPlayerId: string | null; duration: BanDuration; reason: string; note: string | null }
-	| { action: 'account_ban'; targetPlayerId: string | null; duration: BanDuration; reason: string; note: string | null }
+	| { action: 'warn'; reason: string; targetPlayerId: string | null; message: string; note: string | null } & StrikeChoice
+	| ({ action: 'chat_mute'; targetPlayerId: string | null; duration: ChatMuteDuration; reason: string; note: string | null } & StrikeChoice)
+	| ({ action: 'queue_ban'; targetPlayerId: string | null; duration: BanDuration; reason: string; note: string | null } & StrikeChoice)
+	| ({ action: 'account_ban'; targetPlayerId: string | null; duration: BanDuration; reason: string; note: string | null } & StrikeChoice)
 	| { action: 'void'; reason: string; note: string | null }
 	| { action: 'overturn'; reason: string; toReportOf: string; note: string | null }
 	| { action: 'reopen'; reason: string; note: string | null }
@@ -55,6 +62,15 @@ function target(body: Record<string, unknown>): Parsed<string | null> {
 	if (value === undefined || value === null || value === '') return ok(null)
 	if (typeof value !== 'string' || !value) return bad('targetPlayerId', 'targetPlayerId must be a player id')
 	return ok(value)
+}
+
+function strikeChoice(body: Record<string, unknown>): Parsed<StrikeChoice> {
+	const ladder = body.ladder
+	if (ladder !== undefined && ladder !== null && ladder !== '' && !isLadder(ladder))
+		return bad('ladder', "ladder must be 'chat' or 'play'")
+	const why = optionalText(body, 'deviationReason', MAX_NOTE_LENGTH)
+	if (!why.ok) return why
+	return ok({ ladder: isLadder(ladder) ? ladder : null, deviationReason: why.value })
 }
 
 // The old routes' resolutionNotes is accepted as the note.
@@ -91,7 +107,9 @@ export function parseCommand(action: ActionKey, body: Record<string, unknown>): 
 			const message = optionalText(body, 'message', MAX_WARNING_LENGTH)
 			if (!message.ok) return message
 			if (message.value === null) return bad('message', 'message is required')
-			return ok({ action, reason, targetPlayerId: who.value, message: message.value, note: note.value })
+			const strike = strikeChoice(body)
+			if (!strike.ok) return strike
+			return ok({ action, reason, targetPlayerId: who.value, message: message.value, note: note.value, ...strike.value })
 		}
 		case 'chat_mute':
 		case 'queue_ban':
@@ -99,12 +117,14 @@ export function parseCommand(action: ActionKey, body: Record<string, unknown>): 
 			const who = target(body)
 			if (!who.ok) return who
 			const duration = body.duration
+			const strike = strikeChoice(body)
+			if (!strike.ok) return strike
 			if (action === 'chat_mute') {
 				if (!isChatMuteDuration(duration)) return bad('duration', "duration must be '24h', '7d', '30d' or 'permanent'")
-				return ok({ action, targetPlayerId: who.value, duration, reason, note: note.value })
+				return ok({ action, targetPlayerId: who.value, duration, reason, note: note.value, ...strike.value })
 			}
 			if (!isBanDuration(duration)) return bad('duration', "duration must be '7d', '30d' or 'permanent'")
-			return ok({ action, targetPlayerId: who.value, duration, reason, note: note.value })
+			return ok({ action, targetPlayerId: who.value, duration, reason, note: note.value, ...strike.value })
 		}
 		case 'overturn': {
 			const to = body.toReportOf

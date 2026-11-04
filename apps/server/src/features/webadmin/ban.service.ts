@@ -1,3 +1,6 @@
+import { db } from '../../infrastructure/db/index.js'
+import { insertStrike } from '../../infrastructure/gateways/strike.gateway.js'
+import type { AppliedStep, Ladder, LadderStep } from '../strikes/ladder.js'
 import {
 	type BanRecord,
 	type BanType,
@@ -11,6 +14,13 @@ export interface IssueBanParams {
 	expiresAt: Date | null
 	reason: string
 	issuedBy: string
+	// Set for a punishment that counts on a strike ladder (an account ban has none).
+	strike?: {
+		ladder: Ladder
+		recommendedStep: LadderStep
+		appliedStep: AppliedStep
+		deviationReason: string | null
+	}
 }
 
 /**
@@ -25,13 +35,27 @@ export interface IssueBanParams {
  * by the player sync at their next login.
  */
 export async function issueBan(params: IssueBanParams): Promise<BanRecord> {
-	const ban = await insertBan({
+	const row = {
 		playerId: params.playerId,
 		banType: params.banType,
 		expiresAt: params.expiresAt,
 		issuedBy: params.issuedBy,
 		reason: params.reason,
-	})
+	}
+	const { strike } = params
+	const ban = strike
+		? await db.transaction(async (tx) => {
+				const inserted = await insertBan(row, tx)
+				await insertStrike(tx, {
+					playerId: params.playerId,
+					banId: inserted.id,
+					warningId: null,
+					issuedAt: inserted.issuedAt,
+					...strike,
+				})
+				return inserted
+			})
+		: await insertBan(row)
 
 	await banInNakama(ban).catch((e) =>
 		console.error('[ban.service] Nakama ban failed:', e),

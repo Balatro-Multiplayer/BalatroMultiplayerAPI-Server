@@ -12,7 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { ApiError, apiFetch } from '@/lib/api'
+import { ApiError, apiFetch, apiFetchWithReason } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { DeleteModDialog } from './components/delete-mod-dialog'
 import { DeleteProfileDialog } from './components/delete-profile-dialog'
@@ -88,7 +88,7 @@ export default function RankedModsPage() {
   const updateModMut = useMutation({
     mutationFn: async (input: { modId: string; patch: ModPatch }) => {
       setPendingModId(input.modId)
-      return apiFetch(`/webadmin/mods/${encodeURIComponent(input.modId)}`, {
+      return apiFetchWithReason(`/webadmin/mods/${encodeURIComponent(input.modId)}`, {
         method: 'PUT',
         body: JSON.stringify(input.patch),
       })

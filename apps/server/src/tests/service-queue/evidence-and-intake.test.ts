@@ -149,10 +149,9 @@ describe('forfeit timelines', () => {
 })
 
 describe('the integrity intake', () => {
-	function intake(ranked: { queued: boolean; inGame: boolean } | null, failuresToday: number) {
+	function intake(ranked: { queued: boolean; inGame: boolean } | null, _unused: number) {
 		const deps = {
 			rankedContext: vi.fn(async () => ranked),
-			countFailuresSince: vi.fn(async () => failuresToday),
 			enqueue: vi.fn(async () => null),
 			now: () => NOW,
 		}
@@ -163,7 +162,6 @@ describe('the integrity intake', () => {
 		const { deps, intake: i } = intake({ queued: true, inGame: false }, 1)
 		await i.noteFailure('p1', 'n1', 'hash_mismatch' as never)
 		expect(deps.rankedContext).toHaveBeenCalledWith('n1')
-		expect(deps.countFailuresSince).toHaveBeenCalledWith('p1', new Date('2026-10-21T00:00:00.000Z'))
 		expect(deps.enqueue).toHaveBeenCalledWith(
 			expect.objectContaining({
 				itemType: 'integrity',
@@ -174,15 +172,13 @@ describe('the integrity intake', () => {
 		)
 	})
 
-	it('raises the third failure of a day outside ranked, and ignores the first two', async () => {
-		const quiet = intake({ queued: false, inGame: false }, 2)
-		await quiet.intake.noteFailure('p1', 'n1', 'refused' as never)
-		expect(quiet.deps.enqueue).not.toHaveBeenCalled()
+	it('raises nothing for a failure outside ranked play', async () => {
+		const idle = intake({ queued: false, inGame: false }, 9)
+		await idle.intake.noteFailure('p1', 'n1', 'refused' as never)
+		expect(idle.deps.enqueue).not.toHaveBeenCalled()
 
-		const third = intake(null, 3)
-		await third.intake.noteFailure('p1', 'n1', 'refused' as never)
-		expect(third.deps.enqueue).toHaveBeenCalledWith(
-			expect.objectContaining({ context: { lobbyKind: 'none', integrityTrigger: 'repeated' } }),
-		)
+		const unknown = intake(null, 9)
+		await unknown.intake.noteFailure('p1', 'n1', 'refused' as never)
+		expect(unknown.deps.enqueue).not.toHaveBeenCalled()
 	})
 })

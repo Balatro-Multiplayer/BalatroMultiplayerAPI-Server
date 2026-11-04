@@ -12,6 +12,7 @@ import {
 	updatePost,
 } from '../../infrastructure/gateways/blog.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
+import { logStaffAction, requireReason } from './staff-action.js'
 
 // Admin surface for authoring patch notes/news - see features/blog/blog.route.ts
 // for the public GET /latest these posts feed once published. Unlike
@@ -45,6 +46,7 @@ router.get('/blog/posts/:id', async (req, res, next) => {
 
 router.post('/blog/posts', async (req, res, next) => {
 	try {
+		const reason = requireReason(req)
 		const kind = req.body.kind
 		if (!KINDS.includes(kind)) throw new AppError('Invalid kind', 400)
 		const title = typeof req.body.title === 'string' ? req.body.title.trim() : ''
@@ -59,6 +61,11 @@ router.post('/blog/posts', async (req, res, next) => {
 			bodyHtml: sanitizeBlogHtml(bodyHtml),
 			authorPlayerId: req.player!.playerId,
 		})
+		await logStaffAction(req, {
+			action: 'blog_create',
+			reason,
+			detail: { postId: post.id, kind, title },
+		})
 		res.status(201).json({ post })
 	} catch (err) {
 		next(err)
@@ -67,6 +74,7 @@ router.post('/blog/posts', async (req, res, next) => {
 
 router.patch('/blog/posts/:id', async (req, res, next) => {
 	try {
+		const reason = requireReason(req)
 		const id = Number(req.params.id)
 		if (!Number.isInteger(id)) throw new AppError('Invalid post id', 400)
 
@@ -83,8 +91,18 @@ router.patch('/blog/posts/:id', async (req, res, next) => {
 			input.bodyHtml = sanitizeBlogHtml(bodyHtml)
 		}
 
+		const before = await getPostById(id)
 		const post = await updatePost(id, input)
 		if (!post) throw new AppError('Post not found', 404)
+		await logStaffAction(req, {
+			action: 'blog_update',
+			reason,
+			detail: {
+				postId: id,
+				old: { ...(input.title !== undefined && { title: before?.title }), ...(input.bodyHtml !== undefined && { bodyHtml: before?.bodyHtml }) },
+				new: input,
+			},
+		})
 		res.json({ post })
 	} catch (err) {
 		next(err)
@@ -93,10 +111,12 @@ router.patch('/blog/posts/:id', async (req, res, next) => {
 
 router.post('/blog/posts/:id/publish', async (req, res, next) => {
 	try {
+		const reason = requireReason(req)
 		const id = Number(req.params.id)
 		if (!Number.isInteger(id)) throw new AppError('Invalid post id', 400)
 		const post = await publishPost(id)
 		if (!post) throw new AppError('Post not found', 404)
+		await logStaffAction(req, { action: 'blog_publish', reason, detail: { postId: id } })
 		invalidateLatestCache()
 		res.json({ post })
 	} catch (err) {
@@ -106,10 +126,12 @@ router.post('/blog/posts/:id/publish', async (req, res, next) => {
 
 router.post('/blog/posts/:id/unpublish', async (req, res, next) => {
 	try {
+		const reason = requireReason(req)
 		const id = Number(req.params.id)
 		if (!Number.isInteger(id)) throw new AppError('Invalid post id', 400)
 		const post = await unpublishPost(id)
 		if (!post) throw new AppError('Post not found', 404)
+		await logStaffAction(req, { action: 'blog_unpublish', reason, detail: { postId: id } })
 		invalidateLatestCache()
 		res.json({ post })
 	} catch (err) {
@@ -119,10 +141,16 @@ router.post('/blog/posts/:id/unpublish', async (req, res, next) => {
 
 router.delete('/blog/posts/:id', async (req, res, next) => {
 	try {
+		const reason = requireReason(req)
 		const id = Number(req.params.id)
 		if (!Number.isInteger(id)) throw new AppError('Invalid post id', 400)
 		const post = await deletePost(id)
 		if (!post) throw new AppError('Post not found', 404)
+		await logStaffAction(req, {
+			action: 'blog_delete',
+			reason,
+			detail: { postId: id, title: post.title },
+		})
 		invalidateLatestCache()
 		res.json({ ok: true })
 	} catch (err) {

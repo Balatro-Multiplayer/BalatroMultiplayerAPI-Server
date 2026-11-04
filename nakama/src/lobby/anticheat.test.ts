@@ -28,13 +28,36 @@ describe('anti-cheat flags', () => {
 		expect(flags).toEqual({ b: 'elapsed_time_gate', c: 'hash_mismatch' })
 	})
 
-	it('flags a ranked player whose log is missing, cut off or could not be checked', () => {
-		const ranked = { ...run(60_000), rankedMode: 'nemesis' } as RunRecord
+	it('flags a ranked player who reported and whose log is missing, cut off or could not be checked', () => {
+		const ranked = { ...run(60_000), rankedMode: 'nemesis', status: 'agreed', reports: { a: [], b: [], c: [] } } as unknown as RunRecord
 		const flags = runFlags(ranked, { a: log('hand_result') }, { a: 'match', b: 'unavailable', c: 'mismatch' })
 		expect(flags).toEqual({ b: 'unverified_log', c: 'hash_mismatch' })
 	})
 
 	it('flags nobody in a clean game', () => {
 		expect(runFlags(run(60_000), { a: log('hand_result') }, { a: 'match', b: 'unavailable', c: 'match' })).toEqual({})
+	})
+
+	describe('unverified log', () => {
+		const ranked = (status: string, reports: object) =>
+			({ ...run(60_000), rankedMode: 'nemesis', status, reports }) as unknown as RunRecord
+		const unavailable = { a: 'unavailable', b: 'unavailable', c: 'unavailable' } as const
+
+		it('is not flagged in a restarted or abandoned game', () => {
+			for (const status of ['restarted', 'abandoned'])
+				expect(runFlags(ranked(status, { a: [], b: [], c: [] }), {}, unavailable)).toEqual({})
+		})
+
+		it('is not flagged for a player who sent no result', () => {
+			expect(runFlags(ranked('partial', { a: [] }), {}, unavailable)).toEqual({ a: 'unverified_log' })
+		})
+
+		it('is flagged for a player who reported, in a game that settled', () => {
+			expect(runFlags(ranked('agreed', { b: [] }), {}, unavailable)).toEqual({ b: 'unverified_log' })
+		})
+
+		it('still flags a hash mismatch in a restarted game', () => {
+			expect(runFlags(ranked('restarted', {}), {}, { a: 'mismatch', b: 'match', c: 'match' })).toEqual({ a: 'hash_mismatch' })
+		})
 	})
 })

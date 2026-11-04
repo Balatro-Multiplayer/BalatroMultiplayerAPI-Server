@@ -1,5 +1,5 @@
 import request from 'supertest'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { signJwt } from '../../features/auth/jwt.js'
 import { db } from '../../infrastructure/db/index.js'
 import {
@@ -25,6 +25,19 @@ vi.mock(
 		networkBansInNakama: vi.fn().mockResolvedValue({ ok: true, value: [] }),
 		liftNetworkBanInNakama: vi.fn().mockResolvedValue({ ok: true, value: null }),
 		nakamaUserIdOf: vi.fn().mockResolvedValue(null),
+	}),
+)
+
+vi.mock(
+	'../../infrastructure/gateways/strike.gateway.js',
+	async (importOriginal) => ({
+		...(await importOriginal<object>()),
+		getLadderSteps: vi.fn().mockResolvedValue({
+			chat: ['warning', '24h', '7d', '30d', 'permanent'],
+			play: ['warning', '24h', '7d', '30d', 'permanent'],
+		}),
+		listStrikes: vi.fn().mockResolvedValue([]),
+		insertStrike: vi.fn().mockResolvedValue(undefined),
 	}),
 )
 
@@ -163,9 +176,13 @@ describe('POST /api/webadmin/players/:id/bans (§21.3)', () => {
 })
 
 describe('POST /api/webadmin/players/:id/bans: the queue role table', () => {
+	beforeEach(() => {
+		;(db as any).transaction = vi.fn(async (run: (tx: unknown) => unknown) => run({ tx: true }))
+	})
+
 	const inDays = (days: number) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
 	const issue = (token: string, body: Record<string, unknown>) =>
-		request(app).post('/api/webadmin/players/target-3/bans').set('Authorization', token).send({ reason: 'r', ...body })
+		request(app).post('/api/webadmin/players/target-3/bans').set('Authorization', token).send({ reason: 'r', deviationReason: 'test', ...body })
 
 	it('lets a moderator issue every preset length, permanent too', async () => {
 		const token = authAsModerator('mod-2', 'Mod2')
@@ -181,6 +198,7 @@ describe('POST /api/webadmin/players/:id/bans: the queue role table', () => {
 			expect((await issue(token, body)).status, JSON.stringify(body)).toBe(201)
 		expect(vi.mocked(insertBan)).toHaveBeenCalledWith(
 			expect.objectContaining({ issuedBy: 'moderator:mod-2' }),
+			expect.anything(),
 		)
 	})
 

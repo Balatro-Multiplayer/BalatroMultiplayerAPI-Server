@@ -1,7 +1,7 @@
 'use client'
 
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,9 +22,14 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { apiFetch } from '@/lib/api'
+import { LadderPick } from '../../players/components/ladder-pick'
+import type { StrikeSummary } from '../../players/lib/strikes'
 import {
   type ActionForm,
+  appliedStepOf,
   bodyOf,
+  defaultLadder,
   emptyForm,
   WARNING_MAX,
 } from '../lib/action-form'
@@ -139,11 +144,32 @@ function ActionDialog({
       toReportOf: sides[0]?.playerId ?? null,
       banId: bans[0]?.id ?? null,
       dismissLabel,
+      ladder: defaultLadder(allowed.action, detail.item.itemType),
     })
   )
   const set = (patch: Partial<ActionForm>) =>
     setForm((f) => ({ ...f, ...patch }))
-  const check = bodyOf(allowed, form)
+  // The strikes of whoever the punishment lands on, for the recommended step.
+  const onLadder =
+    allowed.action === 'warn' ||
+    allowed.action === 'chat_mute' ||
+    allowed.action === 'queue_ban'
+  const strikes = useQuery<{ strikes: StrikeSummary }>({
+    queryKey: ['admin-player-strikes', form.targetPlayerId],
+    queryFn: () => apiFetch(`/webadmin/players/${form.targetPlayerId}/strikes`),
+    enabled: onLadder && !!form.targetPlayerId,
+  })
+  const recommended = strikes.data?.strikes[form.ladder].recommended ?? null
+  // Preselect the recommended length; staff can pick another.
+  useEffect(() => {
+    if (
+      recommended &&
+      recommended !== 'warning' &&
+      allowed.presets?.includes(recommended)
+    )
+      setForm((f) => ({ ...f, duration: recommended }))
+  }, [recommended, allowed.presets])
+  const check = bodyOf(allowed, form, recommended)
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -286,6 +312,19 @@ function ActionDialog({
                 </SelectContent>
               </Select>
             </div>
+          )}
+
+          {onLadder && (
+            <LadderPick
+              ladder={form.ladder}
+              onLadderChange={(ladder) => set({ ladder })}
+              recommended={recommended}
+              chosen={appliedStepOf(allowed, form) ?? 'warning'}
+              deviationReason={form.deviationReason}
+              onDeviationReasonChange={(deviationReason) =>
+                set({ deviationReason })
+              }
+            />
           )}
 
           {allowed.action !== 'note' && (

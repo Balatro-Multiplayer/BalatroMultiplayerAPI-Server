@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { ApiError, apiFetch } from '@/lib/api'
+import { ApiError, apiFetch, apiFetchWithReason } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { AddReleaseForm } from './components/add-release-form'
 import { DeleteReleaseDialog } from './components/delete-release-dialog'
@@ -74,7 +74,7 @@ export default function AdminReleasesPage() {
 
   const importMut = useMutation({
     mutationFn: (tag: string) =>
-      apiFetch('/webadmin/launcher-releases/from-github', {
+      apiFetchWithReason('/webadmin/launcher-releases/from-github', {
         method: 'POST',
         body: JSON.stringify({ tag }),
       }),
@@ -91,7 +91,7 @@ export default function AdminReleasesPage() {
   const resyncMut = useMutation({
     mutationFn: (release: LauncherRelease) => {
       setPendingReleaseId(release.id)
-      return apiFetch('/webadmin/launcher-releases/from-github', {
+      return apiFetchWithReason('/webadmin/launcher-releases/from-github', {
         method: 'POST',
         body: JSON.stringify({ tag: release.githubReleaseTag }),
       })
@@ -113,7 +113,7 @@ export default function AdminReleasesPage() {
       platform: LauncherPlatform
     }) => {
       setPendingReleaseId(release.id)
-      return apiFetch(`/webadmin/launcher-releases/${release.id}/${platform}`, {
+      return apiFetchWithReason(`/webadmin/launcher-releases/${release.id}/${platform}`, {
         method: 'DELETE',
       })
     },
@@ -127,7 +127,7 @@ export default function AdminReleasesPage() {
 
   const deleteReleaseMut = useMutation({
     mutationFn: (id: number) =>
-      apiFetch(`/webadmin/launcher-releases/${id}`, { method: 'DELETE' }),
+      apiFetchWithReason(`/webadmin/launcher-releases/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       toast.success('Release deleted')
       setDeleteTarget(null)

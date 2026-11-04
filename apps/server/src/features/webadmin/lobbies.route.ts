@@ -7,6 +7,7 @@ import {
 } from '../../infrastructure/nakama/moderation-sync.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
+import { logStaffAction, requireReason } from './staff-action.js'
 
 const router = Router()
 
@@ -73,12 +74,19 @@ router.get('/lobbies/:code', async (req, res, next) => {
 
 router.post('/lobbies/:code/kick/:playerId', async (req, res, next) => {
 	try {
+		const staffReason = requireReason(req)
 		const reason = `admin:${req.player!.playerId}`
 		if (
 			!(await kickFromNakamaLobby(req.params.code, req.params.playerId, reason))
 		) {
 			throw new AppError('Lobby or player not found', 404)
 		}
+		await logStaffAction(req, {
+			action: 'lobby_kick',
+			reason: staffReason,
+			targetPlayerId: req.params.playerId,
+			detail: { code: req.params.code },
+		})
 
 		console.log(
 			`[webadmin] ${req.player!.playerId} kicked ${req.params.playerId} from lobby ${req.params.code}`,
@@ -91,8 +99,14 @@ router.post('/lobbies/:code/kick/:playerId', async (req, res, next) => {
 
 router.post('/lobbies/:code/close', async (req, res, next) => {
 	try {
+		const reason = requireReason(req)
 		if (!(await closeNakamaLobby(req.params.code)))
 			throw new AppError('Lobby not found', 404)
+		await logStaffAction(req, {
+			action: 'lobby_close',
+			reason,
+			detail: { code: req.params.code },
+		})
 
 		console.log(
 			`[webadmin] ${req.player!.playerId} closed lobby ${req.params.code}`,

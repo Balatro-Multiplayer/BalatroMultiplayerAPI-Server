@@ -461,7 +461,14 @@
       "idx": 65,
       "version": "7",
       "when": 1794100000000,
-      "tag": "0065_appeals",
+"tag": "0065_strike_ladders",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1794200000000,
+      "tag": "0066_appeals",
       "breakpoints": true
     }
   ]

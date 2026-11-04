@@ -167,6 +167,7 @@ describe('POST /api/webadmin/lobbies/:code/kick/:playerId', () => {
 		const res = await request(app)
 			.post('/api/webadmin/lobbies/ABCDE/kick/guest-1')
 			.set('Authorization', authWith(['moderator'], 'mod-1', 'Mod'))
+			.send({ reason: 'test' })
 
 		expect(res.status).toBe(200)
 		expect(res.body).toEqual({ ok: true })
@@ -181,6 +182,7 @@ describe('POST /api/webadmin/lobbies/:code/kick/:playerId', () => {
 		const res = await request(app)
 			.post('/api/webadmin/lobbies/ABCDE/kick/nobody')
 			.set('Authorization', authWith(['admin'], 'admin-1', 'Admin'))
+			.send({ reason: 'test' })
 		expect(res.status).toBe(404)
 	})
 
@@ -188,6 +190,7 @@ describe('POST /api/webadmin/lobbies/:code/kick/:playerId', () => {
 		const res = await request(app)
 			.post('/api/webadmin/lobbies/ABCDE/kick/guest-1')
 			.set('Authorization', authWith([], 'plain-1', 'Plain'))
+			.send({ reason: 'test' })
 		expect(res.status).toBe(403)
 		expect(kickFromNakamaLobby).not.toHaveBeenCalled()
 	})
@@ -200,6 +203,7 @@ describe('POST /api/webadmin/lobbies/:code/close', () => {
 		const res = await request(app)
 			.post('/api/webadmin/lobbies/ABCDE/close')
 			.set('Authorization', authWith(['admin'], 'admin-1', 'Admin'))
+			.send({ reason: 'test' })
 
 		expect(res.status).toBe(200)
 		expect(closeNakamaLobby).toHaveBeenCalledWith('ABCDE')
@@ -209,6 +213,7 @@ describe('POST /api/webadmin/lobbies/:code/close', () => {
 		const res = await request(app)
 			.post('/api/webadmin/lobbies/ZZZZZ/close')
 			.set('Authorization', authWith(['admin'], 'admin-1', 'Admin'))
+			.send({ reason: 'test' })
 		expect(res.status).toBe(404)
 	})
 })

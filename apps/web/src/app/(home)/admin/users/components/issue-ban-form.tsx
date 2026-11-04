@@ -1,4 +1,5 @@
 import type { BanType } from '@bmp/types'
+import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -37,6 +38,8 @@ export function IssueBanForm({
   onReasonChange,
   onExpiryChange,
   onSubmit,
+  ladderSlot,
+  canSubmit = true,
 }: {
   // Admins pick any end date. Others pick a preset length, and no account ban.
   isAdmin: boolean
@@ -50,6 +53,9 @@ export function IssueBanForm({
   onReasonChange: (v: string) => void
   onExpiryChange: (v: string) => void
   onSubmit: () => void
+  // The strike ladder choice, for a ban that counts on a ladder.
+  ladderSlot?: ReactNode
+  canSubmit?: boolean
 }) {
   return (
     <div className='space-y-2 border-t border-border pt-4'>
@@ -96,11 +102,12 @@ export function IssueBanForm({
         )}
         <Button
           onClick={onSubmit}
-          disabled={!banReason.trim() || isPending}
+          disabled={!banReason.trim() || isPending || !canSubmit}
         >
           Add Ban
         </Button>
       </div>
+      {ladderSlot}
     </div>
   )
 }

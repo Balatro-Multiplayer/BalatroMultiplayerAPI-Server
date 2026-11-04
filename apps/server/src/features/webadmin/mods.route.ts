@@ -38,6 +38,7 @@ import {
 import { parseSmodsIdsOverride } from '../mods/mod-smods-ids.js'
 import { syncModRegistry } from '../mods/mods-sync.service.js'
 import { backfillSmodsIds } from '../mods/smods-ids-backfill.service.js'
+import { logStaffAction, requireReason } from './staff-action.js'
 
 // Ranked mod catalog admin surface: sync Thunderstore-sourced mods on demand,
 // manage the admin-owned fields -- the ranked pin (see schema.ts's own doc
@@ -291,6 +292,7 @@ function throwPinError(result: Exclude<PinCommitResult, { ok: true }>): never {
 router.put('/mods/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const body = req.body as {
 			rankedVersion?: unknown
 			rankedCommit?: unknown
@@ -343,6 +345,23 @@ router.put('/mods/:modId', async (req, res, next) => {
 		if (trackGithub !== undefined) {
 			await setTrackGithub(mod.id, trackGithub)
 		}
+		const changedFlags = {
+			...(featured !== undefined && { featured }),
+			...(hidden !== undefined && { hidden }),
+			...(trackGithub !== undefined && { trackGithub }),
+		}
+		if (Object.keys(changedFlags).length > 0) {
+			const old = mod as unknown as Record<string, unknown>
+			await logStaffAction(req, {
+				action: 'config_change',
+				reason,
+				detail: {
+					modId: mod.id,
+					old: Object.fromEntries(Object.keys(changedFlags).map((k) => [k, old[k] ?? null])),
+					new: changedFlags,
+				},
+			})
+		}
 
 		if ('rankedVersion' in body || rankedCommit !== undefined) {
 			const result =
@@ -360,6 +379,22 @@ router.put('/mods/:modId', async (req, res, next) => {
 		}
 		if ('rankedVersion' in body || rankedCommit !== undefined || smodsIds !== undefined) {
 			await loadConfigFromDb()
+			// A commit pin sets the version itself, so read it back.
+			const newVersion =
+				'rankedVersion' in body
+					? rankedVersion
+					: rankedCommit !== undefined
+						? ((await findModByIdOrFullName(mod.id))?.rankedVersion ?? null)
+						: (mod.rankedVersion ?? null)
+			await logStaffAction(req, {
+				action: 'mod_pin',
+				reason,
+				detail: {
+					modId: mod.id,
+					old: { rankedVersion: mod.rankedVersion ?? null },
+					new: { rankedVersion: newVersion, ...(rankedCommit !== undefined && { rankedCommit: rankedCommit.trim() }), ...(smodsIds !== undefined && { smodsIds }) },
+				},
+			})
 		}
 		res.json({ ok: true })
 	} catch (err) {

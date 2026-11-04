@@ -1,3 +1,4 @@
+import type { Ladder } from '../../players/lib/strikes'
 // The service queue's API shapes, as apps/server's webadmin/service-queue
 // route sends them (Q-api.md). Closed unions mirror the server's
 // features/service-queue/types.ts.
@@ -611,6 +612,8 @@ export type ActionBody =
       message: string
       targetPlayerId?: string
       note?: string
+      ladder?: Ladder
+      deviationReason?: string
     }
   | {
       action: 'chat_mute' | 'queue_ban' | 'account_ban'
@@ -618,6 +621,8 @@ export type ActionBody =
       reason: string
       targetPlayerId?: string
       note?: string
+      ladder?: Ladder
+      deviationReason?: string
     }
   | { action: 'overturn'; reason: string; toReportOf: string; note?: string }
   | { action: 'unban'; reason: string; banId: string; note?: string }

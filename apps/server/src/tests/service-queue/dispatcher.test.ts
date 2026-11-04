@@ -1,6 +1,7 @@
 // The dispatcher over an in-memory queue: a transaction is a snapshot that
 // a thrown error restores, so a rollback leaves nothing behind.
 import { describe, expect, it, vi } from 'vitest'
+import { DEFAULT_LADDER_STEPS } from '../../features/strikes/ladder.js'
 import {
 	type BanRow,
 	type DispatcherDeps,
@@ -23,7 +24,10 @@ interface World {
 	warnings: { playerId: string; message: string }[]
 	staffLog: StaffActionEntry[]
 	labels: { itemId: number; label: string }[]
+	strikes: StrikeRow[]
 }
+
+type StrikeRow = Parameters<DispatcherDeps<World>['insertStrike']>[1]
 
 function item(over: Partial<QueueItem> = {}): QueueItem {
 	return {
@@ -47,6 +51,7 @@ function setup(seed: QueueItem, over: Partial<DispatcherDeps<World>> = {}) {
 		warnings: [],
 		staffLog: [],
 		labels: [],
+		strikes: [],
 	}
 	const snapshot = () => structuredClone({ ...world, items: [...world.items], sourceStatus: [...world.sourceStatus] })
 	const external = {
@@ -102,6 +107,7 @@ function setup(seed: QueueItem, over: Partial<DispatcherDeps<World>> = {}) {
 				world.warnings = before.warnings
 				world.staffLog = before.staffLog
 				world.labels = before.labels
+				world.strikes = before.strikes
 				throw err
 			}
 		},
@@ -144,6 +150,14 @@ function setup(seed: QueueItem, over: Partial<DispatcherDeps<World>> = {}) {
 		async saveChatLabels(tx, it, label) {
 			tx.labels.push({ itemId: it.id, label })
 		},
+		// A player with 2 counting strikes: the recommended step is 7d.
+		ladderStateOf: async (_playerId, ladder) => ({
+			steps: DEFAULT_LADDER_STEPS[ladder],
+			strikes: [{ issuedAt: NOW, liftedAt: null }, { issuedAt: NOW, liftedAt: null }],
+		}),
+		async insertStrike(tx, strike) {
+			tx.strikes.push(strike)
+		},
 		async insertWarning(tx, w) {
 			tx.warnings.push({ playerId: w.playerId, message: w.message })
 			return { id: 'w1' }
@@ -154,7 +168,7 @@ function setup(seed: QueueItem, over: Partial<DispatcherDeps<World>> = {}) {
 	// Most tests are not about the reason, so this one supplies it; `strict` does not.
 	const dispatcher = {
 		run: (id: number, action: string, staff: typeof MOD, body: Record<string, unknown>) =>
-			strict.run(id, action, staff, { reason: 'because', ...body }),
+			strict.run(id, action, staff, { reason: 'because', deviationReason: 'test', ...body }),
 	}
 	return { world, external, dispatcher, strict }
 }
@@ -570,6 +584,68 @@ describe('flagged chat decisions', () => {
 		const { world, dispatcher } = setup(chat(), { recordStaffAction: async () => { throw new Rollbackish() } })
 		await expect(dispatcher.run(1, 'dismiss', MOD, { dismissLabel: 'not_harmful' })).rejects.toThrow()
 		expect(world.labels).toEqual([])
+	})
+
+	describe('strikes', () => {
+		it('records a strike with the recommendation when staff follow it', async () => {
+			const { world, strict } = setup(item())
+			const result = await strict.run(1, 'queue_ban', MOD, { reason: 'x', duration: '7d' })
+			expect(result.ok).toBe(true)
+			expect(world.strikes).toEqual([
+				{
+					playerId: 'bad',
+					ladder: 'play',
+					banId: BAN_ID,
+					warningId: null,
+					recommendedStep: '7d',
+					appliedStep: '7d',
+					deviationReason: null,
+					issuedAt: NOW,
+				},
+			])
+		})
+
+		it('refuses a different step with no reason, and writes nothing', async () => {
+			const { world, strict } = setup(item())
+			expect(await strict.run(1, 'queue_ban', MOD, { reason: 'x', duration: 'permanent' })).toMatchObject({
+				ok: false,
+				refusal: { code: 'invalid_body', field: 'deviationReason' },
+			})
+			expect(world.bans).toEqual([])
+			expect(world.strikes).toEqual([])
+		})
+
+		it('keeps the recommendation and the reason for a different step', async () => {
+			const { world, strict } = setup(item())
+			await strict.run(1, 'queue_ban', MOD, { reason: 'x', duration: 'permanent', deviationReason: 'Ban evasion' })
+			expect(world.strikes[0]).toMatchObject({ recommendedStep: '7d', appliedStep: 'permanent', deviationReason: 'Ban evasion' })
+			expect(world.staffLog[0]?.detail).toMatchObject({
+				strike: { ladder: 'play', recommended: '7d', applied: 'permanent', deviationReason: 'Ban evasion' },
+			})
+		})
+
+		it('counts a chat ban on the chat ladder and a warning on the ladder staff choose', async () => {
+			const { world, strict } = setup(item())
+			await strict.run(1, 'chat_mute', MOD, { reason: 'x', duration: '7d' })
+			expect(world.strikes[0]?.ladder).toBe('chat')
+			const second = setup(item())
+			await second.strict.run(1, 'warn', MOD, { reason: 'x', message: 'hi', ladder: 'chat', deviationReason: 'first offence' })
+			expect(second.world.strikes[0]).toMatchObject({ ladder: 'chat', warningId: 'w1', appliedStep: 'warning', recommendedStep: '7d' })
+		})
+
+		it('refuses a ladder that does not exist', async () => {
+			const { strict } = setup(item())
+			expect(await strict.run(1, 'warn', MOD, { reason: 'x', message: 'hi', ladder: 'voice' })).toMatchObject({
+				ok: false,
+				refusal: { code: 'invalid_body', field: 'ladder' },
+			})
+		})
+
+		it('puts an account ban on no ladder', async () => {
+			const { world, strict } = setup(item())
+			await strict.run(1, 'account_ban', ADMIN, { reason: 'x', duration: 'permanent' })
+			expect(world.strikes).toEqual([])
+		})
 	})
 })
 

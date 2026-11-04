@@ -27,6 +27,7 @@ import {
 	touchServiceQueueItem,
 } from '../../infrastructure/gateways/service-queue.gateway.js'
 import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gateway.js'
+import { insertStrike, ladderStateOf } from '../../infrastructure/gateways/strike.gateway.js'
 import { insertWarning } from '../../infrastructure/gateways/warning.gateway.js'
 import { callNakamaRpc } from '../../infrastructure/nakama/admin-client.js'
 import { banInNakama, liftBanInNakama, notifyWarnedInNakama } from '../../infrastructure/nakama/moderation-sync.js'
@@ -188,6 +189,8 @@ const deps: DispatcherDeps<DbTransaction> = {
 	insertBan: (tx, ban) => insertBan(ban, tx),
 	liftBan: (tx, playerId, banId, liftedBy) => liftBan(playerId, banId, liftedBy, tx),
 	insertWarning: (tx, warning) => insertWarning(tx, warning),
+	ladderStateOf,
+	insertStrike: (tx, strike) => insertStrike(tx, strike),
 	async saveChatLabels(tx, item, label, decidedAt) {
 		const row = await getServiceQueueItemById(item.id, tx)
 		if (row) await saveChatLabels(tx, row, label, decidedAt)

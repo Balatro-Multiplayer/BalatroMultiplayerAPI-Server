@@ -38,6 +38,23 @@ const ACTION_LABELS: Record<string, string> = {
   match_void: 'Void match (match page)',
   role_grant: 'Give role',
   role_remove: 'Remove role',
+  lobby_kick: 'Kick from lobby',
+  lobby_close: 'Close lobby',
+  config_change: 'Change server config',
+  allowlist_add: 'Add allowlist message',
+  allowlist_remove: 'Remove allowlist message',
+  season_start: 'Start season',
+  season_activate: 'Activate season',
+  season_end: 'End season',
+  mod_pin: 'Change ranked mod pin',
+  launcher_release_import: 'Import launcher release',
+  launcher_release_delete: 'Delete launcher release',
+  blog_create: 'Create blog post',
+  blog_update: 'Edit blog post',
+  blog_publish: 'Publish blog post',
+  blog_unpublish: 'Unpublish blog post',
+  blog_delete: 'Delete blog post',
+  ladder_edit: 'Edit strike ladder',
 }
 
 interface StaffLogEntry {

@@ -4513,12 +4513,14 @@ function handCount(events) {
   return events.filter((event2) => event2.opcode === HAND_OPCODE).length;
 }
 function runFlags(run, events, checks) {
+  var _a;
   const flags = {};
+  const played = run.status !== "restarted" && run.status !== "abandoned";
   const elapsedMs = run.endedAt - run.startedAt;
   for (const player of run.players) {
     if (checks[player.id] === "mismatch") flags[player.id] = "hash_mismatch";
     else if (handCount(events[player.id]) * MIN_MS_PER_HAND > elapsedMs) flags[player.id] = "elapsed_time_gate";
-    else if (run.rankedMode && checks[player.id] === "unavailable") flags[player.id] = "unverified_log";
+    else if (run.rankedMode && played && player.id in ((_a = run.reports) != null ? _a : {}) && checks[player.id] === "unavailable") flags[player.id] = "unverified_log";
   }
   return flags;
 }
