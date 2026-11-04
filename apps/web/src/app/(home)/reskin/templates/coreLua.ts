@@ -11,8 +11,8 @@ export const CORE_LUA = `--- CustomReskin loader (per-object).
 -- Mechanism: for each replaced object we register a fresh packed atlas and point
 -- that object's registry entry (G.P_CENTERS / G.P_BLINDS / G.P_TAGS / G.P_SEALS /
 -- G.P_STAKES) at it. Untouched objects keep their vanilla art and no base assets
--- are needed. Grid atlases (playing cards, chips, shop sign) are composed full
--- sheets applied as raw overrides. Empty pack = no-op.
+-- are needed. Playing cards use a selectable DeckSkin; chips and shop sign
+-- are composed full sheets applied as raw overrides. Empty pack = no-op.
 
 local mod = SMODS.current_mod
 
@@ -38,9 +38,8 @@ local function prefixed(key)
 	return ((mod.prefix and mod.prefix ~= '') and (mod.prefix .. '_') or '') .. key
 end
 
--- 1) Register every packed/override atlas. \`raw\` keeps the vanilla key so grid
---    atlases (cards_1, chips, shop_sign) replace the base sheet in place; packed
---    category atlases get the mod prefix and are referenced by the rebinds below.
+-- 1) Register every packed/override atlas. \`raw\` keeps the vanilla key for
+--    chips/shop_sign. Playing-card and category atlases keep the mod prefix.
 for _, a in ipairs(atlases) do
 	SMODS.Atlas({
 		key = a.key,
@@ -52,6 +51,38 @@ for _, a in ipairs(atlases) do
 		fps = a.fps,
 		atlas_table = a.atlas_table or 'ASSET_ATLAS',
 	})
+end
+
+-- Named options per suit, with low/high contrast palettes covering every rank.
+-- Do not select skins automatically or change saved accessibility preferences.
+local deck_skins = manifest.deck_skins or {}
+-- Compatibility with the first single-skin manifest format.
+if manifest.deck_skin then
+	local old = manifest.deck_skin
+	deck_skins[#deck_skins + 1] = {key = 'playing_cards', name = old.name, low = old.atlas, high = old.atlas}
+end
+for _, skin in ipairs(deck_skins) do
+	for _, suit in ipairs({'Hearts', 'Clubs', 'Diamonds', 'Spades'}) do
+		local function palette(key, atlas, hc)
+			return {
+				key = key,
+				ranks = {'2', '3', '4', '5', '6', '7', '8', '9', '10', 'Jack', 'Queen', 'King', 'Ace'},
+				display_ranks = {'King', 'Queen', 'Jack'},
+				atlas = prefixed(atlas),
+				pos_style = 'deck',
+				hc_default = hc,
+			}
+		end
+		SMODS.DeckSkin({
+			key = skin.key .. '_' .. string.lower(suit),
+			suit = suit,
+			loc_txt = skin.name or mod.name or 'CustomReskin',
+			palettes = {
+				palette('lc', skin.low or skin.high, false),
+				palette('hc', skin.high or skin.low, true),
+			},
+		})
+	end
 end
 
 -- Mod-list icon. Steamodded shows the \`<prefix>_modicon\` atlas next to the mod in

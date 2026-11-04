@@ -3,7 +3,12 @@ import assert from 'node:assert/strict'
 import catalogData from '../data/catalog.json'
 import { generatePack } from './generate'
 import { importPack } from './importProject'
-import { type Catalog, emptyProject, type ObjectEdit } from './types'
+import {
+  type Catalog,
+  emptyProject,
+  type ObjectEdit,
+  type ProjectState,
+} from './types'
 import { readZip, unzipText } from './zip'
 
 const catalog = catalogData as Catalog
@@ -12,7 +17,13 @@ const overlay = 'data:image/png;base64,b3Zlcg=='
 
 // A draw-call ledger, not a PNG encoder. Exercise the real exporter and ZIP
 // paths without a DOM or copying any vanilla art into fixtures.
-async function pack(edit?: ObjectEdit, id = 'Joker/j_caino') {
+async function pack(
+  edit?: ObjectEdit,
+  id = 'Joker/j_caino',
+  sheets: ProjectState['sheets'] = {},
+  displayName?: string,
+  deckSkins?: ProjectState['deckSkins']
+) {
   const previous = ['Image', 'document'].map(
     (key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const
   )
@@ -66,6 +77,9 @@ async function pack(edit?: ObjectEdit, id = 'Joker/j_caino') {
   try {
     const project = emptyProject()
     if (edit) project.objects[id] = edit
+    project.sheets = sheets
+    if (displayName !== undefined) project.options.displayName = displayName
+    if (deckSkins) project.deckSkins = deckSkins
     const result = await generatePack(project, catalog)
     const files = readZip(result.bytes)
     return {
@@ -84,6 +98,144 @@ async function pack(edit?: ObjectEdit, id = 'Joker/j_caino') {
 function atlas(files: Map<string, Uint8Array>, name: string, scale = 1) {
   return JSON.parse(unzipText(files.get(`assets/${scale}x/${name}.png`)!))
 }
+
+test('playing-card sheet exports a private named deck skin with all four rows, not vanilla atlas overrides', async () => {
+  const deck = 'data:image/png;base64,c3ludGhldGljLWRlY2s='
+  const name = 'Bug Cards'
+  const { files, manifest, result } = await pack(
+    undefined,
+    undefined,
+    {
+      playing_cards: { 0: deck },
+    },
+    name
+  )
+  const registration = manifest.match(/key = "deck_legacy_lc",([^}]+)/)?.[1]
+  assert.ok(registration)
+  assert.ok(!registration.includes('raw = true'))
+  assert.match(registration, /path = "deck_legacy_lc.png"/)
+  assert.match(registration, /px = 71/)
+  assert.match(registration, /py = 95/)
+  assert.ok(!manifest.includes('key = "cards_2"'))
+  assert.match(
+    manifest,
+    /deck_skins = \{\s+\{\s+key = "deck_legacy",\s+name = "Bug Cards",\s+low = "deck_legacy_lc",\s+high = "deck_legacy_lc",/
+  )
+  const metadata = JSON.parse(unzipText(files.get('CustomReskin.json')!))
+  assert.equal(metadata.name, name)
+  for (const scale of [1, 2]) {
+    assert.deepEqual(atlas(files, 'deck_legacy_lc', scale), {
+      width: 923 * scale,
+      height: 380 * scale,
+      draws: [[deck, 0, 0, 923 * scale, 380 * scale]],
+    })
+    assert.ok(!files.has(`assets/${scale}x/cards_2.png`))
+  }
+  const imported = await importPack(
+    new File([new Uint8Array(result.bytes)], 'pack.zip')
+  )
+  assert.deepEqual(imported.sheets, {})
+  assert.deepEqual(imported.deckSkins, [{ id: 'legacy', name, low: deck }])
+  assert.equal(imported.schema, 4)
+})
+
+test('multiple named skins export independent low/high palettes and preserve IDs on reimport', async () => {
+  const skins = [
+    { id: 'bugs', name: 'Bug Cards', low: background, high: overlay },
+    { id: 'night', name: 'Night Cards', high: overlay },
+    { id: 'day', name: 'Day Cards', low: background },
+  ]
+  const { files, manifest, result } = await pack(
+    undefined,
+    undefined,
+    {},
+    'My Mod',
+    skins
+  )
+  assert.match(
+    manifest,
+    /key = "deck_bugs",\s+name = "Bug Cards",\s+low = "deck_bugs_lc",\s+high = "deck_bugs_hc"/
+  )
+  for (const id of ['night', 'day']) {
+    assert.match(
+      manifest,
+      new RegExp(
+        `key = "deck_${id}",\\s+name = "[^"]+",\\s+low = "deck_${id}_lc",\\s+high = "deck_${id}_lc"`
+      )
+    )
+    assert.ok(!files.has(`assets/1x/deck_${id}_hc.png`))
+  }
+  for (const scale of [1, 2]) {
+    assert.equal(atlas(files, 'deck_bugs_lc', scale).draws[0][0], background)
+    assert.equal(atlas(files, 'deck_bugs_hc', scale).draws[0][0], overlay)
+    assert.equal(atlas(files, 'deck_night_lc', scale).draws[0][0], overlay)
+  }
+  assert.ok(!manifest.includes('raw = true'))
+  const imported = await importPack(
+    new File([new Uint8Array(result.bytes)], 'pack.zip')
+  )
+  assert.deepEqual(imported.deckSkins, skins)
+  assert.equal(imported.options.displayName, 'My Mod')
+  const renamed = await pack(undefined, undefined, {}, 'Other Mod Name', [
+    { ...skins[0]!, name: 'Renamed' },
+  ])
+  assert.match(renamed.manifest, /key = "deck_bugs",\s+name = "Renamed"/)
+  assert.ok(renamed.files.has('assets/1x/deck_bugs_lc.png'))
+})
+
+test('draft skins are saved but not registered and identical contrast sheets share one atlas', async () => {
+  const skins = [
+    { id: 'empty', name: 'Later' },
+    { id: 'same', name: 'Same', low: background, high: background },
+  ]
+  const { files, manifest, result } = await pack(
+    undefined,
+    undefined,
+    {},
+    'Mod',
+    skins
+  )
+  assert.ok(!manifest.includes('deck_empty'))
+  assert.equal(result.warnings.length, 1)
+  assert.ok(result.warnings[0]?.includes('Later'))
+  assert.ok(files.has('assets/1x/deck_same_lc.png'))
+  assert.ok(!files.has('assets/1x/deck_same_hc.png'))
+  const imported = await importPack(
+    new File([new Uint8Array(result.bytes)], 'pack.zip')
+  )
+  assert.deepEqual(imported.deckSkins, skins)
+})
+
+test('other sheet edits do not override either playing-card contrast atlas', async () => {
+  const { manifest } = await pack(undefined, undefined, {
+    chips: { 0: background },
+  })
+  assert.match(manifest, /key = "chips"/)
+  assert.ok(!manifest.includes('key = "cards_1"'))
+  assert.ok(!manifest.includes('key = "cards_2"'))
+  assert.ok(!manifest.includes('deck_skin'))
+  assert.match(manifest, /raw = true/)
+})
+
+test('deck-skin name uses the metadata fallback and safely serializes custom mod names', async () => {
+  for (const displayName of ['', 'My "Cards"\\\nΩ']) {
+    const { files, manifest } = await pack(
+      undefined,
+      undefined,
+      { playing_cards: { 0: background } },
+      displayName
+    )
+    const metadata = JSON.parse(unzipText(files.get('CustomReskin.json')!))
+    assert.equal(metadata.name, displayName || 'CustomReskin')
+    assert.ok(
+      manifest.includes(
+        displayName
+          ? 'name = "My \\"Cards\\"\\\\\\nΩ"'
+          : 'name = "CustomReskin"'
+      )
+    )
+  }
+})
 
 test('overlay-only edits export no vanilla or replacement background, and survive reimport', async () => {
   const { files, manifest, result } = await pack({ sprites: [], soul: overlay })

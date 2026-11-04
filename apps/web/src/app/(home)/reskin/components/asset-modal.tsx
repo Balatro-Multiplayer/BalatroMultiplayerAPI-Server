@@ -69,7 +69,8 @@ interface CommonReq {
   targetH: number
   artW?: number // internal footprint for the crop aspect lock
   artH?: number
-  defaultPreview?: string // read-only vanilla art, never an uploaded edit
+  defaultPreview?: string // read-only fallback, never an uploaded edit
+  defaultPreviewNote?: string
   loadDefaultPreview?: () => Promise<string | undefined>
 }
 
@@ -653,8 +654,8 @@ function AssetModal({
               )}
               {previewDefault && (
                 <p className='text-muted-foreground text-xs'>
-                  Original art from your imported game. Add an image to replace
-                  it.
+                  {request.defaultPreviewNote ??
+                    'Original art from your imported game. Add an image to replace it.'}
                 </p>
               )}
               {defaultLoading && (

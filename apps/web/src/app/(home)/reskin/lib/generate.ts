@@ -1,8 +1,9 @@
 // Build a ready-to-install CustomReskin mod ZIP entirely in the browser.
 // Packs each category's uploaded sprites into one atlas and emits per-object
-// rebinds; composes the all-or-nothing grid sheets as raw overrides.
+// rebinds; exports playing cards as selectable skins and other sheets as overrides.
 
 import { CORE_LUA } from '../templates/coreLua'
+import { migrateDeckSkins, skinName, validateDeckSkins } from './deckSkins'
 import { composeAtlas, composeWhole, loadImage, type PlacedCell } from './image'
 import { nestEdits, toLuaModule } from './luaSerialize'
 import {
@@ -89,9 +90,17 @@ export async function generatePack(
   project: ProjectState,
   catalog: Catalog
 ): Promise<{ bytes: Uint8Array; fileName: string; warnings: string[] }> {
+  project = migrateDeckSkins(project)
+  validateDeckSkins(project.deckSkins)
   const entries: ZipEntry[] = []
   const manifestAtlases: Record<string, unknown>[] = []
   const manifestObjects: Record<string, unknown>[] = []
+  const deckSkins: Array<{
+    key: string
+    name: string
+    low: string
+    high: string
+  }> = []
   const warnings: string[] = []
   // Mod-list icon: only set when the user uploads one (see below).
   let icon: Record<string, unknown> | undefined
@@ -259,7 +268,7 @@ export async function generatePack(
     }
   }
 
-  // --- composed sheets (raw overrides) -------------------------------------
+  // --- other composed sheets (raw overrides) -------------------------------
   for (const sheet of catalog.spriteSheets) {
     const edits = project.sheets[sheet.id]
     if (!edits || Object.keys(edits).length === 0) continue
@@ -298,6 +307,42 @@ export async function generatePack(
         ? { frames: sheet.frames, atlas_table: 'ANIMATION_ATLAS' }
         : {}),
     })
+  }
+
+  // Each named skin has private contrast atlases. Missing variants reuse the
+  // supplied one without exporting a second copy or falling back to vanilla.
+  for (const skin of project.deckSkins) {
+    const name = skinName(skin, project.options.displayName)
+    const primary = skin.low || skin.high
+    if (!primary) {
+      warnings.push(
+        `Card skin “${name}” has no image and was not added to Customize Deck.`
+      )
+      continue
+    }
+    const key = `deck_${skin.id}`
+    const images = new Map<string, string>()
+    const register = async (dataUrl: string, contrast: string) => {
+      const existing = images.get(dataUrl)
+      if (existing) return existing
+      const atlas = `${key}_${contrast}`
+      for (const scale of [1, 2]) {
+        entries.push({
+          name: `assets/${scale}x/${atlas}.png`,
+          data: await composeWhole({
+            width: 923 * scale,
+            height: 380 * scale,
+            dataUrl,
+          }),
+        })
+      }
+      manifestAtlases.push({ key: atlas, path: `${atlas}.png`, px: 71, py: 95 })
+      images.set(dataUrl, atlas)
+      return atlas
+    }
+    const low = await register(skin.low || primary, 'lc')
+    const high = await register(skin.high || primary, 'hc')
+    deckSkins.push({ key, name, low, high })
   }
 
   // Mod-list icon, only when the user uploaded one (no entry otherwise).
@@ -341,6 +386,7 @@ export async function generatePack(
         objects: manifestObjects,
         sounds: [],
         shaders,
+        ...(deckSkins.length ? { deck_skins: deckSkins } : {}),
         ...(icon ? { icon } : {}),
       } as never)
     ),

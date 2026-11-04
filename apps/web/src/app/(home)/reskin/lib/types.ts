@@ -157,8 +157,16 @@ export interface ProjectOptions {
   icon?: string // PNG data URL for the mod-list icon
 }
 
+export interface PlayingCardSkin {
+  id: string // stable key, independent of its editable display name/order
+  name: string
+  low?: string // complete PNG sheet; either contrast variant may be omitted
+  high?: string
+}
+
 export interface ProjectState {
-  schema: 3
+  schema: 4
+  deckSkins: PlayingCardSkin[]
   options: ProjectOptions
   objects: Record<string, ObjectEdit> // key = `${categoryId}/${objectKey}`
   sheets: Record<string, SheetEdit> // key = sheetId
@@ -167,7 +175,8 @@ export interface ProjectState {
 
 export function emptyProject(): ProjectState {
   return {
-    schema: 3,
+    schema: 4,
+    deckSkins: [],
     options: { displayName: 'My Reskin', author: '', version: '1.0.0' },
     objects: {},
     sheets: {},

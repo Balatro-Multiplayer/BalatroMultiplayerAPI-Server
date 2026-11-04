@@ -6,6 +6,7 @@ import type { CatalogSheet } from './types'
 // Registry atlas keys do not always match their on-disk PNG filenames.
 const FILES: Record<string, string> = {
   cards_1: '8BitDeck.png',
+  cards_2: '8BitDeck_opt2.png',
   chips: 'chips.png',
   shop_sign: 'ShopSignAnimation.png',
 }

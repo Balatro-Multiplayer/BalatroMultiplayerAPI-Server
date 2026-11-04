@@ -17,6 +17,18 @@ test('Playing Card Faces resolves its registry key to the complete 923x380 vanil
   })
 })
 
+test('high-contrast card previews use the opt2 texture rather than the low-contrast image', () => {
+  const high = {
+    ...sheet('playing_cards'),
+    id: 'playing_cards_high',
+    atlasKey: 'cards_2',
+  }
+  assert.deepEqual(sheetPreviewPlan(high), {
+    path: 'resources/textures/1x/8BitDeck_opt2.png',
+    cells: [{ id: '0', rect: { x: 0, y: 0, w: 923, h: 380 } }],
+  })
+})
+
 test('stake chips use their own 29px grid, including the second row', () => {
   const plan = sheetPreviewPlan(sheet('chips'))
   assert.equal(plan.path, 'resources/textures/1x/chips.png')

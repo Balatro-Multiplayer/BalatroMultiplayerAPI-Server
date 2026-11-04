@@ -1,7 +1,14 @@
 'use client'
 
 import { Download, RotateCcw, Upload } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { toast } from 'sonner'
 import {
   AlertDialog,
@@ -22,6 +29,7 @@ import { type ImportFeedback, ImportStatus } from './components/import-status'
 import { LocalizationTab } from './components/localization-tab'
 import { OptionsTab } from './components/options-tab'
 import catalogJson from './data/catalog.json'
+import { deckSkinSpriteCount, migrateDeckSkins } from './lib/deckSkins'
 import { readLocFromExe } from './lib/exeAssets'
 import {
   fileFromSaved,
@@ -43,6 +51,7 @@ import {
   emptyProject,
   type ObjectEdit,
   objId,
+  type PlayingCardSkin,
   type ProjectState,
 } from './lib/types'
 
@@ -275,6 +284,20 @@ export function ReskinStudio() {
     []
   )
 
+  const setDeckSkins = useCallback(
+    (next: SetStateAction<PlayingCardSkin[]>) => {
+      setProject((previous) => {
+        const current = migrateDeckSkins(previous)
+        return {
+          ...current,
+          deckSkins:
+            typeof next === 'function' ? next(current.deckSkins) : next,
+        }
+      })
+    },
+    []
+  )
+
   const setOptions = useCallback((next: ProjectState['options']) => {
     setProject((p) => ({ ...p, options: next }))
   }, [])
@@ -286,7 +309,11 @@ export function ReskinStudio() {
 
   const spriteCount =
     Object.keys(project.objects).length +
-    Object.values(project.sheets).reduce((n, c) => n + Object.keys(c).length, 0)
+    Object.values(project.sheets).reduce(
+      (n, c) => n + Object.keys(c).length,
+      0
+    ) +
+    deckSkinSpriteCount(project.deckSkins ?? [])
   const langs = Object.keys(project.loc)
   const textCount = langs.reduce(
     (n, l) => n + Object.keys(project.loc[l]!).length,
@@ -307,7 +334,12 @@ export function ReskinStudio() {
       (n, l) => n + Object.keys(project.loc[l] ?? {}).length,
       0
     )
-    setDirty(sprites > 0 || texts > 0 || Boolean(project.options.icon))
+    setDirty(
+      sprites > 0 ||
+        texts > 0 ||
+        Boolean(project.options.icon) ||
+        (project.deckSkins?.length ?? 0) > 0
+    )
   }, [project])
   useEffect(() => {
     if (!dirty) return
@@ -447,6 +479,7 @@ export function ReskinStudio() {
               project={project}
               setObject={setObject}
               setSheetCell={setSheetCell}
+              setDeckSkins={setDeckSkins}
               exeBuf={exeBuf}
             />
           </TabsContent>

@@ -1,6 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import {
+  type Dispatch,
+  type SetStateAction,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -12,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { migrateDeckSkins } from '../lib/deckSkins'
 import { type EdgeOption, edgeOptionsFor } from '../lib/edges'
 import { getAtlasCell, getAtlasCells } from '../lib/exeAssets'
 import type { GameArchive } from '../lib/gameArchive'
@@ -23,10 +30,12 @@ import {
   type CatalogSheet,
   type ObjectEdit,
   objId,
+  type PlayingCardSkin,
   type ProjectState,
   type SheetEdit,
 } from '../lib/types'
 import { type AssetCaps, useAssetModal } from './asset-modal'
+import { DeckSkinsEditor } from './deck-skins-editor'
 import { UploadTile } from './upload-tile'
 
 export function AssetsTab({
@@ -34,10 +43,12 @@ export function AssetsTab({
   project,
   setObject,
   setSheetCell,
+  setDeckSkins,
   exeBuf,
 }: {
   catalog: Catalog
   project: ProjectState
+  setDeckSkins: Dispatch<SetStateAction<PlayingCardSkin[]>>
   setObject: (catId: string, key: string, edit: ObjectEdit | null) => void
   setSheetCell: (sheetId: string, index: number, dataUrl: string | null) => void
   exeBuf: GameArchive | null
@@ -56,6 +67,10 @@ export function AssetsTab({
   }, [catalog])
   const [active, setActive] = useState(groups.objects[0]?.id ?? '')
   const [query, setQuery] = useState('')
+  const deckSkins = useMemo(
+    () => migrateDeckSkins(project).deckSkins,
+    [project]
+  )
 
   const category = catalog.spriteCategories.find((c) => c.id === active)
   const sheet = catalog.spriteSheets.find((s) => s.id === active)
@@ -118,7 +133,11 @@ export function AssetsTab({
                 <SelectLabel>Sheets</SelectLabel>
                 {groups.sheets.map((g) => (
                   <SelectItem key={g.id} value={g.id}>
-                    {g.label} ({Object.keys(project.sheets[g.id] ?? {}).length})
+                    {g.label} (
+                    {g.id === 'playing_cards'
+                      ? deckSkins.length
+                      : Object.keys(project.sheets[g.id] ?? {}).length}
+                    )
                   </SelectItem>
                 ))}
               </SelectGroup>
@@ -163,7 +182,16 @@ export function AssetsTab({
           exeBuf={exeBuf}
         />
       )}
-      {sheet && (
+      {sheet?.id === 'playing_cards' && (
+        <DeckSkinsEditor
+          skins={deckSkins}
+          setSkins={setDeckSkins}
+          modName={project.options.displayName}
+          sheet={sheet}
+          archive={exeBuf}
+        />
+      )}
+      {sheet && sheet.id !== 'playing_cards' && (
         <SheetGrid
           key={sheet.id}
           sheet={sheet}
