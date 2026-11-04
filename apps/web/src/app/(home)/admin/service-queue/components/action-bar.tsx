@@ -208,19 +208,6 @@ function ActionDialog({
             </div>
           )}
 
-          {(allowed.action === 'chat_mute' ||
-            allowed.action === 'queue_ban' ||
-            allowed.action === 'account_ban') && (
-            <div className='space-y-1'>
-              <Label htmlFor='sq-reason'>Reason (stored on the ban)</Label>
-              <Input
-                id='sq-reason'
-                value={form.reason}
-                onChange={(e) => set({ reason: e.target.value })}
-              />
-            </div>
-          )}
-
           {allowed.action === 'overturn' && (
             <div className='space-y-1'>
               <Label>
@@ -267,6 +254,19 @@ function ActionDialog({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          )}
+
+          {allowed.action !== 'note' && (
+            <div className='space-y-1'>
+              <Label htmlFor='sq-reason'>
+                Reason (required, kept in the staff log)
+              </Label>
+              <Input
+                id='sq-reason'
+                value={form.reason}
+                onChange={(e) => set({ reason: e.target.value })}
+              />
             </div>
           )}
 

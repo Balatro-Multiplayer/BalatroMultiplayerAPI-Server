@@ -7,6 +7,7 @@ import {
 	liftBan,
 	listBans,
 } from '../../infrastructure/gateways/ban.gateway.js'
+import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gateway.js'
 import * as playerGateway from '../../infrastructure/gateways/player.gateway.js'
 import {
 	banInNakama,
@@ -51,7 +52,7 @@ describe('PATCH /api/webadmin/players/:id/privileges', () => {
 		const res = await request(app)
 			.patch('/api/webadmin/players/mod-1/privileges')
 			.set('Authorization', token)
-			.send({ privileges: ['moderator', 'admin'] })
+			.send({ privileges: ['moderator', 'admin'], reason: 'r' })
 
 		expect(res.status).toBe(403)
 	})
@@ -71,10 +72,48 @@ describe('PATCH /api/webadmin/players/:id/privileges', () => {
 		const res = await request(app)
 			.patch('/api/webadmin/players/target-1/privileges')
 			.set('Authorization', token)
-			.send({ privileges: ['moderator'] })
+			.send({ privileges: ['moderator'], reason: 'promoted for the queue' })
 
 		expect(res.status).toBe(200)
 		expect(res.body.privileges).toEqual(['moderator'])
+		expect(vi.mocked(recordStaffAction)).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				staff: { playerId: 'admin-1', role: 'admin' },
+				action: 'role_grant',
+				targetPlayerId: 'target-1',
+				reason: 'promoted for the queue',
+				detail: { role: 'moderator' },
+			}),
+		)
+	})
+
+	it('logs a role removal, and refuses a change with no reason', async () => {
+		const token = authAsAdmin('admin-12', 'Admin12')
+		vi.mocked(playerGateway.findPlayerById).mockResolvedValue({ privileges: ['admin', 'moderator'] } as any)
+		;(db as any).update = vi.fn().mockReturnValue({
+			set: vi.fn().mockReturnValue({
+				where: vi.fn().mockReturnValue({
+					returning: vi.fn().mockResolvedValue([{ id: 'target-9', privileges: ['admin'] }]),
+				}),
+			}),
+		})
+		const none = await request(app)
+			.patch('/api/webadmin/players/target-9/privileges')
+			.set('Authorization', token)
+			.send({ privileges: ['admin'] })
+		expect(none.status).toBe(400)
+		expect(vi.mocked(db.update)).not.toHaveBeenCalled()
+
+		const res = await request(app)
+			.patch('/api/webadmin/players/target-9/privileges')
+			.set('Authorization', token)
+			.send({ privileges: ['admin'], reason: 'stepped down' })
+		expect(res.status).toBe(200)
+		expect(vi.mocked(recordStaffAction)).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ action: 'role_remove', targetPlayerId: 'target-9', reason: 'stepped down', detail: { role: 'moderator' } }),
+		)
 	})
 })
 
@@ -101,13 +140,32 @@ describe('POST /api/webadmin/players/:id/bans (§21.3)', () => {
 
 		expect(res.status).toBe(201)
 		expect(vi.mocked(banInNakama)).toHaveBeenCalledWith(ban)
+		expect(vi.mocked(recordStaffAction)).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				staff: { playerId: 'admin-4', role: 'admin' },
+				action: 'account_ban',
+				targetPlayerId: 'target-2',
+				reason: 'test',
+			}),
+		)
+	})
+
+	it('refuses a ban with no reason and writes nothing', async () => {
+		const token = authAsAdmin('admin-13', 'Admin13')
+		for (const body of [{ type: 'chat' }, { type: 'chat', reason: '  ' }]) {
+			const res = await request(app).post('/api/webadmin/players/target-2/bans').set('Authorization', token).send(body)
+			expect(res.status).toBe(400)
+		}
+		expect(vi.mocked(insertBan)).not.toHaveBeenCalled()
+		expect(vi.mocked(recordStaffAction)).not.toHaveBeenCalled()
 	})
 })
 
 describe('POST /api/webadmin/players/:id/bans: the queue role table', () => {
 	const inDays = (days: number) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
 	const issue = (token: string, body: Record<string, unknown>) =>
-		request(app).post('/api/webadmin/players/target-3/bans').set('Authorization', token).send(body)
+		request(app).post('/api/webadmin/players/target-3/bans').set('Authorization', token).send({ reason: 'r', ...body })
 
 	it('lets a moderator issue every preset length, permanent too', async () => {
 		const token = authAsModerator('mod-2', 'Mod2')
@@ -184,12 +242,23 @@ describe('DELETE /api/webadmin/players/:id/bans/:banId: the queue role table', (
 		const token = authAsAdmin('admin-9', 'Admin9')
 		vi.mocked(listBans).mockResolvedValue([ban('queue')])
 		vi.mocked(liftBan).mockResolvedValue(ban('queue'))
-		const res = await request(app).delete('/api/webadmin/players/target-4/bans/ban-9').set('Authorization', token)
+		const none = await request(app).delete('/api/webadmin/players/target-4/bans/ban-9').set('Authorization', token)
+		expect(none.status).toBe(400)
+		expect(vi.mocked(liftBan)).not.toHaveBeenCalled()
+
+		const res = await request(app)
+			.delete('/api/webadmin/players/target-4/bans/ban-9')
+			.set('Authorization', token)
+			.send({ reason: 'appeal granted' })
 		expect(res.status).toBe(200)
 		expect(vi.mocked(liftBan)).toHaveBeenCalledWith(
 			'target-4',
 			'ban-9',
 			'admin:admin-9',
+		)
+		expect(vi.mocked(recordStaffAction)).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ action: 'lift_ban', targetPlayerId: 'target-4', reason: 'appeal granted' }),
 		)
 	})
 })
@@ -237,8 +306,13 @@ describe('network bans in the admin panel', () => {
 		const res = await request(app)
 			.delete('/api/webadmin/players/target-5/network-bans/ban-7')
 			.set('Authorization', token)
+			.send({ reason: 'shared network' })
 		expect(res.status).toBe(200)
 		expect(res.body).toEqual({ lifted: true })
+		expect(vi.mocked(recordStaffAction)).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ action: 'lift_network_ban', targetPlayerId: 'target-5', reason: 'shared network' }),
+		)
 		expect(vi.mocked(liftNetworkBanInNakama)).toHaveBeenCalledWith('ban-7')
 	})
 
@@ -257,6 +331,7 @@ describe('network bans in the admin panel', () => {
 		const res = await request(app)
 			.delete('/api/webadmin/players/target-5/network-bans/ban-7')
 			.set('Authorization', token)
+			.send({ reason: 'r' })
 		expect(res.status).toBe(404)
 	})
 })

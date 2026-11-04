@@ -54,6 +54,12 @@ interface PlayerDetailResponse {
   bans: Ban[]
 }
 
+// Every staff action needs a reason for the staff log; nothing is sent without one.
+function askReason(question: string): string | null {
+  const reason = window.prompt(question)?.trim()
+  return reason || null
+}
+
 function noticeLine(player: Pick<AdminPlayer, 'tosAcceptedVersion' | 'noticeAcceptedAt'>): string {
   if (player.tosAcceptedVersion <= 0) return 'Notice: not accepted'
   const when = player.noticeAcceptedAt ? new Date(player.noticeAcceptedAt).toLocaleString() : 'time not recorded'
@@ -121,22 +127,28 @@ export default function AdminUsersPage() {
   })
 
   const liftBanMutation = useMutation({
-    mutationFn: (vars: { playerId: string; banId: number }) =>
-      apiFetch(`/webadmin/players/${vars.playerId}/bans/${vars.banId}`, { method: 'DELETE' }),
+    mutationFn: (vars: { playerId: string; banId: number; reason: string }) =>
+      apiFetch(`/webadmin/players/${vars.playerId}/bans/${vars.banId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ reason: vars.reason }),
+      }),
     onSuccess: refresh,
   })
 
   const liftNetworkBanMutation = useMutation({
-    mutationFn: (vars: { playerId: string; banId: string }) =>
-      apiFetch(`/webadmin/players/${vars.playerId}/network-bans/${vars.banId}`, { method: 'DELETE' }),
+    mutationFn: (vars: { playerId: string; banId: string; reason: string }) =>
+      apiFetch(`/webadmin/players/${vars.playerId}/network-bans/${vars.banId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ reason: vars.reason }),
+      }),
     onSuccess: refresh,
   })
 
   const privMutation = useMutation({
-    mutationFn: (vars: { playerId: string; privileges: Privilege[] }) =>
+    mutationFn: (vars: { playerId: string; privileges: Privilege[]; reason: string }) =>
       apiFetch(`/webadmin/players/${vars.playerId}/privileges`, {
         method: 'PATCH',
-        body: JSON.stringify({ privileges: vars.privileges }),
+        body: JSON.stringify({ privileges: vars.privileges, reason: vars.reason }),
       }),
     onSuccess: refresh,
   })
@@ -190,7 +202,10 @@ export default function AdminUsersPage() {
                     bans={detail.bans}
                     canLift={isAdmin}
                     liftPending={liftBanMutation.isPending}
-                    onLift={(banId) => liftBanMutation.mutate({ playerId: detail.id, banId })}
+                    onLift={(banId) => {
+                      const reason = askReason('Reason for lifting this ban')
+                      if (reason) liftBanMutation.mutate({ playerId: detail.id, banId, reason })
+                    }}
                   />
                   <IssueBanForm
                     isAdmin={isAdmin}
@@ -231,7 +246,10 @@ export default function AdminUsersPage() {
                     unavailable={networkBansQuery.isError}
                     canLift={isAdmin}
                     liftPending={liftNetworkBanMutation.isPending}
-                    onLift={(banId) => liftNetworkBanMutation.mutate({ playerId: detail.id, banId })}
+                    onLift={(banId) => {
+                      const reason = askReason('Reason for lifting this network ban')
+                      if (reason) liftNetworkBanMutation.mutate({ playerId: detail.id, banId, reason })
+                    }}
                   />
                 </CardContent>
               </Card>
@@ -251,19 +269,25 @@ export default function AdminUsersPage() {
                       privileges={detail.privileges}
                       privInput={privInput}
                       isPending={privMutation.isPending}
-                      onRemove={(pr) =>
-                        privMutation.mutate({
-                          playerId: detail.id,
-                          privileges: detail.privileges.filter((x) => x !== pr),
-                        })
-                      }
+                      onRemove={(pr) => {
+                        const reason = askReason(`Reason for removing ${pr}`)
+                        if (reason)
+                          privMutation.mutate({
+                            playerId: detail.id,
+                            privileges: detail.privileges.filter((x) => x !== pr),
+                            reason,
+                          })
+                      }}
                       onInputChange={setPrivInput}
                       onGrant={() => {
                         const v = privInput.trim() as Privilege
                         if (v && !detail.privileges.includes(v)) {
+                          const reason = askReason(`Reason for granting ${v}`)
+                          if (!reason) return
                           privMutation.mutate({
                             playerId: detail.id,
                             privileges: [...detail.privileges, v],
+                            reason,
                           })
                           setPrivInput('')
                         }

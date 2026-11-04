@@ -98,7 +98,7 @@ describe('the owner is always an admin', () => {
 			const res = await request(app)
 				.patch('/api/webadmin/players/owner-1/privileges')
 				.set('Authorization', token)
-				.send({ privileges })
+				.send({ privileges, reason: 'r' })
 			expect(res.status).toBe(403)
 		}
 		expect(update).not.toHaveBeenCalled()
@@ -117,7 +117,7 @@ describe('the owner is always an admin', () => {
 		const res = await request(app)
 			.patch('/api/webadmin/players/p/privileges')
 			.set('Authorization', token)
-			.send({ privileges: [] })
+			.send({ privileges: [], reason: 'r' })
 		expect(res.status).toBe(200)
 	})
 })

@@ -18,6 +18,7 @@ import reportsRouter from './reports.route.js'
 import seasonReplayRouter from './season-replay.route.js'
 import seasonsRouter from './seasons.route.js'
 import serviceQueueRouter from './service-queue.route.js'
+import staffLogRouter from './staff-log.route.js'
 
 const router = Router()
 
@@ -56,6 +57,7 @@ router.use(modsRouter)
 router.use(blogRouter)
 router.use(archivesRouter)
 router.use(serviceQueueRouter)
+router.use(staffLogRouter)
 router.use('/achievements', admin)
 router.use(achievementsRouter)
 router.use('/ratings', admin)

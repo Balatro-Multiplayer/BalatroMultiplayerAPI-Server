@@ -1,6 +1,7 @@
 // The dispatcher over an in-memory queue: a transaction is a snapshot that
 // a thrown error restores, so a rollback leaves nothing behind.
 import { describe, expect, it, vi } from 'vitest'
+import type { StaffActionEntry } from '../../shared/staff-log/actions.js'
 import {
 	type BanRow,
 	type DispatcherDeps,
@@ -20,6 +21,7 @@ interface World {
 	events: { itemId: number; kind: string; action: string | null; actor: string; detail: unknown }[]
 	bans: BanRow[]
 	warnings: { playerId: string; message: string }[]
+	staffLog: StaffActionEntry[]
 }
 
 function item(over: Partial<QueueItem> = {}): QueueItem {
@@ -42,6 +44,7 @@ function setup(seed: QueueItem, over: Partial<DispatcherDeps<World>> = {}) {
 		events: [],
 		bans: [],
 		warnings: [],
+		staffLog: [],
 	}
 	const snapshot = () => structuredClone({ ...world, items: [...world.items], sourceStatus: [...world.sourceStatus] })
 	const external = {
@@ -95,6 +98,7 @@ function setup(seed: QueueItem, over: Partial<DispatcherDeps<World>> = {}) {
 				world.events = before.events
 				world.bans = before.bans
 				world.warnings = before.warnings
+				world.staffLog = before.staffLog
 				throw err
 			}
 		},
@@ -131,13 +135,22 @@ function setup(seed: QueueItem, over: Partial<DispatcherDeps<World>> = {}) {
 			ban.liftedBy = liftedBy
 			return { ...ban }
 		},
+		async recordStaffAction(tx, entry) {
+			tx.staffLog.push(entry)
+		},
 		async insertWarning(tx, w) {
 			tx.warnings.push({ playerId: w.playerId, message: w.message })
 			return { id: 'w1' }
 		},
 		...over,
 	}
-	return { world, external, dispatcher: createDispatcher(deps) }
+	const strict = createDispatcher(deps)
+	// Most tests are not about the reason, so this one supplies it; `strict` does not.
+	const dispatcher = {
+		run: (id: number, action: string, staff: typeof MOD, body: Record<string, unknown>) =>
+			strict.run(id, action, staff, { reason: 'because', ...body }),
+	}
+	return { world, external, dispatcher, strict }
 }
 
 describe('the dispatcher', () => {
@@ -418,5 +431,68 @@ describe('a contest item', () => {
 		await dispatcher.run(1, 'reopen', MOD, {})
 		expect(external.overturnGame).not.toHaveBeenCalled()
 		expect(external.voidGame).not.toHaveBeenCalled()
+	})
+})
+
+describe('the staff log', () => {
+	it('refuses every action but a note when the reason is missing or blank', async () => {
+		const { strict, world } = setup(item())
+		for (const body of [{}, { reason: '' }, { reason: '   ' }, { reason: 7 }]) {
+			expect(await strict.run(1, 'resolve', MOD, body)).toMatchObject({
+				ok: false,
+				refusal: { code: 'invalid_body', field: 'reason' },
+			})
+		}
+		expect(await strict.run(1, 'queue_ban', MOD, { duration: '7d' })).toMatchObject({
+			ok: false,
+			refusal: { code: 'invalid_body', field: 'reason' },
+		})
+		expect(world.staffLog).toEqual([])
+		expect(world.items.get(1)?.status).toBe('open')
+		expect((await strict.run(1, 'note', MOD, { note: 'no reason needed' })).ok).toBe(true)
+	})
+
+	it('logs the staff member, the target, the item and the reason for a ban and a lift', async () => {
+		const { dispatcher, world } = setup(item())
+		await dispatcher.run(1, 'chat_mute', MOD, { duration: '24h', reason: 'spam' })
+		await dispatcher.run(1, 'reopen', MOD, { reason: 'more to do' })
+		await dispatcher.run(1, 'unban', ADMIN, { banId: BAN_ID, reason: 'appeal granted' })
+		expect(world.staffLog).toEqual([
+			expect.objectContaining({
+				staff: { playerId: 'mod', role: 'moderator' },
+				action: 'chat_ban',
+				targetPlayerId: 'bad',
+				itemId: 1,
+				reason: 'spam',
+			}),
+			expect.objectContaining({ action: 'reopen', reason: 'more to do' }),
+			expect.objectContaining({
+				staff: { playerId: 'adm', role: 'admin' },
+				action: 'lift_ban',
+				targetPlayerId: 'bad',
+				reason: 'appeal granted',
+			}),
+		])
+	})
+
+	it('logs one entry for each other action kind', async () => {
+		const logged = async (action: string, itemType: string, body: Record<string, unknown>, staff = ADMIN) => {
+			const { dispatcher, world } = setup(item({ itemType, subjectPlayerId: 'b' }))
+			await dispatcher.run(1, action, staff, { reason: `why ${action}`, ...body })
+			return world.staffLog.map((e) => [e.action, e.reason])
+		}
+		expect(await logged('dismiss', 'report', {})).toEqual([['dismiss', 'why dismiss']])
+		expect(await logged('resolve', 'report', {})).toEqual([['resolve', 'why resolve']])
+		expect(await logged('warn', 'report', { message: 'hi' }, MOD)).toEqual([['warn', 'why warn']])
+		expect(await logged('queue_ban', 'integrity', { duration: '7d' }, MOD)).toEqual([['queue_ban', 'why queue_ban']])
+		expect(await logged('account_ban', 'integrity', { duration: '30d' })).toEqual([['account_ban', 'why account_ban']])
+		expect(await logged('void', 'match_conflict', {})).toEqual([['void', 'why void']])
+		expect(await logged('overturn', 'match_conflict', { toReportOf: 'b' })).toEqual([['overturn', 'why overturn']])
+	})
+
+	it('writes no entry when the action is refused', async () => {
+		const { dispatcher, world } = setup(item())
+		await dispatcher.run(1, 'account_ban', MOD, { duration: '7d' })
+		expect(world.staffLog).toEqual([])
 	})
 })

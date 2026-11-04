@@ -42,12 +42,18 @@ const optional = (text: string) => (text.trim() ? text.trim() : undefined)
 export function bodyOf(allowed: AllowedAction, form: ActionForm): BodyCheck {
   const note = optional(form.note)
   const target = form.targetPlayerId ?? undefined
+  if (allowed.action === 'note') {
+    if (!note) return { ok: false, missing: 'Write the note.' }
+    return { ok: true, body: { action: 'note', note } }
+  }
+  const reason = form.reason.trim()
+  if (!reason) return { ok: false, missing: 'Write the reason.' }
   switch (allowed.action) {
     case 'dismiss':
     case 'resolve':
     case 'void':
     case 'reopen':
-      return { ok: true, body: { action: allowed.action, note } }
+      return { ok: true, body: { action: allowed.action, reason, note } }
     case 'warn': {
       const message = form.message.trim()
       if (!message)
@@ -59,7 +65,7 @@ export function bodyOf(allowed: AllowedAction, form: ActionForm): BodyCheck {
         }
       return {
         ok: true,
-        body: { action: 'warn', message, targetPlayerId: target, note },
+        body: { action: 'warn', reason, message, targetPlayerId: target, note },
       }
     }
     case 'chat_mute':
@@ -71,7 +77,7 @@ export function bodyOf(allowed: AllowedAction, form: ActionForm): BodyCheck {
         body: {
           action: allowed.action,
           duration: form.duration,
-          reason: optional(form.reason),
+          reason,
           targetPlayerId: target,
           note,
         },
@@ -81,13 +87,13 @@ export function bodyOf(allowed: AllowedAction, form: ActionForm): BodyCheck {
         return { ok: false, missing: 'Pick whose report stands.' }
       return {
         ok: true,
-        body: { action: 'overturn', toReportOf: form.toReportOf, note },
+        body: { action: 'overturn', reason, toReportOf: form.toReportOf, note },
       }
     case 'unban':
       if (!form.banId) return { ok: false, missing: 'Pick the ban to lift.' }
-      return { ok: true, body: { action: 'unban', banId: form.banId, note } }
-    case 'note':
-      if (!note) return { ok: false, missing: 'Write the note.' }
-      return { ok: true, body: { action: 'note', note } }
+      return {
+        ok: true,
+        body: { action: 'unban', reason, banId: form.banId, note },
+      }
   }
 }

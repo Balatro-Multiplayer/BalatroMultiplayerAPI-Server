@@ -193,33 +193,33 @@ describe('the role table', () => {
 
 describe('request bodies', () => {
 	it('reads an optional note, falling back to the old resolutionNotes', () => {
-		expect(parseCommand('dismiss', {})).toEqual({ ok: true, value: { action: 'dismiss', note: null } })
-		expect(parseCommand('resolve', { note: ' ok ' })).toEqual({ ok: true, value: { action: 'resolve', note: 'ok' } })
-		expect(parseCommand('resolve', { resolutionNotes: 'old' })).toEqual({ ok: true, value: { action: 'resolve', note: 'old' } })
-		expect(parseCommand('resolve', { note: 5 })).toMatchObject({ ok: false, refusal: { field: 'note' } })
-		expect(parseCommand('resolve', { note: 'x'.repeat(2001) })).toMatchObject({ ok: false, refusal: { field: 'note' } })
+		expect(parseCommand('dismiss', { reason: 'r' })).toEqual({ ok: true, value: { action: 'dismiss', reason: 'r', note: null } })
+		expect(parseCommand('resolve', { reason: 'r', note: ' ok ' })).toEqual({ ok: true, value: { action: 'resolve', reason: 'r', note: 'ok' } })
+		expect(parseCommand('resolve', { reason: 'r', resolutionNotes: 'old' })).toEqual({ ok: true, value: { action: 'resolve', reason: 'r', note: 'old' } })
+		expect(parseCommand('resolve', { reason: 'r', note: 5 })).toMatchObject({ ok: false, refusal: { field: 'note' } })
+		expect(parseCommand('resolve', { reason: 'r', note: 'x'.repeat(2001) })).toMatchObject({ ok: false, refusal: { field: 'note' } })
 	})
 
 	it('requires the text of a note and a warning', () => {
 		expect(parseCommand('note', {})).toMatchObject({ ok: false, refusal: { field: 'note' } })
-		expect(parseCommand('warn', {})).toMatchObject({ ok: false, refusal: { field: 'message' } })
-		expect(parseCommand('warn', { message: 'x'.repeat(501) })).toMatchObject({ ok: false, refusal: { field: 'message' } })
-		expect(parseCommand('warn', { message: 'stop', targetPlayerId: 'p2' })).toEqual({
+		expect(parseCommand('warn', { reason: 'r' })).toMatchObject({ ok: false, refusal: { field: 'message' } })
+		expect(parseCommand('warn', { reason: 'r', message: 'x'.repeat(501) })).toMatchObject({ ok: false, refusal: { field: 'message' } })
+		expect(parseCommand('warn', { reason: 'r', message: 'stop', targetPlayerId: 'p2' })).toEqual({
 			ok: true,
-			value: { action: 'warn', targetPlayerId: 'p2', message: 'stop', note: null },
+			value: { action: 'warn', reason: 'r', targetPlayerId: 'p2', message: 'stop', note: null },
 		})
 	})
 
 	it("checks each sanction's presets", () => {
-		expect(parseCommand('chat_mute', { duration: '24h' })).toMatchObject({
+		expect(parseCommand('chat_mute', { reason: 'r', duration: '24h' })).toMatchObject({
 			ok: true,
-			value: { duration: '24h', reason: '' },
+			value: { duration: '24h', reason: 'r' },
 		})
-		expect(parseCommand('queue_ban', { duration: '24h' })).toMatchObject({
+		expect(parseCommand('queue_ban', { reason: 'r', duration: '24h' })).toMatchObject({
 			ok: true,
 			value: { duration: '24h' },
 		})
-		expect(parseCommand('account_ban', { duration: 'forever' })).toMatchObject({
+		expect(parseCommand('account_ban', { reason: 'r', duration: 'forever' })).toMatchObject({
 			ok: false,
 			refusal: { field: 'duration' },
 		})
@@ -232,10 +232,10 @@ describe('request bodies', () => {
 	})
 
 	it('requires the reporter an overturn keeps and the ban an unban lifts', () => {
-		expect(parseCommand('overturn', {})).toMatchObject({ ok: false, refusal: { field: 'toReportOf' } })
-		expect(parseCommand('overturn', { toReportOf: 'p2' })).toMatchObject({ ok: true, value: { toReportOf: 'p2' } })
-		expect(parseCommand('unban', { banId: 'nope' })).toMatchObject({ ok: false, refusal: { field: 'banId' } })
-		expect(parseCommand('unban', { banId: BAN_ID })).toMatchObject({ ok: true, value: { banId: BAN_ID } })
+		expect(parseCommand('overturn', { reason: 'r' })).toMatchObject({ ok: false, refusal: { field: 'toReportOf' } })
+		expect(parseCommand('overturn', { reason: 'r', toReportOf: 'p2' })).toMatchObject({ ok: true, value: { toReportOf: 'p2' } })
+		expect(parseCommand('unban', { reason: 'r', banId: 'nope' })).toMatchObject({ ok: false, refusal: { field: 'banId' } })
+		expect(parseCommand('unban', { reason: 'r', banId: BAN_ID })).toMatchObject({ ok: true, value: { banId: BAN_ID } })
 	})
 })
 

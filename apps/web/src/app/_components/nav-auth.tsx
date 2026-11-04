@@ -46,6 +46,9 @@ export function NavAuth() {
                 <Link href='/admin/service-queue'>Service Queue</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
+                <Link href='/admin/staff-log'>Staff Log</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
                 <Link href='/admin/lobbies'>Lobbies</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>

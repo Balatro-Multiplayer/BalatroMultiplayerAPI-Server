@@ -435,6 +435,13 @@
       "when": 1793700000000,
       "tag": "0061_match_run_logs_shared_at",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1793800000000,
+      "tag": "0062_staff_log",
+      "breakpoints": true
     }
   ]
 }

@@ -1011,3 +1011,26 @@ export const launcherIntegrityEvents = pgTable(
 	},
 	(t) => [index('launcher_integrity_events_player_idx').on(t.playerId)],
 )
+
+// The staff log: one row per staff action with who, when, whom and the reason
+// (shared/staff-log/actions.ts). Rows from before the log hold an empty reason.
+export const staffLog = pgTable(
+	'staff_log',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		staffPlayerId: uuid('staff_player_id').notNull(),
+		staffRole: varchar('staff_role', { length: 16 }).notNull(),
+		action: varchar('action', { length: 32 }).notNull(),
+		targetPlayerId: uuid('target_player_id'),
+		// The queue item the action was taken on. No foreign key: the log outlives the item.
+		itemId: integer('item_id'),
+		reason: text('reason').notNull(),
+		detail: jsonb('detail'),
+		at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [
+		index('staff_log_at_idx').on(t.at),
+		index('staff_log_staff_idx').on(t.staffPlayerId, t.at),
+		index('staff_log_target_idx').on(t.targetPlayerId, t.at),
+	],
+)

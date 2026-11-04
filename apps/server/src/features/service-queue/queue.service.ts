@@ -25,6 +25,7 @@ import {
 	rescoreSubject,
 	touchServiceQueueItem,
 } from '../../infrastructure/gateways/service-queue.gateway.js'
+import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gateway.js'
 import { insertWarning } from '../../infrastructure/gateways/warning.gateway.js'
 import { callNakamaRpc } from '../../infrastructure/nakama/admin-client.js'
 import { banInNakama, liftBanInNakama, nakamaUserIdOf } from '../../infrastructure/nakama/moderation-sync.js'
@@ -186,6 +187,7 @@ const deps: DispatcherDeps<DbTransaction> = {
 	insertBan: (tx, ban) => insertBan(ban, tx),
 	liftBan: (tx, playerId, banId, liftedBy) => liftBan(playerId, banId, liftedBy, tx),
 	insertWarning: (tx, warning) => insertWarning(tx, warning),
+	recordStaffAction: (tx, entry) => recordStaffAction(tx, entry),
 
 	banInNakama: (ban) => banInNakama(ban),
 	liftBanInNakama: (playerId, banId) => liftBanInNakama(playerId, banId),

@@ -7,6 +7,7 @@ import {
 	liftBan,
 	listBans,
 } from '../../infrastructure/gateways/ban.gateway.js'
+import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import {
 	liftBanInNakama,
@@ -14,6 +15,7 @@ import {
 	networkBansInNakama,
 } from '../../infrastructure/nakama/moderation-sync.js'
 import { editNakamaProfile } from '../../infrastructure/nakama/profile-sync.js'
+import { type StaffAction, parseReason } from '../../shared/staff-log/actions.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { parseExpiresAt } from '../../shared/utils/parse-expires-at.js'
 import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
@@ -31,6 +33,17 @@ const PRIVILEGE_PATTERN = /^[a-z][a-z0-9_]{0,31}$/
 
 const activeBanCond = () =>
 	and(isNull(playerBans.liftedAt), or(isNull(playerBans.expiresAt), gt(playerBans.expiresAt, sql`now()`)))
+
+// The reason every staff action carries (it goes in the staff log), or a 400.
+function reasonOf(value: unknown): string {
+	const checked = parseReason(value)
+	if (!checked.ok) throw new AppError(checked.message, 400)
+	return checked.reason
+}
+
+const BAN_LOGGED_AS = { chat: 'chat_ban', queue: 'queue_ban', account: 'account_ban' } as const satisfies Record<string, StaffAction>
+
+const STAFF_ROLES = ['moderator', 'admin'] as const
 
 const router = Router()
 
@@ -103,6 +116,7 @@ router.patch('/players/:id/privileges', async (req, res, next) => {
 		// self-escalation bug. Matches the design doc's "only ever granted
 		// directly by an admin."
 		await requireAdmin(req)
+		const reason = reasonOf((req.body as { reason?: unknown }).reason)
 
 		const { privileges } = req.body as { privileges?: unknown }
 		if (!Array.isArray(privileges) || !privileges.every((p) => typeof p === 'string')) {
@@ -115,6 +129,7 @@ router.patch('/players/:id/privileges', async (req, res, next) => {
 		if (isOwnerId(req.params.id) && !privileges.includes('admin'))
 			throw new AppError("The owner's admin role cannot be removed", 403)
 
+		const before = await findPlayerById(req.params.id)
 		const [updated] = await db
 			.update(players)
 			.set({ privileges, updatedAt: new Date() })
@@ -123,6 +138,21 @@ router.patch('/players/:id/privileges', async (req, res, next) => {
 
 		if (!updated) throw new AppError('Player not found', 404)
 		await editNakamaProfile(updated.id, { privileges })
+		const held = (list: readonly string[]) => STAFF_ROLES.filter((role) => list.includes(role))
+		const hadRoles = held(before?.privileges ?? [])
+		const hasRoles = held(privileges)
+		const changes: { action: StaffAction; role: string }[] = [
+			...hasRoles.filter((r) => !hadRoles.includes(r)).map((role) => ({ action: 'role_grant' as const, role })),
+			...hadRoles.filter((r) => !hasRoles.includes(r)).map((role) => ({ action: 'role_remove' as const, role })),
+		]
+		for (const change of changes)
+			await recordStaffAction(db, {
+				staff: { playerId: req.player!.playerId, role: 'admin' },
+				action: change.action,
+				targetPlayerId: updated.id,
+				reason,
+				detail: { role: change.role },
+			})
 		console.log(`[webadmin] ${req.player!.playerId} updated privileges for ${req.params.id}: ${JSON.stringify(privileges)}`)
 		res.json(updated)
 	} catch (err) {
@@ -136,7 +166,6 @@ router.post('/players/:id/bans', async (req, res, next) => {
 		const { type, expiresAt, reason } = req.body as { type?: unknown; expiresAt?: unknown; reason?: unknown }
 
 		if (!isBanType(type)) throw new AppError("type must be 'chat', 'queue', or 'account'", 400)
-		if (reason !== undefined && typeof reason !== 'string') throw new AppError('reason must be a string', 400)
 
 		const expires = parseExpiresAt(expiresAt)
 		// The service queue's role table holds here too (permissions.ts): a
@@ -146,6 +175,8 @@ router.post('/players/:id/bans', async (req, res, next) => {
 		if (!staff || !mayIssueBan(staff.role, type, expires, new Date()))
 			throw new AppError('Your role may not issue this ban', 403)
 
+		const reasonText = reasonOf(reason)
+
 		const player = await findPlayerById(playerId)
 		if (!player) throw new AppError('Player not found', 404)
 
@@ -154,7 +185,14 @@ router.post('/players/:id/bans', async (req, res, next) => {
 			banType: type,
 			expiresAt: expires,
 			issuedBy: `${staff.role}:${req.player!.playerId}`,
-			reason: typeof reason === 'string' ? reason : '',
+			reason: reasonText,
+		})
+		await recordStaffAction(db, {
+			staff: { playerId: req.player!.playerId, role: staff.role },
+			action: BAN_LOGGED_AS[type],
+			targetPlayerId: playerId,
+			reason: reasonText,
+			detail: { banId: ban.id, banType: type, expiresAt },
 		})
 
 		console.log(`[webadmin] ${req.player!.playerId} issued ${type} ban on ${playerId}`)
@@ -170,11 +208,19 @@ router.delete('/players/:id/bans/:banId', async (req, res, next) => {
 		const target = (await listBans(req.params.id)).find((b) => b.id === req.params.banId)
 		if (!staff || (target && !mayLiftBan(staff.role, target.banType)))
 			throw new AppError('Your role may not lift this ban', 403)
+		const liftReason = reasonOf((req.body as { reason?: unknown } | undefined)?.reason)
 		const lifted = await liftBan(req.params.id, req.params.banId, `${staff.role}:${req.player!.playerId}`)
 		if (!lifted) throw new AppError('No matching active ban found', 404)
 		await liftBanInNakama(req.params.id, req.params.banId).catch((e) =>
 			console.error('[webadmin] Nakama ban lift failed:', e),
 		)
+		await recordStaffAction(db, {
+			staff: { playerId: req.player!.playerId, role: staff.role },
+			action: 'lift_ban',
+			targetPlayerId: req.params.id,
+			reason: liftReason,
+			detail: { banId: req.params.banId, banType: lifted.banType },
+		})
 		console.log(`[webadmin] ${req.player!.playerId} lifted ban ${req.params.banId} on ${req.params.id}`)
 		res.json({ ban: lifted })
 	} catch (err) {
@@ -199,9 +245,17 @@ router.delete('/players/:id/network-bans/:banId', async (req, res, next) => {
 	try {
 		const staff = await staffOf(req)
 		if (!staff || !mayLiftBan(staff.role, 'account')) throw new AppError('Your role may not lift a network ban', 403)
+		const liftReason = reasonOf((req.body as { reason?: unknown } | undefined)?.reason)
 		const outcome = await liftNetworkBanInNakama(req.params.banId)
 		if (!outcome.ok && outcome.error === 'unavailable') throw new AppError('Nakama is unavailable', 503)
 		if (!outcome.ok && outcome.error === 'not_found') throw new AppError('No matching network ban in force', 404)
+		await recordStaffAction(db, {
+			staff: { playerId: req.player!.playerId, role: staff.role },
+			action: 'lift_network_ban',
+			targetPlayerId: req.params.id,
+			reason: liftReason,
+			detail: { banId: req.params.banId },
+		})
 		console.log(`[webadmin] ${req.player!.playerId} lifted network ban ${req.params.banId}`)
 		res.json({ lifted: true })
 	} catch (err) {

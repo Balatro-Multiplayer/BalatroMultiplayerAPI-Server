@@ -535,17 +535,27 @@ export interface ActionResult {
 
 // What an action sends, per action (the server's command.ts).
 export type ActionBody =
-  | { action: 'dismiss' | 'resolve' | 'void' | 'reopen'; note?: string }
-  | { action: 'warn'; message: string; targetPlayerId?: string; note?: string }
   | {
-      action: 'chat_mute' | 'queue_ban' | 'account_ban'
-      duration: Duration
-      reason?: string
+      action: 'dismiss' | 'resolve' | 'void' | 'reopen'
+      reason: string
+      note?: string
+    }
+  | {
+      action: 'warn'
+      reason: string
+      message: string
       targetPlayerId?: string
       note?: string
     }
-  | { action: 'overturn'; toReportOf: string; note?: string }
-  | { action: 'unban'; banId: string; note?: string }
+  | {
+      action: 'chat_mute' | 'queue_ban' | 'account_ban'
+      duration: Duration
+      reason: string
+      targetPlayerId?: string
+      note?: string
+    }
+  | { action: 'overturn'; reason: string; toReportOf: string; note?: string }
+  | { action: 'unban'; reason: string; banId: string; note?: string }
   | { action: 'note'; note: string }
 
 export type RefusalCode =
