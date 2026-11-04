@@ -280,7 +280,7 @@ function PlayerSummary({
           </div>
         </div>
       )}
-      <DeckPanel cards={player.finalDeck} />
+      <DeckPanel cards={player.finalDeck} label={label} />
       {player.vouchers.length > 0 && (
         <div>
           <p className='mb-1 text-muted-foreground text-xs'>Vouchers</p>

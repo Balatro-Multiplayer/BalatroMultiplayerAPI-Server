@@ -47,7 +47,9 @@ const ENHANCEMENT_POSITION: Record<string, { x: number; y: number }> = {
   m_gold: { x: 6, y: 0 },
 }
 
-const SEAL_POSITION: Record<string, { x: number; y: number }> = {
+const BASE_CARD_POSITION = { x: 1, y: 0 }
+
+const SEAL_POSITION:Record<string, { x: number; y: number }> = {
   Gold: { x: 2, y: 0 },
   Purple: { x: 4, y: 4 },
   Red: { x: 5, y: 4 },
@@ -99,11 +101,13 @@ export function PlayingCardVisual({
   } else if (suitRow !== undefined && valueColumn !== undefined) {
     layers.push("url('/atlases/8BitDeck.png')")
     positions.push(spriteOffset(valueColumn, suitRow))
-    const enhancementPos = enhancement ? ENHANCEMENT_POSITION[enhancement] : undefined
-    if (enhancementPos) {
-      layers.push("url('/atlases/Enhancers.png')")
-      positions.push(spriteOffset(enhancementPos.x, enhancementPos.y))
-    }
+    // A card with no (or an unknown) enhancement still needs the plain card
+    // backdrop, which is the Enhancers atlas's base cell.
+    const enhancementPos =
+      (enhancement ? ENHANCEMENT_POSITION[enhancement] : undefined) ??
+      BASE_CARD_POSITION
+    layers.push("url('/atlases/Enhancers.png')")
+    positions.push(spriteOffset(enhancementPos.x, enhancementPos.y))
   }
 
   const style: CSSProperties = {
