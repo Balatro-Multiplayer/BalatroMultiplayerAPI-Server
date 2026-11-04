@@ -1,5 +1,6 @@
 import type { BanRecord } from '../gateways/ban.gateway.js'
 import { findPlayerById } from '../gateways/player.gateway.js'
+import type { WarningSource } from '../../shared/service-queue/items.js'
 import { type Result, err, ok } from '../../shared/utils/result.js'
 import { callNakamaRpc, isNakamaAdminEnabled } from './admin-client.js'
 
@@ -34,7 +35,7 @@ export async function banInNakama(ban: BanRecord): Promise<boolean> {
 // The warning pop-up (WARNED, 109) for a player, kept until they see it.
 export async function notifyWarnedInNakama(
 	playerId: string,
-	payload: { message: string; itemType: string; warnedAt: number },
+	payload: { message: string; itemType: WarningSource; warnedAt: number },
 ): Promise<boolean> {
 	const userId = await nakamaUserIdOf(playerId)
 	if (!userId) return false

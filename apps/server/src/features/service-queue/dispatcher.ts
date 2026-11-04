@@ -15,6 +15,7 @@ import { type AppliedStep, type Ladder, type LadderStep, type Strike, judgePunis
 import { mayLiftBan, permissionFor } from './permissions.js'
 import { type QueueRefusal, type QueueResult, refuse } from './refusals.js'
 import { type Target, type TargetSources, pickTarget, targetsOf } from './targets.js'
+import type { WarningSource } from '../../shared/service-queue/items.js'
 import type { StaffAction, StaffActionEntry } from '../../shared/staff-log/actions.js'
 import { type SourceStatus, sourceStatusFor } from './transitions.js'
 import {
@@ -128,7 +129,7 @@ export interface DispatcherDeps<Tx> {
 	// After the commit; failures are reported in the result, never undone.
 	banInNakama(ban: BanRow): Promise<boolean>
 	liftBanInNakama(playerId: string, banId: string): Promise<boolean>
-	notifyWarned(playerId: string, payload: { message: string; itemType: ItemType; warnedAt: number }): Promise<boolean>
+	notifyWarned(playerId: string, payload: { message: string; itemType: WarningSource; warnedAt: number }): Promise<boolean>
 	rescore(item: QueueItem, playerIds: string[]): Promise<void>
 }
 
