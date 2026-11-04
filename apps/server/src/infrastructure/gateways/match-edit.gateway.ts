@@ -1,5 +1,8 @@
 import { and, eq, sql } from 'drizzle-orm'
-import { RATING_FLOOR } from '../../features/ratings/elo.js'
+import {
+	INITIAL_HIDDEN_RATING,
+	RATING_FLOOR,
+} from '../../features/ratings/elo.js'
 import {
 	type MatchEditRequest,
 	type MatchRow,
@@ -9,6 +12,28 @@ import {
 import type { DbTransaction } from '../db/executor.js'
 import { db } from '../db/index.js'
 import { matchmakingMatches, matchmakingRatings } from '../db/schema.js'
+
+// The row a player gets when an edit rates them and they have none yet: the
+// initial record with the change applied, floored like the update below.
+export function newRatingRow(
+	change: PlayerRatingChange,
+	modId: string,
+	gameMode: string,
+	season: number,
+	at: Date,
+) {
+	return {
+		playerId: change.playerId,
+		modId,
+		gameMode,
+		season,
+		rating: Math.max(RATING_FLOOR, INITIAL_HIDDEN_RATING + change.rating),
+		wins: Math.max(0, change.wins),
+		losses: Math.max(0, change.losses),
+		gamesPlayed: Math.max(0, change.gamesPlayed),
+		lastMatchAt: change.gamesPlayed > 0 ? at : null,
+	}
+}
 
 export async function findMatchRow(matchId: string): Promise<MatchRow | null> {
 	const [row] = await db
@@ -86,23 +111,49 @@ export async function applyMatchEditRows(
 		if (!atTarget || ratedFirstTime) {
 			if (season !== null) {
 				for (const change of changes) {
-					await tx
-						.update(matchmakingRatings)
-						.set({
-							rating: sql`GREATEST(${RATING_FLOOR}, ${matchmakingRatings.rating} + ${change.rating})`,
-							wins: sql`GREATEST(0, ${matchmakingRatings.wins} + ${change.wins})`,
-							losses: sql`GREATEST(0, ${matchmakingRatings.losses} + ${change.losses})`,
-							gamesPlayed: sql`GREATEST(0, ${matchmakingRatings.gamesPlayed} + ${change.gamesPlayed})`,
-							updatedAt: new Date(),
-						})
-						.where(
-							and(
-								eq(matchmakingRatings.playerId, change.playerId),
-								eq(matchmakingRatings.modId, row.modId),
-								eq(matchmakingRatings.gameMode, row.gameMode),
-								eq(matchmakingRatings.season, season),
-							),
-						)
+					const increment = {
+						rating: sql`GREATEST(${RATING_FLOOR}, ${matchmakingRatings.rating} + ${change.rating})`,
+						wins: sql`GREATEST(0, ${matchmakingRatings.wins} + ${change.wins})`,
+						losses: sql`GREATEST(0, ${matchmakingRatings.losses} + ${change.losses})`,
+						gamesPlayed: sql`GREATEST(0, ${matchmakingRatings.gamesPlayed} + ${change.gamesPlayed})`,
+						updatedAt: new Date(),
+					}
+					// A void never creates a row; an edit that rates a player for
+					// the first time may find none.
+					if (request.kind === 'void') {
+						await tx
+							.update(matchmakingRatings)
+							.set(increment)
+							.where(
+								and(
+									eq(matchmakingRatings.playerId, change.playerId),
+									eq(matchmakingRatings.modId, row.modId),
+									eq(matchmakingRatings.gameMode, row.gameMode),
+									eq(matchmakingRatings.season, season),
+								),
+							)
+					} else {
+						await tx
+							.insert(matchmakingRatings)
+							.values(
+								newRatingRow(
+									change,
+									row.modId,
+									row.gameMode,
+									season,
+									new Date(),
+								),
+							)
+							.onConflictDoUpdate({
+								target: [
+									matchmakingRatings.playerId,
+									matchmakingRatings.modId,
+									matchmakingRatings.gameMode,
+									matchmakingRatings.season,
+								],
+								set: increment,
+							})
+					}
 				}
 			}
 		}
