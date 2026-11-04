@@ -9,6 +9,7 @@ import {
 	getForfeitReconciliationFlag,
 	setForfeitFlagStatus,
 } from '../../infrastructure/gateways/forfeit-reconciliation.gateway.js'
+import { saveChatLabels } from '../../infrastructure/gateways/flagged-chat.gateway.js'
 import { getMatchConflict, setMatchConflictStatus } from '../../infrastructure/gateways/match-conflict.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { getReportById, setReportStatus } from '../../infrastructure/gateways/report.gateway.js'
@@ -190,6 +191,10 @@ const deps: DispatcherDeps<DbTransaction> = {
 	insertBan: (tx, ban) => insertBan(ban, tx),
 	liftBan: (tx, playerId, banId, liftedBy) => liftBan(playerId, banId, liftedBy, tx),
 	insertWarning: (tx, warning) => insertWarning(tx, warning),
+	async saveChatLabels(tx, item, label, decidedAt) {
+		const row = await getServiceQueueItemById(item.id, tx)
+		if (row) await saveChatLabels(tx, row, label, decidedAt)
+	},
 	recordStaffAction: (tx, entry) => recordStaffAction(tx, entry),
 
 	banInNakama: (ban) => banInNakama(ban),

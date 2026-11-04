@@ -193,7 +193,7 @@ describe('the role table', () => {
 
 describe('request bodies', () => {
 	it('reads an optional note, falling back to the old resolutionNotes', () => {
-		expect(parseCommand('dismiss', { reason: 'r' })).toEqual({ ok: true, value: { action: 'dismiss', reason: 'r', note: null } })
+		expect(parseCommand('dismiss', { reason: 'r' })).toEqual({ ok: true, value: { action: 'dismiss', reason: 'r', note: null, dismissLabel: null } })
 		expect(parseCommand('resolve', { reason: 'r', note: ' ok ' })).toEqual({ ok: true, value: { action: 'resolve', reason: 'r', note: 'ok' } })
 		expect(parseCommand('resolve', { reason: 'r', resolutionNotes: 'old' })).toEqual({ ok: true, value: { action: 'resolve', reason: 'r', note: 'old' } })
 		expect(parseCommand('resolve', { reason: 'r', note: 5 })).toMatchObject({ ok: false, refusal: { field: 'note' } })

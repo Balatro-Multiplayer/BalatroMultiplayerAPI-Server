@@ -1,6 +1,6 @@
 // The service queue's routes (apps/server webadmin/service-queue.route.ts),
 // and the query keys their caches live under.
-import { ApiError, apiFetch } from '@/lib/api'
+import { ApiError, apiFetch, apiFetchBlob } from '@/lib/api'
 import type {
   ActionBody,
   ActionResult,
@@ -142,6 +142,21 @@ export async function downloadReplay(runId: string): Promise<void> {
     const a = document.createElement('a')
     a.href = url
     a.download = `replay-${runId}.json`
+    a.click()
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+// Every saved chat training label as a CSV download (admins only;
+// authenticated, so fetched rather than linked).
+export async function downloadChatLabels(): Promise<void> {
+  const blob = await apiFetchBlob('/webadmin/chat-labels/export')
+  const url = URL.createObjectURL(blob)
+  try {
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'chat-labels.csv'
     a.click()
   } finally {
     URL.revokeObjectURL(url)
