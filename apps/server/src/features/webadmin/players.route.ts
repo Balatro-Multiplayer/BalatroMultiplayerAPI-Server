@@ -23,6 +23,8 @@ import { requireAdmin } from '../../shared/utils/require-admin.js'
 import { isOwnerId, redactPlayerFor } from '../../shared/utils/staff-role.js'
 import { mayIssueBan, mayLiftBan } from '../service-queue/permissions.js'
 import { staffOf } from '../service-queue/staff.js'
+import { isLadder, stepOfExpiry } from '../strikes/ladder.js'
+import { judgeOnLadder } from '../strikes/strike.service.js'
 import { issueBan } from './ban.service.js'
 import { playerSearchCondition } from './player-search.js'
 
@@ -164,7 +166,13 @@ router.patch('/players/:id/privileges', async (req, res, next) => {
 router.post('/players/:id/bans', async (req, res, next) => {
 	try {
 		const playerId = req.params.id
-		const { type, expiresAt, reason } = req.body as { type?: unknown; expiresAt?: unknown; reason?: unknown }
+		const { type, expiresAt, reason, ladder, deviationReason } = req.body as {
+			type?: unknown
+			expiresAt?: unknown
+			reason?: unknown
+			ladder?: unknown
+			deviationReason?: unknown
+		}
 
 		if (!isBanType(type)) throw new AppError("type must be 'chat', 'queue', or 'account'", 400)
 
@@ -181,7 +189,24 @@ router.post('/players/:id/bans', async (req, res, next) => {
 		const player = await findPlayerById(playerId)
 		if (!player) throw new AppError('Player not found', 404)
 
+		if (ladder !== undefined && ladder !== null && !isLadder(ladder))
+			throw new AppError("ladder must be 'chat' or 'play'", 400)
+		// An account ban is on no ladder. A chat or queue ban counts on the ladder
+		// staff pick, by default the one that matches the ban.
+		const now = new Date()
+		const onLadder = type === 'account' ? null : (isLadder(ladder) ? ladder : type === 'chat' ? 'chat' : 'play')
+		const judged = onLadder
+			? await judgeOnLadder(
+					playerId,
+					onLadder,
+					stepOfExpiry(expires, now),
+					typeof deviationReason === 'string' ? deviationReason : null,
+					now,
+				)
+			: null
+
 		const ban = await issueBan({
+			strike: onLadder && judged ? { ladder: onLadder, recommendedStep: judged.recommended, appliedStep: judged.applied, deviationReason: judged.deviationReason } : undefined,
 			playerId,
 			banType: type,
 			expiresAt: expires,
@@ -193,7 +218,12 @@ router.post('/players/:id/bans', async (req, res, next) => {
 			action: BAN_LOGGED_AS[type],
 			targetPlayerId: playerId,
 			reason: reasonText,
-			detail: { banId: ban.id, banType: type, expiresAt },
+			detail: {
+				banId: ban.id,
+				banType: type,
+				expiresAt,
+				...(onLadder && judged ? { strike: { ladder: onLadder, ...judged } } : {}),
+			},
 		})
 
 		console.log(`[webadmin] ${req.player!.playerId} issued ${type} ban on ${playerId}`)

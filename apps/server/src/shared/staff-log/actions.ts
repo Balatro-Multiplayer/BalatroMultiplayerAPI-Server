@@ -35,6 +35,7 @@ export const STAFF_ACTIONS = [
 	'blog_publish',
 	'blog_unpublish',
 	'blog_delete',
+	'ladder_edit',
 ] as const
 export type StaffAction = (typeof STAFF_ACTIONS)[number]
 

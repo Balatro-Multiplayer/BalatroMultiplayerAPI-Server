@@ -52,6 +52,7 @@ const ACTION_LABELS: Record<string, string> = {
   blog_publish: 'Publish blog post',
   blog_unpublish: 'Unpublish blog post',
   blog_delete: 'Delete blog post',
+  ladder_edit: 'Edit strike ladder',
 }
 
 interface StaffLogEntry {

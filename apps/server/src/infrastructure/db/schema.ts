@@ -156,6 +156,9 @@ export const serverConfig = pgTable('server_config', {
 	achievementsEnabled: boolean('achievements_enabled')
 		.notNull()
 		.default(true),
+	// The strike ladders' steps (features/strikes/ladder.ts). Null: the defaults.
+	chatLadderSteps: jsonb('chat_ladder_steps'),
+	playLadderSteps: jsonb('play_ladder_steps'),
 	updatedAt: timestamp('updated_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -1071,4 +1074,28 @@ export const chatReviewLabels = pgTable(
 		decidedAt: timestamp('decided_at', { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => [uniqueIndex('chat_review_labels_item_message_idx').on(t.itemId, t.flaggedMessageId)],
+)
+
+// One punishment counted on a strike ladder (features/strikes/ladder.ts). The
+// strike counts for 3 months from issuedAt, and stops counting at once when its
+// ban is lifted (a warning is never lifted). It keeps the recommended step and,
+// when staff picked another, the reason they gave.
+export const playerStrikes = pgTable(
+	'player_strikes',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		playerId: uuid('player_id')
+			.notNull()
+			.references(() => players.id),
+		ladder: varchar('ladder', { length: 8 }).notNull(),
+		banId: uuid('ban_id').references(() => playerBans.id),
+		warningId: uuid('warning_id').references(() => playerWarnings.id),
+		recommendedStep: varchar('recommended_step', { length: 16 }).notNull(),
+		appliedStep: varchar('applied_step', { length: 16 }).notNull(),
+		deviationReason: text('deviation_reason'),
+		issuedAt: timestamp('issued_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [index('player_strikes_player_idx').on(t.playerId, t.ladder)],
 )

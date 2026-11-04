@@ -190,6 +190,7 @@ export const PLAYER_ID_COLUMNS: readonly PlayerIdColumn[] = [
 	{ table: 'player_notes', column: 'player_id', kind: 'id', data: 'moderation' },
 	{ table: 'player_notes', column: 'author_id', kind: 'id', data: 'moderation' },
 	{ table: 'player_notes', column: 'note', kind: 'text', data: 'moderation' },
+	{ table: 'player_strikes', column: 'player_id', kind: 'id', data: 'moderation' },
 	{ table: 'grace_periods', column: 'player_id', kind: 'id', data: 'own' },
 	{
 		table: 'matchmaking_ratings',
@@ -280,6 +281,8 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'group_queue_enabled',
 		'lobby_creation_enabled',
 		'achievements_enabled',
+		'chat_ladder_steps',
+		'play_ladder_steps',
 		'updated_at',
 	],
 	mod_versions: [
@@ -374,6 +377,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 	player_warnings: ['id', 'item_id', 'message', 'issued_at'],
 	staff_log: ['id', 'staff_role', 'action', 'item_id', 'at'],
 	player_notes: ['id', 'created_at'],
+	player_strikes: ['id', 'ban_id', 'warning_id', 'ladder', 'recommended_step', 'applied_step', 'deviation_reason', 'issued_at'],
 	grace_periods: [
 		'id',
 		'lobby_code',

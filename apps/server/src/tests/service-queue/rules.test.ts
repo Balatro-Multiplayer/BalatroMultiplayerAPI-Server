@@ -205,7 +205,7 @@ describe('request bodies', () => {
 		expect(parseCommand('warn', { reason: 'r', message: 'x'.repeat(501) })).toMatchObject({ ok: false, refusal: { field: 'message' } })
 		expect(parseCommand('warn', { reason: 'r', message: 'stop', targetPlayerId: 'p2' })).toEqual({
 			ok: true,
-			value: { action: 'warn', reason: 'r', targetPlayerId: 'p2', message: 'stop', note: null },
+			value: { action: 'warn', reason: 'r', targetPlayerId: 'p2', message: 'stop', note: null, ladder: null, deviationReason: null },
 		})
 	})
 

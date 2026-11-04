@@ -71,6 +71,19 @@ vi.mock(
 	}),
 )
 
+vi.mock(
+	'../../infrastructure/gateways/strike.gateway.js',
+	async (importOriginal) => ({
+		...(await importOriginal<object>()),
+		getLadderSteps: vi.fn().mockResolvedValue({
+			chat: ['warning', '24h', '7d', '30d', 'permanent'],
+			play: ['warning', '24h', '7d', '30d', 'permanent'],
+		}),
+		listStrikes: vi.fn().mockResolvedValue([]),
+		insertStrike: vi.fn().mockResolvedValue(undefined),
+	}),
+)
+
 const app = createTestApp()
 
 beforeEach(() => {
