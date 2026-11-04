@@ -72,6 +72,9 @@ export interface PlayingCardVisualProps {
   enhancement?: string | null
   edition?: string | null
   seal?: string | null
+  /** Rendered width in px; the card keeps its proportions. Defaults to the
+   * atlas's native 71px (the deck viewer). */
+  width?: number
 }
 
 export function PlayingCardVisual({
@@ -80,6 +83,7 @@ export function PlayingCardVisual({
   enhancement,
   edition,
   seal,
+  width = CARD_WIDTH,
 }: PlayingCardVisualProps) {
   const suitRow = SUIT_ROW[suit]
   const valueColumn = VALUE_COLUMN[value]
@@ -122,7 +126,8 @@ export function PlayingCardVisual({
 
   const sealPos = seal && seal in SEAL_POSITION ? SEAL_POSITION[seal] : null
 
-  return (
+  const scale = width / CARD_WIDTH
+  const card = (
     <div className='relative overflow-hidden rounded-sm' style={style}>
       {sealPos && (
         <div
@@ -135,6 +140,20 @@ export function PlayingCardVisual({
           }}
         />
       )}
+    </div>
+  )
+  if (scale === 1) return card
+
+  // Scale the finished card (edition and seal layers included) rather than
+  // re-deriving every sprite offset.
+  return (
+    <div
+      className='shrink-0'
+      style={{ width: CARD_WIDTH * scale, height: CARD_HEIGHT * scale }}
+    >
+      <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+        {card}
+      </div>
     </div>
   )
 }
