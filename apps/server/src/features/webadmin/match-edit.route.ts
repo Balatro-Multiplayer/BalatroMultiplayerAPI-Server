@@ -82,15 +82,14 @@ async function edit(
 		role,
 	}
 	const matchId = String(req.params.matchId)
-	// Checked first for a quick refusal, and again in the edit transaction so an
-	// item that closed in between does not leave a moderator editing.
-	const notAllowed = new AppError(
-		'A moderator can change a match only while it has an open queue item. Report it to admins instead.',
-		403,
-	)
-	if (!(await mayEditMatch(matchItemsDeps, role, matchId))) throw notAllowed
+	// Checked before the Nakama edit: the edit cannot be undone there, so a
+	// check inside the transaction that saves the rows would come too late.
+	if (!(await mayEditMatch(matchItemsDeps, role, matchId)))
+		throw new AppError(
+			'A moderator can change a match only while it has an open queue item. Report it to admins instead.',
+			403,
+		)
 	const outcome = await matchEditorFor(async (tx, match, changes) => {
-		if (!(await mayEditMatch(matchItemsDeps, role, matchId, tx))) throw notAllowed
 		await recordStaffAction(tx, {
 			staff,
 			action: request.kind === 'void' ? 'match_void' : 'match_result',

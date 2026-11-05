@@ -204,9 +204,8 @@ export async function listOpenItemsAboutRun(
 export async function hasOpenItemVisibleTo(
 	runId: string,
 	role: 'moderator' | 'admin',
-	exec: DbExecutor = db,
 ): Promise<boolean> {
-	const [row] = await exec
+	const [row] = await db
 		.select({ id: serviceQueueItems.id })
 		.from(serviceQueueItems)
 		.where(

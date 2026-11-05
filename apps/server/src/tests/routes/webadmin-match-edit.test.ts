@@ -80,7 +80,7 @@ describe('match edit routes', () => {
 				.send(payload)
 			expect(res.status).toBe(403)
 		}
-		expect(matchStaff.hasOpenItemVisibleTo).toHaveBeenCalledWith('m1', 'moderator', undefined)
+		expect(matchStaff.hasOpenItemVisibleTo).toHaveBeenCalledWith('m1', 'moderator')
 		expect(edit).not.toHaveBeenCalled()
 	})
 
@@ -94,21 +94,14 @@ describe('match edit routes', () => {
 		expect(edit).toHaveBeenCalled()
 	})
 
-	it('checks a moderator again inside the edit transaction', async () => {
-		vi.mocked(matchStaff.hasOpenItemVisibleTo).mockResolvedValueOnce(true).mockResolvedValueOnce(false)
-		vi.mocked(matchEditorFor).mockImplementation(
-			(inTransaction) => (async () => {
-				await inTransaction?.('tx' as never, { resultPlacements: [] } as never, [])
-				return edited
-			}) as never,
-		)
+	it('refuses a moderator before the Nakama edit runs', async () => {
+		vi.mocked(matchStaff.hasOpenItemVisibleTo).mockResolvedValue(false)
 		const res = await request(app)
 			.post('/api/webadmin/matches/m1/void')
 			.set('Authorization', authAs('mod', ['moderator']))
 			.send({ reason: 'cheating' })
 		expect(res.status).toBe(403)
-		expect(matchStaff.hasOpenItemVisibleTo).toHaveBeenLastCalledWith('m1', 'moderator', 'tx')
-		expect(recordStaffAction).not.toHaveBeenCalled()
+		expect(matchEditorFor).not.toHaveBeenCalled()
 	})
 
 	it('lets an admin edit with no open queue item, without asking', async () => {
