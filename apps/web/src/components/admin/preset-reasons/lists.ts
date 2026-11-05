@@ -6,11 +6,6 @@ export const MAX_PRESET_LENGTH = 200
 
 export const presetReasonsKey = ['admin-preset-reasons'] as const
 
-// A chip click fills the note with the preset. Staff can edit it after.
-export function fillFromPreset(_note: string, preset: string): string {
-  return preset
-}
-
 export function moveReason(
   list: readonly string[],
   index: number,

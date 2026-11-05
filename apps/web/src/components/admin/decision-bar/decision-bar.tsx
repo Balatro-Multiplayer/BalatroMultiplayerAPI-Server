@@ -72,7 +72,7 @@ export function DecisionBar({
   chips,
   extra,
   trailing,
-  notePlaceholder = 'Why? This goes in the staff log.',
+  notePlaceholder = 'Why? Goes in the staff log.',
 }: {
   actions: readonly BarAction[]
   pick: BarPick | null
@@ -99,7 +99,7 @@ export function DecisionBar({
 }) {
   const ready = canSend(actions, pick, note, disabled || sendBlocked)
   const picked = actions.find((a) => a.key === pick?.action)
-  const title = pick ? actionTitle(actions, pick) : 'Send'
+  const title = (pick && actionTitle(actions, pick)) || 'Pick an action'
   const send = () => {
     if (ready) onSend(cleanNote(note))
   }
@@ -159,7 +159,7 @@ export function DecisionBar({
       {chips}
       {extra}
       <form
-        className='flex items-stretch gap-2'
+        className='flex flex-col items-stretch gap-2 sm:flex-row'
         onSubmit={(e) => {
           e.preventDefault()
           send()
@@ -181,14 +181,14 @@ export function DecisionBar({
           data-testid='decision-send'
           disabled={!ready}
           className={cn(
-            'min-w-40 rounded-md px-4 py-1 text-center font-semibold text-sm leading-tight disabled:opacity-50',
+            'rounded-md px-4 py-2 text-center sm:min-w-40 sm:py-1 font-semibold text-sm leading-tight disabled:opacity-50',
             picked?.destructive
               ? 'bg-destructive text-white'
               : 'bg-primary text-primary-foreground',
           )}
         >
           <span className='block'>{title}</span>
-          {sendHint && (
+          {pick && sendHint && (
             <span className='block font-normal text-xs opacity-80'>
               {sendHint}
             </span>

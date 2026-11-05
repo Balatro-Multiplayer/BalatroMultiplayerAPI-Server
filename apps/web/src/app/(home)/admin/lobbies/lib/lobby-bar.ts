@@ -37,7 +37,7 @@ export const LOBBY_REASONS = [
 
 // What the Undo strip says.
 export function lobbyJobLabel(
-  action: string,
+  action: 'kick' | 'close',
   code: string,
   playerName: string | null
 ): string {
@@ -50,8 +50,8 @@ export function lobbyJobLabel(
 // names the player), else the lobby user.
 export const kickTargetId = (p: LobbyPlayer): string => p.playerId ?? p.id
 
-// The lobby reports no away flag; a player who is not connected is away.
-export const isAway = (p: LobbyPlayer): boolean => !p.connected
+// The lobby has no away flag; a player who is not connected counts as away.
+export const isDisconnected = (p: LobbyPlayer): boolean => !p.connected
 
 export const playerHref = (p: LobbyPlayer): string | null =>
   p.playerId ? `/admin/players/${p.playerId}` : null

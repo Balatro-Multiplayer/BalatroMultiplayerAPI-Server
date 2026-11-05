@@ -21,15 +21,13 @@ import {
 } from '../lib/format'
 import { takeKeepClaim } from '../lib/claim-keep'
 import type { ItemDetail } from '../lib/types'
+import { CLAIM_RENEW_MS } from '../lib/use-claim-renewal'
 import { ItemEvidence } from './evidence/item-evidence'
 import { Empty } from './evidence/shared'
 import { HistoryTimeline } from './history-timeline'
 import { ItemProvider } from './item-link'
 import { QueueDecisionBar } from './queue-decision-bar'
 import { SubjectCard } from './subject-card'
-
-// A claim lasts 15 minutes server-side; renew well before it runs out.
-const CLAIM_RENEW_MS = 10 * 60_000
 
 // Claims an open item while it's on screen and releases it after. Returns
 // who holds it, and a way for an admin to take it over.
@@ -151,6 +149,7 @@ export function InvestigationPanel({
   onShowAllItems,
   onSkip,
   onClosed,
+  onUndone,
 }: {
   itemId: number
   now: number
@@ -158,6 +157,7 @@ export function InvestigationPanel({
   onShowAllItems: (playerId: string) => void
   onSkip: () => void
   onClosed: () => void
+  onUndone: () => void
 }) {
   const [showHistory, setShowHistory] = useState(false)
   const {
@@ -221,6 +221,7 @@ export function InvestigationPanel({
           names={names}
           heldByOther={outcome?.kind === 'held'}
           onSent={onClosed}
+          onUndo={onUndone}
           onSkip={onSkip}
         />
       </div>

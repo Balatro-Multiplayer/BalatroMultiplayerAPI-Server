@@ -74,6 +74,15 @@ describe('DelayedSend', () => {
     expect(s.pending).toBeNull()
   })
 
+  test('undo tells the job so a page can bring staff back', () => {
+    const { timers } = fakeTimers()
+    const undone: string[] = []
+    const s = new DelayedSend(timers, 5000)
+    s.start(job([], 'a', { onUndo: () => undone.push('a') }))
+    s.undo()
+    expect(undone).toEqual(['a'])
+  })
+
   test('undo with nothing waiting does nothing', () => {
     const { timers } = fakeTimers()
     expect(new DelayedSend(timers, 5000).undo()).toBe(false)

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   type LobbyPlayer,
-  isAway,
+  isDisconnected,
   kickTargetId,
   lobbyActions,
   lobbyJobLabel,
@@ -35,8 +35,8 @@ describe('players', () => {
     expect(kickTargetId(p({ playerId: null }))).toBe('n1')
   })
   test('away is not connected', () => {
-    expect(isAway(p({ connected: false }))).toBe(true)
-    expect(isAway(p())).toBe(false)
+    expect(isDisconnected(p({ connected: false }))).toBe(true)
+    expect(isDisconnected(p())).toBe(false)
   })
   test('links', () => {
     expect(playerHref(p())).toBe('/admin/players/p1')

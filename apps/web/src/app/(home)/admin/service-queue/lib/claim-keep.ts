@@ -17,3 +17,8 @@ export function takeKeepClaim(itemId: number, now = Date.now()): boolean {
   kept = null
   return note !== null && note.itemId === itemId && now - note.at <= KEEP_WINDOW_MS
 }
+
+// Drops the note, for a Skip: it must release the claim even right after a link click.
+export function forgetKeepClaim(): void {
+  kept = null
+}

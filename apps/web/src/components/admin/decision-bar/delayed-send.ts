@@ -13,6 +13,8 @@ export interface SendJob {
   run: () => Promise<unknown>
   onDone?: (result: unknown) => void
   onError?: (error: Error) => void
+  // Runs when staff undo the send, so a page can bring them back to its thing.
+  onUndo?: () => void
 }
 
 export interface PendingSend {
@@ -86,6 +88,7 @@ export class DelayedSend {
     this.timers.clearTimeout(cur.handle)
     this.current = null
     this.emit()
+    cur.job.onUndo?.()
     return true
   }
 

@@ -17,6 +17,7 @@ import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ageText } from '../../admin/service-queue/lib/format'
 import { TYPE_LABELS } from '../../admin/service-queue/lib/format'
+import { useClaimRenewal } from '../../admin/service-queue/lib/use-claim-renewal'
 import { formatElapsedMs } from '../lib/format'
 import type { GameLog } from '../lib/game-log/types'
 import {
@@ -72,6 +73,7 @@ export function StaffMatchView({
   fromItem: number | null
   shareSlot: ReactNode
 }) {
+  useClaimRenewal(fromItem)
   const [tab, setTab] = useState<StaffTabKey>('timeline')
   const [editing, setEditing] = useState<string | null>(null)
   const viewerId = data.viewer.playerId ?? null
@@ -326,15 +328,15 @@ function ResultTable({
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Player</TableHead>
-          <TableHead>Place</TableHead>
-          <TableHead>Rating</TableHead>
+          <TableHead className='whitespace-normal px-2'>Player</TableHead>
+          <TableHead className='whitespace-normal px-2'>Place</TableHead>
+          <TableHead className='whitespace-normal px-2'>Rating</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {staff.result.map((row) => (
           <TableRow key={row.playerId}>
-            <TableCell>
+            <TableCell className='whitespace-normal break-words px-2'>
               <Link
                 href={playerPageHref(row.playerId)}
                 className='text-bal-blue hover:underline'
@@ -345,9 +347,10 @@ function ResultTable({
                 <span className='ml-1 text-muted-foreground'>won</span>
               )}
             </TableCell>
-            <TableCell>{row.place}</TableCell>
+            <TableCell className='px-2'>{row.place}</TableCell>
             <TableCell
               className={cn(
+                'whitespace-normal px-2',
                 row.delta !== null &&
                   row.delta > 0 &&
                   'text-green-500',

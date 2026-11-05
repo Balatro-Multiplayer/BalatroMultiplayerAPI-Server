@@ -99,6 +99,7 @@ export function QueueDecisionBar({
   names,
   heldByOther,
   onSent,
+  onUndo,
   onSkip,
 }: {
   detail: ItemDetail
@@ -106,6 +107,8 @@ export function QueueDecisionBar({
   heldByOther: boolean
   // Called when Send is pressed for an action that closes the item.
   onSent: () => void
+  // Called when staff undo the waiting send: they return to this item.
+  onUndo: () => void
   onSkip: () => void
 }) {
   const qc = useQueryClient()
@@ -204,6 +207,7 @@ export function QueueDecisionBar({
         tag: `queue:${itemId}`,
         label: title,
         run: () => decideAppeal(itemId, body),
+        onUndo,
         onDone: (r) =>
           done(
             `Appeal ${(r as { appeal: { status: string } }).appeal.status}.`,
@@ -222,6 +226,7 @@ export function QueueDecisionBar({
       tag: `queue:${itemId}`,
       label: `${title}${who}`,
       run: () => runAction(itemId, body),
+      onUndo: isNote ? undefined : onUndo,
       onDone: (r) => {
         const result = r as Awaited<ReturnType<typeof runAction>>
         done(effectsText(result.action, result.effects))

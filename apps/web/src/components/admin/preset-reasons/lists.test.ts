@@ -4,18 +4,11 @@ import {
   addReason,
   canSaveList,
   editReason,
-  fillFromPreset,
   isChanged,
   listProblem,
   moveReason,
   removeReason,
 } from './lists'
-
-describe('fillFromPreset', () => {
-  test('the preset replaces what was in the note', () => {
-    expect(fillFromPreset('old', 'Spam.')).toBe('Spam.')
-  })
-})
 
 describe('list edits', () => {
   test('move swaps with the neighbour and stops at the ends', () => {

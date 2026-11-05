@@ -65,7 +65,7 @@ export function BlogPostsList({
 					<button
 						type="button"
 						onClick={() => onNew('news')}
-						className="rounded-md bg-[#0a84ff] px-2 py-1.5 font-semibold text-sm text-white hover:opacity-90"
+						className="rounded-md bg-primary px-2 py-1.5 font-semibold text-primary-foreground text-sm hover:opacity-90"
 					>
 						New news post
 					</button>

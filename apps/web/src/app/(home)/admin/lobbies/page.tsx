@@ -19,7 +19,7 @@ import { type AdminLobby, LOBBY_PAGE_SIZE, LobbyList } from './components/lobby-
 import {
   LOBBY_REASONS,
   type LobbyPlayer,
-  isAway,
+  isDisconnected,
   kickTargetId,
   lobbyActions,
   lobbyJobLabel,
@@ -283,7 +283,7 @@ export default function AdminLobbiesPage() {
                                   host
                                 </Badge>
                               )}
-                              {isAway(p) && (
+                              {isDisconnected(p) && (
                                 <Badge variant='outline'>away</Badge>
                               )}
                             </div>
