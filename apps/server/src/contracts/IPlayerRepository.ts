@@ -19,6 +19,7 @@ export interface IPlayerRepository {
 	findPlayerBySteamIdHash(steamIdHash: string): Promise<PlayerRecord | null>
 	findPlayerByDiscordIdHash(discordIdHash: string): Promise<PlayerRecord | null>
 	findPlayerById(id: string): Promise<PlayerRecord | null>
+	findPlayerByNakamaUserId(nakamaUserId: string): Promise<PlayerRecord | null>
 	findPlayerBySteamName(steamName: string): Promise<PlayerRecord | null>
 	createPlayer(data: {
 		id: string

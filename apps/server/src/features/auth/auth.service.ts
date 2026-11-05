@@ -310,8 +310,22 @@ export function createAuthService(deps: AuthServiceDeps) {
 		await playerRepository.anonymizePlayer(playerId, anonymousId, keptRunIds)
 	}
 
+	// A session for the player behind a Nakama account, who proved who they
+	// are in game (a one-time web login link). Null when no live account has it.
+	async function authenticateNakamaUser(
+		nakamaUserId: string,
+	): Promise<SessionAndToken | null> {
+		const dbPlayer = await playerRepository.findPlayerByNakamaUserId(nakamaUserId)
+		if (!dbPlayer || dbPlayer.deletedAt) return null
+		const session =
+			getSession(dbPlayer.id) ??
+			createSession(dbPlayer.steamName, dbPlayerToSessionInit(dbPlayer))
+		return sessionAndToken(session)
+	}
+
 	return {
 		authenticateWithSteam,
+		authenticateNakamaUser,
 		authenticateWithDiscord,
 		linkDiscordToPlayer,
 		unlinkDiscordFromPlayer,

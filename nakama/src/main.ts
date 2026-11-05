@@ -84,6 +84,7 @@ import { rpcNotificationsPending, rpcNotificationsRead } from './notification/rp
 import { rpcMuteSet, rpcProfileSetDisplay, rpcProfileSetJoker, rpcProfileSetMods } from './player/rpc'
 import { rpcReportSubmit } from './moderation/report'
 import { rpcAdminDiscordSet, rpcDiscordLinkStart, rpcDiscordUnlink } from './player/discord'
+import { rpcWebLoginLink } from './player/web_login'
 import {
 	rpcAdminIntegritySet,
 	rpcAdminQueueCancel,
@@ -157,6 +158,7 @@ function InitModule(
 	initializer.registerRpc('notifications_read', rpcNotificationsRead)
 	initializer.registerRpc('discord_link_start', rpcDiscordLinkStart)
 	initializer.registerRpc('discord_unlink', rpcDiscordUnlink)
+	initializer.registerRpc('web_login_link', rpcWebLoginLink)
 	initializer.registerRpc('chat_enable', rpcChatEnable)
 	initializer.registerRpc('chat_send', rpcChatSend)
 	initializer.registerRpc('report_submit', rpcReportSubmit)

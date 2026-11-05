@@ -11342,6 +11342,19 @@ function rpcReportSubmit(ctx, logger, nk, payload) {
   return JSON.stringify({ ok: true, reportId: reply.body.reportId });
 }
 
+// src/player/web_login.ts
+var MAX_PATH = 200;
+function rpcWebLoginLink(ctx, logger, nk, payload) {
+  const userId = requireUser(ctx);
+  const { path } = parsePayload(payload);
+  if (typeof path !== "string" || path.length > MAX_PATH || path.charAt(0) !== "/" || path.charAt(1) === "/")
+    throw runtimeError(INVALID_ARGUMENT, "Missing or invalid path");
+  const reply = callExpress(nk, logger, ctx.env, "/web-login/link", { nakamaUserId: userId, path });
+  const url = reply && reply.status === 200 ? reply.body.url : null;
+  if (typeof url !== "string") throw runtimeError(UNAVAILABLE, "Website login is unavailable right now");
+  return JSON.stringify({ url });
+}
+
 // src/moderation/network_admin.ts
 var IP_HASH_PURGE_MAX = 500;
 function rpcAdminNetworkBans(ctx, logger, nk, payload) {
@@ -11436,6 +11449,7 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("notifications_read", rpcNotificationsRead);
   initializer.registerRpc("discord_link_start", rpcDiscordLinkStart);
   initializer.registerRpc("discord_unlink", rpcDiscordUnlink);
+  initializer.registerRpc("web_login_link", rpcWebLoginLink);
   initializer.registerRpc("chat_enable", rpcChatEnable);
   initializer.registerRpc("chat_send", rpcChatSend);
   initializer.registerRpc("report_submit", rpcReportSubmit);
