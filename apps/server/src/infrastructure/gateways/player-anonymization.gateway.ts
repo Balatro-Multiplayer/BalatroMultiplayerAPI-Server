@@ -333,6 +333,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'additional_detail',
 		'page_opened_at',
 		'withdrawn_at',
+		'reporter_told_at',
 		'created_at',
 	],
 	reported_lobby_messages: [

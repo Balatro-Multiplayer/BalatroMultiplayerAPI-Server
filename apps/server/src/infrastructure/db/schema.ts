@@ -216,6 +216,8 @@ export const reports = pgTable('reports', {
 	pageOpenedAt: timestamp('page_opened_at', { withTimezone: true }),
 	// Set when the reporter withdrew it before staff decided.
 	withdrawnAt: timestamp('withdrawn_at', { withTimezone: true }),
+	// Set once, when the reporter was told staff acted on the player they reported.
+	reporterToldAt: timestamp('reporter_told_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),
