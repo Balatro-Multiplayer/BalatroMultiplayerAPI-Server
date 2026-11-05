@@ -12,6 +12,7 @@ export const ITEM_TYPES = [
   'anti_cheat',
   'integrity',
   'appeal',
+  'staff_report',
 ] as const
 export type ItemType = (typeof ITEM_TYPES)[number]
 export const isItemType = (value: unknown): value is ItemType =>
@@ -505,6 +506,13 @@ export type TypedEvidence =
   | { itemType: 'anti_cheat'; evidence: AntiCheatEvidence | null }
   | { itemType: 'integrity'; evidence: IntegrityEvidence | null }
   | { itemType: 'appeal'; evidence: AppealEvidence | null }
+  | { itemType: 'staff_report'; evidence: StaffReportEvidence | null }
+
+export interface StaffReportEvidence {
+  runId: string
+  reporterId: string
+  note: string
+}
 
 export interface AppealEvidence {
   appeal: {

@@ -38,7 +38,7 @@ import { decideClaim, decideRelease } from './claim.js'
 import { type DispatcherDeps, type GameRef, type QueueItem, createDispatcher } from './dispatcher.js'
 import type { Placement } from './overturn.js'
 import { type QueueResult, refuse } from './refusals.js'
-import { numericSourceId, parseAntiCheatSourceId } from '../../shared/service-queue/source-ids.js'
+import { numericSourceId, parseAntiCheatSourceId, parseStaffReportSourceId } from '../../shared/service-queue/source-ids.js'
 import { type StaffRole, actorOf, contextOf } from './types.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -57,6 +57,8 @@ async function runIdOf(item: QueueItem): Promise<string | null> {
 		case 'anti_cheat':
 			// Rows from before migration 0054 held the bare run id.
 			return parseAntiCheatSourceId(item.sourceId)?.runId ?? item.sourceId
+		case 'staff_report':
+			return parseStaffReportSourceId(item.sourceId)?.runId ?? null
 		default:
 			return null
 	}
@@ -212,6 +214,9 @@ const deps: DispatcherDeps<DbTransaction> = {
 }
 
 export const serviceQueueDispatcher = createDispatcher(deps)
+
+// Moves an item's source row (report, conflict, forfeit flag) along with the item.
+export const setSourceStatusOf = deps.setSourceStatus
 
 // ---------------------------------------------------------------------------
 // Claims

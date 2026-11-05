@@ -10,6 +10,7 @@ import { IntegrityEvidence } from './integrity-evidence'
 import { MatchConflictEvidence } from './match-conflict-evidence'
 import { ReportEvidence } from './report-evidence'
 import { Empty } from './shared'
+import { StaffReportEvidence } from './staff-report-evidence'
 
 // The server picks the evidence's shape by the item's type.
 const typed = (detail: ItemDetail) =>
@@ -45,5 +46,7 @@ export function ItemEvidence({
       return <IntegrityEvidence evidence={t.evidence} />
     case 'appeal':
       return <AppealEvidence evidence={t.evidence} />
+    case 'staff_report':
+      return <StaffReportEvidence evidence={t.evidence} names={names} />
   }
 }
