@@ -475,4 +475,84 @@ describe('admin_match_edit', () => {
 			/not found/i,
 		)
 	})
+
+	describe('Notifications', () => {
+		const contested = drawRun({
+			status: 'contested',
+			ratings: undefined,
+			rankedMode: undefined,
+			contest: { by: B, against: A, at: 1 },
+		})
+		const sent = (nk: {
+			notifications: { userId: string; content: unknown }[]
+		}) =>
+			nk.notifications.map((n) => ({ to: n.userId, ...(n.content as object) }))
+
+		it('tells a contest decision with each player their own result', () => {
+			const { nk, call } = world(contested, {})
+			call({ placements: aWins, decidesContest: true })
+			expect(sent(nk as never)).toMatchObject([
+				{
+					to: A,
+					kind: 'contest_decided',
+					params: { role: 'opponent', outcome: 'win' },
+				},
+				{
+					to: B,
+					kind: 'contest_decided',
+					params: { role: 'contester', outcome: 'loss' },
+				},
+			])
+		})
+
+		it('tells a contest keeping the reported result, once', () => {
+			const { nk, call } = world(contested, {})
+			call({ placements: drawRun().placements, decidesContest: true })
+			expect(sent(nk as never)).toHaveLength(2)
+			call({ placements: drawRun().placements, decidesContest: true })
+			expect(sent(nk as never)).toHaveLength(2)
+		})
+
+		it('tells nothing when a reopened contest is decided the same way, and tells a different decision', () => {
+			const { nk, call } = world(contested, {})
+			call({ placements: aWins, decidesContest: true })
+			call({ placements: aWins, decidesContest: true })
+			expect(sent(nk as never)).toHaveLength(2)
+			call({
+				placements: [
+					{ playerId: A, place: 2 },
+					{ playerId: B, place: 1 },
+				],
+				decidesContest: true,
+			})
+			expect(sent(nk as never)).toHaveLength(4)
+		})
+
+		it('tells a void and a set result from the match page without contest wording', () => {
+			const voided = world(drawRun(), { [A]: record(), [B]: record() })
+			voided.call({ void: true, season: 3 })
+			expect(
+				sent(voided.nk as never).map(
+					(n) => (n as unknown as { kind: string }).kind,
+				),
+			).toEqual(['result_voided', 'result_voided'])
+			const changed = world(drawRun(), { [A]: record(), [B]: record() })
+			changed.call({ placements: aWins, season: 3 })
+			expect(sent(changed.nk as never)).toMatchObject([
+				{ to: A, kind: 'result_changed', params: { outcome: 'win' } },
+				{ to: B, kind: 'result_changed', params: { outcome: 'loss' } },
+			])
+		})
+
+		it('tells a contest decided by a void with the void wording, and nobody twice', () => {
+			const { nk, call } = world(contested, {})
+			call({ void: true, decidesContest: true })
+			call({ void: true, decidesContest: true })
+			expect(sent(nk as never)).toMatchObject([
+				{ kind: 'result_voided' },
+				{ kind: 'result_voided' },
+			])
+			expect(sent(nk as never)).toHaveLength(2)
+		})
+	})
 })

@@ -8801,7 +8801,13 @@ var NotificationKind = {
   // A pending result ended after the player left.
   RESULT_LATE: "result_late",
   // A ranked result, told to every player it rated.
-  RESULT_RANKED: "result_ranked"
+  RESULT_RANKED: "result_ranked",
+  // A moderator decided a contested match.
+  CONTEST_DECIDED: "contest_decided",
+  // Staff voided a match.
+  RESULT_VOIDED: "result_voided",
+  // Staff set a match's result.
+  RESULT_CHANGED: "result_changed"
 };
 
 // src/notification/store.ts
@@ -10313,6 +10319,61 @@ function rpcAdminRatingsSet(ctx, logger, nk, payload) {
   return JSON.stringify({ written: written.length, cleared: cleared.length });
 }
 
+// src/notification/result_change.ts
+function outcomeOf2(placements, playerId) {
+  const own = placements.find((p) => p.playerId === playerId);
+  if (!own) return null;
+  const places = placements.map((p) => p.place);
+  const best = Math.min(...places);
+  if (own.place !== best) return "loss";
+  return Math.max(...places) === best && placements.length > 1 ? "draw" : "win";
+}
+function knownOutcome(before, playerId) {
+  var _a;
+  const told = (_a = before.told) == null ? void 0 : _a[playerId];
+  if (told) return told;
+  if (before.voided) return "void";
+  if (before.status === "contested") return null;
+  return outcomeOf2(before.placements, playerId);
+}
+function outcomeAfter(after, playerId) {
+  return after.voided ? "void" : outcomeOf2(after.placements, playerId);
+}
+function planResultNotifications(before, after, decidesContest) {
+  const sends = [];
+  const told = __spreadValues({}, before.told);
+  const contest2 = decidesContest ? before.contest : void 0;
+  for (const player of before.players) {
+    const now = outcomeAfter(after, player.id);
+    if (!now) continue;
+    if (now === knownOutcome(before, player.id)) continue;
+    told[player.id] = now;
+    if (now === "void") {
+      sends.push({
+        userId: player.id,
+        kind: NotificationKind.RESULT_VOIDED,
+        params: {}
+      });
+    } else if (contest2) {
+      sends.push({
+        userId: player.id,
+        kind: NotificationKind.CONTEST_DECIDED,
+        params: {
+          role: player.id === contest2.by ? "contester" : "opponent",
+          outcome: now
+        }
+      });
+    } else {
+      sends.push({
+        userId: player.id,
+        kind: NotificationKind.RESULT_CHANGED,
+        params: { outcome: now }
+      });
+    }
+  }
+  return { sends, told };
+}
+
 // src/rating/match_edit.ts
 var refuse2 = (refusal) => ({
   ok: false,
@@ -10492,6 +10553,7 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
       INVALID_ARGUMENT,
       "placements must be a list of {playerId, place}"
     );
+  const decidesContest = input.decidesContest === true;
   const season = input.season;
   if (season !== void 0 && (typeof season !== "number" || !Number.isInteger(season) || season < 1))
     throw runtimeError(INVALID_ARGUMENT, "season must be a positive integer");
@@ -10531,14 +10593,32 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
       now: Date.now()
     });
     if (!plan.ok) {
-      if (plan.refusal.kind === "unchanged")
+      if (plan.refusal.kind === "unchanged") {
+        const told2 = planResultNotifications(run, run, decidesContest);
+        if (told2.sends.length > 0) {
+          nk.storageWrite([
+            {
+              collection: RUNS_COLLECTION,
+              key: run.runId,
+              userId: SYSTEM_USER_ID,
+              value: __spreadProps(__spreadValues({}, run), { told: told2.told }),
+              permissionRead: 2,
+              permissionWrite: 0
+            }
+          ]);
+          for (const send of told2.sends)
+            sendNotification(nk, send.userId, send.kind, send.params);
+        }
         return JSON.stringify({
           run,
           changes: (_a = run.ratingChanges) != null ? _a : {},
           applied: false
         });
+      }
       throw runtimeError(INVALID_ARGUMENT, REFUSAL_TEXT[plan.refusal.kind]);
     }
+    const told = planResultNotifications(run, plan.run, decidesContest);
+    const storedRun = __spreadProps(__spreadValues({}, plan.run), { told: told.told });
     const key = myRunKey(run);
     const pointers = nk.storageRead(
       ids.map((id) => ({ collection: MY_RUNS_COLLECTION, key, userId: id }))
@@ -10548,7 +10628,7 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
         collection: RUNS_COLLECTION,
         key: run.runId,
         userId: SYSTEM_USER_ID,
-        value: plan.run,
+        value: storedRun,
         permissionRead: 2,
         permissionWrite: 0
       }
@@ -10604,6 +10684,8 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
         );
       }
     }
+    for (const send of told.sends)
+      sendNotification(nk, send.userId, send.kind, send.params);
     logger.info(
       "Run %s %s by staff",
       run.runId,
