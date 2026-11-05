@@ -4,7 +4,7 @@ import type { LadderSummary } from './strikes'
 
 const summary = (
   recommended: LadderSummary['recommended'],
-  applied: string[],
+  applied: string[]
 ): LadderSummary =>
   ({
     steps: ['warning', '24h', '7d', '30d', 'permanent'],
@@ -33,7 +33,7 @@ describe('ladderTrack', () => {
 
   test('the play ladder says Queue', () => {
     expect(ladderTrack('play', summary('warning', []))[1]?.label).toBe(
-      'Queue 24h',
+      'Queue 24h'
     )
   })
 
@@ -46,10 +46,10 @@ describe('ladderTrack', () => {
 describe('ladderSentence', () => {
   test('counts strikes and names the next step', () => {
     expect(ladderSentence('chat', summary('24h', ['warning']))).toBe(
-      '1 strike. Next step: Chat ban 24h.',
+      '1 strike. Next step: Chat ban 24h.'
     )
     expect(ladderSentence('play', summary('warning', []))).toBe(
-      '0 strikes. Next step: warning.',
+      '0 strikes. Next step: warning.'
     )
   })
 })

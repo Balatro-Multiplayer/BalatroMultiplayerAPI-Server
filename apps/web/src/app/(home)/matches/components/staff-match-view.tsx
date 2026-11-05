@@ -89,8 +89,7 @@ export function StaffMatchView({
   })
 
   const players = useMemo(
-    () =>
-      data.logs.map((l) => ({ id: l.playerId, name: l.displayName })),
+    () => data.logs.map((l) => ({ id: l.playerId, name: l.displayName })),
     [data.logs]
   )
   const back = backToQueueItem(fromItem, staff.data?.queueItems ?? [])
@@ -105,11 +104,17 @@ export function StaffMatchView({
     <div className='container max-w-6xl space-y-6 py-8'>
       <div className='space-y-3'>
         {back ? (
-          <Link href={back.href} className='text-bal-blue text-sm hover:underline'>
+          <Link
+            href={back.href}
+            className='text-bal-blue text-sm hover:underline'
+          >
             {back.text}
           </Link>
         ) : (
-          <Link href='/matches' className='text-bal-blue text-sm hover:underline'>
+          <Link
+            href='/matches'
+            className='text-bal-blue text-sm hover:underline'
+          >
             Back to matches
           </Link>
         )}
@@ -221,9 +226,7 @@ export function StaffMatchView({
               {!staff.data ? (
                 <Pending failed={staff.isError} />
               ) : staff.data.queueItems.length === 0 ? (
-                <p className='text-muted-foreground'>
-                  None about this match.
-                </p>
+                <p className='text-muted-foreground'>None about this match.</p>
               ) : (
                 staff.data.queueItems.map((item) => (
                   <div key={item.id} className='flex items-start gap-3'>
@@ -255,9 +258,7 @@ export function StaffMatchView({
               {!staff.data ? (
                 <Pending failed={staff.isError} />
               ) : staff.data.staffActions.length === 0 ? (
-                <p className='text-muted-foreground'>
-                  None on this match yet.
-                </p>
+                <p className='text-muted-foreground'>None on this match yet.</p>
               ) : (
                 staff.data.staffActions.map((a) => (
                   <div key={a.id} className='space-y-0.5'>
@@ -269,8 +270,7 @@ export function StaffMatchView({
                         {actionText(a.action)}
                       </Link>{' '}
                       <span className='text-muted-foreground'>
-                        by {a.staffName ?? 'unknown'},{' '}
-                        {ageText(a.at, now)} ago
+                        by {a.staffName ?? 'unknown'}, {ageText(a.at, now)} ago
                       </span>
                     </p>
                     <p className='text-muted-foreground text-xs'>{a.reason}</p>
@@ -321,9 +321,7 @@ function ResultTable({
 }) {
   if (!staff) return <Pending failed={state.isError} />
   if (!staff.result || staff.result.length === 0)
-    return (
-      <p className='text-muted-foreground text-sm'>No result recorded.</p>
-    )
+    return <p className='text-muted-foreground text-sm'>No result recorded.</p>
   return (
     <Table>
       <TableHeader>
@@ -351,9 +349,7 @@ function ResultTable({
             <TableCell
               className={cn(
                 'whitespace-normal px-2',
-                row.delta !== null &&
-                  row.delta > 0 &&
-                  'text-green-500',
+                row.delta !== null && row.delta > 0 && 'text-green-500',
                 row.delta !== null && row.delta < 0 && 'text-red-500'
               )}
             >
@@ -379,9 +375,7 @@ function ChatTab({
 }) {
   if (loading) return <p className='text-muted-foreground text-sm'>Loading…</p>
   if (failed || !chat)
-    return (
-      <p className='text-destructive text-sm'>Could not load the chat.</p>
-    )
+    return <p className='text-destructive text-sm'>Could not load the chat.</p>
   if (chat.lines.length === 0)
     return (
       <p className='text-muted-foreground text-sm'>

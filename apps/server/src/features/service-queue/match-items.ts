@@ -30,13 +30,29 @@ export interface MatchItemsDeps<Tx> {
 	// Whether the role sees an open item about the run; with tx, as of that transaction.
 	hasOpenItemFor(runId: string, role: StaffRole, tx?: Tx): Promise<boolean>
 	openItems(tx: Tx, runId: string): Promise<OpenItem[]>
-	markResolved(tx: Tx, itemId: number, actor: string, note: string, now: Date): Promise<boolean>
-	setSourceStatus(tx: Tx, item: OpenItem, status: 'voided' | 'resolved' | 'dismissed' | 'open', note: string): Promise<boolean>
-	recordEvent(tx: Tx, event: { itemId: number; actor: string; note: string; detail: unknown }): Promise<void>
+	markResolved(
+		tx: Tx,
+		itemId: number,
+		actor: string,
+		note: string,
+		now: Date,
+	): Promise<boolean>
+	setSourceStatus(
+		tx: Tx,
+		item: OpenItem,
+		status: 'voided' | 'resolved' | 'dismissed' | 'open',
+		note: string,
+	): Promise<boolean>
+	recordEvent(
+		tx: Tx,
+		event: { itemId: number; actor: string; note: string; detail: unknown },
+	): Promise<void>
 	enqueue(input: {
 		sourceId: string
 		summary: string
-		context: { staffReport: { runId: string; reporterId: string; note: string } }
+		context: {
+			staffReport: { runId: string; reporterId: string; note: string }
+		}
 	}): Promise<unknown>
 	now(): Date
 }
@@ -99,9 +115,17 @@ export const matchItemsDeps: MatchItemsDeps<DbTransaction> = {
 	hasOpenItemFor: hasOpenItemVisibleTo,
 	openItems: (tx, runId) => listOpenItemsAboutRun(tx, runId),
 	async markResolved(tx, itemId, actor, note, now) {
-		return !!(await markServiceQueueItemResolved(tx, itemId, actor, 'void', note, now))
+		return !!(await markServiceQueueItemResolved(
+			tx,
+			itemId,
+			actor,
+			'void',
+			note,
+			now,
+		))
 	},
-	setSourceStatus: (tx, item, status, note) => setSourceStatusOf(tx, item, status, note),
+	setSourceStatus: (tx, item, status, note) =>
+		setSourceStatusOf(tx, item, status, note),
 	recordEvent: (tx, event) =>
 		recordItemEvent(tx, { ...event, kind: 'acted', action: 'void' }),
 	enqueue: (input) =>

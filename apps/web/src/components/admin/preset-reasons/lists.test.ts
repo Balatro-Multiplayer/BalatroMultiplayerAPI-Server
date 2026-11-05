@@ -29,7 +29,9 @@ describe('list edits', () => {
 describe('listProblem', () => {
   test('empty text, long text and repeats are problems', () => {
     expect(listProblem(['a', ' ']) === null).toBe(false)
-    expect(listProblem(['x'.repeat(MAX_PRESET_LENGTH + 1)]) === null).toBe(false)
+    expect(listProblem(['x'.repeat(MAX_PRESET_LENGTH + 1)]) === null).toBe(
+      false
+    )
     expect(listProblem(['a', ' a']) === null).toBe(false)
     expect(listProblem(['a', 'b'])).toBeNull()
     expect(listProblem([])).toBeNull()

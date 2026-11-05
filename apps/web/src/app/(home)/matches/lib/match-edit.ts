@@ -34,7 +34,8 @@ export function matchBarActions(
   role: StaffRole,
   items: readonly Pick<StaffQueueItem, 'status'>[]
 ): BarAction[] {
-  if (role === 'admin' || hasOpenItem(items)) return [VOID_ACTION, RESULT_ACTION]
+  if (role === 'admin' || hasOpenItem(items))
+    return [VOID_ACTION, RESULT_ACTION]
   return [REPORT_ACTION]
 }
 

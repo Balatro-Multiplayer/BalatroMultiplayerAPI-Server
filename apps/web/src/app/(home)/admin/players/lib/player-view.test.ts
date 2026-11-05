@@ -1,10 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  accountAge,
-  historyOf,
-  lastActionsOf,
-  standingOf,
-} from './player-view'
+import { accountAge, historyOf, lastActionsOf, standingOf } from './player-view'
 import type { PlayerPage } from './types'
 
 const DAY = 86_400_000
@@ -14,8 +9,20 @@ const iso = (daysAgo: number) => new Date(NOW - daysAgo * DAY).toISOString()
 const page = {
   punishments: {
     bans: [
-      { id: 'b1', banType: 'chat', issuedAt: iso(5), expiresAt: iso(-2), liftedAt: null },
-      { id: 'b2', banType: 'queue', issuedAt: iso(30), expiresAt: iso(20), liftedAt: null },
+      {
+        id: 'b1',
+        banType: 'chat',
+        issuedAt: iso(5),
+        expiresAt: iso(-2),
+        liftedAt: null,
+      },
+      {
+        id: 'b2',
+        banType: 'queue',
+        issuedAt: iso(30),
+        expiresAt: iso(20),
+        liftedAt: null,
+      },
     ],
     warnings: [{ id: 'w1', issuedAt: iso(10) }],
   },
@@ -62,8 +69,8 @@ describe('standingOf', () => {
     const rows = Object.fromEntries(
       standingOf(
         { ...page, punishments: { bans: [], warnings: [] } } as PlayerPage,
-        NOW,
-      ),
+        NOW
+      )
     )
     expect(rows.Bans).toBe('none active')
   })
@@ -73,11 +80,32 @@ describe('lastActionsOf', () => {
   test('keeps the newest and words the action', () => {
     const out = lastActionsOf(
       [
-        { id: 1, staffName: 'Kyro', action: 'warn', itemId: null, reason: 'a', at: iso(5) },
-        { id: 2, staffName: null, action: 'dismiss', itemId: 3, reason: 'b', at: iso(2) },
-        { id: 3, staffName: 'Kyro', action: 'mod_pin', itemId: null, reason: 'c', at: iso(9) },
+        {
+          id: 1,
+          staffName: 'Kyro',
+          action: 'warn',
+          itemId: null,
+          reason: 'a',
+          at: iso(5),
+        },
+        {
+          id: 2,
+          staffName: null,
+          action: 'dismiss',
+          itemId: 3,
+          reason: 'b',
+          at: iso(2),
+        },
+        {
+          id: 3,
+          staffName: 'Kyro',
+          action: 'mod_pin',
+          itemId: null,
+          reason: 'c',
+          at: iso(9),
+        },
       ],
-      2,
+      2
     )
     expect(out.map((a) => [a.text, a.by])).toEqual([
       ['Item dismissed', 'unknown'],
@@ -88,8 +116,15 @@ describe('lastActionsOf', () => {
   test('an unknown action reads as plain words', () => {
     expect(
       lastActionsOf([
-        { id: 1, staffName: 'K', action: 'mod_pin', itemId: null, reason: '', at: iso(1) },
-      ])[0]?.text,
+        {
+          id: 1,
+          staffName: 'K',
+          action: 'mod_pin',
+          itemId: null,
+          reason: '',
+          at: iso(1),
+        },
+      ])[0]?.text
     ).toBe('mod pin')
   })
 })

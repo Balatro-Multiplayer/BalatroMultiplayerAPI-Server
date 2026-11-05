@@ -64,7 +64,9 @@ export default function ArchivesLayout({ children }: { children: ReactNode }) {
     <div className='w-full space-y-4 px-4 py-6'>
       <div className='flex flex-wrap items-end justify-between gap-2'>
         <div>
-          <h1 className='font-bold text-3xl tracking-tight'>Discord Archives</h1>
+          <h1 className='font-bold text-3xl tracking-tight'>
+            Discord Archives
+          </h1>
           <p className='text-muted-foreground text-sm'>
             Channel and forum exports copied onto the server by the archiver
             bot.
@@ -93,8 +95,8 @@ export default function ArchivesLayout({ children }: { children: ReactNode }) {
           <div className='min-h-0 flex-1 overflow-y-auto'>
             {archives.length === 0 ? (
               <p className='p-4 text-muted-foreground text-sm'>
-                No archives found. Archives must be copied onto the server
-                under ARCHIVE_DIR.
+                No archives found. Archives must be copied onto the server under
+                ARCHIVE_DIR.
               </p>
             ) : (
               archives.map((a) => (

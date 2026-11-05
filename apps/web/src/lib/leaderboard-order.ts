@@ -41,7 +41,8 @@ export function sortModesByEntries(
   counts: BoardCounts
 ): LeaderboardMode[] {
   return [...category.modes].sort(
-    (a, b) => modeEntries(category, b, counts) - modeEntries(category, a, counts)
+    (a, b) =>
+      modeEntries(category, b, counts) - modeEntries(category, a, counts)
   )
 }
 

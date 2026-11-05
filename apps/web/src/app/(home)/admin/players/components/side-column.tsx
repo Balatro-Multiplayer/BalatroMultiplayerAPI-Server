@@ -6,12 +6,12 @@ import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { formatTime } from '../../service-queue/lib/format'
 import { Empty } from '../../service-queue/components/evidence/shared'
-import { ladderSentence, ladderTrack, type StepState } from '../lib/ladder-track'
 import {
-  type LastAction,
-  lastActionsOf,
-  standingOf,
-} from '../lib/player-view'
+  ladderSentence,
+  ladderTrack,
+  type StepState,
+} from '../lib/ladder-track'
+import { type LastAction, lastActionsOf, standingOf } from '../lib/player-view'
 import { LADDER_LABELS, LADDERS } from '../lib/strikes'
 import type { PlayerLogEntry, PlayerPage } from '../lib/types'
 
@@ -49,7 +49,7 @@ function Ladder({
             data-state={s.state}
             className={cn(
               'rounded border px-2 py-1 text-xs',
-              STEP_STYLE[s.state],
+              STEP_STYLE[s.state]
             )}
           >
             {s.label}
@@ -68,7 +68,7 @@ export function useLastActions(playerId: string) {
     queryKey: ['admin-player-log', playerId],
     queryFn: async () => {
       const r = await apiFetch<{ entries: PlayerLogEntry[] }>(
-        `/webadmin/staff-log?player=${playerId}&limit=5`,
+        `/webadmin/staff-log?player=${playerId}&limit=5`
       )
       return lastActionsOf(r.entries)
     },

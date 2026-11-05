@@ -70,7 +70,7 @@ export function pageOf(params: URLSearchParams): number {
 // The page's search params; empty filters and page 1 are left out.
 export function paramsOfFilters(
   filters: Filters,
-  page: number,
+  page: number
 ): URLSearchParams {
   const params = new URLSearchParams()
   if (filters.staff.trim()) params.set('staff', filters.staff.trim())
@@ -88,7 +88,7 @@ export function paramsOfFilters(
 export function apiQuery(
   filters: Filters,
   page: number,
-  limit: number,
+  limit: number
 ): string {
   const params = new URLSearchParams({
     page: String(page),
@@ -142,7 +142,9 @@ export function dayKey(date: Date): string {
 }
 
 function daysAgo(now: Date, days: number): string {
-  return dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - days))
+  return dayKey(
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() - days)
+  )
 }
 
 const sameActions = (a: string[], b: string[]) =>
@@ -152,7 +154,7 @@ export function chipActive(
   chip: ChipKey,
   filters: Filters,
   now: Date,
-  myId: string | null,
+  myId: string | null
 ): boolean {
   const today = daysAgo(now, 0)
   if (chip === 'today') return filters.from === today && filters.to === today
@@ -167,7 +169,7 @@ export function toggleChip(
   chip: ChipKey,
   filters: Filters,
   now: Date,
-  myId: string | null,
+  myId: string | null
 ): Filters {
   const on = chipActive(chip, filters, now, myId)
   if (chip === 'today')
@@ -195,8 +197,18 @@ export interface DayGroup {
 }
 
 const MONTHS = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ]
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 

@@ -38,7 +38,7 @@ describe('playerBarActions', () => {
 
   test('an admin also bans accounts and lifts when something can be lifted', () => {
     expect(playerBarActions(true, true).map((a) => a.key)).toContain(
-      'account_ban',
+      'account_ban'
     )
     expect(playerBarActions(true, true).map((a) => a.key)).toContain('lift')
     expect(playerBarActions(true, false).map((a) => a.key)).toEqual([
@@ -75,28 +75,48 @@ describe('wantedPick', () => {
 describe('deviatesFrom', () => {
   test('a ban at the ladder step does not deviate', () => {
     expect(
-      deviatesFrom({ action: 'chat_ban', length: '24h' }, 'play', strikes('24h', 'warning')),
+      deviatesFrom(
+        { action: 'chat_ban', length: '24h' },
+        'play',
+        strikes('24h', 'warning')
+      )
     ).toBeNull()
   })
 
   test('another length returns the step the ladder wants', () => {
     expect(
-      deviatesFrom({ action: 'chat_ban', length: '30d' }, 'play', strikes('24h', 'warning')),
+      deviatesFrom(
+        { action: 'chat_ban', length: '30d' },
+        'play',
+        strikes('24h', 'warning')
+      )
     ).toBe('24h')
   })
 
   test('a warning is judged on the chosen ladder', () => {
     expect(
-      deviatesFrom({ action: 'warn', length: null }, 'chat', strikes('24h', 'warning')),
+      deviatesFrom(
+        { action: 'warn', length: null },
+        'chat',
+        strikes('24h', 'warning')
+      )
     ).toBe('24h')
     expect(
-      deviatesFrom({ action: 'warn', length: null }, 'play', strikes('24h', 'warning')),
+      deviatesFrom(
+        { action: 'warn', length: null },
+        'play',
+        strikes('24h', 'warning')
+      )
     ).toBeNull()
   })
 
   test('a note and an account ban are on no ladder', () => {
     expect(
-      deviatesFrom({ action: 'account_ban', length: 'permanent' }, 'play', strikes('24h', 'warning')),
+      deviatesFrom(
+        { action: 'account_ban', length: 'permanent' },
+        'play',
+        strikes('24h', 'warning')
+      )
     ).toBeNull()
   })
 })
@@ -187,7 +207,11 @@ describe('requestFor', () => {
 
   test('lifting needs a target and deletes it with the note', () => {
     expect(
-      requestFor({ ...base, isAdmin: true, pick: { action: 'lift', length: null } }).ok,
+      requestFor({
+        ...base,
+        isAdmin: true,
+        pick: { action: 'lift', length: null },
+      }).ok
     ).toBe(false)
     expect(
       sent({
@@ -195,7 +219,7 @@ describe('requestFor', () => {
         isAdmin: true,
         lift: { kind: 'warning', id: 'w1' },
         pick: { action: 'lift', length: null },
-      }),
+      })
     ).toEqual({
       method: 'DELETE',
       path: '/webadmin/players/p1/warnings/w1',

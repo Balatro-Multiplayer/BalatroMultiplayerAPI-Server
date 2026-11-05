@@ -1,7 +1,4 @@
-import type {
-  ModProfile,
-  ModSummary,
-} from '../components/ranked-mods-types'
+import type { ModProfile, ModSummary } from '../components/ranked-mods-types'
 
 export type ModFilter =
   | 'pinned'

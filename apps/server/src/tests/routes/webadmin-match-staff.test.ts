@@ -27,7 +27,7 @@ function authAs(playerId: string, privileges: string[]) {
 	createSession(playerId, { id: playerId })
 	vi.mocked(playerGateway.findPlayerById).mockResolvedValue({
 		privileges,
-	} as any)
+	} as never)
 	return `Bearer ${signJwt({ playerId, steamName: playerId })}`
 }
 
@@ -121,7 +121,7 @@ describe('GET /api/webadmin/matches/:runId/staff', () => {
 				createdAt: new Date('2026-11-01T11:00:00Z'),
 				claimedBy: 'moderator:mod-1',
 				claimedUntil: new Date(Date.now() + 60_000),
-			} as any,
+			} as never,
 		])
 		vi.mocked(gateway.listStaffActionsForRun).mockResolvedValue([])
 	})
@@ -139,7 +139,7 @@ describe('GET /api/webadmin/matches/:runId/staff', () => {
 			.get(`/api/webadmin/matches/${RUN}/staff`)
 			.set('Authorization', authAs('mod-1', ['moderator']))
 		expect(res.status).toBe(200)
-		expect(res.body.result.map((r: any) => r.playerId)).toEqual(['p1', 'p2'])
+		expect(res.body.result.map((r: { playerId: string }) => r.playerId)).toEqual(['p1', 'p2'])
 		expect(res.body.result[0]).toMatchObject({
 			displayName: 'SWIM',
 			delta: 23,

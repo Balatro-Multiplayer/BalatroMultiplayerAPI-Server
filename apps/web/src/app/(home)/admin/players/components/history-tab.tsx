@@ -74,7 +74,9 @@ function Entry({
       <Row>
         <div className='flex items-start justify-between gap-2'>
           <div>
-            <Badge variant={w.liftedAt ? 'outline' : 'secondary'}>warning</Badge>{' '}
+            <Badge variant={w.liftedAt ? 'outline' : 'secondary'}>
+              warning
+            </Badge>{' '}
             {w.message}
             <p className='text-muted-foreground text-xs'>
               Given by {w.issuedByName ?? 'unknown'} on {formatTime(w.issuedAt)}
@@ -121,7 +123,8 @@ function Entry({
       <Row>
         <Badge variant='outline'>note</Badge> {entry.note.note}
         <p className='text-muted-foreground text-xs'>
-          {entry.note.authorName ?? 'unknown'}, {formatTime(entry.note.createdAt)}
+          {entry.note.authorName ?? 'unknown'},{' '}
+          {formatTime(entry.note.createdAt)}
         </p>
       </Row>
     )

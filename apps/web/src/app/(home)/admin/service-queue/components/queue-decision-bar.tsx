@@ -55,7 +55,7 @@ import type {
 function overturnSides(detail: ItemDetail): { playerId: string }[] {
   if (detail.item.itemType === 'contest')
     return ((detail.evidence as ContestEvidence | null)?.players ?? []).map(
-      (p) => ({ playerId: p.id }),
+      (p) => ({ playerId: p.id })
     )
   if (detail.item.itemType !== 'match_conflict') return []
   return (detail.evidence as MatchConflictEvidence | null)?.sides ?? []
@@ -124,7 +124,7 @@ export function QueueDecisionBar({
   const all = useMemo(() => barActionsOf(detail), [detail])
   const actions = useMemo(
     () => (heldByOther ? all.filter((a) => a.key === 'note') : all),
-    [all, heldByOther],
+    [all, heldByOther]
   )
 
   // The strikes of whoever the punishment lands on.
@@ -136,7 +136,7 @@ export function QueueDecisionBar({
   const ladder = strikes.data?.strikes
   const wanted = useMemo(
     () => recommendedPick(itemType, actions, ladder),
-    [itemType, actions, ladder],
+    [itemType, actions, ladder]
   )
   const bar = useDecisionBar(actions, wanted, itemId)
   const { pick, note } = bar
@@ -186,7 +186,7 @@ export function QueueDecisionBar({
       toast.error(
         err instanceof ApiError && typeof err.body.message === 'string'
           ? err.body.message
-          : refusalText(refusalCodeOf(err), err.message),
+          : refusalText(refusalCodeOf(err), err.message)
       )
       qc.invalidateQueries({ queryKey: queueKeys.all })
     }
@@ -210,7 +210,7 @@ export function QueueDecisionBar({
         onUndo,
         onDone: (r) =>
           done(
-            `Appeal ${(r as { appeal: { status: string } }).appeal.status}.`,
+            `Appeal ${(r as { appeal: { status: string } }).appeal.status}.`
           ),
         onError: failed,
       })

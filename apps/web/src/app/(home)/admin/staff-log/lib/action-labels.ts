@@ -59,9 +59,14 @@ export type Tone = 'red' | 'amber' | 'green' | 'blue' | 'plain'
 export function toneOf(action: string): Tone {
   if (['chat_ban', 'queue_ban', 'account_ban', 'lobby_close'].includes(action))
     return 'red'
-  if (['warn', 'void', 'match_void', 'overturn', 'match_result'].includes(action))
+  if (
+    ['warn', 'void', 'match_void', 'overturn', 'match_result'].includes(action)
+  )
     return 'amber'
-  if (action.startsWith('lift') || ['dismiss', 'resolve', 'appeal_grant'].includes(action))
+  if (
+    action.startsWith('lift') ||
+    ['dismiss', 'resolve', 'appeal_grant'].includes(action)
+  )
     return 'green'
   if (['note', 'reopen'].includes(action)) return 'blue'
   return 'plain'

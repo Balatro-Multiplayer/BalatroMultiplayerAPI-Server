@@ -50,7 +50,8 @@ export function MatchesTab({
 
 // Every queue item about the player, open and closed.
 export function ReportsTab({ items }: { items: PageQueueItem[] }) {
-  if (items.length === 0) return <Empty>No queue items about this player.</Empty>
+  if (items.length === 0)
+    return <Empty>No queue items about this player.</Empty>
   return (
     <ul className='space-y-1'>
       {items.map((i) => (

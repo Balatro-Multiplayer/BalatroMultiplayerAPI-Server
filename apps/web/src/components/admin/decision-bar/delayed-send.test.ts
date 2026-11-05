@@ -28,7 +28,7 @@ function fakeTimers() {
 function job(
   sent: string[],
   name: string,
-  extra: Partial<SendJob> = {},
+  extra: Partial<SendJob> = {}
 ): SendJob {
   return {
     label: name,

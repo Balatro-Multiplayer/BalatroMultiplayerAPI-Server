@@ -49,7 +49,7 @@ export function LogRow({ entry, now }: { entry: StaffLogEntry; now: Date }) {
         <span
           className={cn(
             'inline-block rounded border px-2 py-0.5 font-medium text-xs',
-            TONES[toneOf(entry.action)],
+            TONES[toneOf(entry.action)]
           )}
         >
           {STAFF_ACTION_LABELS[entry.action] ?? entry.action}

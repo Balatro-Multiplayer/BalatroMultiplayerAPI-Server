@@ -49,7 +49,7 @@ const ACTION_LABEL: Record<PlayerAction, string> = {
 // lifts bans and warnings (there must be one to lift).
 export function playerBarActions(
   isAdmin: boolean,
-  canLift: boolean,
+  canLift: boolean
 ): BarAction[] {
   const all: BarAction[] = [
     { key: 'note', label: ACTION_LABEL.note },
@@ -85,7 +85,7 @@ export const ladderOfAction = (action: string): Ladder | null =>
 // (24h when the next step is only a warning).
 export function wantedPick(
   action: PlayerAction,
-  strikes: StrikeSummary | undefined,
+  strikes: StrikeSummary | undefined
 ): BarPick {
   const ladder = ladderOfAction(action)
   if (!ladder) return { action, length: null }
@@ -105,7 +105,7 @@ function appliedStep(pick: BarPick, warnLadder: Ladder) {
 export function deviatesFrom(
   pick: BarPick | null,
   warnLadder: Ladder,
-  strikes: StrikeSummary | undefined,
+  strikes: StrikeSummary | undefined
 ): LadderStep | null {
   if (!pick || !strikes) return null
   const applied = appliedStep(pick, warnLadder)
@@ -185,7 +185,12 @@ export function requestFor(input: {
       },
     }
   }
-  const type = action === 'chat_ban' ? 'chat' : action === 'queue_ban' ? 'queue' : 'account'
+  const type =
+    action === 'chat_ban'
+      ? 'chat'
+      : action === 'queue_ban'
+        ? 'queue'
+        : 'account'
   const ladder = ladderOfAction(action)
   const expiresAt =
     input.isAdmin && input.endsOn

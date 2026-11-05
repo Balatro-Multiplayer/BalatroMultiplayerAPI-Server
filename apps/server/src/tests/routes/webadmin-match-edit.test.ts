@@ -98,9 +98,9 @@ describe('match edit routes', () => {
 		vi.mocked(matchStaff.hasOpenItemVisibleTo).mockResolvedValueOnce(true).mockResolvedValueOnce(false)
 		vi.mocked(matchEditorFor).mockImplementation(
 			(inTransaction) => (async () => {
-				await inTransaction?.('tx' as any, { resultPlacements: [] } as any, [])
+				await inTransaction?.('tx' as never, { resultPlacements: [] } as never, [])
 				return edited
-			}) as any,
+			}) as never,
 		)
 		const res = await request(app)
 			.post('/api/webadmin/matches/m1/void')
@@ -124,8 +124,8 @@ describe('match edit routes', () => {
 		vi.mocked(matchStaff.listOpenItemsAboutRun).mockResolvedValue([
 			{ id: 7, itemType: 'contest', sourceId: 'm1' },
 			{ id: 8, itemType: 'staff_report', sourceId: 'm1:1' },
-		] as any)
-		vi.mocked(queueGateway.markServiceQueueItemResolved).mockResolvedValue({} as any)
+		] as never)
+		vi.mocked(queueGateway.markServiceQueueItemResolved).mockResolvedValue({} as never)
 		await request(app)
 			.post('/api/webadmin/matches/m1/void')
 			.set('Authorization', authAs('adm', ['admin']))
@@ -152,8 +152,8 @@ describe('match edit routes', () => {
 
 	describe('report to admins', () => {
 		beforeEach(() => {
-			vi.mocked(matchStaff.findRunWindow).mockResolvedValue({ runId: 'm1' } as any)
-			vi.mocked(queueGateway.enqueueServiceQueueItem).mockReset().mockResolvedValue({} as any)
+			vi.mocked(matchStaff.findRunWindow).mockResolvedValue({ runId: 'm1' } as never)
+			vi.mocked(queueGateway.enqueueServiceQueueItem).mockReset().mockResolvedValue({} as never)
 		})
 
 		it('makes a staff report item from a moderator note', async () => {

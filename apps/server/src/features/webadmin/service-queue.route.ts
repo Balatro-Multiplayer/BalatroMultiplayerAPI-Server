@@ -110,14 +110,14 @@ router.get('/service-queue', async (req, res, next) => {
 				itemTypes: visibleTypes,
 				status,
 				subject,
-				claimedBy: claimedByMe ? req.player!.playerId : undefined,
-				hideClaimedFrom: hideClaimed ? req.player!.playerId : undefined,
+				claimedBy: claimedByMe ? staff.playerId : undefined,
+				hideClaimedFrom: hideClaimed ? staff.playerId : undefined,
 				olderThanMs: olderThanHours > 0 ? olderThanHours * 60 * 60 * 1000 : undefined,
 				sort,
 				now,
 			}),
 			openCountsByType(visibleTypes),
-			countClaimedByOthers(req.player!.playerId, now, visibleTypes),
+			countClaimedByOthers(staff.playerId, now, visibleTypes),
 		])
 		const names = await actorNames(items.map((item) => activeClaimant(item, now)))
 		res.json({

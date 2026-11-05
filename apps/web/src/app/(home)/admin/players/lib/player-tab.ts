@@ -41,7 +41,7 @@ type ItemRef = { id: number; itemType: string }
 // item's type names the link when it is one of this player's items.
 export function backToQueueItem(
   itemId: number | null,
-  items: readonly ItemRef[],
+  items: readonly ItemRef[]
 ): { href: string; text: string } | null {
   if (itemId === null) return null
   const type = items.find((i) => i.id === itemId)?.itemType
@@ -57,6 +57,8 @@ export function backToQueueItem(
 // The type of the item staff came from, if it is among the player's items.
 export const sourceTypeOf = (
   itemId: number | null,
-  items: readonly ItemRef[],
+  items: readonly ItemRef[]
 ): string | null =>
-  itemId === null ? null : (items.find((i) => i.id === itemId)?.itemType ?? null)
+  itemId === null
+    ? null
+    : (items.find((i) => i.id === itemId)?.itemType ?? null)

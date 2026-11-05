@@ -23,7 +23,7 @@ export function nextStepText(ladder: Ladder, step: LadderStep): string {
 
 export function ladderTrack(
   ladder: Ladder,
-  summary: LadderSummary,
+  summary: LadderSummary
 ): { step: LadderStep; label: string; state: StepState }[] {
   const used = new Set(summary.counting.map((s) => s.appliedStep))
   return summary.steps.map((step) => ({

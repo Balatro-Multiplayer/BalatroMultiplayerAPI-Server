@@ -25,10 +25,10 @@ import {
 export function useDecisionBar(
   actions: readonly BarAction[],
   wanted: BarPick | null,
-  resetKey: string | number,
+  resetKey: string | number
 ) {
   const [pick, setPick] = useState<BarPick | null>(() =>
-    openingPick(actions, wanted),
+    openingPick(actions, wanted)
   )
   const [note, setNote] = useState('')
   const wantedKey = `${wanted?.action}:${wanted?.length}`
@@ -125,7 +125,7 @@ export function DecisionBar({
                     ? a.destructive
                       ? 'border-destructive bg-destructive text-white'
                       : 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border bg-card hover:bg-accent',
+                    : 'border-border bg-card hover:bg-accent'
                 )}
               >
                 {a.label}
@@ -184,7 +184,7 @@ export function DecisionBar({
             'rounded-md px-4 py-2 text-center sm:min-w-40 sm:py-1 font-semibold text-sm leading-tight disabled:opacity-50',
             picked?.destructive
               ? 'bg-destructive text-white'
-              : 'bg-primary text-primary-foreground',
+              : 'bg-primary text-primary-foreground'
           )}
         >
           <span className='block'>{title}</span>
@@ -211,7 +211,7 @@ export function UndoStrip({
   const pending = useSyncExternalStore(
     sender.subscribe,
     sender.getSnapshot,
-    () => null,
+    () => null
   )
   const [left, setLeft] = useState(0)
   useEffect(() => {
@@ -228,7 +228,7 @@ export function UndoStrip({
     <div
       className={cn(
         'flex items-center gap-3 border-border border-b bg-sky-950/60 px-4 py-3 text-sm',
-        className,
+        className
       )}
       data-testid='undo-strip'
       role='status'

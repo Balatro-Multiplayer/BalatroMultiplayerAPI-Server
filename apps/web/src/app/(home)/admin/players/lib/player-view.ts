@@ -23,36 +23,46 @@ const time = (iso: string) => new Date(iso).getTime()
 // Punishments, appeals, staff notes and launcher failures, newest first.
 export function historyOf(page: PlayerPage): HistoryEntry[] {
   const entries: HistoryEntry[] = [
-    ...page.punishments.bans.map((ban): HistoryEntry => ({
-      kind: 'ban',
-      key: `ban:${ban.id}`,
-      at: ban.issuedAt,
-      ban,
-    })),
-    ...page.punishments.warnings.map((warning): HistoryEntry => ({
-      kind: 'warning',
-      key: `warning:${warning.id}`,
-      at: warning.issuedAt,
-      warning,
-    })),
-    ...page.appeals.map((appeal): HistoryEntry => ({
-      kind: 'appeal',
-      key: `appeal:${appeal.id}`,
-      at: appeal.createdAt,
-      appeal,
-    })),
-    ...page.notes.map((note): HistoryEntry => ({
-      kind: 'note',
-      key: `note:${note.id}`,
-      at: note.createdAt,
-      note,
-    })),
-    ...page.integrityEvents.map((event): HistoryEntry => ({
-      kind: 'integrity',
-      key: `integrity:${event.id}`,
-      at: event.occurredAt,
-      event,
-    })),
+    ...page.punishments.bans.map(
+      (ban): HistoryEntry => ({
+        kind: 'ban',
+        key: `ban:${ban.id}`,
+        at: ban.issuedAt,
+        ban,
+      })
+    ),
+    ...page.punishments.warnings.map(
+      (warning): HistoryEntry => ({
+        kind: 'warning',
+        key: `warning:${warning.id}`,
+        at: warning.issuedAt,
+        warning,
+      })
+    ),
+    ...page.appeals.map(
+      (appeal): HistoryEntry => ({
+        kind: 'appeal',
+        key: `appeal:${appeal.id}`,
+        at: appeal.createdAt,
+        appeal,
+      })
+    ),
+    ...page.notes.map(
+      (note): HistoryEntry => ({
+        kind: 'note',
+        key: `note:${note.id}`,
+        at: note.createdAt,
+        note,
+      })
+    ),
+    ...page.integrityEvents.map(
+      (event): HistoryEntry => ({
+        kind: 'integrity',
+        key: `integrity:${event.id}`,
+        at: event.occurredAt,
+        event,
+      })
+    ),
   ]
   return entries.sort((a, b) => time(b.at) - time(a.at))
 }
@@ -82,7 +92,7 @@ export function standingOf(
   page: Pick<PlayerPage, 'punishments' | 'matchTotal'> & {
     player: Pick<PagePlayer, 'createdAt' | 'chatEnabled' | 'chatBlocked'>
   },
-  now: number,
+  now: number
 ): [string, string][] {
   const active = page.punishments.bans.filter((b) => isActiveBan(b, now))
   return [
@@ -136,7 +146,7 @@ export interface LastAction {
 
 export function lastActionsOf(
   entries: readonly PlayerLogEntry[],
-  limit = 5,
+  limit = 5
 ): LastAction[] {
   return [...entries]
     .sort((a, b) => time(b.at) - time(a.at))

@@ -42,7 +42,7 @@ describe('filters in the URL', () => {
     }
     const params = paramsOfFilters(filters, 3)
     expect(params.toString()).toBe(
-      'staff=Ann&action=void%2Cmatch_void&from=2026-10-28&to=2026-11-04&page=3',
+      'staff=Ann&action=void%2Cmatch_void&from=2026-10-28&to=2026-11-04&page=3'
     )
     expect(filtersOf(params)).toEqual(filters)
     expect(pageOf(params)).toBe(3)
@@ -57,7 +57,7 @@ describe('filters in the URL', () => {
 
   test('the API query makes the "to" day inclusive', () => {
     const query = new URLSearchParams(
-      apiQuery({ ...NO_FILTERS, from: '2026-10-28', to: '2026-11-04' }, 2, 50),
+      apiQuery({ ...NO_FILTERS, from: '2026-10-28', to: '2026-11-04' }, 2, 50)
     )
     expect(query.get('from')).toBe('2026-10-28T00:00:00.000Z')
     expect(query.get('to')).toBe('2026-11-05T00:00:00.000Z')
@@ -96,7 +96,7 @@ describe('rows', () => {
         entry({ id: 1, at: new Date(2026, 10, 3, 22, 10).toISOString() }),
         entry({ id: 0, at: new Date(2026, 10, 1, 8, 0).toISOString() }),
       ],
-      now,
+      now
     )
     expect(groups.map((g) => g.label)).toEqual([
       'Today, 4 Nov',
@@ -108,7 +108,9 @@ describe('rows', () => {
 
   test('shows the time since only inside the last day', () => {
     expect(agoOf(entry().at, now)).toBe('28 min ago')
-    expect(agoOf(new Date(2026, 10, 4, 12, 0).toISOString(), now)).toBe('3 h ago')
+    expect(agoOf(new Date(2026, 10, 4, 12, 0).toISOString(), now)).toBe(
+      '3 h ago'
+    )
     expect(agoOf(new Date(2026, 10, 3, 12, 0).toISOString(), now)).toBe('')
   })
 
@@ -116,15 +118,18 @@ describe('rows', () => {
     expect(sourceLinks(entry())).toEqual([])
     expect(
       sourceLinks(
-        entry({ itemId: 7, itemType: 'flagged_chat', detail: { runId: 'r1' } }),
-      ),
+        entry({ itemId: 7, itemType: 'flagged_chat', detail: { runId: 'r1' } })
+      )
     ).toEqual([
       { label: 'Match', href: '/matches/r1' },
-      { label: 'Queue item: Flagged chat', href: '/admin/service-queue?item=7' },
+      {
+        label: 'Queue item: Flagged chat',
+        href: '/admin/service-queue?item=7',
+      },
     ])
     expect(sourceLinks(entry({ itemId: 9 }))[0]?.label).toBe('Queue item #9')
     expect(sourceLinks(entry({ detail: { matchId: 'm2' } }))[0]?.href).toBe(
-      '/matches/m2',
+      '/matches/m2'
     )
   })
 })

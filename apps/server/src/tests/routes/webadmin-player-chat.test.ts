@@ -1,10 +1,13 @@
 import request from 'supertest'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../infrastructure/gateways/player-page.gateway.js', async (importOriginal) => ({
-	...(await importOriginal<object>()),
-	listPlayerChatPage: vi.fn(),
-}))
+vi.mock(
+	'../../infrastructure/gateways/player-page.gateway.js',
+	async (importOriginal) => ({
+		...(await importOriginal<object>()),
+		listPlayerChatPage: vi.fn(),
+	}),
+)
 
 import { signJwt } from '../../features/auth/jwt.js'
 import * as pageGateway from '../../infrastructure/gateways/player-page.gateway.js'
@@ -18,12 +21,19 @@ const RUN = '11111111-1111-4111-8111-111111111111'
 
 function authAs(playerId: string, privileges: string[]) {
 	createSession(playerId, { id: playerId })
-	vi.mocked(playerGateway.findPlayerById).mockImplementation((async (id: string) =>
-		id === TARGET || id === playerId ? { id, privileges } : null) as any)
+	vi.mocked(playerGateway.findPlayerById).mockImplementation((async (
+		id: string,
+	) => (id === TARGET || id === playerId ? { id, privileges } : null)) as never)
 	return `Bearer ${signJwt({ playerId, steamName: playerId })}`
 }
 
-const line = (id: number, lobbyId: string | null, lobbyCode: string, flagged = false, runId: string | null = null) => ({
+const line = (
+	id: number,
+	lobbyId: string | null,
+	lobbyCode: string,
+	flagged = false,
+	runId: string | null = null,
+) => ({
 	id,
 	lobbyId,
 	lobbyCode,
@@ -34,7 +44,10 @@ const line = (id: number, lobbyId: string | null, lobbyCode: string, flagged = f
 })
 
 beforeEach(() => {
-	vi.mocked(pageGateway.listPlayerChatPage).mockResolvedValue({ lines: [], total: 0 })
+	vi.mocked(pageGateway.listPlayerChatPage).mockResolvedValue({
+		lines: [],
+		total: 0,
+	})
 })
 
 describe('GET /api/webadmin/players/:id/chat', () => {
@@ -53,9 +66,14 @@ describe('GET /api/webadmin/players/:id/chat', () => {
 	})
 
 	it('pages the player chat and passes the page, size and flagged-first choice on', async () => {
-		vi.mocked(pageGateway.listPlayerChatPage).mockResolvedValue({ lines: [], total: 205 })
+		vi.mocked(pageGateway.listPlayerChatPage).mockResolvedValue({
+			lines: [],
+			total: 205,
+		})
 		const res = await request(app)
-			.get(`/api/webadmin/players/${TARGET}/chat?page=2&limit=50&flaggedFirst=true`)
+			.get(
+				`/api/webadmin/players/${TARGET}/chat?page=2&limit=50&flaggedFirst=true`,
+			)
 			.set('Authorization', authAs('mod-1', ['moderator']))
 		expect(res.status).toBe(200)
 		expect(pageGateway.listPlayerChatPage).toHaveBeenCalledWith(TARGET, {
@@ -92,9 +110,17 @@ describe('GET /api/webadmin/players/:id/chat', () => {
 			.set('Authorization', authAs('mod-1', ['moderator']))
 		const groups = res.body.groups
 		expect(groups).toHaveLength(3)
-		expect(groups[0]).toMatchObject({ lobbyCode: 'BBB', runId: RUN, flagged: true })
+		expect(groups[0]).toMatchObject({
+			lobbyCode: 'BBB',
+			runId: RUN,
+			flagged: true,
+		})
 		expect(groups[0].lines.map((l: { id: number }) => l.id)).toEqual([5, 4])
-		expect(groups[1]).toMatchObject({ lobbyCode: 'AAA', runId: null, flagged: false })
+		expect(groups[1]).toMatchObject({
+			lobbyCode: 'AAA',
+			runId: null,
+			flagged: false,
+		})
 		expect(groups[2]).toMatchObject({ lobbyCode: 'CCC', runId: null })
 	})
 })

@@ -19,7 +19,7 @@ const allowed = (action: string, presets?: string[]) => ({
 const detail = (
   itemType: string,
   allowedActions: ReturnType<typeof allowed>[],
-  extra: Record<string, unknown> = {},
+  extra: Record<string, unknown> = {}
 ) =>
   ({
     item: { itemType, status: 'open' },
@@ -31,14 +31,14 @@ const detail = (
 describe('barActionsOf', () => {
   test('shows only the actions the server allows', () => {
     const bar = barActionsOf(
-      detail('report', [allowed('dismiss'), allowed('warn')]),
+      detail('report', [allowed('dismiss'), allowed('warn')])
     )
     expect(bar.map((a) => a.key)).toEqual(['dismiss', 'warn'])
   })
 
   test('gives a ban its allowed lengths', () => {
     const [ban] = barActionsOf(
-      detail('report', [allowed('chat_mute', ['24h', '7d'])]),
+      detail('report', [allowed('chat_mute', ['24h', '7d'])])
     )
     expect(ban?.lengths?.map((l) => l.key)).toEqual(['24h', '7d'])
   })
@@ -59,7 +59,7 @@ describe('barActionsOf', () => {
     const bar = barActionsOf(
       detail('appeal', [], {
         appealDecisions: { deny: true, grant: false },
-      }),
+      })
     )
     expect(bar.map((a) => a.key)).toEqual(['appeal:deny'])
   })
@@ -71,11 +71,11 @@ describe('recommendedPick', () => {
       allowed('warn'),
       allowed('chat_mute', ['24h', '7d']),
       allowed('queue_ban', ['24h', '7d']),
-    ]),
+    ])
   )
   test('a chat item selects the chat ban at the chat ladder step', () => {
     expect(
-      recommendedPick('flagged_chat', actions, strikes('24h', '7d')),
+      recommendedPick('flagged_chat', actions, strikes('24h', '7d'))
     ).toEqual({
       action: 'chat_mute',
       length: '24h',
@@ -89,7 +89,7 @@ describe('recommendedPick', () => {
   })
   test('the first step is the warning', () => {
     expect(
-      recommendedPick('flagged_chat', actions, strikes('warning', 'warning')),
+      recommendedPick('flagged_chat', actions, strikes('warning', 'warning'))
     ).toEqual({ action: 'warn', length: null })
   })
   test('is null before the ladder loads or when the bar has no such button', () => {
@@ -104,8 +104,8 @@ describe('deviatesFrom', () => {
       deviatesFrom(
         { action: 'chat_mute', length: '24h' },
         'flagged_chat',
-        strikes('24h', '24h'),
-      ),
+        strikes('24h', '24h')
+      )
     ).toBeNull()
   })
   test('names the recommended step for another step', () => {
@@ -113,8 +113,8 @@ describe('deviatesFrom', () => {
       deviatesFrom(
         { action: 'chat_mute', length: '7d' },
         'flagged_chat',
-        strikes('24h', '24h'),
-      ),
+        strikes('24h', '24h')
+      )
     ).toBe('24h')
   })
   test('is null for an action that is no strike', () => {
@@ -122,8 +122,8 @@ describe('deviatesFrom', () => {
       deviatesFrom(
         { action: 'dismiss', length: null },
         'report',
-        strikes('24h', '24h'),
-      ),
+        strikes('24h', '24h')
+      )
     ).toBeNull()
   })
 })

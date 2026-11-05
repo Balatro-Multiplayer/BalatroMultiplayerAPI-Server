@@ -49,7 +49,7 @@ export class DelayedSend {
 
   constructor(
     private readonly timers: Timers = realTimers,
-    private readonly delayMs: number = UNDO_MS,
+    private readonly delayMs: number = UNDO_MS
   ) {}
 
   // The send that is waiting, or null. The object is the same until the send
@@ -104,8 +104,8 @@ export class DelayedSend {
       .then((result) => cur.job.onDone?.(result))
       .catch((error: unknown) =>
         cur.job.onError?.(
-          error instanceof Error ? error : new Error(String(error)),
-        ),
+          error instanceof Error ? error : new Error(String(error))
+        )
       )
   }
 

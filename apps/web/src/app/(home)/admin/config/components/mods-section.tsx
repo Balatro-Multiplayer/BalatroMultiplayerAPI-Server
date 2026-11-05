@@ -10,7 +10,12 @@ import { type ModEntry, modChanges, upsertDraftMod } from '../lib/drafts'
 import { SaveBar } from './save-bar'
 import { SectionFrame } from './section-frame'
 
-const EMPTY: ModEntry = { modId: '', displayName: '', version: '', downloadUrl: '' }
+const EMPTY: ModEntry = {
+  modId: '',
+  displayName: '',
+  version: '',
+  downloadUrl: '',
+}
 
 export function ModsSection({
   saved,
@@ -40,13 +45,13 @@ export function ModsSection({
               downloadUrl: mod.downloadUrl,
             }),
           },
-          note,
+          note
         )
       for (const modId of remove)
         await apiFetchWithReason(
           `/webadmin/config/mods/${encodeURIComponent(modId)}`,
           { method: 'DELETE' },
-          note,
+          note
         )
     },
     onSuccess: () => toast.success('Official mods saved'),
@@ -68,7 +73,7 @@ export function ModsSection({
     <SectionFrame
       testId='config-mods'
       title='Official mods'
-      description="Saving a changed mod version sends an update notice to connected clients."
+      description='Saving a changed mod version sends an update notice to connected clients.'
       footer={
         <SaveBar
           changeCount={count}
@@ -135,7 +140,8 @@ export function ModsSection({
         ))}
         {remove.length > 0 && (
           <p className='text-muted-foreground text-sm'>
-            Removed on save: <span className='font-mono'>{remove.join(', ')}</span>
+            Removed on save:{' '}
+            <span className='font-mono'>{remove.join(', ')}</span>
           </p>
         )}
         <form

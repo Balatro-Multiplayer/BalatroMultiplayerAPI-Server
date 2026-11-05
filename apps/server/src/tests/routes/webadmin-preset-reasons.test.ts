@@ -25,13 +25,15 @@ function authAs(playerId: string, privileges: string[]) {
 	vi.mocked(playerGateway.findPlayerById).mockResolvedValue({
 		id: TARGET,
 		privileges,
-	} as any)
+	} as never)
 	return `Bearer ${signJwt({ playerId, steamName: playerId })}`
 }
 
 beforeEach(() => {
-	vi.mocked(presets.getPresetReasons).mockResolvedValue(LISTS as any)
-	vi.mocked(presets.editPresetReasons).mockReset().mockResolvedValue(LISTS as any)
+	vi.mocked(presets.getPresetReasons).mockResolvedValue(LISTS as never)
+	vi.mocked(presets.editPresetReasons)
+		.mockReset()
+		.mockResolvedValue(LISTS as never)
 })
 
 describe('GET /api/webadmin/preset-reasons', () => {
@@ -88,12 +90,23 @@ describe('PUT /api/webadmin/config/preset-reasons/:itemType', () => {
 
 	it('refuses an unknown type, a missing note and bad lists', async () => {
 		const admin = authAs('adm-p3', ['admin'])
-		expect((await put(admin, { reasons: ['a'], reason: 'r' }, 'voice')).status).toBe(404)
-		expect((await put(admin, { reasons: ['a'] })).status).toBe(400)
-		expect((await put(admin, { reasons: ['a'], reason: '  ' })).status).toBe(400)
-		expect((await put(admin, { reasons: ['a', ' '], reason: 'r' })).status).toBe(400)
 		expect(
-			(await put(admin, { reasons: ['x'.repeat(MAX_PRESET_LENGTH + 1)], reason: 'r' })).status,
+			(await put(admin, { reasons: ['a'], reason: 'r' }, 'voice')).status,
+		).toBe(404)
+		expect((await put(admin, { reasons: ['a'] })).status).toBe(400)
+		expect((await put(admin, { reasons: ['a'], reason: '  ' })).status).toBe(
+			400,
+		)
+		expect(
+			(await put(admin, { reasons: ['a', ' '], reason: 'r' })).status,
+		).toBe(400)
+		expect(
+			(
+				await put(admin, {
+					reasons: ['x'.repeat(MAX_PRESET_LENGTH + 1)],
+					reason: 'r',
+				})
+			).status,
 		).toBe(400)
 		expect((await put(admin, { reason: 'r' })).status).toBe(400)
 		expect(presets.editPresetReasons).not.toHaveBeenCalled()

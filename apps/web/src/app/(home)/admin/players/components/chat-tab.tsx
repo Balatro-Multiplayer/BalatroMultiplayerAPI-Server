@@ -32,7 +32,7 @@ export function ChatTab({
       apiFetch(
         `/webadmin/players/${playerId}/chat?page=${page}&limit=${PAGE_SIZE}${
           flaggedFirst ? '&flaggedFirst=true' : ''
-        }`,
+        }`
       ),
     placeholderData: keepPreviousData,
   })

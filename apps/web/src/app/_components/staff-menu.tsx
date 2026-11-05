@@ -28,7 +28,9 @@ export function QueueCountBadge({ count }: { count: number | undefined }) {
 // The "Staff" item of the top nav. Players never see it.
 export function StaffMenu({
   itemClass,
-}: { itemClass: (active: boolean) => string }) {
+}: {
+  itemClass: (active: boolean) => string
+}) {
   const { isAdmin, isModerator } = useAuth()
   const pathname = usePathname()
   const isStaff = isAdmin || isModerator

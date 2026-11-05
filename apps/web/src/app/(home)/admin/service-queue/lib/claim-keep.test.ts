@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { forgetKeepClaim, keepClaim, KEEP_WINDOW_MS, takeKeepClaim } from './claim-keep'
+import {
+  forgetKeepClaim,
+  keepClaim,
+  KEEP_WINDOW_MS,
+  takeKeepClaim,
+} from './claim-keep'
 
 describe('claim keep', () => {
   test('a link click keeps the claim of that item once', () => {
