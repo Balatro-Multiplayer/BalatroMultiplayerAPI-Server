@@ -331,3 +331,20 @@ describe('final jokers', () => {
     ])
   })
 })
+
+describe('final vouchers', () => {
+  test('use the final_vouchers line over the vouchers bought', () => {
+    const log = buildGameLog([
+      player('a', [
+        [10, 'select_blind', 0],
+        [11, 'voucher', [5, 0, [-1, 'Voucher', 'v_hone'], 10]],
+        [12, 'final_vouchers', [['v_hone', 'v_overstock_norm']]],
+      ]),
+    ])
+    expect(
+      log.players[0]?.vouchers.map((v) =>
+        v.type === 'other_card' ? v.ident : ''
+      )
+    ).toEqual(['v_hone', 'v_overstock_norm'])
+  })
+})

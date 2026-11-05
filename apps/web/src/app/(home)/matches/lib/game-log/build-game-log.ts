@@ -102,6 +102,16 @@ export function parseJokerTokens(tokens: unknown): ResolvedCard[] {
   })
 }
 
+// "v_overstock_norm" -> a voucher card (final_vouchers records plain keys).
+export function parseVoucherTokens(tokens: unknown): ResolvedCard[] {
+  if (!Array.isArray(tokens)) return []
+  return tokens.flatMap((token): ResolvedCard[] =>
+    typeof token === 'string' && token !== ''
+      ? [{ type: 'other_card', kind: 'Voucher', ident: token, tags: [] }]
+      : []
+  )
+}
+
 const SUIT_NAME: Record<string, string> = {
   H: 'Hearts',
   D: 'Diamonds',
@@ -238,6 +248,8 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
   let snapshotJokers: ResolvedCard[] | null = null
   // The jokers the run's last line recorded (final_jokers): exact, so it wins.
   let loggedFinalJokers: ResolvedCard[] | null = null
+  // Likewise the vouchers held at the end; otherwise those bought are shown.
+  let loggedFinalVouchers: ResolvedCard[] | null = null
   let snapshotAdjusted = false
   const vouchers: ResolvedCard[] = []
   let seed: string | null = null
@@ -393,6 +405,10 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
 
       case 'deck_snapshot':
         finalDeck = parseDeckTokens(a[0])
+        break
+
+      case 'final_vouchers':
+        loggedFinalVouchers = parseVoucherTokens(a[0])
         break
 
       case 'final_jokers':
@@ -626,7 +642,7 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
     finalJokers:
       loggedFinalJokers ?? snapshotJokers ?? jokers.map((j) => j.card),
     finalDeck,
-    vouchers,
+    vouchers: loggedFinalVouchers ?? vouchers,
     livesLost,
     rerolls,
     itemizedPurchases,
