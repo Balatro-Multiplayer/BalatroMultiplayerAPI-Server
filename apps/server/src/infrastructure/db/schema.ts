@@ -1132,3 +1132,13 @@ export const playerStrikes = pgTable(
 	},
 	(t) => [index('player_strikes_player_idx').on(t.playerId, t.ladder)],
 )
+
+// The preset reasons of one queue item type: an ordered list of short notes
+// (features/service-queue/preset-reasons.ts). Seeded by migration 0067.
+export const presetReasons = pgTable('preset_reasons', {
+	itemType: varchar('item_type', { length: 32 }).primaryKey(),
+	reasons: jsonb('reasons').notNull(),
+	updatedAt: timestamp('updated_at', { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+})

@@ -295,6 +295,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'play_ladder_steps',
 		'updated_at',
 	],
+	preset_reasons: ['item_type', 'reasons', 'updated_at'],
 	mod_versions: [
 		'mod_id',
 		'display_name',
