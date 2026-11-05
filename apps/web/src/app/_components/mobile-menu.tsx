@@ -3,27 +3,17 @@
 import {
   BarChart3,
   CircleDollarSign,
-  DoorOpen,
   DownloadIcon,
-  Gamepad2,
   History,
-  Layers,
-  ListChecks,
   LogIn,
   LogOut,
   Menu as MenuIcon,
-  MessageSquare,
-  Newspaper,
-  PackageOpen,
   Palette,
-  Puzzle,
-  Settings,
-  Shield,
   Trophy,
   User,
 } from 'lucide-react'
 import Link from 'next/link'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -33,6 +23,9 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet'
 import { useAuth } from '@/lib/auth'
+import { staffMenuGroups } from '@/lib/staff-menu'
+import { useOpenQueueCount } from '@/lib/use-open-queue-count'
+import { QueueCountBadge } from './staff-menu'
 
 function MobileMenuLink({
   href,
@@ -41,7 +34,7 @@ function MobileMenuLink({
   onClick,
 }: {
   href: string
-  icon: React.ReactNode
+  icon?: React.ReactNode
   children: React.ReactNode
   onClick: () => void
 }) {
@@ -160,88 +153,34 @@ function MobileAccountSection({ onClose }: { onClose: () => void }) {
   )
 }
 
-function MobileAdminSection({ onClose, isAdmin }: { onClose: () => void; isAdmin: boolean }) {
+function MobileStaffSection({
+  onClose,
+  isAdmin,
+  isModerator,
+}: {
+  onClose: () => void
+  isAdmin: boolean
+  isModerator: boolean
+}) {
+  const count = useOpenQueueCount(true)
   return (
     <>
-      <Separator />
-      <div className='px-3 py-3'>
-        <p className='mb-1 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider'>
-          <Shield className='mr-1 inline size-3' />
-          Admin
-        </p>
-        {isAdmin && (
-          <MobileMenuLink
-            href='/admin/users'
-            icon={<Shield className='size-4' />}
-            onClick={onClose}
-          >
-            Staff Roles
-          </MobileMenuLink>
-        )}
-        <MobileMenuLink
-          href='/admin/service-queue'
-          icon={<ListChecks className='size-4' />}
-          onClick={onClose}
-        >
-          Service Queue
-        </MobileMenuLink>
-        <MobileMenuLink
-          href='/admin/lobbies'
-          icon={<DoorOpen className='size-4' />}
-          onClick={onClose}
-        >
-          Lobbies
-        </MobileMenuLink>
-        <MobileMenuLink
-          href='/admin/logs'
-          icon={<MessageSquare className='size-4' />}
-          onClick={onClose}
-        >
-          Chat Logs
-        </MobileMenuLink>
-        <MobileMenuLink
-          href='/admin/seasons'
-          icon={<Layers className='size-4' />}
-          onClick={onClose}
-        >
-          Seasons
-        </MobileMenuLink>
-        <MobileMenuLink
-          href='/admin/releases'
-          icon={<PackageOpen className='size-4' />}
-          onClick={onClose}
-        >
-          BET Releases
-        </MobileMenuLink>
-        <MobileMenuLink
-          href='/admin/blog'
-          icon={<Newspaper className='size-4' />}
-          onClick={onClose}
-        >
-          Blog
-        </MobileMenuLink>
-        <MobileMenuLink
-          href='/admin/games'
-          icon={<Gamepad2 className='size-4' />}
-          onClick={onClose}
-        >
-          Match History
-        </MobileMenuLink>
-        <MobileMenuLink
-          href='/admin/config'
-          icon={<Settings className='size-4' />}
-          onClick={onClose}
-        >
-          Configuration
-        </MobileMenuLink>
-        <MobileMenuLink
-          href='/admin/ranked-mods'
-          icon={<Puzzle className='size-4' />}
-          onClick={onClose}
-        >
-          Ranked Mods
-        </MobileMenuLink>
-      </div>
+      {staffMenuGroups({ isAdmin, isModerator }).map((group) => (
+        <Fragment key={group.label}>
+          <Separator />
+          <div className='px-3 py-3'>
+            <p className='mb-1 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider'>
+              Staff: {group.label}
+            </p>
+            {group.items.map((item) => (
+              <MobileMenuLink key={item.href} href={item.href} onClick={onClose}>
+                {item.label}
+                {item.showsQueueCount && <QueueCountBadge count={count} />}
+              </MobileMenuLink>
+            ))}
+          </div>
+        </Fragment>
+      ))}
     </>
   )
 }
@@ -275,7 +214,13 @@ export function MobileMenu({ className }: { className?: string }) {
         <div className='min-h-0 flex-1 overflow-y-auto'>
           <MobileNavLinks onClose={close} />
           {isLoggedIn && player && <MobileAccountSection onClose={close} />}
-          {(isAdmin || isModerator) && <MobileAdminSection onClose={close} isAdmin={isAdmin} />}
+          {(isAdmin || isModerator) && (
+            <MobileStaffSection
+              onClose={close}
+              isAdmin={isAdmin}
+              isModerator={isModerator}
+            />
+          )}
         </div>
 
         <div className='border-t px-3 py-3'>
