@@ -12,7 +12,7 @@ import {
 import { saveChatLabels } from '../../infrastructure/gateways/flagged-chat.gateway.js'
 import { getMatchConflict, setMatchConflictStatus } from '../../infrastructure/gateways/match-conflict.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
-import { getReportById, setReportStatus } from '../../infrastructure/gateways/report.gateway.js'
+import { clearReporterTold, getReportById, markReporterTold, setReportStatus } from '../../infrastructure/gateways/report.gateway.js'
 import {
 	type ServiceQueueItemRecord,
 	claimItem,
@@ -30,10 +30,16 @@ import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gatew
 import { insertStrike, ladderStateOf } from '../../infrastructure/gateways/strike.gateway.js'
 import { insertWarning } from '../../infrastructure/gateways/warning.gateway.js'
 import { callNakamaRpc } from '../../infrastructure/nakama/admin-client.js'
-import { banInNakama, liftBanInNakama, notifyWarnedInNakama } from '../../infrastructure/nakama/moderation-sync.js'
+import {
+	banInNakama,
+	liftBanInNakama,
+	notifyWarnedInNakama,
+	tellReportActionInNakama,
+} from '../../infrastructure/nakama/moderation-sync.js'
 import { matchEditorFor } from '../ratings/match-edit.deps.js'
 import type { MatchEditSummary } from '../ratings/match-edit.service.js'
 import { dismissAutomaticItems, dismissListedAutomaticItems as dismissListedItems } from './automatic.js'
+import { tellReporterOnce } from './report-action-notice.js'
 import { decideClaim, decideRelease } from './claim.js'
 import { type DispatcherDeps, type GameRef, type QueueItem, createDispatcher } from './dispatcher.js'
 import type { Placement } from './overturn.js'
@@ -206,6 +212,16 @@ const deps: DispatcherDeps<DbTransaction> = {
 	banInNakama: (ban) => banInNakama(ban),
 	liftBanInNakama: (playerId, banId) => liftBanInNakama(playerId, banId),
 	notifyWarned: (playerId, payload) => notifyWarnedInNakama(playerId, payload),
+	async tellReporterOfAction(item) {
+		const id = numericSourceId(item.sourceId)
+		const report = id === null ? null : await getReportById(id)
+		if (id === null || !report) return false
+		return tellReporterOnce(
+			{ takeMark: (rid) => markReporterTold(rid, new Date()), giveMarkBack: clearReporterTold, send: tellReportActionInNakama },
+			id,
+			report.reporterId,
+		)
+	},
 	async rescore(item, playerIds) {
 		try {
 			for (const playerId of new Set(playerIds)) await rescoreSubject(playerId)

@@ -134,6 +134,22 @@ export async function setReportStatus(
 	return row ?? null
 }
 
+// True for the one call that took the report's reporter-told mark, so the
+// reporter hears of staff action once however often the item is reopened.
+export async function markReporterTold(id: number, now: Date): Promise<boolean> {
+	const rows = await db
+		.update(reports)
+		.set({ reporterToldAt: now })
+		.where(and(eq(reports.id, id), isNull(reports.reporterToldAt)))
+		.returning({ id: reports.id })
+	return rows.length > 0
+}
+
+// Gives the mark back when the Notification could not be sent.
+export async function clearReporterTold(id: number): Promise<void> {
+	await db.update(reports).set({ reporterToldAt: null }).where(eq(reports.id, id))
+}
+
 // True for the one call that opened the report's one-time page.
 export async function markReportPageOpened(id: number, now: Date): Promise<boolean> {
 	const rows = await db

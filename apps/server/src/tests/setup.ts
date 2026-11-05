@@ -83,6 +83,8 @@ vi.mock('../infrastructure/gateways/ban.gateway.js', () => ({
 	listBans: vi.fn().mockResolvedValue([]),
 	insertBan: vi.fn().mockResolvedValue(undefined),
 	liftBan: vi.fn().mockResolvedValue(null),
+	listEndedBansToTell: vi.fn().mockResolvedValue([]),
+	markBanEndNotified: vi.fn().mockResolvedValue(undefined),
 	BAN_TYPES: ['chat', 'queue', 'account'],
 	isBanType: (v: unknown) => v === 'chat' || v === 'queue' || v === 'account',
 }))

@@ -333,6 +333,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'additional_detail',
 		'page_opened_at',
 		'withdrawn_at',
+		'reporter_told_at',
 		'created_at',
 	],
 	reported_lobby_messages: [
@@ -479,6 +480,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'issued_at',
 		'reason',
 		'lifted_at',
+		'end_notified_at',
 	],
 	player_mutes: ['id', 'created_at'],
 	lobby_runs: [

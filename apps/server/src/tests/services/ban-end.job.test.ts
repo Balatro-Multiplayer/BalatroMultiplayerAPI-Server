@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../infrastructure/gateways/ban.gateway.js', () => ({
-	listEndedBansToTell: vi.fn(),
-	markBanEndNotified: vi.fn(),
-}))
 vi.mock('../../infrastructure/nakama/moderation-sync.js', () => ({
 	notifyBanEndedInNakama: vi.fn(),
 }))

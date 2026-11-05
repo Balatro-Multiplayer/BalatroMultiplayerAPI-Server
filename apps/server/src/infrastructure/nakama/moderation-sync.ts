@@ -92,6 +92,15 @@ export async function notifyBanEndedInNakama(ban: {
 	return result.ok
 }
 
+// The "action was taken" Notification for the player who made a report.
+export async function tellReportActionInNakama(reporterId: string): Promise<boolean> {
+	const userId = await nakamaUserIdOf(reporterId)
+	if (!userId) return false
+	const result = await callNakamaRpc('admin_report_action', { userId })
+	if (!result.ok) console.warn(`[nakama] Report action for ${reporterId} not sent: ${result.error}`)
+	return result.ok
+}
+
 export async function liftBanInNakama(playerId: string, banId: string): Promise<boolean> {
 	const userId = await nakamaUserIdOf(playerId)
 	if (!userId) return false
