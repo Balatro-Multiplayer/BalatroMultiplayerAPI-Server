@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, isNull, lt, lte, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm'
 import {
 	PLACEMENT_GAMES,
 	RATING_FLOOR,
@@ -11,6 +11,7 @@ import {
 	getMetricConfig,
 	withinMetricBounds,
 } from '../../features/ratings/metrics.config.js'
+import { effectiveRating } from '../../features/ratings/effective-rating.js'
 import { seasonBestColumns } from '../../features/ratings/season-best.js'
 import type { PlacementEntry } from '../../shared/types/index.js'
 import { db } from '../db/index.js'
@@ -361,10 +362,8 @@ export async function listScopeRatings(
 
 // Ends every season past its end date and opens the next one. Nakama carries
 // ratings into the new season itself (a soft reset on each player's first
-// rating there), so nothing is copied here. Returns the seasons that ended.
-export async function checkSeasonRollover(
-	now = new Date(),
-): Promise<{ id: number; name: string }[]> {
+// rating there), so nothing is copied here. Returns how many rolled over.
+export async function checkSeasonRollover(now = new Date()): Promise<number> {
 	const expired = await db
 		.select()
 		.from(seasons)
@@ -385,5 +384,65 @@ export async function checkSeasonRollover(
 			})
 		})
 	}
-	return expired.map((season) => ({ id: season.id, name: season.name }))
+	return expired.length
+}
+
+// Ended seasons whose end Notification Nakama has not confirmed yet, oldest first.
+export async function listSeasonsToAnnounce(): Promise<
+	{ id: number; name: string }[]
+> {
+	return db
+		.select({ id: seasons.id, name: seasons.name })
+		.from(seasons)
+		.where(and(isNotNull(seasons.endedAt), isNull(seasons.endNotifiedAt)))
+		.orderBy(asc(seasons.id))
+}
+
+export async function markSeasonAnnounced(seasonId: number): Promise<void> {
+	await db
+		.update(seasons)
+		.set({ endNotifiedAt: new Date() })
+		.where(eq(seasons.id, seasonId))
+}
+
+export interface SeasonEndEntry {
+	nakamaUserId: string
+	modId: string
+	gameMode: string
+	place: number
+	rating: number
+}
+
+// Every ranked entry of a season as the website leaderboard shows it: the same
+// players (past the placement games), the same decayed rating and the same
+// order (rating, wins, player id), placed within each board.
+export async function listSeasonEndEntries(
+	seasonId: number,
+): Promise<SeasonEndEntry[]> {
+	const result = await db.execute(sql`
+		SELECT nakama_user_id, mod_id, game_mode, rank, rating
+		FROM (
+			SELECT
+				p.nakama_user_id, r.mod_id, r.game_mode,
+				${effectiveRating} AS rating,
+				ROW_NUMBER() OVER (
+					PARTITION BY r.mod_id, r.game_mode
+					ORDER BY ${effectiveRating} DESC, r.wins DESC, r.player_id ASC
+				) AS rank
+			FROM matchmaking_ratings r
+			JOIN players p ON p.id = r.player_id
+			WHERE r.season = ${seasonId} AND r.games_played >= ${PLACEMENT_GAMES}
+		) ranked
+		WHERE nakama_user_id IS NOT NULL
+	`)
+	return result.rows.map((row) => {
+		const r = row as Record<string, unknown>
+		return {
+			nakamaUserId: r.nakama_user_id as string,
+			modId: r.mod_id as string,
+			gameMode: r.game_mode as string,
+			place: Number(r.rank),
+			rating: Number(r.rating),
+		}
+	})
 }

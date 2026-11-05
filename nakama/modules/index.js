@@ -10857,60 +10857,21 @@ function rpcAdminRatingsSeasonClear(ctx, logger, nk, payload) {
 
 // src/notification/season_end.ts
 var SEASON_END_COLLECTION = "season_end_notified";
-function splitBoardKey(key, season) {
-  const suffix = `:${season}`;
-  if (!key.endsWith(suffix)) return void 0;
-  const rest = key.slice(0, key.length - suffix.length);
-  const colon = rest.indexOf(":");
-  if (colon <= 0 || colon === rest.length - 1) return void 0;
-  return { modId: rest.slice(0, colon), mode: rest.slice(colon + 1) };
-}
-function seasonEndBoards(entriesByBoard, season) {
-  const byPlayer = /* @__PURE__ */ new Map();
-  const keys = [...entriesByBoard.keys()].sort();
-  for (const key of keys) {
-    const board = splitBoardKey(key, season);
-    if (!board) continue;
-    const ranked = (entriesByBoard.get(key) || []).slice().sort((a, b) => b.rating - a.rating || b.wins - a.wins);
-    ranked.forEach((entry, i) => {
-      const list = byPlayer.get(entry.userId) || [];
-      list.push({
-        modId: board.modId,
-        mode: board.mode,
-        place: i + 1,
-        rating: Math.round(entry.rating)
-      });
-      byPlayer.set(entry.userId, list);
-    });
+var USER_ID_PATTERN5 = /^[0-9a-f-]{36}$/;
+var MAX_PLAYERS2 = 500;
+var MAX_BOARDS = 50;
+function parseBoards(value) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_BOARDS)
+    return void 0;
+  const boards = [];
+  for (const b of value) {
+    if (typeof b !== "object" || b === null) return void 0;
+    const { name, place, rating } = b;
+    if (typeof name !== "string" || name === "" || typeof place !== "number" || !Number.isInteger(place) || place < 1 || typeof rating !== "number" || !Number.isFinite(rating))
+      return void 0;
+    boards.push({ name, place, rating: Math.round(rating) });
   }
-  return byPlayer;
-}
-function readBoards(nk, season) {
-  const entriesByBoard = /* @__PURE__ */ new Map();
-  let cursor = "";
-  do {
-    cursor = scanSeason(nk, season, cursor, (o) => {
-      const v = o.value;
-      if (typeof v.rating !== "number" || typeof v.gamesPlayed !== "number" || v.gamesPlayed < PLACEMENT_GAMES)
-        return;
-      const list = entriesByBoard.get(o.key) || [];
-      list.push({
-        userId: o.userId,
-        rating: v.rating,
-        wins: typeof v.wins === "number" ? v.wins : 0
-      });
-      entriesByBoard.set(o.key, list);
-    });
-  } while (cursor !== "");
-  return entriesByBoard;
-}
-function notifySeasonEnd(nk, season, name) {
-  const byPlayer = seasonEndBoards(readBoards(nk, season), season);
-  for (const [userId, boards] of byPlayer) {
-    const params = { season, name, boards };
-    sendNotification(nk, userId, NotificationKind.SEASON_END, params);
-  }
-  return byPlayer.size;
+  return boards;
 }
 function rpcAdminSeasonEndNotify(ctx, logger, nk, payload) {
   requireServer(ctx);
@@ -10919,24 +10880,39 @@ function rpcAdminSeasonEndNotify(ctx, logger, nk, payload) {
   if (typeof season !== "number" || !Number.isInteger(season) || season < 1)
     throw runtimeError(INVALID_ARGUMENT, "season must be a positive integer");
   const name = typeof input.name === "string" && input.name !== "" ? input.name : `Season ${season}`;
+  if (!Array.isArray(input.players) || input.players.length > MAX_PLAYERS2)
+    throw runtimeError(INVALID_ARGUMENT, "players must be a list of up to 500");
   const key = String(season);
-  const done = nk.storageRead([
-    { collection: SEASON_END_COLLECTION, key, userId: SYSTEM_USER_ID }
-  ]);
-  if (done.length > 0) return JSON.stringify({ notified: 0, repeated: true });
-  nk.storageWrite([
-    {
-      collection: SEASON_END_COLLECTION,
-      key,
-      userId: SYSTEM_USER_ID,
-      value: { at: Date.now() },
-      permissionRead: 0,
-      permissionWrite: 0
+  let notified = 0;
+  let skipped = 0;
+  for (const p of input.players) {
+    const userId = p == null ? void 0 : p.userId;
+    const boards = parseBoards(p == null ? void 0 : p.boards);
+    if (typeof userId !== "string" || !USER_ID_PATTERN5.test(userId) || !boards)
+      throw runtimeError(INVALID_ARGUMENT, "Invalid player entry");
+    const done = nk.storageRead([
+      { collection: SEASON_END_COLLECTION, key, userId }
+    ]);
+    if (done.length > 0) {
+      skipped++;
+      continue;
     }
-  ]);
-  const notified = notifySeasonEnd(nk, season, name);
-  logger.info("Season %d end told to %d players", season, notified);
-  return JSON.stringify({ notified, repeated: false });
+    const params = { season, name, boards };
+    sendNotification(nk, userId, NotificationKind.SEASON_END, params);
+    nk.storageWrite([
+      {
+        collection: SEASON_END_COLLECTION,
+        key,
+        userId,
+        value: { at: Date.now() },
+        permissionRead: 0,
+        permissionWrite: 0
+      }
+    ]);
+    notified++;
+  }
+  logger.info("Season %d end told to %d players (%d skipped)", season, notified, skipped);
+  return JSON.stringify({ notified, skipped });
 }
 
 // src/standing/seed.ts

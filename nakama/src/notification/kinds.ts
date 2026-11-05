@@ -17,8 +17,8 @@ export type NotificationKindName =
 	(typeof NotificationKind)[keyof typeof NotificationKind]
 
 export interface SeasonEndBoard {
-	modId: string
-	mode: string
+	// The board's display name, for example "PvP Vanilla".
+	name: string
 	place: number
 	rating: number
 }
