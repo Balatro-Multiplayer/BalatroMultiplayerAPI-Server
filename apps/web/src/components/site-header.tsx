@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { MobileMenu } from '@/app/_components/mobile-menu'
 import { NavAuth } from '@/app/_components/nav-auth'
+import { StaffMenu } from '@/app/_components/staff-menu'
 import { MotionToggle } from '@/components/motion-toggle'
 import {
   DropdownMenu,
@@ -84,6 +85,8 @@ export function SiteHeader() {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <StaffMenu itemClass={navItemClass} />
         </nav>
 
         <div className='ml-auto flex items-center gap-1'>

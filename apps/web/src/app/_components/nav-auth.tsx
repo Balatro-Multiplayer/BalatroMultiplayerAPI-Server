@@ -1,20 +1,19 @@
 'use client'
 
-import { LogIn, Shield, User } from 'lucide-react'
+import { LogIn, User } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/lib/auth'
 
 export function NavAuth() {
-  const { player, isLoggedIn, isAdmin, isModerator, logout } = useAuth()
+  const { player, isLoggedIn, logout } = useAuth()
 
   if (isLoggedIn && player) {
     return (
@@ -32,59 +31,6 @@ export function NavAuth() {
           <DropdownMenuItem asChild>
             <Link href='/matches'>My Matches</Link>
           </DropdownMenuItem>
-          {(isAdmin || isModerator) && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className='flex items-center gap-1.5 text-muted-foreground text-xs'>
-                <Shield className='size-3.5' />
-                Admin
-              </DropdownMenuLabel>
-              <DropdownMenuItem asChild>
-                <Link href='/admin/players'>Players</Link>
-              </DropdownMenuItem>
-              {isAdmin && (
-                <DropdownMenuItem asChild>
-                  <Link href='/admin/users'>Staff Roles</Link>
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem asChild>
-                <Link href='/admin/service-queue'>Service Queue</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href='/admin/staff-log'>Staff Log</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href='/admin/lobbies'>Lobbies</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href='/admin/logs'>Chat Logs</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href='/admin/seasons'>Seasons</Link>
-              </DropdownMenuItem>
-              {isAdmin && (
-                <DropdownMenuItem asChild>
-                  <Link href='/admin/releases'>BET Releases</Link>
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem asChild>
-                <Link href='/admin/blog'>Blog</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href='/admin/games'>Match History</Link>
-              </DropdownMenuItem>
-              {isAdmin && (
-                <DropdownMenuItem asChild>
-                  <Link href='/admin/config'>Configuration</Link>
-                </DropdownMenuItem>
-              )}
-              {isAdmin && (
-                <DropdownMenuItem asChild>
-                  <Link href='/admin/ranked-mods'>Ranked Mods</Link>
-                </DropdownMenuItem>
-              )}
-            </>
-          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={logout}
