@@ -26,7 +26,7 @@ import { staffOf } from '../service-queue/staff.js'
 import { isLadder, stepOfExpiry } from '../strikes/ladder.js'
 import { judgeOnLadder } from '../strikes/strike.service.js'
 import { issueBan } from './ban.service.js'
-import { playerSearchCondition } from './player-search.js'
+import { playerListCondition } from './player-search.js'
 
 // Privilege names are free-form identifiers (a lowercase letter followed by
 // lowercase letters/digits/underscores). Validated by format rather than a fixed
@@ -57,7 +57,9 @@ router.get('/players', async (req, res, next) => {
 		const offset = (page - 1) * limit
 		const search = typeof req.query.search === 'string' ? req.query.search.trim() : ''
 
-		const baseWhere = playerSearchCondition(search)
+		const staffOnly = req.query.staff === '1'
+
+		const baseWhere = playerListCondition(search, staffOnly)
 
 		const [{ total }] = await db
 			.select({ total: count() })

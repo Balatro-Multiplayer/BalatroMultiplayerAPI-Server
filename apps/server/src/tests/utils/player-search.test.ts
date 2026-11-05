@@ -1,6 +1,6 @@
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
-import { playerSearchCondition } from '../../features/webadmin/player-search.js'
+import { playerListCondition, playerSearchCondition } from '../../features/webadmin/player-search.js'
 
 const dialect = new PgDialect()
 const UUID = '0b0c7a3e-1d5f-4c1a-9a55-5a7e3b9d1f20'
@@ -22,5 +22,26 @@ describe('playerSearchCondition', () => {
 
 	it('adds no condition for an empty search', () => {
 		expect(playerSearchCondition('')).toBeUndefined()
+	})
+})
+
+describe('playerListCondition', () => {
+	it('matches only players that hold a staff role', () => {
+		const { sql, params } = dialect.sqlToQuery(playerListCondition('', true)!)
+		expect(sql).toContain('"privileges" &&')
+		expect(params).toEqual(['{"moderator","admin"}'])
+	})
+
+	it('joins the staff filter with the search', () => {
+		const { sql, params } = dialect.sqlToQuery(playerListCondition('ann', true)!)
+		expect(sql).toContain('"steam_name" ilike')
+		expect(sql).toContain('"privileges" &&')
+		expect(params).toContain('%ann%')
+	})
+
+	it('is the plain search when staff only is off', () => {
+		const { sql } = dialect.sqlToQuery(playerListCondition('ann', false)!)
+		expect(sql).not.toContain('"privileges"')
+		expect(playerListCondition('', false)).toBeUndefined()
 	})
 })
