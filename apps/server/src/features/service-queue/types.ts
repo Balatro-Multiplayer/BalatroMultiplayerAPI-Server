@@ -62,7 +62,7 @@ export interface ContestParties {
 	againstId: string | null
 }
 
-export type ItemEventKind = 'viewed' | 'claimed' | 'released' | 'acted' | 'noted' | 'reopened'
+export type ItemEventKind = 'viewed' | 'claimed' | 'released' | 'acted' | 'noted' | 'reopened' | 'withdrawn'
 
 // Who a target-taking action (warn, mute, ban) can be aimed at, per type.
 export type TargetRole = 'subject' | 'reporter' | 'first_reporter' | 'conflicting_reporter' | 'contester'

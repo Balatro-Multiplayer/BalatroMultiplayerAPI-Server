@@ -211,6 +211,11 @@ export const reports = pgTable('reports', {
 	// Submitter-added detail from their scoped /reports/:id status page (§15.5),
 	// kept distinct from `message` (the in-game submission-time note).
 	additionalDetail: text('additional_detail'),
+	// Set once, when the game's one-time page for this report is first opened.
+	// Later opens of the plain address show only "Submitted".
+	pageOpenedAt: timestamp('page_opened_at', { withTimezone: true }),
+	// Set when the reporter withdrew it before staff decided.
+	withdrawnAt: timestamp('withdrawn_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),

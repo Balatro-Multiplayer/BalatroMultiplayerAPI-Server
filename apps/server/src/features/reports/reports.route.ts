@@ -1,28 +1,38 @@
 import { Router } from 'express'
 import { authenticateActive } from '../../middleware/authenticate-active.js'
 import { AppError } from '../../shared/utils/errors.js'
-import { getReportById, setAdditionalDetail } from '../../infrastructure/gateways/report.gateway.js'
+import type { ReportPageRefusal, ReportPageResult, ReportPageService } from './report-page.service.js'
 
-// Submitter-scoped report access (§15.5): ownership-checked against
-// reporterId, not the webadmin privilege gate -- a player reading/adding to
-// their OWN report, not a moderator action. Mirrors getReplay()'s
-// participant-ownership pattern (replay-log.service.ts).
-export function createReportsRouter(): Router {
+const REFUSALS: Readonly<Record<ReportPageRefusal, { status: number; message: string }>> = {
+	not_found: { status: 404, message: 'Report not found' },
+	forbidden: { status: 403, message: 'Not the reporter of this report' },
+	decided: { status: 409, message: 'Staff already decided this report' },
+	already_withdrawn: { status: 409, message: 'This report was already withdrawn' },
+	invalid_detail: { status: 400, message: 'Invalid additionalDetail (max 2000 characters)' },
+}
+
+function valueOf<T>(result: ReportPageResult<T>): T {
+	if (result.ok) return result.value
+	const { status, message } = REFUSALS[result.refusal]
+	throw new AppError(message, status)
+}
+
+// The reporter's own report page (ADR 0011): ownership-checked against
+// reporterId, not the webadmin privilege gate. There is no list and no plain
+// read: the page opens once, and a later open only says "Submitted".
+export function createReportsRouter(service: ReportPageService): Router {
 	const router = Router()
 	router.use(authenticateActive)
 
-	router.get('/:id', async (req, res, next) => {
+	const idOf = (raw: string): number => {
+		const id = Number(raw)
+		if (!Number.isInteger(id)) throw new AppError('Invalid report id', 400)
+		return id
+	}
+
+	router.post('/:id/open', async (req, res, next) => {
 		try {
-			const id = Number(req.params.id)
-			if (!Number.isInteger(id)) throw new AppError('Invalid report id', 400)
-
-			const report = await getReportById(id)
-			if (!report) throw new AppError('Report not found', 404)
-			if (report.reporterId !== req.player!.playerId) {
-				throw new AppError('Not the reporter of this report', 403)
-			}
-
-			res.json({ report })
+			res.json({ page: valueOf(await service.open(idOf(req.params.id), req.player!.playerId)) })
 		} catch (err) {
 			next(err)
 		}
@@ -30,22 +40,17 @@ export function createReportsRouter(): Router {
 
 	router.patch('/:id', async (req, res, next) => {
 		try {
-			const id = Number(req.params.id)
-			if (!Number.isInteger(id)) throw new AppError('Invalid report id', 400)
+			valueOf(await service.addDetail(idOf(req.params.id), req.player!.playerId, req.body?.additionalDetail))
+			res.json({ ok: true })
+		} catch (err) {
+			next(err)
+		}
+	})
 
-			const report = await getReportById(id)
-			if (!report) throw new AppError('Report not found', 404)
-			if (report.reporterId !== req.player!.playerId) {
-				throw new AppError('Not the reporter of this report', 403)
-			}
-
-			const { additionalDetail } = req.body
-			if (typeof additionalDetail !== 'string' || additionalDetail.length > 2000) {
-				throw new AppError('Invalid additionalDetail (max 2000 characters)', 400)
-			}
-
-			const updated = await setAdditionalDetail(id, additionalDetail)
-			res.json({ report: updated })
+	router.post('/:id/withdraw', async (req, res, next) => {
+		try {
+			valueOf(await service.withdraw(idOf(req.params.id), req.player!.playerId))
+			res.json({ ok: true })
 		} catch (err) {
 			next(err)
 		}

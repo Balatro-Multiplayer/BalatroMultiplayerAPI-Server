@@ -183,6 +183,12 @@ describe('the dispatcher', () => {
 		expect(external.rescore).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), ['bad'])
 	})
 
+	it('blocks every decision on a withdrawn item, with the withdrawn refusal', async () => {
+		const { dispatcher } = setup(item({ status: 'resolved', resolutionAction: 'withdrawn' }))
+		for (const action of ['resolve', 'dismiss', 'reopen'])
+			expect(await dispatcher.run(1, action, MOD, { reason: 'x' })).toEqual({ ok: false, refusal: { code: 'withdrawn' } })
+	})
+
 	it('refuses unknown items, unknown actions and bad bodies', async () => {
 		const { dispatcher } = setup(item())
 		expect(await dispatcher.run(9, 'resolve', MOD, {})).toEqual({ ok: false, refusal: { code: 'not_found' } })

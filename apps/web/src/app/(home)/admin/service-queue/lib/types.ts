@@ -53,6 +53,7 @@ export type ItemEventKind =
   | 'acted'
   | 'noted'
   | 'reopened'
+  | 'withdrawn'
 
 export interface QueueItem {
   id: number
@@ -286,6 +287,7 @@ export interface ReportEvidence {
     status: string
     message: string | null
     additionalDetail: string | null
+    withdrawnAt: string | null
     createdAt: string
   }
   reporter: MiniCard
@@ -627,6 +629,7 @@ export type ActionBody =
   | { action: 'note'; note: string }
 
 export type RefusalCode =
+  | 'withdrawn'
   | 'not_found'
   | 'unknown_action'
   | 'invalid_body'
