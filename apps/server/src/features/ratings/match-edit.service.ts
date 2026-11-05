@@ -112,7 +112,13 @@ const placementsOf = (value: unknown): EditedPlacement[] | null =>
 // no ratings.
 export async function editMatch(
 	deps: MatchEditDeps,
-	game: { runId: string; matchmade: boolean; decidesContest?: boolean },
+	game: {
+		runId: string
+		matchmade: boolean
+		decidesContest?: boolean
+		// The players whose Contests stand (API ids), told as contesters.
+		contesterIds?: string[]
+	},
 	request: MatchEditRequest,
 ): Promise<MatchEditOutcome> {
 	let match: MatchRow | null = null
@@ -146,7 +152,13 @@ export async function editMatch(
 	}
 
 	const body: Record<string, unknown> = { runId: game.runId }
-	if (game.decidesContest) body.decidesContest = true
+	if (game.decidesContest) {
+		body.decidesContest = true
+		if (game.contesterIds?.length) {
+			const ids = await deps.nakamaIdsOf(game.contesterIds)
+			body.contesters = game.contesterIds.flatMap((id) => ids.get(id) ?? [])
+		}
+	}
 	if (season !== null) body.season = season
 	if (request.kind === 'void') {
 		body.void = true

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { signJwt } from '../../features/auth/jwt.js'
 import { WITHDRAWN_ACTION, createContestPageService } from '../../features/contests/contest-page.service.js'
 import type { ContestPageRow } from '../../features/contests/contest-page.service.js'
+import { createWebsiteContestService } from '../../features/contests/website-contest.service.js'
 import { createContestsRouter } from '../../features/contests/contests.route.js'
 import { errorHandler } from '../../middleware/errorHandler.js'
 import { createSession } from '../../state/index.js'
@@ -26,6 +27,16 @@ interface World {
 }
 
 let world: World
+
+// These tests do not make website Contests.
+const noWebsiteDeps = {
+	matchFacts: async () => null,
+	hasContested: async () => false,
+	queueItemState: async () => 'none' as const,
+	addContest: async () => false,
+	joinQueueItem: async () => {},
+	now: () => new Date('2026-11-05T12:00:00Z'),
+}
 
 function appOver(w: World) {
 	const service = createContestPageService<World>({
@@ -70,6 +81,9 @@ function appOver(w: World) {
 			tx.contest.withdrawnAt = now
 			return true
 		},
+		liveContests: async (tx) =>
+			tx.contest.withdrawnAt ? [] : [{ contesterId: tx.contest.contesterId, againstId: tx.contest.againstId }],
+		repointItem: async () => {},
 		recordWithdrawn: async (tx, itemId, actor) => {
 			tx.events.push({ itemId, kind: 'withdrawn', actor })
 		},
@@ -80,7 +94,7 @@ function appOver(w: World) {
 	})
 	const app = express()
 	app.use(express.json())
-	app.use('/api/contests', createContestsRouter(service))
+	app.use('/api/contests', createContestsRouter(service, createWebsiteContestService(noWebsiteDeps)))
 	app.use(errorHandler)
 	return app
 }
@@ -99,6 +113,7 @@ beforeEach(() => {
 			runId: RUN,
 			kind: 'in_game',
 			contesterId: 'contester-1',
+			againstId: 'opponent-1',
 			reason: null,
 			detail: null,
 			withdrawnAt: null,

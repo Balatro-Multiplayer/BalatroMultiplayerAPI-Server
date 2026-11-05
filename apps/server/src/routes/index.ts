@@ -9,9 +9,11 @@ import modsRouter from '../features/mods/mods.route.js'
 import { createInternalNakamaRouter } from '../features/nakama/internal.route.js'
 import r2modmanReleasesRouter from '../features/r2modman-releases/r2modman-releases.route.js'
 import { createContestPageService } from '../features/contests/contest-page.service.js'
+import { createWebsiteContestService } from '../features/contests/website-contest.service.js'
 import { createContestsRouter } from '../features/contests/contests.route.js'
 import { createReplayLogRouter } from '../features/replay-log/replay-log.route.js'
 import { createReplayLogService } from '../features/replay-log/replay-log.service.js'
+import { contextOf } from '../features/service-queue/types.js'
 import { gameOfRun, matchResultDeps } from '../features/service-queue/queue.service.js'
 import { WITHDRAWN_ACTION, createReportPageService } from '../features/reports/report-page.service.js'
 import { createReportsRouter } from '../features/reports/reports.route.js'
@@ -95,7 +97,7 @@ router.use(
 			setDetail: (id, reason, detail) => contestGateway.setContestDetail(id, reason, detail),
 			async findQueueItem(runId) {
 				const item = await serviceQueueGateway.findServiceQueueItem('contest', runId)
-				return item ? { id: item.id, status: item.status } : null
+				return item ? { id: item.id, status: item.status, contesterId: contextOf(item.context).contest?.contesterId ?? null } : null
 			},
 			gameOf: gameOfRun,
 			...matchResultDeps,
@@ -104,11 +106,28 @@ router.use(
 				return !!(await serviceQueueGateway.markServiceQueueItemResolved(tx, itemId, actor, WITHDRAWN_ACTION, null, now))
 			},
 			markWithdrawn: (tx, id, now) => contestGateway.markContestWithdrawn(tx, id, now),
+			liveContests: (tx, runId) => contestGateway.listLiveContestsOfRun(tx, runId),
+			repointItem: (tx, itemId, contest) => serviceQueueGateway.repointContestItem(tx, itemId, contest),
 			recordWithdrawn: (tx, itemId, actor) =>
 				serviceQueueGateway.recordItemEvent(tx, { itemId, kind: 'withdrawn', actor, action: WITHDRAWN_ACTION }),
 			async notifyWithdrawn(runId, contesterId) {
 				await notifyContestWithdrawnInNakama(runId, contesterId)
 			},
+			now: () => new Date(),
+		}),
+		createWebsiteContestService({
+			matchFacts: contestGateway.getMatchFactsOf,
+			async hasContested(runId, playerId) {
+				return !!(await contestGateway.getContestOf(runId, playerId))
+			},
+			async queueItemState(runId) {
+				const item = await serviceQueueGateway.findServiceQueueItem('contest', runId)
+				if (!item) return 'none'
+				if (item.status === 'open') return 'open'
+				return item.resolutionAction === WITHDRAWN_ACTION ? 'withdrawn' : 'decided'
+			},
+			addContest: contestGateway.insertWebsiteContest,
+			joinQueueItem: serviceQueueGateway.joinContestItem,
 			now: () => new Date(),
 		}),
 	),

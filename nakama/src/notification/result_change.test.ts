@@ -216,3 +216,65 @@ describe('planResultNotifications without a contest', () => {
 		expect(sends.every((s) => s.userId === 'a' || s.userId === 'b')).toBe(true)
 	})
 })
+
+describe('planResultNotifications for a website Contest', () => {
+	// A website Contest leaves the run as it was: agreed, with no run.contest.
+	it('tells the contester and the other player when the result is kept', () => {
+		const before = run()
+		const { sends, told } = planResultNotifications(before, before, true, ['b'])
+		expect(sends).toEqual([
+			{
+				userId: 'a',
+				kind: 'contest_decided',
+				params: { role: 'opponent', outcome: 'win' },
+			},
+			{
+				userId: 'b',
+				kind: 'contest_decided',
+				params: { role: 'contester', outcome: 'loss' },
+			},
+		])
+		expect(told).toEqual({ a: 'win', b: 'loss' })
+	})
+	it('tells every Contest that stands as a contester', () => {
+		const before = run()
+		const { sends } = planResultNotifications(before, before, true, ['a', 'b'])
+		expect(sends.map((s) => (s.params as { role: string }).role)).toEqual([
+			'contester',
+			'contester',
+		])
+	})
+	it('tells the new result with the contest wording when it changes', () => {
+		const before = run()
+		const { sends } = planResultNotifications(
+			before,
+			{ ...before, placements: bWins },
+			true,
+			['b'],
+		)
+		expect(sends.map((s) => s.params)).toEqual([
+			{ role: 'opponent', outcome: 'loss' },
+			{ role: 'contester', outcome: 'win' },
+		])
+	})
+	it('tells nothing the second time it is decided the same way', () => {
+		const before = run()
+		const first = planResultNotifications(before, before, true, ['b'])
+		const again = { ...before, told: first.told }
+		expect(planResultNotifications(again, again, true, ['b']).sends).toEqual([])
+	})
+	it('tells the void wording for a void', () => {
+		const before = run()
+		const { sends } = planResultNotifications(
+			before,
+			{ ...before, voided: { at: 5 } },
+			true,
+			['b'],
+		)
+		expect(sends.map((s) => s.kind)).toEqual(['result_voided', 'result_voided'])
+	})
+	it('does not tell a plain edit with no Contest', () => {
+		const before = run()
+		expect(planResultNotifications(before, before, false, ['b']).sends).toEqual([])
+	})
+})

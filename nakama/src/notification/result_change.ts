@@ -33,12 +33,19 @@ export function outcomeOf(
 }
 
 // What the player already knows about the run.
-function knownOutcome(before: RunRecord, playerId: string): TellOutcome | null {
+function knownOutcome(
+	before: RunRecord,
+	playerId: string,
+	contesters: readonly string[],
+): TellOutcome | null {
 	const told = before.told?.[playerId]
 	if (told) return told
 	if (before.voided) return 'void'
 	// A contested run has no result yet, whatever was reported before the contest.
 	if (before.status === 'contested') return null
+	// A website Contest leaves the result standing, but the player has not been
+	// told the Contest was decided: that is news even when the result is kept.
+	if (contesters.length > 0) return null
 	return outcomeOf(before.placements, playerId)
 }
 
@@ -50,14 +57,19 @@ export function planResultNotifications(
 	before: RunRecord,
 	after: RunRecord,
 	decidesContest: boolean,
+	// The players whose Contests stand (Nakama ids), from the API's contests
+	// list; empty for a decision that rests on the run's own in-game Contest.
+	contesters: readonly string[] = [],
 ): { sends: ResultNotification[]; told: { [userId: string]: TellOutcome } } {
 	const sends: ResultNotification[] = []
 	const told: { [userId: string]: TellOutcome } = { ...before.told }
+	const standing = decidesContest ? contesters : []
 	const contest = decidesContest ? before.contest : undefined
+	const contestDecided = !!contest || standing.length > 0
 	for (const player of before.players) {
 		const now = outcomeAfter(after, player.id)
 		if (!now) continue
-		if (now === knownOutcome(before, player.id)) continue
+		if (now === knownOutcome(before, player.id, standing)) continue
 		told[player.id] = now
 		if (now === 'void') {
 			sends.push({
@@ -65,12 +77,15 @@ export function planResultNotifications(
 				kind: NotificationKind.RESULT_VOIDED,
 				params: {},
 			})
-		} else if (contest) {
+		} else if (contestDecided) {
 			sends.push({
 				userId: player.id,
 				kind: NotificationKind.CONTEST_DECIDED,
 				params: {
-					role: player.id === contest.by ? 'contester' : 'opponent',
+					role:
+						standing.includes(player.id) || contest?.by === player.id
+							? 'contester'
+							: 'opponent',
 					outcome: now,
 				},
 			})

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ApiError, apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { ContestButton } from '../components/contest-button'
 import { GameLogView } from '../components/game-log/game-log-view'
 import { StaffMatchView } from '../components/staff-match-view'
 import { PlayerLabel } from '../components/player-label'
@@ -187,6 +188,7 @@ export default function MatchPage() {
           {data.run.lobbyCode && ` · Lobby ${data.run.lobbyCode}`} · Started{' '}
           {new Date(data.run.startedAt).toLocaleString()}
         </p>
+        {data.viewer.role === 'participant' && <ContestButton runId={runId} />}
         {share && (
           <p className='text-muted-foreground text-xs'>
             {share.shared

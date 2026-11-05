@@ -555,3 +555,48 @@ export async function viewedSince(itemId: number, actor: string, since: Date): P
 		.limit(1)
 	return !!row
 }
+
+// A website Contest joins the match's one queue item, opening it when none exists.
+// An item closed only because its Contests were all withdrawn opens again.
+export async function joinContestItem(input: {
+	runId: string
+	contesterId: string
+	summary: string
+	lobbyKind: 'ranked' | 'casual'
+	now: Date
+}): Promise<void> {
+	const contest = { contesterId: input.contesterId, againstId: null }
+	const made = await enqueueServiceQueueItem({
+		itemType: 'contest',
+		sourceId: input.runId,
+		subjectPlayerId: null,
+		summary: input.summary,
+		context: { lobbyKind: input.lobbyKind, contest },
+	})
+	if (made) return
+	const item = await findServiceQueueItem('contest', input.runId)
+	if (!item || item.status !== 'resolved' || item.resolutionAction !== 'withdrawn') return
+	await db.transaction(async (tx) => {
+		const reopened = await markServiceQueueItemReopened(tx, item.id, input.now)
+		if (!reopened) return
+		await tx
+			.update(serviceQueueItems)
+			.set({ context: { ...(item.context as object), contest } })
+			.where(eq(serviceQueueItems.id, item.id))
+		await recordItemEvent(tx, { itemId: item.id, kind: 'reopened', actor: `player:${input.contesterId}` })
+	})
+}
+
+// Points the item at another Contest, after the one it named was withdrawn.
+export async function repointContestItem(
+	exec: DbExecutor,
+	itemId: number,
+	contest: { contesterId: string; againstId: string | null },
+): Promise<void> {
+	const [item] = await exec.select({ context: serviceQueueItems.context }).from(serviceQueueItems).where(eq(serviceQueueItems.id, itemId))
+	if (!item) return
+	await exec
+		.update(serviceQueueItems)
+		.set({ context: { ...(item.context as object), contest } })
+		.where(eq(serviceQueueItems.id, itemId))
+}

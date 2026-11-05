@@ -10585,25 +10585,28 @@ function outcomeOf2(placements, playerId) {
   if (own.place !== best) return "loss";
   return Math.max(...places) === best && placements.length > 1 ? "draw" : "win";
 }
-function knownOutcome(before, playerId) {
+function knownOutcome(before, playerId, contesters) {
   var _a;
   const told = (_a = before.told) == null ? void 0 : _a[playerId];
   if (told) return told;
   if (before.voided) return "void";
   if (before.status === "contested") return null;
+  if (contesters.length > 0) return null;
   return outcomeOf2(before.placements, playerId);
 }
 function outcomeAfter(after, playerId) {
   return after.voided ? "void" : outcomeOf2(after.placements, playerId);
 }
-function planResultNotifications(before, after, decidesContest) {
+function planResultNotifications(before, after, decidesContest, contesters = []) {
   const sends = [];
   const told = __spreadValues({}, before.told);
+  const standing = decidesContest ? contesters : [];
   const contest2 = decidesContest ? before.contest : void 0;
+  const contestDecided = !!contest2 || standing.length > 0;
   for (const player of before.players) {
     const now = outcomeAfter(after, player.id);
     if (!now) continue;
-    if (now === knownOutcome(before, player.id)) continue;
+    if (now === knownOutcome(before, player.id, standing)) continue;
     told[player.id] = now;
     if (now === "void") {
       sends.push({
@@ -10611,12 +10614,12 @@ function planResultNotifications(before, after, decidesContest) {
         kind: NotificationKind.RESULT_VOIDED,
         params: {}
       });
-    } else if (contest2) {
+    } else if (contestDecided) {
       sends.push({
         userId: player.id,
         kind: NotificationKind.CONTEST_DECIDED,
         params: {
-          role: player.id === contest2.by ? "contester" : "opponent",
+          role: standing.includes(player.id) || (contest2 == null ? void 0 : contest2.by) === player.id ? "contester" : "opponent",
           outcome: now
         }
       });
@@ -10811,6 +10814,7 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
       "placements must be a list of {playerId, place}"
     );
   const decidesContest = input.decidesContest === true;
+  const contesters = Array.isArray(input.contesters) ? input.contesters.filter((id) => typeof id === "string") : [];
   const silent = input.silent === true;
   const season = input.season;
   if (season !== void 0 && (typeof season !== "number" || !Number.isInteger(season) || season < 1))
@@ -10852,7 +10856,7 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
     });
     if (!plan.ok) {
       if (plan.refusal.kind === "unchanged") {
-        const told2 = planResultNotifications(run, run, decidesContest);
+        const told2 = planResultNotifications(run, run, decidesContest, contesters);
         if (told2.sends.length > 0) {
           nk.storageWrite([
             {
@@ -10876,7 +10880,7 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
       }
       throw runtimeError(INVALID_ARGUMENT, REFUSAL_TEXT[plan.refusal.kind]);
     }
-    const told = planResultNotifications(run, plan.run, decidesContest);
+    const told = planResultNotifications(run, plan.run, decidesContest, contesters);
     const storedRun = __spreadProps(__spreadValues({}, plan.run), { told: told.told });
     const key = myRunKey(run);
     const pointers = nk.storageRead(

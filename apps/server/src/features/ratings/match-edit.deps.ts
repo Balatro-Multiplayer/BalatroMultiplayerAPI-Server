@@ -48,7 +48,7 @@ export function matchEditorFor(
 			),
 	}
 	return (
-		game: { runId: string; matchmade: boolean; decidesContest?: boolean },
+		game: Parameters<typeof editMatch>[1],
 		request: MatchEditRequest,
 	) => editMatch(deps, game, request)
 }

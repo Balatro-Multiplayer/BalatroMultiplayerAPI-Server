@@ -11,6 +11,7 @@ import {
 } from '../../infrastructure/gateways/forfeit-reconciliation.gateway.js'
 import { saveChatLabels } from '../../infrastructure/gateways/flagged-chat.gateway.js'
 import { getMatchConflict, setMatchConflictStatus } from '../../infrastructure/gateways/match-conflict.gateway.js'
+import { listContestsOfRun } from '../../infrastructure/gateways/contest.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { clearReporterTold, getReportById, markReporterTold, setReportStatus } from '../../infrastructure/gateways/report.gateway.js'
 import {
@@ -84,7 +85,15 @@ export async function gameOfRun(runId: string): Promise<GameRef> {
 	return { runId, matchmade: !!match, ranked: !!match && match.gameMode.startsWith('ranked:') }
 }
 
-const editMatchOf = matchEditorFor()
+const editMatch = matchEditorFor()
+
+// A decided Contest tells each player: the ones whose Contests stand (in the
+// game or on the website) as contesters, the rest as opponents.
+async function editMatchOf(game: GameRef, request: Parameters<typeof editMatch>[1]) {
+	if (!game.decidesContest || !UUID.test(game.runId)) return editMatch(game, request)
+	const standing = (await listContestsOfRun(game.runId)).filter((c) => c.withdrawnAt === null)
+	return editMatch({ ...game, contesterIds: standing.map((c) => c.contesterId) }, request)
+}
 
 // The new result for the run: one edit that moves only its players' ratings
 // (Nakama first, then the match row and rating rows).
