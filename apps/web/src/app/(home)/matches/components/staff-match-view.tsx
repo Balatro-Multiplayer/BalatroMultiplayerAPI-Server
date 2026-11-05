@@ -326,17 +326,18 @@ function ResultTable({
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead className='whitespace-normal px-2'>Player</TableHead>
-          <TableHead className='whitespace-normal px-2'>Place</TableHead>
-          <TableHead className='whitespace-normal px-2'>Rating</TableHead>
+          <TableHead className='px-2'>Player</TableHead>
+          <TableHead className='w-12 px-2'>Place</TableHead>
+          <TableHead className='w-32 px-2'>Rating</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {staff.result.map((row) => (
           <TableRow key={row.playerId}>
-            <TableCell className='whitespace-normal break-words px-2'>
+            <TableCell className='max-w-0 truncate px-2'>
               <Link
                 href={playerPageHref(row.playerId)}
+                title={row.displayName ?? row.playerId}
                 className='text-bal-blue hover:underline'
               >
                 {row.displayName ?? row.playerId.slice(0, 8)}
@@ -348,7 +349,7 @@ function ResultTable({
             <TableCell className='px-2'>{row.place}</TableCell>
             <TableCell
               className={cn(
-                'whitespace-normal px-2',
+                'px-2',
                 row.delta !== null && row.delta > 0 && 'text-green-500',
                 row.delta !== null && row.delta < 0 && 'text-red-500'
               )}
