@@ -61,6 +61,7 @@ function setup(seed: QueueItem, over: Partial<DispatcherDeps<World>> = {}) {
 		rescore: vi.fn(async () => {}),
 		voidGame: vi.fn(async () => ({ kind: 'voided' as const, rerated: true })),
 		overturnGame: vi.fn(async () => ({ kind: 'applied' as const, rerated: true })),
+		tellContestVoided: vi.fn(async () => true),
 	}
 	const deps: DispatcherDeps<World> = {
 		now: () => NOW,
@@ -407,14 +408,32 @@ describe('a contest item', () => {
 		const { dispatcher, external, world } = setup(contest())
 		const result = await dispatcher.run(1, 'dismiss', MOD, { note: 'fair match' })
 		expect(result).toMatchObject({ ok: true, value: { item: { status: 'resolved' } } })
-		expect(external.overturnGame).toHaveBeenCalledWith({ runId: 'run-1', matchmade: true, ranked: true }, original)
+		expect(external.overturnGame).toHaveBeenCalledWith({ runId: 'run-1', matchmade: true, ranked: true, decidesContest: true }, original)
 		expect(world.events.at(-1)).toMatchObject({ action: 'dismiss', detail: { settled: 'rate_original', runId: 'run-1' } })
+	})
+
+	it('marks a contest void and a punishment settlement as deciding the contest', async () => {
+		const voided = setup(contest())
+		await voided.dispatcher.run(1, 'void', ADMIN, {})
+		expect(voided.external.voidGame).toHaveBeenCalledWith({ runId: 'run-1', matchmade: true, ranked: true, decidesContest: true })
+		const punished = setup(contest())
+		await punished.dispatcher.run(1, 'warn', MOD, { message: 'x' })
+		const calls = [...punished.external.overturnGame.mock.calls, ...punished.external.voidGame.mock.calls]
+		expect(calls.length).toBeGreaterThan(0)
+		expect(calls.every(([game]) => (game as { decidesContest?: boolean }).decidesContest === true)).toBe(true)
+	})
+
+	it('does not mark a non-contest void as deciding a contest', async () => {
+		const { dispatcher, external } = setup(item({ itemType: 'forfeit_reconciliation', sourceId: '5' }))
+		await dispatcher.run(1, 'void', ADMIN, {})
+		expect(external.voidGame.mock.calls[0][0]).not.toHaveProperty('decidesContest')
 	})
 
 	it('dismisses a contest nobody reported a result for without rating anything', async () => {
 		const { dispatcher, external, world } = setup(contest(), { originalResultOf: async () => [] })
 		expect(await dispatcher.run(1, 'dismiss', MOD, {})).toMatchObject({ ok: true })
 		expect(external.overturnGame).not.toHaveBeenCalled()
+		expect(external.tellContestVoided).toHaveBeenCalledWith({ runId: 'run-1', matchmade: true, ranked: true, decidesContest: true })
 		expect(world.items.get(1)?.status).toBe('resolved')
 	})
 
@@ -442,7 +461,7 @@ describe('a contest item', () => {
 		const { dispatcher, external, world } = setup(contest())
 		const result = await dispatcher.run(1, 'overturn', ADMIN, { toReportOf: 'b' })
 		expect(result).toMatchObject({ ok: true, value: { effects: { overturned: { runId: 'run-1', rerated: true } } } })
-		expect(external.overturnGame).toHaveBeenCalledWith({ runId: 'run-1', matchmade: true, ranked: true }, [
+		expect(external.overturnGame).toHaveBeenCalledWith({ runId: 'run-1', matchmade: true, ranked: true, decidesContest: true }, [
 			{ playerId: 'b', place: 1, rated: true },
 			{ playerId: 'a', place: 2, rated: false },
 		])
