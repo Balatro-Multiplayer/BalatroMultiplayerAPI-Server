@@ -1,3 +1,4 @@
+import { staffNamesOf } from './ban.gateway.js'
 import { and, asc, desc, eq, inArray, like, or, sql } from 'drizzle-orm'
 import { itemTypesVisibleTo } from '../../features/service-queue/permissions.js'
 import type { DbExecutor } from '../db/executor.js'
@@ -91,14 +92,16 @@ async function displayNamesOf(ids: string[]): Promise<Map<string, string>> {
 			steamName: players.steamName,
 			discordUsername: players.discordUsername,
 			useDiscordName: players.useDiscordName,
+			nakamaUserId: players.nakamaUserId,
 		})
 		.from(players)
 		.where(inArray(players.id, uuids))
-	return new Map(
-		rows.map((r) => [
-			r.id,
-			r.useDiscordName && r.discordUsername ? r.discordUsername : r.steamName,
-		]),
+	return staffNamesOf(
+		rows.map((r) => ({
+			id: r.id,
+			nakamaUserId: r.nakamaUserId,
+			steamName: r.useDiscordName && r.discordUsername ? r.discordUsername : r.steamName,
+		})),
 	)
 }
 

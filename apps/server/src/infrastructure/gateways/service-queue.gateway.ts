@@ -9,6 +9,7 @@ import {
 	contextOf,
 	isItemType,
 } from '../../features/service-queue/types.js'
+import { staffNamesOf } from './ban.gateway.js'
 import type { DbExecutor } from '../db/executor.js'
 import { db } from '../db/index.js'
 import { playerBans, playerWarnings, players, reports, serviceQueueItemEvents, serviceQueueItems } from '../db/schema.js'
@@ -234,7 +235,7 @@ export async function listServiceQueueItems(opts: ListFilters): Promise<{ items:
 					sql`${serviceQueueItems.priority} DESC NULLS LAST`, asc(serviceQueueItems.createdAt)]
 			: [desc(serviceQueueItems.createdAt)]
 	const rows = await db
-		.select({ item: serviceQueueItems, subjectName: players.steamName })
+		.select({ item: serviceQueueItems, subjectName: players.steamName, subjectId: players.id, subjectNakama: players.nakamaUserId })
 		.from(serviceQueueItems)
 		.leftJoin(players, sql`${players.id}::text = ${serviceQueueItems.subjectPlayerId}`)
 		.where(where)
@@ -244,10 +245,13 @@ export async function listServiceQueueItems(opts: ListFilters): Promise<{ items:
 
 	const subjects = [...new Set(rows.map((r) => r.item.subjectPlayerId).filter((s): s is string => !!s))]
 	const openCounts = await openItemCounts(subjects)
+	const staffNames = await staffNamesOf(
+		rows.flatMap((r) => (r.subjectId && r.subjectName !== null ? [{ id: r.subjectId, nakamaUserId: r.subjectNakama, steamName: r.subjectName }] : [])),
+	)
 	return {
 		items: rows.map((r) => ({
 			...r.item,
-			subjectName: r.subjectName ?? null,
+			subjectName: (r.subjectId ? staffNames.get(r.subjectId) : null) ?? r.subjectName ?? null,
 			subjectOpenItems: r.item.subjectPlayerId ? (openCounts.get(r.item.subjectPlayerId) ?? 0) : 0,
 		})),
 		total,
@@ -282,13 +286,13 @@ export async function listAutomaticGroups(): Promise<AutomaticGroup[]> {
 		.where(and(open, inArray(serviceQueueItems.subjectPlayerId, ids)))
 		.orderBy(serviceQueueItems.subjectPlayerId, desc(serviceQueueItems.createdAt), desc(serviceQueueItems.id))
 	const latestOf = new Map(latest.map((i) => [i.subjectPlayerId as string, i]))
-	const names = new Map(
+	const names = await staffNamesOf(
 		(
 			await db
-				.select({ id: sql<string>`${players.id}::text`, name: players.steamName })
+				.select({ id: players.id, name: players.steamName, nakamaUserId: players.nakamaUserId })
 				.from(players)
 				.where(inArray(sql`${players.id}::text`, ids))
-		).map((p) => [p.id, p.name]),
+		).map((p) => ({ id: p.id, nakamaUserId: p.nakamaUserId, steamName: p.name })),
 	)
 	return counts.flatMap((c) => {
 		const item = latestOf.get(c.playerId as string)

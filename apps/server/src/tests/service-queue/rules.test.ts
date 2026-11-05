@@ -77,6 +77,14 @@ describe('the role table', () => {
 		).toEqual(expect.arrayContaining(['void', 'overturn']))
 	})
 
+	it('lets a moderator give a username ban', () => {
+		expect(permissionFor('username_ban', openReport, 'moderator').ok).toBe(true)
+		expect(parseCommand('username_ban', { reason: 'slur' })).toMatchObject({
+			ok: true,
+			value: { reason: 'slur' },
+		})
+	})
+
 	it('keeps account bans to admins', () => {
 		expect(permissionFor('account_ban', openReport, 'moderator')).toEqual({
 			ok: false,
@@ -133,6 +141,7 @@ describe('the role table', () => {
 			'warn',
 			'chat_mute',
 			'queue_ban',
+			'username_ban',
 			'note',
 		])
 		expect(forMod.find((a) => a.action === 'queue_ban')).toEqual({

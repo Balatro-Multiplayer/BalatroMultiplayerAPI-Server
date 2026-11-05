@@ -86,6 +86,7 @@ const BAN_NAMES: Record<string, string> = {
   chat: 'chat',
   queue: 'queue',
   account: 'account',
+  username: 'username',
 }
 
 export function standingOf(
@@ -122,6 +123,7 @@ const ACTION_TEXT: Record<string, string> = {
   chat_ban: 'Chat ban',
   queue_ban: 'Queue ban',
   account_ban: 'Account ban',
+  username_ban: 'Username ban',
   lift_ban: 'Ban lifted',
   lift_network_ban: 'Network ban lifted',
   lift_warning: 'Warning lifted',

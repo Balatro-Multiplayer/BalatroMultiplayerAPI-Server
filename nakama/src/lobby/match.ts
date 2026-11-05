@@ -47,7 +47,7 @@ import {
 	setPlayerInfo,
 	tick,
 } from './state'
-import { displayNameOf, readProfile } from '../player/profile'
+import { banNameFor, readProfile, shownNameOf } from '../player/profile'
 import { applyRatings } from '../rating/apply'
 import { logBounds } from '../rating/metrics'
 import { currentSeason } from '../rating/season'
@@ -469,7 +469,7 @@ export function joinInfoOf(
 		: DEFAULT_AVATAR
 	if (stored && stored.profile.nakamaLogin) {
 		return {
-			displayName: displayNameOf(stored.profile),
+			displayName: shownNameOf(nk, presence.userId, stored.profile),
 			preferredJoker: joker,
 			mods: sentMods !== null ? sentMods : stored.profile.mods,
 			standing,
@@ -477,7 +477,7 @@ export function joinInfoOf(
 		}
 	}
 	return {
-		displayName: meta.displayName || presence.username,
+		displayName: banNameFor(nk, presence.userId) ?? (meta.displayName || presence.username),
 		preferredJoker: joker,
 		mods: sentMods,
 		standing,

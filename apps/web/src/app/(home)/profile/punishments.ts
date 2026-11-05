@@ -1,6 +1,6 @@
 // The player's own punishment list, as GET /auth/punishments returns it.
 // No staff name is ever in it.
-export type PunishmentType = 'warning' | 'chat_ban' | 'queue_ban' | 'account_ban'
+export type PunishmentType = 'warning' | 'chat_ban' | 'queue_ban' | 'account_ban' | 'username_ban'
 
 export interface Punishment {
   id: string
@@ -51,6 +51,7 @@ export const PUNISHMENT_LABEL: Record<PunishmentType, string> = {
   chat_ban: 'Chat ban',
   queue_ban: 'Queue ban',
   account_ban: 'Account ban',
+  username_ban: 'Username ban',
 }
 
 export const STATUS_LABEL: Record<Punishment['status'], string> = {

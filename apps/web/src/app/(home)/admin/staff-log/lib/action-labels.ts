@@ -5,6 +5,7 @@ export const STAFF_ACTION_LABELS: Record<string, string> = {
   chat_ban: 'Chat ban',
   queue_ban: 'Queue ban',
   account_ban: 'Account ban',
+  username_ban: 'Username ban',
   lift_ban: 'Lift',
   lift_network_ban: 'Lift network ban',
   lift_warning: 'Lift warning',
@@ -57,7 +58,7 @@ export type Tone = 'red' | 'amber' | 'green' | 'blue' | 'plain'
 // The badge colour of an action: punishments red, warnings amber, lifts and
 // dismissals green, notes blue.
 export function toneOf(action: string): Tone {
-  if (['chat_ban', 'queue_ban', 'account_ban', 'lobby_close'].includes(action))
+  if (['chat_ban', 'queue_ban', 'account_ban', 'username_ban', 'lobby_close'].includes(action))
     return 'red'
   if (
     ['warn', 'void', 'match_void', 'overturn', 'match_result'].includes(action)

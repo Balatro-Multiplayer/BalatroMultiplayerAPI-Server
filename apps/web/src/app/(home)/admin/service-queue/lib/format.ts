@@ -45,6 +45,7 @@ export const ACTION_LABELS: Record<ActionKey, string> = {
   chat_mute: 'Chat mute',
   queue_ban: 'Queue ban',
   account_ban: 'Account ban',
+  username_ban: 'Username ban',
   void: 'Void match',
   overturn: 'Overturn',
   reopen: 'Reopen',
@@ -80,6 +81,8 @@ export const ACTION_CONSEQUENCES: Record<ActionKey, string> = {
     'Keeps the player out of matchmaking right away and closes the item.',
   account_ban:
     'Bans the account right away: the player is disconnected and cannot log in.',
+  username_ban:
+    'Hides the player name right away: everyone sees a Ban name until an admin lifts it. Closes the item.',
   void: 'Voids the match: it no longer counts, and ranked players are re-rated.',
   overturn:
     "Replaces the recorded result with the chosen player's report; ranked players are re-rated.",

@@ -40,6 +40,7 @@ const HEADER_BUTTONS: { action: PlayerAction; label: string; red?: boolean }[] =
     { action: 'warn', label: 'Warn' },
     { action: 'chat_ban', label: 'Chat ban' },
     { action: 'queue_ban', label: 'Queue ban', red: true },
+    { action: 'username_ban', label: 'Username ban', red: true },
   ]
 
 export default function AdminPlayerPage() {

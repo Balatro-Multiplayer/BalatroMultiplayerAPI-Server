@@ -130,7 +130,7 @@ export const CHIP_ORDER: ChipKey[] = [
 ]
 
 const CHIP_ACTIONS: Partial<Record<ChipKey, string[]>> = {
-  bans: ['chat_ban', 'queue_ban', 'account_ban'],
+  bans: ['chat_ban', 'queue_ban', 'account_ban', 'username_ban'],
   voids: ['void', 'match_void'],
   lobby: ['lobby_kick', 'lobby_close'],
 }

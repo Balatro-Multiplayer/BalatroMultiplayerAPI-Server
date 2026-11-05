@@ -93,6 +93,14 @@ export const ACTION_RULES: Readonly<Record<ActionKey, ActionRule>> = {
 		targeted: true,
 		destructive: true,
 	},
+	// Always permanent, so it has no presets; a report of any reason may lead to it.
+	username_ban: {
+		itemTypes: ['report'],
+		status: 'open',
+		minRole: 'moderator',
+		targeted: true,
+		destructive: true,
+	},
 	void: {
 		itemTypes: [
 			'match_conflict',
@@ -205,7 +213,7 @@ export function itemTypesVisibleTo(role: StaffRole): ItemType[] {
 	)
 }
 
-export type BanKind = 'chat' | 'queue' | 'account'
+export type BanKind = 'chat' | 'queue' | 'account' | 'username'
 
 // Lifting a punishment is for admins, of any kind.
 export function mayLiftBan(role: StaffRole, _banType: BanKind): boolean {
@@ -217,6 +225,7 @@ const BAN_ACTION: Readonly<Record<BanKind, ActionKey>> = {
 	chat: 'chat_mute',
 	queue: 'queue_ban',
 	account: 'account_ban',
+	username: 'username_ban',
 }
 
 // A client computes expiresAt a moment before the request lands.
@@ -231,6 +240,8 @@ export function mayIssueBan(
 	expiresAt: Date | null,
 	now: Date,
 ): boolean {
+	// A username ban is always permanent, whoever gives it.
+	if (banType === 'username') return expiresAt === null && roleMeets(role, ACTION_RULES.username_ban.minRole)
 	if (role === 'admin') return true
 	const rule = ACTION_RULES[BAN_ACTION[banType]]
 	if (!roleMeets(role, rule.minRole)) return false

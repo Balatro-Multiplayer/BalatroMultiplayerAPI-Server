@@ -86,6 +86,7 @@ const ACTION_TEXT: Record<string, string> = {
   chat_ban: 'Chat ban',
   queue_ban: 'Queue ban',
   account_ban: 'Account ban',
+  username_ban: 'Username ban',
 }
 
 /** A staff log action kind in words. */

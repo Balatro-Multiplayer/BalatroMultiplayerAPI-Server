@@ -88,7 +88,7 @@ export function rpcDiscordUnlink(
 	releaseDiscord(nk, userId, previous)
 	profileChanged(nk, userId, profile)
 	callExpress(nk, logger, ctx.env, '/discord/unlinked', { nakamaUserId: userId })
-	return JSON.stringify({ player: playerView(userId, profile) })
+	return JSON.stringify({ player: playerView(nk, userId, profile) })
 }
 
 // Server only. {userId, discordIdHash, discordUsername?} -> {player}, or
@@ -116,5 +116,5 @@ export function rpcAdminDiscordSet(
 	profileChanged(nk, userId, profile)
 	recordMilestone(nk, logger, userId, 'discordLinked', profile.privileges)
 	logger.info('Linked Discord to %s', userId)
-	return JSON.stringify({ player: playerView(userId, profile) })
+	return JSON.stringify({ player: playerView(nk, userId, profile) })
 }

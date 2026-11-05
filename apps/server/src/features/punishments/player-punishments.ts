@@ -5,7 +5,7 @@ import type { WarningRecord } from '../../infrastructure/gateways/warning.gatewa
 import { type AppealFacts, APPEAL_COOLDOWN_MS, canSubmitAppeal } from '../appeals/appeal-rules.js'
 import type { AppealRow } from '../appeals/appeals.service.js'
 
-export type PunishmentType = 'warning' | 'chat_ban' | 'queue_ban' | 'account_ban'
+export type PunishmentType = 'warning' | 'chat_ban' | 'queue_ban' | 'account_ban' | 'username_ban'
 
 // active: in force (a warning is a record that stands). ended: ran out.
 // lifted: staff ended it early.
@@ -66,6 +66,7 @@ const BAN_TYPE: Readonly<Record<BanRecord['banType'], PunishmentType>> = {
 	chat: 'chat_ban',
 	queue: 'queue_ban',
 	account: 'account_ban',
+	username: 'username_ban',
 }
 
 type Plain = Omit<PlayerPunishment, keyof AppealState>

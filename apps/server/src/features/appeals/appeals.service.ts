@@ -13,7 +13,7 @@ import { type AppealRefusal, type AppealStatus, canSubmitAppeal, decisionsFor, s
 
 export const MAX_APPEAL_LENGTH = 2000
 
-export type BanKind = 'chat' | 'queue' | 'account'
+export type BanKind = 'chat' | 'queue' | 'account' | 'username'
 
 // A punishment as the appeal rules see it: a ban or a warning.
 export interface PunishmentRef {
@@ -117,7 +117,12 @@ export interface SubmitInput {
 
 export type DecideBody = Record<string, unknown>
 
-const PUNISHMENT_NAME: Record<BanKind, string> = { chat: 'chat ban', queue: 'queue ban', account: 'account ban' }
+const PUNISHMENT_NAME: Record<BanKind, string> = {
+	chat: 'chat ban',
+	queue: 'queue ban',
+	account: 'account ban',
+	username: 'username ban',
+}
 
 function summaryOf(appeal: NewAppeal, punishment: PunishmentRef | null): string {
 	const what = punishment ? (punishment.banType ? PUNISHMENT_NAME[punishment.banType] : 'warning') : 'network ban'
@@ -213,6 +218,9 @@ export function createAppealService<Tx>(deps: AppealDeps<Tx>) {
 			// A warning has no length to shorten, and a network ban has no length at all.
 			if (!punishment?.banType)
 				return refuse({ code: 'invalid_body', field: 'outcome', message: 'only a ban can be shortened' })
+			// A username ban is permanent and ends only by a lift.
+			if (punishment.banType === 'username')
+				return refuse({ code: 'invalid_body', field: 'outcome', message: 'a username ban can only be lifted' })
 			const duration = body.duration
 			const end = isBanDuration(duration) ? shortenedEnd(duration, punishment.expiresAt, now) : { ok: false as const }
 			if (!end.ok)

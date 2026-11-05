@@ -19,6 +19,7 @@ import {
 	reports,
 	serviceQueueItems,
 } from '../../../infrastructure/db/schema.js'
+import { staffNamesOf } from '../../../infrastructure/gateways/ban.gateway.js'
 import { appealHistory, findPunishmentRef, getAppealById } from '../../../infrastructure/gateways/appeal.gateway.js'
 import { loadFlaggedMembers, lobbyConversation } from '../../../infrastructure/gateways/flagged-chat.gateway.js'
 import { listContestsOfRun } from '../../../infrastructure/gateways/contest.gateway.js'
@@ -64,10 +65,11 @@ export interface MiniCard {
 
 async function miniCards(ids: string[]): Promise<Map<string, MiniCard>> {
 	const rows = await playerRows(ids)
+	const staff = await staffNamesOf([...rows.values()].map((r) => ({ id: r.id, nakamaUserId: r.nakamaUserId, steamName: r.steamName })))
 	return new Map(
 		ids.map((id) => {
 			const row = rows.get(id)
-			return [id, { id, name: row?.steamName ?? null, nakamaUserId: row?.nakamaUserId ?? null }]
+			return [id, { id, name: row ? (staff.get(id) ?? row.steamName) : null, nakamaUserId: row?.nakamaUserId ?? null }]
 		}),
 	)
 }
@@ -163,7 +165,7 @@ export async function subjectCard(playerId: string | null, item: ServiceQueueIte
 		player: player
 			? {
 					id: player.id,
-					name: player.steamName,
+					name: (await staffNamesOf([{ id: player.id, nakamaUserId: player.nakamaUserId, steamName: player.steamName }])).get(player.id) ?? player.steamName,
 					nakamaUserId: player.nakamaUserId,
 					createdAt: player.createdAt,
 					deleted: player.deletedAt !== null,

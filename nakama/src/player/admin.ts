@@ -128,7 +128,7 @@ export function rpcAdminProfileSet(
 	if (edit.discord === null) releaseDiscord(nk, userId, previousDiscord)
 	profileChanged(nk, userId, profile)
 	logger.info('Profile of %s updated by the API: %v', userId, JSON.stringify(Object.keys(edit)))
-	return JSON.stringify({ player: playerView(userId, profile) })
+	return JSON.stringify({ player: playerView(nk, userId, profile) })
 }
 
 // {userId, anonymousId, keptRunIds, keepSteamIdHash} -> {deleted: true}: the

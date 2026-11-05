@@ -3,6 +3,8 @@
 // privileges, mutes). Owned by the player, readable by them, written only by
 // the server. Brought over from Postgres once, at the first session_init
 // (player/session.ts).
+import { banNameOf } from '../../../packages/types/src/ban-name'
+import { activeBan, readBans } from '../moderation/bans'
 import { DEFAULT_AVATAR } from '../shared/avatars/ids'
 import { privilegeTable, selectableOrDefault } from '../shared/avatars/unlocked'
 
@@ -157,12 +159,26 @@ export function displayNameOf(profile: Profile): string {
 	return profile.steamName
 }
 
+// The player's Ban name while a username ban is in force, else null.
+export function banNameFor(nk: nkruntime.Nakama, userId: string): string | null {
+	return activeBan(readBans(nk, userId), 'username', Date.now()) ? banNameOf(userId) : null
+}
+
+// The name everyone sees: the Ban name under a username ban (the Steam name
+// and the Discord choice have no effect then), else the player's own pick.
+export function shownNameOf(nk: nkruntime.Nakama, userId: string, profile: Profile): string {
+	return banNameFor(nk, userId) ?? displayNameOf(profile)
+}
+
 // The login response's player object, in the API's playerPayload shape.
-export function playerView(userId: string, profile: Profile) {
+// usernameBanned lets the client show the Ban name for the Steam and Discord
+// names too (it works the name out from the id).
+export function playerView(nk: nkruntime.Nakama, userId: string, profile: Profile) {
 	return {
 		id: userId,
 		steamName: profile.steamName,
-		displayName: displayNameOf(profile),
+		displayName: shownNameOf(nk, userId, profile),
+		usernameBanned: banNameFor(nk, userId) !== null,
 		useDiscordName: profile.useDiscordName,
 		preferredJoker: profile.preferredJoker,
 		discordLinked: profile.discordIdHash !== null,

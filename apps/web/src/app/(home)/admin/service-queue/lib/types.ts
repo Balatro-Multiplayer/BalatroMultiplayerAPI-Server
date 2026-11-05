@@ -31,6 +31,7 @@ export type ActionKey =
   | 'chat_mute'
   | 'queue_ban'
   | 'account_ban'
+  | 'username_ban'
   | 'void'
   | 'overturn'
   | 'reopen'
@@ -624,6 +625,12 @@ export type ActionBody =
       note?: string
       ladder?: Ladder
       deviationReason?: string
+    }
+  | {
+      action: 'username_ban'
+      reason: string
+      targetPlayerId?: string
+      note?: string
     }
   | {
       action: 'chat_mute' | 'queue_ban' | 'account_ban'

@@ -14,6 +14,7 @@ export const PLAYER_ACTIONS = [
   'chat_ban',
   'queue_ban',
   'account_ban',
+  'username_ban',
   'lift',
 ] as const
 export type PlayerAction = (typeof PLAYER_ACTIONS)[number]
@@ -42,6 +43,7 @@ const ACTION_LABEL: Record<PlayerAction, string> = {
   chat_ban: 'Chat ban',
   queue_ban: 'Queue ban',
   account_ban: 'Account ban',
+  username_ban: 'Username ban',
   lift: 'Lift',
 }
 
@@ -67,6 +69,12 @@ export function playerBarActions(
       lengths: lengths(['24h', '7d', '30d', 'permanent']),
     },
   ]
+  all.push({
+    key: 'username_ban',
+    label: ACTION_LABEL.username_ban,
+    destructive: true,
+    lengths: lengths(['permanent']),
+  })
   if (isAdmin)
     all.push({
       key: 'account_ban',
@@ -190,7 +198,9 @@ export function requestFor(input: {
       ? 'chat'
       : action === 'queue_ban'
         ? 'queue'
-        : 'account'
+        : action === 'username_ban'
+          ? 'username'
+          : 'account'
   const ladder = ladderOfAction(action)
   const expiresAt =
     input.isAdmin && input.endsOn

@@ -27,12 +27,13 @@ const base = {
 }
 
 describe('playerBarActions', () => {
-  test('a moderator has note, warn, chat ban and queue ban', () => {
+  test('a moderator has note, warn, chat ban, queue ban and username ban', () => {
     expect(playerBarActions(false, true).map((a) => a.key)).toEqual([
       'note',
       'warn',
       'chat_ban',
       'queue_ban',
+      'username_ban',
     ])
   })
 
@@ -46,6 +47,7 @@ describe('playerBarActions', () => {
       'warn',
       'chat_ban',
       'queue_ban',
+      'username_ban',
       'account_ban',
     ])
   })
