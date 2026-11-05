@@ -11,6 +11,7 @@ import { apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import { itemIdOf } from '../../service-queue/lib/links'
+import { useClaimRenewal } from '../../service-queue/lib/use-claim-renewal'
 import { ChatTab } from '../components/chat-tab'
 import { HistoryTab } from '../components/history-tab'
 import {
@@ -59,6 +60,7 @@ function PlayerPageView() {
   const fromItem = itemIdOf(useSearchParams().get('item'))
   const { isAdmin, isModerator } = useAuth()
   const canAccess = isAdmin || isModerator
+  useClaimRenewal(canAccess ? fromItem : null)
   const [chosenTab, setChosenTab] = useState<PlayerTab | null>(null)
   const [bar, setBar] = useState<BarStart | null>(null)
   const [now] = useState(() => Date.now())

@@ -55,7 +55,7 @@ import type {
 function overturnSides(detail: ItemDetail): { playerId: string }[] {
   if (detail.item.itemType === 'contest')
     return ((detail.evidence as ContestEvidence | null)?.players ?? []).map(
-      (p) => ({ playerId: p.id }),
+      (p) => ({ playerId: p.id })
     )
   if (detail.item.itemType !== 'match_conflict') return []
   return (detail.evidence as MatchConflictEvidence | null)?.sides ?? []
@@ -99,6 +99,7 @@ export function QueueDecisionBar({
   names,
   heldByOther,
   onSent,
+  onUndo,
   onSkip,
 }: {
   detail: ItemDetail
@@ -106,6 +107,8 @@ export function QueueDecisionBar({
   heldByOther: boolean
   // Called when Send is pressed for an action that closes the item.
   onSent: () => void
+  // Called when staff undo the waiting send: they return to this item.
+  onUndo: () => void
   onSkip: () => void
 }) {
   const qc = useQueryClient()
@@ -121,7 +124,7 @@ export function QueueDecisionBar({
   const all = useMemo(() => barActionsOf(detail), [detail])
   const actions = useMemo(
     () => (heldByOther ? all.filter((a) => a.key === 'note') : all),
-    [all, heldByOther],
+    [all, heldByOther]
   )
 
   // The strikes of whoever the punishment lands on.
@@ -133,7 +136,7 @@ export function QueueDecisionBar({
   const ladder = strikes.data?.strikes
   const wanted = useMemo(
     () => recommendedPick(itemType, actions, ladder),
-    [itemType, actions, ladder],
+    [itemType, actions, ladder]
   )
   const bar = useDecisionBar(actions, wanted, itemId)
   const { pick, note } = bar
@@ -183,7 +186,7 @@ export function QueueDecisionBar({
       toast.error(
         err instanceof ApiError && typeof err.body.message === 'string'
           ? err.body.message
-          : refusalText(refusalCodeOf(err), err.message),
+          : refusalText(refusalCodeOf(err), err.message)
       )
       qc.invalidateQueries({ queryKey: queueKeys.all })
     }
@@ -204,9 +207,10 @@ export function QueueDecisionBar({
         tag: `queue:${itemId}`,
         label: title,
         run: () => decideAppeal(itemId, body),
+        onUndo,
         onDone: (r) =>
           done(
-            `Appeal ${(r as { appeal: { status: string } }).appeal.status}.`,
+            `Appeal ${(r as { appeal: { status: string } }).appeal.status}.`
           ),
         onError: failed,
       })
@@ -222,6 +226,7 @@ export function QueueDecisionBar({
       tag: `queue:${itemId}`,
       label: `${title}${who}`,
       run: () => runAction(itemId, body),
+      onUndo: isNote ? undefined : onUndo,
       onDone: (r) => {
         const result = r as Awaited<ReturnType<typeof runAction>>
         done(effectsText(result.action, result.effects))

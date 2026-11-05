@@ -1,9 +1,5 @@
 import { TYPE_LABELS } from '../../admin/service-queue/lib/format'
-import type {
-  QueueItemClaim,
-  StaffQueueItem,
-  StaffResultRow,
-} from './types'
+import type { QueueItemClaim, StaffQueueItem, StaffResultRow } from './types'
 
 // Pure rules for the staff parts of the match page: the tabs, the links back
 // to the queue, and the wording of the result, claims and staff actions.
@@ -35,8 +31,7 @@ export function matchTitle(names: readonly string[]): string {
   return names.length > 0 ? names.join(' vs ') : 'Match'
 }
 
-export const playerPageHref = (playerId: string) =>
-  `/admin/players/${playerId}`
+export const playerPageHref = (playerId: string) => `/admin/players/${playerId}`
 
 export const queueItemHref = (itemId: number) =>
   `/admin/service-queue/${itemId}`

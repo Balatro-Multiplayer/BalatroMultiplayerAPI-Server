@@ -21,7 +21,8 @@ import type {
 // Staff set or void the result of a stored match from its match page. An admin
 // always may; a moderator only while the match has an open queue item they see
 // (otherwise they report it to admins). A void closes every open queue item
-// about the match. Either way only that match's players' ratings move (ADR 0010).
+// about the match. Either way only the ratings of that match's players move,
+// never those of anyone who played after it.
 const router = Router()
 
 export function parsePlacements(value: unknown): EditedPlacement[] | null {
@@ -81,6 +82,8 @@ async function edit(
 		role,
 	}
 	const matchId = String(req.params.matchId)
+	// Checked before the Nakama edit: the edit cannot be undone there, so a
+	// check inside the transaction that saves the rows would come too late.
 	if (!(await mayEditMatch(matchItemsDeps, role, matchId)))
 		throw new AppError(
 			'A moderator can change a match only while it has an open queue item. Report it to admins instead.',

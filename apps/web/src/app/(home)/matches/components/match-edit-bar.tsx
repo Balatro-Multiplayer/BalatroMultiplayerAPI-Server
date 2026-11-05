@@ -50,7 +50,9 @@ export function MatchEditButtons({
           <Button
             key={a.key}
             size='sm'
-            variant={a.destructive && a.key === 'void' ? 'destructive' : 'outline'}
+            variant={
+              a.destructive && a.key === 'void' ? 'destructive' : 'outline'
+            }
             onClick={() => onOpen(a.key)}
           >
             {a.label}
@@ -125,7 +127,9 @@ export function MatchEditBar({
           action === 'report' ? 'Reported to admins.' : `${title} saved.`
         )
         void queryClient.invalidateQueries({ queryKey: ['match-staff', runId] })
-        void queryClient.invalidateQueries({ queryKey: ['match-replay', runId] })
+        void queryClient.invalidateQueries({
+          queryKey: ['match-replay', runId],
+        })
       },
       onError: (err) =>
         toast.error(
@@ -177,9 +181,7 @@ export function MatchEditBar({
               <p className='text-muted-foreground text-xs'>
                 Only the ratings of these players change. Place 1 wins.
               </p>
-              {problem && (
-                <p className='text-destructive text-xs'>{problem}</p>
-              )}
+              {problem && <p className='text-destructive text-xs'>{problem}</p>}
             </div>
           ) : bar.pick?.action === 'void' ? (
             <p className='text-muted-foreground text-xs'>

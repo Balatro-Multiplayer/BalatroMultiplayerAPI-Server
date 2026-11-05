@@ -21,7 +21,7 @@ import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
 import { activeClaimant } from '../service-queue/claim.js'
 import { evidenceOf, subjectCard } from '../service-queue/evidence/assemble.js'
 import type { QueueLane } from '../service-queue/lanes.js'
-import { allowedActionsFor } from '../service-queue/permissions.js'
+import { allowedActionsFor, itemTypesVisibleTo } from '../service-queue/permissions.js'
 import { claim, dismissAutomaticItemsOf, dismissListedAutomaticItems, release, serviceQueueDispatcher } from '../service-queue/queue.service.js'
 import { type QueueRefusal, httpOf } from '../service-queue/refusals.js'
 import { staffOf } from '../service-queue/staff.js'
@@ -97,6 +97,9 @@ router.get('/service-queue', async (req, res, next) => {
 		const claimedByMe = req.query.claimedByMe === '1' || req.query.claimedByMe === 'true'
 		const hideClaimed = req.query.hideClaimed === '1' || req.query.hideClaimed === 'true'
 		const now = new Date()
+		const staff = await staffOf(req)
+		if (!staff) return sendRefusal(res, { code: 'forbidden' })
+		const visibleTypes = itemTypesVisibleTo(staff.role)
 
 		const [{ items, total }, counts, claimedByOthers] = await Promise.all([
 			listServiceQueueItems({
@@ -104,16 +107,17 @@ router.get('/service-queue', async (req, res, next) => {
 				limit,
 				itemType,
 				lane,
+				itemTypes: visibleTypes,
 				status,
 				subject,
-				claimedBy: claimedByMe ? req.player!.playerId : undefined,
-				hideClaimedFrom: hideClaimed ? req.player!.playerId : undefined,
+				claimedBy: claimedByMe ? staff.playerId : undefined,
+				hideClaimedFrom: hideClaimed ? staff.playerId : undefined,
 				olderThanMs: olderThanHours > 0 ? olderThanHours * 60 * 60 * 1000 : undefined,
 				sort,
 				now,
 			}),
-			openCountsByType(),
-			countClaimedByOthers(req.player!.playerId, now),
+			openCountsByType(visibleTypes),
+			countClaimedByOthers(staff.playerId, now, visibleTypes),
 		])
 		const names = await actorNames(items.map((item) => activeClaimant(item, now)))
 		res.json({

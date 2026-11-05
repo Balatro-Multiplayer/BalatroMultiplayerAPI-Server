@@ -27,7 +27,7 @@ const lengthLabelOf = (action: BarAction, length: string | null) =>
 // first action with its first length.
 export function openingPick(
   actions: readonly BarAction[],
-  wanted: BarPick | null = null,
+  wanted: BarPick | null = null
 ): BarPick | null {
   const wantedAction = actions.find((a) => a.key === wanted?.action)
   if (wantedAction && wanted) {
@@ -48,7 +48,7 @@ export function openingPick(
 export function pickAction(
   actions: readonly BarAction[],
   current: BarPick | null,
-  key: string,
+  key: string
 ): BarPick | null {
   return openingPick(actions, { action: key, length: current?.length ?? null })
 }
@@ -56,7 +56,7 @@ export function pickAction(
 // "Chat ban 24h" for the strip and the button.
 export function actionTitle(
   actions: readonly BarAction[],
-  pick: BarPick,
+  pick: BarPick
 ): string {
   const action = actions.find((a) => a.key === pick.action)
   if (!action) return ''
@@ -71,7 +71,7 @@ export function canSend(
   actions: readonly BarAction[],
   pick: BarPick | null,
   note: string,
-  disabled = false,
+  disabled = false
 ): boolean {
   if (disabled || !pick) return false
   if (!actions.some((a) => a.key === pick.action)) return false

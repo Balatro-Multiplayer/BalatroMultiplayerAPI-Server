@@ -12,7 +12,7 @@ export function useOpenQueueCount(enabled: boolean): number | undefined {
     queryKey: ['service-queue', 'open-main-count'],
     queryFn: () =>
       apiFetch<{ total: number }>(
-        '/webadmin/service-queue?status=open&lane=main&limit=1',
+        '/webadmin/service-queue?status=open&lane=main&limit=1'
       ),
     enabled,
     refetchInterval: REFRESH_MS,

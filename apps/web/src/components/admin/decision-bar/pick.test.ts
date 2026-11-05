@@ -24,7 +24,7 @@ describe('openingPick', () => {
       {
         action: 'chat_mute',
         length: '7d',
-      },
+      }
     )
   })
   test('a wanted action the bar does not offer falls back to the first', () => {
@@ -35,7 +35,7 @@ describe('openingPick', () => {
   })
   test('a wanted length the action does not offer falls back to its first', () => {
     expect(
-      openingPick(actions, { action: 'chat_mute', length: '30d' }),
+      openingPick(actions, { action: 'chat_mute', length: '30d' })
     ).toEqual({
       action: 'chat_mute',
       length: '24h',
@@ -52,12 +52,12 @@ describe('openingPick', () => {
 describe('pickAction', () => {
   test('keeps the length when the new action offers it', () => {
     expect(
-      pickAction(actions, { action: 'chat_mute', length: '7d' }, 'queue_ban'),
+      pickAction(actions, { action: 'chat_mute', length: '7d' }, 'queue_ban')
     ).toEqual({ action: 'queue_ban', length: '7d' })
   })
   test('drops the length for an action without lengths', () => {
     expect(
-      pickAction(actions, { action: 'chat_mute', length: '7d' }, 'warn'),
+      pickAction(actions, { action: 'chat_mute', length: '7d' }, 'warn')
     ).toEqual({ action: 'warn', length: null })
   })
 })
@@ -65,7 +65,7 @@ describe('pickAction', () => {
 describe('actionTitle', () => {
   test('names the action and its length', () => {
     expect(actionTitle(actions, { action: 'chat_mute', length: '24h' })).toBe(
-      'Chat ban 24h',
+      'Chat ban 24h'
     )
   })
   test('names an action without a length', () => {
@@ -85,7 +85,7 @@ describe('canSend', () => {
   test('is off with no pick, an unknown pick or a disabled bar', () => {
     expect(canSend(actions, null, 'Slurs')).toBe(false)
     expect(canSend(actions, { action: 'void', length: null }, 'Slurs')).toBe(
-      false,
+      false
     )
     expect(canSend(actions, pick, 'Slurs', true)).toBe(false)
   })

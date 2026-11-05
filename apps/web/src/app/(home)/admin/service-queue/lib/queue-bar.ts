@@ -36,7 +36,7 @@ const APPEAL_LENGTHS: BarLength[] = (['24h', '7d', '30d'] as const).map(
   (d) => ({
     key: d,
     label: DURATION_LABELS[d],
-  }),
+  })
 )
 
 const lengthsOf = (presets: Duration[]): BarLength[] =>
@@ -128,7 +128,7 @@ export function stepOfPick(pick: BarPick): LadderStep | null {
 export function recommendedPick(
   itemType: string,
   actions: readonly BarAction[],
-  strikes: StrikeSummary | undefined,
+  strikes: StrikeSummary | undefined
 ): BarPick | null {
   if (!strikes) return null
   const ladder = ladderOfItem(itemType)
@@ -149,7 +149,7 @@ export function recommendedPick(
 export function deviatesFrom(
   pick: BarPick | null,
   itemType: string,
-  strikes: StrikeSummary | undefined,
+  strikes: StrikeSummary | undefined
 ): LadderStep | null {
   if (!pick || !strikes) return null
   const ladder = ladderOfKey(pick.action, itemType)

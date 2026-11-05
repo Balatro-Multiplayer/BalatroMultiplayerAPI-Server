@@ -9,16 +9,17 @@ describe('the match chat query', () => {
 	async function whereOf(finalizedAt: Date | null, until: Date) {
 		const wheres: unknown[] = []
 		vi.mocked(db.select).mockImplementation((() => {
-			const chain: any = {}
+			const chain: Record<string, unknown> = {}
 			for (const m of ['from', 'orderBy', 'limit'])
 				chain[m] = vi.fn(() => chain)
 			chain.where = vi.fn((condition: unknown) => {
 				wheres.push(condition)
 				return chain
 			})
+			// biome-ignore lint/suspicious/noThenProperty: a thenable stands in for a query
 			chain.then = (resolve: (rows: unknown[]) => void) => resolve([])
 			return chain
-		}) as any)
+		}) as never)
 		await listRunChat(
 			{
 				lobbyCode: 'BG1MB',
@@ -27,7 +28,7 @@ describe('the match chat query', () => {
 			},
 			until,
 		)
-		return dialect.sqlToQuery(wheres[0] as any)
+		return dialect.sqlToQuery(wheres[0] as never)
 	}
 
 	it("keeps only the match's lobby and its time window", async () => {

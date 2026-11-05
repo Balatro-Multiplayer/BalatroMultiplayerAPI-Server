@@ -1,9 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  privilegesFor,
-  roleChangeError,
-  roleChoiceOf,
-} from './staff-role'
+import { privilegesFor, roleChangeError, roleChoiceOf } from './staff-role'
 
 describe('roleChoiceOf', () => {
   test('admin wins over moderator', () => {
@@ -31,7 +27,9 @@ describe('privilegesFor', () => {
 
 describe('roleChangeError', () => {
   test('needs a different role', () => {
-    expect(typeof roleChangeError(['moderator'], 'moderator', 'x')).toBe('string')
+    expect(typeof roleChangeError(['moderator'], 'moderator', 'x')).toBe(
+      'string'
+    )
   })
   test('needs a note', () => {
     expect(typeof roleChangeError([], 'moderator', '  ')).toBe('string')

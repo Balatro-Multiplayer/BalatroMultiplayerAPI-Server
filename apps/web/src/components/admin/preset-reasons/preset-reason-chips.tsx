@@ -3,7 +3,7 @@
 import { apiFetch } from '@/lib/api'
 import { useQuery } from '@tanstack/react-query'
 import type { ItemType } from '../../../app/(home)/admin/service-queue/lib/types'
-import { fillFromPreset, presetReasonsKey } from './lists'
+import { presetReasonsKey } from './lists'
 
 // The preset reasons of one queue item type as chips. A click fills the note.
 export function PresetReasonChips({
@@ -29,7 +29,7 @@ export function PresetReasonChips({
           key={text}
           type='button'
           disabled={disabled}
-          onClick={() => onPick(fillFromPreset('', text))}
+          onClick={() => onPick(text)}
           className='rounded-full border border-border border-dashed px-3 py-1 text-left text-muted-foreground text-xs hover:bg-accent hover:text-foreground disabled:opacity-50'
         >
           {text}

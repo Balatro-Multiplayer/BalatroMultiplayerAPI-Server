@@ -19,7 +19,7 @@ export function roleChoiceOf(privileges: readonly string[]): StaffRoleChoice {
 // The new privilege list: other privileges stay, the staff ones follow the pick.
 export function privilegesFor(
   privileges: readonly string[],
-  role: StaffRoleChoice,
+  role: StaffRoleChoice
 ): string[] {
   const kept = privileges.filter((p) => !STAFF_PRIVILEGES.includes(p))
   return role === 'player' ? kept : [...kept, role]
@@ -29,7 +29,7 @@ export function privilegesFor(
 export function roleChangeError(
   privileges: readonly string[],
   role: StaffRoleChoice,
-  note: string,
+  note: string
 ): string | null {
   if (role === roleChoiceOf(privileges)) return 'Pick a different role.'
   if (!note.trim()) return 'A role change needs a note.'

@@ -6,15 +6,10 @@ export const MAX_PRESET_LENGTH = 200
 
 export const presetReasonsKey = ['admin-preset-reasons'] as const
 
-// A chip click fills the note with the preset. Staff can edit it after.
-export function fillFromPreset(_note: string, preset: string): string {
-  return preset
-}
-
 export function moveReason(
   list: readonly string[],
   index: number,
-  by: -1 | 1,
+  by: -1 | 1
 ): string[] {
   const to = index + by
   if (to < 0 || to >= list.length) return [...list]
@@ -30,7 +25,7 @@ export function removeReason(list: readonly string[], index: number): string[] {
 export function editReason(
   list: readonly string[],
   index: number,
-  text: string,
+  text: string
 ): string[] {
   return list.map((t, i) => (i === index ? text : t))
 }
@@ -58,7 +53,7 @@ export function listProblem(list: readonly string[]): string | null {
 
 export function isChanged(
   saved: readonly string[],
-  draft: readonly string[],
+  draft: readonly string[]
 ): boolean {
   return (
     saved.length !== draft.length || saved.some((text, i) => text !== draft[i])
@@ -69,7 +64,7 @@ export function canSaveList(
   saved: readonly string[],
   draft: readonly string[],
   note: string,
-  pending: boolean,
+  pending: boolean
 ): boolean {
   return (
     !pending &&

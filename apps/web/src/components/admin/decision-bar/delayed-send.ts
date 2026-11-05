@@ -13,6 +13,8 @@ export interface SendJob {
   run: () => Promise<unknown>
   onDone?: (result: unknown) => void
   onError?: (error: Error) => void
+  // Runs when staff undo the send, so a page can bring them back to its thing.
+  onUndo?: () => void
 }
 
 export interface PendingSend {
@@ -47,7 +49,7 @@ export class DelayedSend {
 
   constructor(
     private readonly timers: Timers = realTimers,
-    private readonly delayMs: number = UNDO_MS,
+    private readonly delayMs: number = UNDO_MS
   ) {}
 
   // The send that is waiting, or null. The object is the same until the send
@@ -86,6 +88,7 @@ export class DelayedSend {
     this.timers.clearTimeout(cur.handle)
     this.current = null
     this.emit()
+    cur.job.onUndo?.()
     return true
   }
 
@@ -101,8 +104,8 @@ export class DelayedSend {
       .then((result) => cur.job.onDone?.(result))
       .catch((error: unknown) =>
         cur.job.onError?.(
-          error instanceof Error ? error : new Error(String(error)),
-        ),
+          error instanceof Error ? error : new Error(String(error))
+        )
       )
   }
 

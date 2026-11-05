@@ -130,7 +130,6 @@ function RankedVersionSelect({
   )
 }
 
-
 // The SMODS ids the pinned mod reports in a client's mod list: the entries it
 // adds to matchmaking's allowed mods. Read from the pin's files; an admin can
 // correct them (a re-pin reads them again).

@@ -2,10 +2,8 @@ import request from 'supertest'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_PRESET_LENGTH } from '../../features/service-queue/preset-reasons.js'
 import { signJwt } from '../../features/auth/jwt.js'
-import { db } from '../../infrastructure/db/index.js'
 import * as playerGateway from '../../infrastructure/gateways/player.gateway.js'
 import * as presets from '../../infrastructure/gateways/preset-reasons.gateway.js'
-import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gateway.js'
 import { createSession } from '../../state/index.js'
 import { createTestApp } from './app.js'
 
@@ -14,7 +12,7 @@ vi.mock(
 	async (importOriginal) => ({
 		...(await importOriginal<object>()),
 		getPresetReasons: vi.fn(),
-		setPresetReasons: vi.fn().mockResolvedValue(undefined),
+		editPresetReasons: vi.fn(),
 	}),
 )
 
@@ -27,15 +25,15 @@ function authAs(playerId: string, privileges: string[]) {
 	vi.mocked(playerGateway.findPlayerById).mockResolvedValue({
 		id: TARGET,
 		privileges,
-	} as any)
+	} as never)
 	return `Bearer ${signJwt({ playerId, steamName: playerId })}`
 }
 
 beforeEach(() => {
-	vi.mocked(presets.getPresetReasons).mockResolvedValue(LISTS as any)
-	;(db as any).transaction = vi.fn(async (run: (tx: unknown) => unknown) =>
-		run({ tx: true }),
-	)
+	vi.mocked(presets.getPresetReasons).mockResolvedValue(LISTS as never)
+	vi.mocked(presets.editPresetReasons)
+		.mockReset()
+		.mockResolvedValue(LISTS as never)
 })
 
 describe('GET /api/webadmin/preset-reasons', () => {
@@ -66,28 +64,18 @@ describe('PUT /api/webadmin/config/preset-reasons/:itemType', () => {
 			.set('Authorization', token)
 			.send(body as object)
 
-	it('saves the list and logs the lists before and after', async () => {
+	it('saves the list with the note and returns the saved lists', async () => {
 		const res = await put(authAs('adm-p2', ['admin']), {
 			reasons: [' Slur. ', 'Spam.'],
 			reason: 'Reworded',
 		})
 		expect(res.status).toBe(200)
-		expect(presets.setPresetReasons).toHaveBeenCalledWith(
-			{ tx: true },
+		expect(res.body.presetReasons).toEqual(LISTS)
+		expect(presets.editPresetReasons).toHaveBeenCalledWith(
+			{ playerId: 'adm-p2', role: 'admin' },
 			'flagged_chat',
 			['Slur.', 'Spam.'],
-		)
-		expect(recordStaffAction).toHaveBeenCalledWith(
-			{ tx: true },
-			expect.objectContaining({
-				action: 'preset_reasons_edit',
-				reason: 'Reworded',
-				detail: {
-					itemType: 'flagged_chat',
-					before: ['Spam.'],
-					after: ['Slur.', 'Spam.'],
-				},
-			}),
+			'Reworded',
 		)
 	})
 
@@ -97,20 +85,30 @@ describe('PUT /api/webadmin/config/preset-reasons/:itemType', () => {
 			reason: 'r',
 		})
 		expect(res.status).toBe(403)
-		expect(presets.setPresetReasons).not.toHaveBeenCalled()
+		expect(presets.editPresetReasons).not.toHaveBeenCalled()
 	})
 
 	it('refuses an unknown type, a missing note and bad lists', async () => {
 		const admin = authAs('adm-p3', ['admin'])
-		expect((await put(admin, { reasons: ['a'], reason: 'r' }, 'voice')).status).toBe(404)
-		expect((await put(admin, { reasons: ['a'] })).status).toBe(400)
-		expect((await put(admin, { reasons: ['a'], reason: '  ' })).status).toBe(400)
-		expect((await put(admin, { reasons: ['a', ' '], reason: 'r' })).status).toBe(400)
 		expect(
-			(await put(admin, { reasons: ['x'.repeat(MAX_PRESET_LENGTH + 1)], reason: 'r' })).status,
+			(await put(admin, { reasons: ['a'], reason: 'r' }, 'voice')).status,
+		).toBe(404)
+		expect((await put(admin, { reasons: ['a'] })).status).toBe(400)
+		expect((await put(admin, { reasons: ['a'], reason: '  ' })).status).toBe(
+			400,
+		)
+		expect(
+			(await put(admin, { reasons: ['a', ' '], reason: 'r' })).status,
+		).toBe(400)
+		expect(
+			(
+				await put(admin, {
+					reasons: ['x'.repeat(MAX_PRESET_LENGTH + 1)],
+					reason: 'r',
+				})
+			).status,
 		).toBe(400)
 		expect((await put(admin, { reason: 'r' })).status).toBe(400)
-		expect(presets.setPresetReasons).not.toHaveBeenCalled()
-		expect(recordStaffAction).not.toHaveBeenCalled()
+		expect(presets.editPresetReasons).not.toHaveBeenCalled()
 	})
 })

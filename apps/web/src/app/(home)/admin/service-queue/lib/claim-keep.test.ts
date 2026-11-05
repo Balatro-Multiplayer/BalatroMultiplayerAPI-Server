@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { keepClaim, KEEP_WINDOW_MS, takeKeepClaim } from './claim-keep'
+import {
+  forgetKeepClaim,
+  keepClaim,
+  KEEP_WINDOW_MS,
+  takeKeepClaim,
+} from './claim-keep'
 
 describe('claim keep', () => {
   test('a link click keeps the claim of that item once', () => {
@@ -17,5 +22,11 @@ describe('claim keep', () => {
   test('an old click does not keep a later release', () => {
     keepClaim(5, 1000)
     expect(takeKeepClaim(5, 1000 + KEEP_WINDOW_MS + 1)).toBe(false)
+  })
+
+  test('forgetting the note releases the claim', () => {
+    keepClaim(5, 1000)
+    forgetKeepClaim()
+    expect(takeKeepClaim(5, 1100)).toBe(false)
   })
 })

@@ -31,13 +31,13 @@ export function AllowlistSection({
         await apiFetchWithReason(
           '/webadmin/config/chat-allowlist',
           { method: 'POST', body: JSON.stringify({ message }) },
-          note,
+          note
         )
       for (const message of remove)
         await apiFetchWithReason(
           `/webadmin/config/chat-allowlist/${encodeURIComponent(message)}`,
           { method: 'DELETE' },
-          note,
+          note
         )
     },
     onSuccess: () => toast.success('Chat allowlist saved'),

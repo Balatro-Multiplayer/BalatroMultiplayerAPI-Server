@@ -29,7 +29,10 @@ export function LaddersSection({
 }) {
   const [draft, setDraft] = useState(saved)
   const changed = LADDERS.filter((l) => !sameList(saved[l], draft[l]))
-  useEffect(() => onDirtyChange(changed.length > 0), [changed.length, onDirtyChange])
+  useEffect(
+    () => onDirtyChange(changed.length > 0),
+    [changed.length, onDirtyChange]
+  )
 
   const save = useMutation({
     mutationFn: async (note: string) => {
@@ -37,7 +40,7 @@ export function LaddersSection({
         await apiFetchWithReason(
           `/webadmin/config/strike-ladders/${ladder}`,
           { method: 'PUT', body: JSON.stringify({ steps: draft[ladder] }) },
-          note,
+          note
         )
     },
     onSuccess: () => toast.success('Strike ladders saved'),

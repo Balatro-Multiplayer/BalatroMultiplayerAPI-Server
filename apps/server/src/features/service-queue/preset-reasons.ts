@@ -17,9 +17,13 @@ export type ParsedPresetReasons =
 // A list of trimmed, non-empty notes in the order given. A note that repeats
 // an earlier one is refused, as a chip twice is a mistake.
 export function parsePresetReasons(value: unknown): ParsedPresetReasons {
-	if (!Array.isArray(value)) return { ok: false, message: 'reasons must be a list' }
+	if (!Array.isArray(value))
+		return { ok: false, message: 'reasons must be a list' }
 	if (value.length > MAX_PRESET_REASONS)
-		return { ok: false, message: `at most ${MAX_PRESET_REASONS} preset reasons` }
+		return {
+			ok: false,
+			message: `at most ${MAX_PRESET_REASONS} preset reasons`,
+		}
 	const reasons: string[] = []
 	for (const entry of value) {
 		if (typeof entry !== 'string' || !entry.trim())

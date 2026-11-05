@@ -1,6 +1,6 @@
 'use client'
 
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import {
   parseAsBoolean,
@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import { nextItemId } from './lib/focus'
+import { forgetKeepClaim } from './lib/claim-keep'
 import { InvestigationPanel } from './components/investigation-panel'
 import { QueueList } from './components/queue-list'
 import {
@@ -72,6 +73,7 @@ export default function ServiceQueuePage() {
 function ServiceQueue() {
   const { isAdmin, isModerator, pending } = useAuth()
   const router = useRouter()
+  const qc = useQueryClient()
   const [url, setUrl] = useQueryStates(urlState, { history: 'replace' })
   const [subjectDraft, setSubjectDraft] = useState(url.subject)
   const [cursor, setCursor] = useState(0)
@@ -142,21 +144,41 @@ function ServiceQueue() {
     refetchInterval: LIST_REFRESH_MS,
   })
 
+  // The cursor starts on the open item's row; when that item is not in the
+  // visible list, no row has it until j or k moves it.
+  const hasList = list !== undefined
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only a new open item or the first list resets the cursor, not each refresh
+  useEffect(() => {
+    if (url.item === null || !list) return
+    setCursor(list.items.findIndex((i) => i.id === url.item))
+  }, [url.item, hasList])
+
   const openItem = useCallback(
     (id: number) => void setUrl({ item: id }),
     [setUrl]
   )
   // Opens the next item without a reload; with none left, back to the rail.
+  // It reads a fresh first page under the current type chip, not the cached
+  // rail, which can be 30 s old and name an item someone has claimed since.
   const openNext = useCallback(
-    (fromId: number) =>
+    async (fromId: number) => {
+      const fresh = { ...filters, page: 1 }
+      const latest = await qc
+        .fetchQuery({
+          queryKey: queueKeys.list(fresh),
+          queryFn: () => listQueue(fresh),
+          staleTime: 0,
+        })
+        .catch(() => list)
       void setUrl({
         item: nextItemId(
-          list?.items ?? [],
+          latest?.items ?? [],
           fromId,
           waitingId === null ? [] : [waitingId]
         ),
-      }),
-    [setUrl, list, waitingId]
+      })
+    },
+    [qc, filters, setUrl, list, waitingId]
   )
   const showAllItems = useCallback(
     (playerId: string) => {
@@ -253,8 +275,13 @@ function ServiceQueue() {
                 now={now}
                 onOpenItem={openItem}
                 onShowAllItems={showAllItems}
-                onSkip={() => openNext(selected)}
-                onClosed={() => openNext(selected)}
+                onSkip={() => {
+                  // Skip always gives the claim up, even just after a link click.
+                  forgetKeepClaim()
+                  void openNext(selected)
+                }}
+                onClosed={() => void openNext(selected)}
+                onUndone={() => openItem(selected)}
               />
             </>
           )}

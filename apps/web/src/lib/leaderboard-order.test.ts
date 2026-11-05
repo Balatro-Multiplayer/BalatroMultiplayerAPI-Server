@@ -16,13 +16,20 @@ describe('sortCategoriesByEntries', () => {
   test('puts the mod with the most entries first', () => {
     const counts = {
       MultiplayerSPDRN: { 'ranked:spdrn_gold_stake_single': 5 },
-      MultiplayerPvP: { 'ranked:pvp_ranked_vanilla': 30, 'ranked:pvp_ranked_balanced': 20 },
+      MultiplayerPvP: {
+        'ranked:pvp_ranked_vanilla': 30,
+        'ranked:pvp_ranked_balanced': 20,
+      },
     }
-    expect(sortCategoriesByEntries(LEADERBOARD_CATEGORIES, counts).map((c) => c.id)).toEqual(['pvp', 'speedrun'])
+    expect(
+      sortCategoriesByEntries(LEADERBOARD_CATEGORIES, counts).map((c) => c.id)
+    ).toEqual(['pvp', 'speedrun'])
   })
 
   test('keeps today order on a tie and with no counts', () => {
-    expect(sortCategoriesByEntries(LEADERBOARD_CATEGORIES, {}).map((c) => c.id)).toEqual(['speedrun', 'pvp'])
+    expect(
+      sortCategoriesByEntries(LEADERBOARD_CATEGORIES, {}).map((c) => c.id)
+    ).toEqual(['speedrun', 'pvp'])
   })
 
   test('puts a mod with 0 entries last but keeps it', () => {
@@ -35,7 +42,10 @@ describe('sortCategoriesByEntries', () => {
 describe('sortModesByEntries', () => {
   test('puts the game mode with the most entries first, 0-entry modes last in today order', () => {
     const counts = {
-      MultiplayerPvP: { 'ranked:pvp_ranked_expanded': 9, 'ranked:pvp_ranked_smallworld': 2 },
+      MultiplayerPvP: {
+        'ranked:pvp_ranked_expanded': 9,
+        'ranked:pvp_ranked_smallworld': 2,
+      },
     }
     expect(sortModesByEntries(pvp, counts).map((m) => m.id)).toEqual([
       'pvp_ranked_expanded',
@@ -50,7 +60,9 @@ describe('sortModesByEntries', () => {
 describe('pickCategory and pickMode', () => {
   test('an explicit id wins over the order', () => {
     expect(pickCategory([pvp, speedrun], 'speedrun').id).toBe('speedrun')
-    expect(pickMode(sortModesByEntries(pvp, {}), 'pvp_ranked_balanced').id).toBe('pvp_ranked_balanced')
+    expect(
+      pickMode(sortModesByEntries(pvp, {}), 'pvp_ranked_balanced').id
+    ).toBe('pvp_ranked_balanced')
   })
 
   test('no id or an unknown id opens the first, the biggest when sorted', () => {

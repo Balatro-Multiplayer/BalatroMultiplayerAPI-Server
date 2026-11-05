@@ -71,7 +71,7 @@ export function FlagsSection({
       apiFetchWithReason(
         '/webadmin/config/feature-flags',
         { method: 'PATCH', body: JSON.stringify(changes) },
-        note,
+        note
       ),
     onSuccess: () => toast.success('Feature flags saved'),
     onError: (e: unknown) =>

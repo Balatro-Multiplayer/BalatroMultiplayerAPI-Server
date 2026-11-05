@@ -94,6 +94,16 @@ describe('match edit routes', () => {
 		expect(edit).toHaveBeenCalled()
 	})
 
+	it('refuses a moderator before the Nakama edit runs', async () => {
+		vi.mocked(matchStaff.hasOpenItemVisibleTo).mockResolvedValue(false)
+		const res = await request(app)
+			.post('/api/webadmin/matches/m1/void')
+			.set('Authorization', authAs('mod', ['moderator']))
+			.send({ reason: 'cheating' })
+		expect(res.status).toBe(403)
+		expect(matchEditorFor).not.toHaveBeenCalled()
+	})
+
 	it('lets an admin edit with no open queue item, without asking', async () => {
 		const res = await request(app)
 			.post('/api/webadmin/matches/m1/void')
@@ -107,8 +117,8 @@ describe('match edit routes', () => {
 		vi.mocked(matchStaff.listOpenItemsAboutRun).mockResolvedValue([
 			{ id: 7, itemType: 'contest', sourceId: 'm1' },
 			{ id: 8, itemType: 'staff_report', sourceId: 'm1:1' },
-		] as any)
-		vi.mocked(queueGateway.markServiceQueueItemResolved).mockResolvedValue({} as any)
+		] as never)
+		vi.mocked(queueGateway.markServiceQueueItemResolved).mockResolvedValue({} as never)
 		await request(app)
 			.post('/api/webadmin/matches/m1/void')
 			.set('Authorization', authAs('adm', ['admin']))
@@ -135,8 +145,8 @@ describe('match edit routes', () => {
 
 	describe('report to admins', () => {
 		beforeEach(() => {
-			vi.mocked(matchStaff.findRunWindow).mockResolvedValue({ runId: 'm1' } as any)
-			vi.mocked(queueGateway.enqueueServiceQueueItem).mockReset().mockResolvedValue({} as any)
+			vi.mocked(matchStaff.findRunWindow).mockResolvedValue({ runId: 'm1' } as never)
+			vi.mocked(queueGateway.enqueueServiceQueueItem).mockReset().mockResolvedValue({} as never)
 		})
 
 		it('makes a staff report item from a moderator note', async () => {

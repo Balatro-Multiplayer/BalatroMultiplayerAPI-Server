@@ -22,7 +22,12 @@ import {
   wantedPick,
 } from '../lib/player-bar'
 import { isActiveBan } from '../lib/player-view'
-import { type Ladder, LADDER_LABELS, LADDERS, STEP_LABELS } from '../lib/strikes'
+import {
+  type Ladder,
+  LADDER_LABELS,
+  LADDERS,
+  STEP_LABELS,
+} from '../lib/strikes'
 import type { PlayerPage } from '../lib/types'
 
 const WARNING_MAX = 500
@@ -38,7 +43,7 @@ export interface BarStart {
 // What can be lifted now: bans in force and warnings not yet lifted.
 export function liftTargetsOf(
   page: PlayerPage,
-  now: number,
+  now: number
 ): { target: LiftTarget; label: string }[] {
   return [
     ...page.punishments.bans
@@ -80,11 +85,11 @@ export function PlayerActionBar({
   const liftables = useMemo(() => liftTargetsOf(page, now), [page, now])
   const actions = useMemo(
     () => playerBarActions(isAdmin, liftables.length > 0),
-    [isAdmin, liftables.length],
+    [isAdmin, liftables.length]
   )
   const wanted = useMemo(
     () => wantedPick(start.action, page.strikes),
-    [start.action, page.strikes],
+    [start.action, page.strikes]
   )
   const bar = useDecisionBar(actions, wanted, start.nonce)
   const { pick, note } = bar
@@ -92,7 +97,7 @@ export function PlayerActionBar({
   const [warnLadder, setWarnLadder] = useState<Ladder>('play')
   const [endsOn, setEndsOn] = useState('')
   const [liftKey, setLiftKey] = useState<string>(() =>
-    start.lift ? `${start.lift.kind}:${start.lift.id}` : '',
+    start.lift ? `${start.lift.kind}:${start.lift.id}` : ''
   )
   const lift =
     liftables.find((l) => `${l.target.kind}:${l.target.id}` === liftKey)
@@ -211,8 +216,8 @@ export function PlayerActionBar({
       )}
       {deviates && (
         <p className='text-amber-400 text-sm' data-testid='ladder-deviation'>
-          The ladder recommends {STEP_LABELS[deviates].toLowerCase()}. Your
-          note must say why you pick another step.
+          The ladder recommends {STEP_LABELS[deviates].toLowerCase()}. Your note
+          must say why you pick another step.
         </p>
       )}
       {note.trim() && missing && (

@@ -45,13 +45,13 @@ export function PresetReasonsSection({
   const savedOf = (t: ItemType) => data?.presetReasons[t] ?? []
   const draftOf = (t: ItemType) => drafts[t] ?? savedOf(t)
   const changedTypes = ITEM_TYPES.filter((t) =>
-    isChanged(savedOf(t), draftOf(t)),
+    isChanged(savedOf(t), draftOf(t))
   )
   const problem = changedTypes.map((t) => listProblem(draftOf(t))).find(Boolean)
 
   useEffect(
     () => onDirtyChange?.(changedTypes.length > 0),
-    [changedTypes.length, onDirtyChange],
+    [changedTypes.length, onDirtyChange]
   )
 
   const save = useMutation({
@@ -63,13 +63,13 @@ export function PresetReasonsSection({
             method: 'PUT',
             body: JSON.stringify({ reasons: draftOf(t).map((x) => x.trim()) }),
           },
-          note,
+          note
         )
     },
     onSuccess: () => toast.success('Preset reasons saved'),
     onError: (e: unknown) =>
       toast.error(
-        e instanceof Error ? e.message : 'Could not save preset reasons',
+        e instanceof Error ? e.message : 'Could not save preset reasons'
       ),
     onSettled: () => qc.invalidateQueries({ queryKey: presetReasonsKey }),
   })
@@ -112,7 +112,7 @@ export function PresetReasonsSection({
                 'flex items-center rounded-md px-2.5 py-1.5 text-left',
                 t === type
                   ? 'bg-destructive/15 font-semibold'
-                  : 'hover:bg-accent',
+                  : 'hover:bg-accent'
               )}
             >
               {TYPE_LABELS[t]}

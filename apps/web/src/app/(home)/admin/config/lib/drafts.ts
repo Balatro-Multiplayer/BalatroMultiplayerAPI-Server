@@ -47,7 +47,7 @@ export const SECTION_TITLES: Record<SectionId, string> = {
 // Only the flags a draft turns the other way.
 export function changedFlags(
   saved: Record<FeatureFlag, boolean>,
-  draft: Record<FeatureFlag, boolean>,
+  draft: Record<FeatureFlag, boolean>
 ): Partial<Record<FeatureFlag, boolean>> {
   const out: Partial<Record<FeatureFlag, boolean>> = {}
   for (const key of FEATURE_FLAG_KEYS)
@@ -61,7 +61,7 @@ export function sameList<T>(a: readonly T[], b: readonly T[]): boolean {
 
 export function allowlistChanges(
   saved: readonly string[],
-  draft: readonly string[],
+  draft: readonly string[]
 ): { add: string[]; remove: string[] } {
   const before = new Set(saved)
   const after = new Set(draft)
@@ -73,7 +73,7 @@ export function allowlistChanges(
 
 export function modChanges(
   saved: readonly ModEntry[],
-  draft: readonly ModEntry[],
+  draft: readonly ModEntry[]
 ): { upsert: ModEntry[]; remove: string[] } {
   const before = new Map(saved.map((m) => [m.modId, m]))
   const after = new Set(draft.map((m) => m.modId))
@@ -94,7 +94,7 @@ export function modChanges(
 // A mod form entry replaces a draft entry with the same id.
 export function upsertDraftMod(
   draft: readonly ModEntry[],
-  mod: ModEntry,
+  mod: ModEntry
 ): ModEntry[] {
   const clean = {
     modId: mod.modId.trim(),
@@ -109,7 +109,7 @@ export function upsertDraftMod(
 
 export function addAllowlistMessage(
   draft: readonly string[],
-  message: string,
+  message: string
 ): string[] {
   const text = message.trim()
   return !text || draft.includes(text) ? [...draft] : [...draft, text]
@@ -123,7 +123,7 @@ export function changeLabel(count: number): string {
 export function canSaveSection(
   changeCount: number,
   note: string,
-  pending: boolean,
+  pending: boolean
 ): boolean {
   return !pending && changeCount > 0 && note.trim().length > 0
 }
@@ -156,7 +156,7 @@ export function modsSummary(count: number): string {
 export function pickSection(
   current: SectionId,
   target: SectionId,
-  dirty: boolean,
+  dirty: boolean
 ): { open: SectionId; pending: SectionId | null } {
   if (target === current) return { open: current, pending: null }
   if (dirty) return { open: current, pending: target }
