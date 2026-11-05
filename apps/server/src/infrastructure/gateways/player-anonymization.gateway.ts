@@ -397,6 +397,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'status',
 		'outcome',
 		'decided_at',
+		'notified_at',
 		'created_at',
 	],
 	staff_log: ['id', 'staff_role', 'action', 'item_id', 'at'],

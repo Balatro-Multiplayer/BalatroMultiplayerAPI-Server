@@ -54,6 +54,7 @@ function setup(punishments: PunishmentRef[] = [ban()], over: Partial<AppealDeps<
 		liftBanInNakama: vi.fn(async () => true),
 		liftNetworkBans: vi.fn(async () => ({ ok: true as const })),
 		notifyDecided: vi.fn(async () => true),
+		markNotified: vi.fn(async () => undefined),
 	}
 	const deps: AppealDeps<World> = {
 		now: () => NOW,
@@ -378,6 +379,16 @@ describe('telling the player the decision', () => {
 		await s.service.decide(1, ADMIN, { decision: 'deny', reason: 'x' })
 		await s.service.decide(1, ADMIN, { decision: 'deny', reason: 'x' })
 		expect(s.external.notifyDecided).toHaveBeenCalledTimes(1)
+	})
+
+	it('marks the appeal told only when Nakama confirmed', async () => {
+		const s = await opened()
+		await s.service.decide(1, MOD, { decision: 'deny', reason: 'no' })
+		expect(s.external.markNotified).toHaveBeenCalledWith('appeal-1')
+		const f = await opened()
+		f.external.notifyDecided.mockResolvedValueOnce(false)
+		await f.service.decide(1, MOD, { decision: 'deny', reason: 'no' })
+		expect(f.external.markNotified).not.toHaveBeenCalled()
 	})
 
 	it('still decides when Nakama cannot be told', async () => {

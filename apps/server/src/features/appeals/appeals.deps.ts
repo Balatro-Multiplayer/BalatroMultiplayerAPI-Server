@@ -6,6 +6,7 @@ import {
 	findPunishmentRef,
 	getAppealById,
 	insertAppeal,
+	markAppealNotified,
 	liftWarning,
 	setBanEnd,
 	settleAppealRow,
@@ -81,6 +82,7 @@ const deps: AppealDeps<DbTransaction> = {
 			liftedBy: null,
 		}),
 	liftBanInNakama: (playerId, banId) => liftBanInNakama(playerId, banId),
+	markNotified: (id) => markAppealNotified(id),
 	notifyDecided: (decided) => notifyAppealDecidedInNakama(decided),
 	async liftNetworkBans(banIds) {
 		for (const banId of banIds) {

@@ -87,6 +87,8 @@ export interface AppealDeps<Tx> {
 	// After the commit; the player's Notification of the decision. Sent once
 	// per appeal, failures are logged by the caller, never undone.
 	notifyDecided(decided: AppealNotice): Promise<boolean>
+	// After Nakama confirmed; the timed job retries every decided appeal not marked.
+	markNotified(appealId: string): Promise<void>
 }
 
 export interface AppealNotice {
@@ -187,10 +189,12 @@ export function createAppealService<Tx>(deps: AppealDeps<Tx>) {
 		const base = { decisionReason: why.reason, decidedBy: actor, decidedAt: now }
 
 		const target: AppealNotice['target'] = punishment ? (punishment.banType ?? 'warning') : 'network'
-		const tell = (accepted: boolean, result: AppealOutcome | null) =>
-			deps
+		const tell = async (accepted: boolean, result: AppealOutcome | null) => {
+			const sent = await deps
 				.notifyDecided({ playerId: appeal.playerId, appealId: appeal.id, accepted, target, result })
 				.catch(() => false)
+			if (sent) await deps.markNotified(appeal.id).catch(() => undefined)
+		}
 		const decided = (status: 'denied' | 'granted', outcome: AppealOutcome | null): AppealDecision => ({ ...base, status, outcome })
 		const result = (d: AppealDecision) => ({ ok: true as const, value: { appeal: { ...appeal, ...d } } })
 
