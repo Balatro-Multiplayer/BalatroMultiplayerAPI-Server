@@ -1,89 +1,32 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { cn } from '@/lib/utils'
+import { LogRow } from './components/log-row'
+import { STAFF_ACTION_LABELS } from './lib/action-labels'
+import {
+  CHIP_LABELS,
+  CHIP_ORDER,
+  type Filters,
+  NO_FILTERS,
+  type StaffLogEntry,
+  apiQuery,
+  chipActive,
+  filtersOf,
+  groupByDay,
+  pageOf,
+  paramsOfFilters,
+  toggleChip,
+} from './lib/log-view'
 
 const PAGE_SIZE = 50
-
-// The server's STAFF_ACTIONS (apps/server shared/staff-log/actions.ts).
-const ACTION_LABELS: Record<string, string> = {
-  warn: 'Warning',
-  note: 'Note',
-  chat_ban: 'Chat ban',
-  queue_ban: 'Queue ban',
-  account_ban: 'Account ban',
-  lift_ban: 'Lift',
-  lift_network_ban: 'Lift network ban',
-  lift_warning: 'Lift warning',
-  dismiss: 'Dismiss',
-  resolve: 'Resolve',
-  void: 'Void match',
-  overturn: 'Change result',
-  reopen: 'Reopen',
-  appeal_deny: 'Deny appeal',
-  appeal_grant: 'Grant appeal',
-  match_result: 'Edit match result',
-  match_void: 'Void match (match page)',
-  role_grant: 'Give role',
-  role_remove: 'Remove role',
-  lobby_kick: 'Kick from lobby',
-  lobby_close: 'Close lobby',
-  config_change: 'Change server config',
-  allowlist_add: 'Add allowlist message',
-  allowlist_remove: 'Remove allowlist message',
-  season_start: 'Start season',
-  season_activate: 'Activate season',
-  season_end: 'End season',
-  mod_pin: 'Change ranked mod pin',
-  custom_mod_create: 'Create custom mod',
-  custom_mod_update: 'Edit custom mod',
-  custom_mod_delete: 'Delete custom mod',
-  mod_profile_create: 'Create mod profile',
-  mod_profile_update: 'Edit mod profile',
-  mod_profile_delete: 'Delete mod profile',
-  mod_profile_entry_set: 'Set mod profile entry',
-  mod_profile_entry_remove: 'Remove mod profile entry',
-  mods_sync: 'Sync mod catalog',
-  smods_ids_backfill: 'Backfill SMODS ids',
-  achievements_backfill: 'Backfill achievements',
-  launcher_release_import: 'Import launcher release',
-  launcher_release_delete: 'Delete launcher release',
-  blog_create: 'Create blog post',
-  blog_update: 'Edit blog post',
-  blog_publish: 'Publish blog post',
-  blog_unpublish: 'Unpublish blog post',
-  blog_delete: 'Delete blog post',
-  ladder_edit: 'Edit strike ladder',
-  preset_reasons_edit: 'Edit preset reasons',
-  season_replay_apply: 'Apply season replay',
-  season_replay_restore: 'Restore season replay backup',
-}
-
-interface StaffLogEntry {
-  id: number
-  staffPlayerId: string
-  staffName: string | null
-  staffRole: string
-  action: string
-  targetPlayerId: string | null
-  targetName: string | null
-  itemId: number | null
-  reason: string
-  at: string
-}
 
 interface StaffLogResponse {
   entries: StaffLogEntry[]
@@ -91,76 +34,74 @@ interface StaffLogResponse {
   pages: number
 }
 
-interface Filters {
-  staff: string
-  player: string
-  action: string
-  from: string
-  to: string
-}
-
-const NO_FILTERS: Filters = { staff: '', player: '', action: '', from: '', to: '' }
-
-// The "to" day is inclusive on the page; the server's bound is exclusive.
-function dayAfter(day: string): string {
-  const date = new Date(`${day}T00:00:00Z`)
-  date.setUTCDate(date.getUTCDate() + 1)
-  return date.toISOString()
-}
-
-function paramsOf(filters: Filters, page: number): string {
-  const params = new URLSearchParams({
-    page: String(page),
-    limit: String(PAGE_SIZE),
-  })
-  if (filters.staff.trim()) params.set('staff', filters.staff.trim())
-  if (filters.player.trim()) params.set('player', filters.player.trim())
-  if (filters.action) params.set('action', filters.action)
-  if (filters.from) params.set('from', new Date(`${filters.from}T00:00:00Z`).toISOString())
-  if (filters.to) params.set('to', dayAfter(filters.to))
-  return params.toString()
-}
-
-function PlayerLink({ id, name }: { id: string | null; name: string | null }) {
-  if (!id) return <span className='text-muted-foreground'>-</span>
+export default function AdminStaffLogPage() {
+  // useSearchParams needs Suspense so static prerender does not bail out.
   return (
-    <a href={`/admin/players/${id}`} className='text-bal-blue hover:underline'>
-      {name ?? `${id.slice(0, 8)}…`}
-    </a>
+    <Suspense
+      fallback={
+        <div className='container py-8 text-muted-foreground'>Loading…</div>
+      }
+    >
+      <StaffLog />
+    </Suspense>
   )
 }
 
-export default function AdminStaffLogPage() {
-  const { isAdmin, isModerator } = useAuth()
-  const [page, setPage] = useState(1)
-  const [draft, setDraft] = useState<Filters>(NO_FILTERS)
-  const [filters, setFilters] = useState<Filters>(NO_FILTERS)
+function StaffLog() {
+  const { player, isAdmin, isModerator } = useAuth()
+  const router = useRouter()
+  const pathname = usePathname()
+  const search = useSearchParams()
+  // The filters and the page live in the URL, so a reload keeps them.
+  const filters = useMemo(() => filtersOf(new URLSearchParams(search)), [search])
+  const page = pageOf(new URLSearchParams(search))
+  const [draft, setDraft] = useState<Filters>(filters)
+  useEffect(() => setDraft(filters), [filters])
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60_000)
+    return () => clearInterval(t)
+  }, [])
+
+  const go = (next: Filters, nextPage: number) => {
+    const query = paramsOfFilters(next, nextPage).toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
+  }
 
   const { data } = useQuery<StaffLogResponse>({
     queryKey: ['admin-staff-log', filters, page],
-    queryFn: () => apiFetch(`/webadmin/staff-log?${paramsOf(filters, page)}`),
+    queryFn: () =>
+      apiFetch(`/webadmin/staff-log?${apiQuery(filters, page, PAGE_SIZE)}`),
     enabled: isAdmin || isModerator,
+    placeholderData: keepPreviousData,
   })
   const entries = data?.entries ?? []
+  const groups = useMemo(() => groupByDay(entries, now), [entries, now])
   const set = (change: Partial<Filters>) => setDraft((d) => ({ ...d, ...change }))
+  const total = data?.total ?? 0
+  const pages = Math.max(1, data?.pages ?? 1)
 
   return (
-    <div className='container max-w-6xl space-y-6 py-8'>
-      <div>
-        <h1 className='font-bold text-2xl tracking-tight'>Staff Log</h1>
-        <p className='text-muted-foreground text-sm'>
-          {isAdmin
-            ? 'Every staff action, with who did it and why.'
-            : 'Your actions, and the actions taken on queue items.'}
+    <div className='container max-w-7xl space-y-5 py-8'>
+      <div className='flex flex-wrap items-end justify-between gap-2'>
+        <div>
+          <h1 className='font-pixel text-4xl tracking-tight'>Staff Log</h1>
+          <p className='text-muted-foreground text-sm'>
+            {isAdmin
+              ? 'Every staff action, with who did it and why.'
+              : 'Your actions, and the actions taken on queue items.'}
+          </p>
+        </div>
+        <p className='text-muted-foreground text-xs'>
+          Showing {entries.length} of {total.toLocaleString()} entries
         </p>
       </div>
 
       <form
-        className='flex flex-wrap items-end gap-3'
+        className='flex flex-wrap items-end gap-3 rounded-lg border border-border bg-card/80 p-4'
         onSubmit={(e) => {
           e.preventDefault()
-          setFilters(draft)
-          setPage(1)
+          go(draft, 1)
         }}
       >
         <div className='space-y-1'>
@@ -186,11 +127,15 @@ export default function AdminStaffLogPage() {
           <select
             id='sl-action'
             className='h-9 rounded-md border border-input bg-background px-3 text-sm'
-            value={draft.action}
-            onChange={(e) => set({ action: e.target.value })}
+            value={draft.action.length === 1 ? (draft.action[0] ?? '') : ''}
+            onChange={(e) =>
+              set({ action: e.target.value ? [e.target.value] : [] })
+            }
           >
-            <option value=''>Any action</option>
-            {Object.entries(ACTION_LABELS).map(([key, label]) => (
+            <option value=''>
+              {draft.action.length > 1 ? 'Several actions' : 'Any action'}
+            </option>
+            {Object.entries(STAFF_ACTION_LABELS).map(([key, label]) => (
               <option key={key} value={key}>
                 {label}
               </option>
@@ -215,103 +160,90 @@ export default function AdminStaffLogPage() {
             onChange={(e) => set({ to: e.target.value })}
           />
         </div>
-        <Button type='submit'>Filter</Button>
-        <Button
-          type='button'
-          variant='outline'
-          onClick={() => {
-            setDraft(NO_FILTERS)
-            setFilters(NO_FILTERS)
-            setPage(1)
-          }}
-        >
-          Clear
-        </Button>
+        <div className='ml-auto flex gap-2'>
+          <Button type='submit'>Filter</Button>
+          <Button
+            type='button'
+            variant='outline'
+            onClick={() => {
+              setDraft(NO_FILTERS)
+              go(NO_FILTERS, 1)
+            }}
+          >
+            Clear
+          </Button>
+        </div>
       </form>
 
-      <div className='overflow-x-auto rounded-lg border border-border'>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Time</TableHead>
-              <TableHead>Staff member</TableHead>
-              <TableHead>Action</TableHead>
-              <TableHead>Player</TableHead>
-              <TableHead>Reason</TableHead>
-              <TableHead>Queue item</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {entries.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className='text-muted-foreground'>
-                  No entries found.
-                </TableCell>
-              </TableRow>
-            ) : (
-              entries.map((entry) => (
-                <TableRow key={entry.id}>
-                  <TableCell className='whitespace-nowrap text-muted-foreground text-xs'>
-                    {new Date(entry.at).toLocaleString()}
-                  </TableCell>
-                  <TableCell>
-                    <PlayerLink id={entry.staffPlayerId} name={entry.staffName} />{' '}
-                    <span className='text-muted-foreground text-xs'>
-                      ({entry.staffRole})
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    {ACTION_LABELS[entry.action] ?? entry.action}
-                  </TableCell>
-                  <TableCell>
-                    <PlayerLink
-                      id={entry.targetPlayerId}
-                      name={entry.targetName}
-                    />
-                  </TableCell>
-                  <TableCell className='max-w-[420px] break-words'>
-                    {entry.reason || (
-                      <span className='text-muted-foreground'>
-                        (no reason, from before the staff log)
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {entry.itemId ? (
-                      <a
-                        href={`/admin/service-queue/${entry.itemId}`}
-                        className='text-bal-blue hover:underline'
-                      >
-                        #{entry.itemId}
-                      </a>
-                    ) : (
-                      <span className='text-muted-foreground'>-</span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+      <div className='flex flex-wrap items-center gap-2'>
+        <span className='text-muted-foreground text-sm'>Quick</span>
+        {CHIP_ORDER.map((chip) => {
+          const on = chipActive(chip, filters, now, player?.id ?? null)
+          return (
+            <button
+              key={chip}
+              type='button'
+              aria-pressed={on}
+              onClick={() =>
+                go(toggleChip(chip, filters, now, player?.id ?? null), 1)
+              }
+              className={cn(
+                'rounded-full border px-3 py-1 text-xs transition-colors',
+                on
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-card/60 hover:bg-accent',
+              )}
+            >
+              {CHIP_LABELS[chip]}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className='overflow-hidden rounded-lg border border-border bg-card/80'>
+        <div className='hidden grid-cols-[90px_150px_170px_190px_1fr_190px] gap-x-4 border-border border-b px-4 py-3 font-semibold text-muted-foreground text-xs md:grid'>
+          <div>When</div>
+          <div>Staff member</div>
+          <div>Action</div>
+          <div>Subject</div>
+          <div>Note</div>
+          <div className='text-right'>Source</div>
+        </div>
+        {groups.length === 0 ? (
+          <p className='p-6 text-muted-foreground text-sm'>
+            No entries found.
+          </p>
+        ) : (
+          groups.map((group) => (
+            <section key={group.key}>
+              <h2 className='border-border border-b bg-background/40 px-4 py-2 font-semibold text-muted-foreground text-xs'>
+                {group.label}
+              </h2>
+              {group.entries.map((entry) => (
+                <LogRow key={entry.id} entry={entry} now={now} />
+              ))}
+            </section>
+          ))
+        )}
       </div>
 
       <div className='flex items-center justify-end gap-2'>
         <Button
           variant='outline'
           size='sm'
-          onClick={() => setPage((p) => Math.max(1, p - 1))}
+          onClick={() => go(filters, Math.max(1, page - 1))}
           disabled={page <= 1}
         >
           Previous
         </Button>
         <span className='text-muted-foreground text-sm'>
-          Page {page} of {Math.max(1, data?.pages ?? 1)}
+          Page {page} of {pages}
         </span>
         <Button
           variant='outline'
           size='sm'
-          onClick={() => setPage((p) => p + 1)}
-          disabled={page >= (data?.pages ?? 1)}
+          onClick={() => go(filters, page + 1)}
+          disabled={page >= pages}
         >
           Next
         </Button>

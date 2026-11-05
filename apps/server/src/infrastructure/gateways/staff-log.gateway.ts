@@ -26,7 +26,7 @@ export interface StaffLogFilters {
 	// A player id, or part of a name.
 	staff?: string
 	player?: string
-	action?: StaffAction
+	action?: StaffAction[]
 	from?: Date
 	// Exclusive upper bound.
 	to?: Date
@@ -50,6 +50,8 @@ export interface StaffLogRow {
 	targetPlayerId: string | null
 	targetName: string | null
 	itemId: number | null
+	// The type of the queue item it was taken on, while that item exists.
+	itemType: string | null
 	reason: string
 	detail: unknown
 	at: Date
@@ -97,7 +99,7 @@ export async function listStaffLog(
 				? eq(staffLog.targetPlayerId, filters.player)
 				: ilike(targetPlayer.steamName, `%${filters.player}%`),
 		)
-	if (filters.action) where.push(eq(staffLog.action, filters.action))
+	if (filters.action?.length) where.push(inArray(staffLog.action, filters.action))
 	if (filters.from) where.push(gte(staffLog.at, filters.from))
 	if (filters.to) where.push(lt(staffLog.at, filters.to))
 	const condition = and(...where)
@@ -113,6 +115,7 @@ export async function listStaffLog(
 				targetPlayerId: staffLog.targetPlayerId,
 				targetName: targetPlayer.steamName,
 				itemId: staffLog.itemId,
+				itemType: serviceQueueItems.itemType,
 				reason: staffLog.reason,
 				detail: staffLog.detail,
 				at: staffLog.at,
@@ -120,6 +123,7 @@ export async function listStaffLog(
 			.from(staffLog)
 			.leftJoin(staffPlayer, eq(staffPlayer.id, staffLog.staffPlayerId))
 			.leftJoin(targetPlayer, eq(targetPlayer.id, staffLog.targetPlayerId))
+			.leftJoin(serviceQueueItems, eq(serviceQueueItems.id, staffLog.itemId))
 			.where(condition)
 
 	const [entries, [totals]] = await Promise.all([
