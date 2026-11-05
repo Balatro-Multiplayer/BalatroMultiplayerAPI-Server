@@ -65,6 +65,8 @@ export interface GameRef {
 	runId: string
 	matchmade: boolean
 	ranked: boolean
+	// The edit decides a contest, so Nakama tells its players with the contest wording.
+	decidesContest?: boolean
 }
 
 export type VoidResult =
@@ -89,6 +91,8 @@ export interface DispatcherDeps<Tx> {
 	originalResultOf(game: GameRef): Promise<Placement[]>
 	flaggedPlayersOf(runId: string): Promise<Set<string>>
 	voidGame(game: GameRef): Promise<VoidResult>
+	// A contest with no result to rate counts for nobody: tell its players, once.
+	tellContestVoided(game: GameRef): Promise<boolean>
 	overturnGame(game: GameRef, placements: (Placement & { rated?: boolean })[]): Promise<OverturnResult>
 
 	transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T>
@@ -131,6 +135,8 @@ export interface DispatcherDeps<Tx> {
 	banInNakama(ban: BanRow): Promise<boolean>
 	liftBanInNakama(playerId: string, banId: string): Promise<boolean>
 	notifyWarned(playerId: string, payload: { message: string; itemType: WarningSource; warnedAt: number }): Promise<boolean>
+	// A punishment on a report's item: tell its reporter once (the report keeps the mark).
+	tellReporterOfAction(item: QueueItem): Promise<boolean>
 	rescore(item: QueueItem, playerIds: string[]): Promise<void>
 }
 
@@ -412,8 +418,18 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		const delivered = await deps
 			.notifyWarned(target.playerId, { message: command.message, itemType, warnedAt: now.getTime() })
 			.catch(() => false)
+		await tellReporter(item, itemType, target)
 		await deps.rescore(item, [target.playerId])
 		return done(item, 'warn', { warningId: warning.id, delivered })
+	}
+
+	// After the commit: a punishment on a report's item tells the reporter,
+	// unless the reporter is the one punished (a false report).
+	async function tellReporter(item: QueueItem, itemType: ItemType, target: Target): Promise<void> {
+		if (itemType !== 'report') return
+		const sources = await deps.sourcesOf(item).catch(() => null)
+		if (!sources?.report || sources.report.reporterId === target.playerId) return
+		await deps.tellReporterOfAction(item).catch(() => false)
 	}
 
 	async function sanction(
@@ -471,6 +487,7 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 			return row
 		})
 		const delivered = await deps.banInNakama(ban).catch(() => false)
+		await tellReporter(item, itemType, target)
 		await deps.rescore(item, [target.playerId])
 		return done(item, command.action, { ban, delivered })
 	}
@@ -509,6 +526,10 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		return done(item, 'unban', { liftedBan: lifted, delivered })
 	}
 
+	function decidingContest(game: GameRef, itemType: ItemType): GameRef {
+		return itemType === 'contest' ? { ...game, decidesContest: true } : game
+	}
+
 	async function voidItem(
 		item: QueueItem,
 		itemType: ItemType,
@@ -517,8 +538,9 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		now: Date,
 		log: LogFn,
 	): Promise<QueueResult<ActionOutcome>> {
-		const game = await deps.gameOf(item)
-		if (!game) return refuse({ code: 'source_missing' })
+		const found = await deps.gameOf(item)
+		if (!found) return refuse({ code: 'source_missing' })
+		const game = decidingContest(found, itemType)
 		let rerated = false
 		let edit: MatchEditSummary | undefined
 		// A private game has no matchmade record and no ratings: nothing to undo.
@@ -549,10 +571,11 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		now: Date,
 		log: LogFn,
 	): Promise<QueueResult<ActionOutcome>> {
-		const [conflict, game] = await Promise.all([
+		const [conflict, found] = await Promise.all([
 			itemType === 'contest' ? null : deps.conflictOf(item),
 			deps.gameOf(item),
 		])
+		const game = found && decidingContest(found, itemType)
 		if (!game || (itemType !== 'contest' && !conflict)) return refuse({ code: 'source_missing' })
 		// A contest names the winner; a conflict names the report that stands.
 		const plan: OverturnPlan = conflict
@@ -580,8 +603,9 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		item: QueueItem,
 		how: ContestSettlement,
 	): Promise<{ ok: true; detail: { settled: ContestSettlement; runId: string } } | { ok: false; refusal: QueueRefusal }> {
-		const game = await deps.gameOf(item)
-		if (!game) return { ok: false, refusal: { code: 'source_missing' } }
+		const found = await deps.gameOf(item)
+		if (!found) return { ok: false, refusal: { code: 'source_missing' } }
+		const game = decidingContest(found, 'contest')
 		const detail = { settled: how, runId: game.runId }
 		// Only a matchmade game has ratings to settle.
 		if (!game.matchmade) return { ok: true, detail }
@@ -594,7 +618,11 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		}
 		const original = await deps.originalResultOf(game)
 		// Nobody reported before the contest: there is no result to rate.
-		if (original.length < 2) return { ok: true, detail }
+		if (original.length < 2) {
+			if (!(await deps.tellContestVoided(game)))
+				return { ok: false, refusal: { code: 'nakama_failed', reason: 'the players could not be told' } }
+			return { ok: true, detail }
+		}
 		const flagged = game.ranked ? await deps.flaggedPlayersOf(game.runId) : new Set<string>()
 		const result = await deps.overturnGame(game, ratedPlacements(original, flagged, game.ranked))
 		if (result.kind === 'failed') return { ok: false, refusal: { code: 'nakama_failed', reason: result.reason } }

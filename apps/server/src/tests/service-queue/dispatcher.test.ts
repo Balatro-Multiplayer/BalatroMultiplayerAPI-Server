@@ -58,9 +58,11 @@ function setup(seed: QueueItem, over: Partial<DispatcherDeps<World>> = {}) {
 		banInNakama: vi.fn(async () => true),
 		liftBanInNakama: vi.fn(async () => true),
 		notifyWarned: vi.fn(async () => true),
+		tellReporterOfAction: vi.fn(async () => true),
 		rescore: vi.fn(async () => {}),
 		voidGame: vi.fn(async () => ({ kind: 'voided' as const, rerated: true })),
 		overturnGame: vi.fn(async () => ({ kind: 'applied' as const, rerated: true })),
+		tellContestVoided: vi.fn(async () => true),
 	}
 	const deps: DispatcherDeps<World> = {
 		now: () => NOW,
@@ -273,6 +275,39 @@ describe('the dispatcher', () => {
 		})
 	})
 
+	it('tells the reporter after each punishing action on a report, and after no other', async () => {
+		for (const [action, body] of [
+			['warn', { message: 'x' }],
+			['chat_mute', { duration: '24h' }],
+			['queue_ban', { duration: '7d' }],
+			['account_ban', { duration: 'permanent' }],
+		] as const) {
+			const { dispatcher, external } = setup(item())
+			expect((await dispatcher.run(1, action, ADMIN, body)).ok).toBe(true)
+			expect(external.tellReporterOfAction).toHaveBeenCalledTimes(1)
+		}
+		for (const action of ['dismiss', 'resolve'] as const) {
+			const { dispatcher, external } = setup(item())
+			expect((await dispatcher.run(1, action, ADMIN, {})).ok).toBe(true)
+			expect(external.tellReporterOfAction).not.toHaveBeenCalled()
+		}
+	})
+
+	it('does not tell the reporter when the reporter is the one punished, or on another item type', async () => {
+		const own = setup(item())
+		await own.dispatcher.run(1, 'chat_mute', MOD, { duration: '24h', targetPlayerId: 'rep' })
+		expect(own.external.tellReporterOfAction).not.toHaveBeenCalled()
+		const other = setup(item({ itemType: 'anti_cheat', sourceId: 'run-1:bad' }))
+		await other.dispatcher.run(1, 'queue_ban', MOD, { duration: '7d' })
+		expect(other.external.tellReporterOfAction).not.toHaveBeenCalled()
+	})
+
+	it('still punishes when telling the reporter fails', async () => {
+		const { dispatcher, world } = setup(item(), { tellReporterOfAction: async () => { throw new Error('down') } })
+		expect((await dispatcher.run(1, 'warn', MOD, { message: 'x' })).ok).toBe(true)
+		expect(world.items.get(1)?.status).toBe('resolved')
+	})
+
 	it('bans in Nakama after the commit, and reports a failed delivery without undoing it', async () => {
 		const { dispatcher, world, external } = setup(item({ itemType: 'anti_cheat', sourceId: 'run-1:bad' }))
 		external.banInNakama.mockResolvedValueOnce(false)
@@ -407,14 +442,32 @@ describe('a contest item', () => {
 		const { dispatcher, external, world } = setup(contest())
 		const result = await dispatcher.run(1, 'dismiss', MOD, { note: 'fair match' })
 		expect(result).toMatchObject({ ok: true, value: { item: { status: 'resolved' } } })
-		expect(external.overturnGame).toHaveBeenCalledWith({ runId: 'run-1', matchmade: true, ranked: true }, original)
+		expect(external.overturnGame).toHaveBeenCalledWith({ runId: 'run-1', matchmade: true, ranked: true, decidesContest: true }, original)
 		expect(world.events.at(-1)).toMatchObject({ action: 'dismiss', detail: { settled: 'rate_original', runId: 'run-1' } })
+	})
+
+	it('marks a contest void and a punishment settlement as deciding the contest', async () => {
+		const voided = setup(contest())
+		await voided.dispatcher.run(1, 'void', ADMIN, {})
+		expect(voided.external.voidGame).toHaveBeenCalledWith({ runId: 'run-1', matchmade: true, ranked: true, decidesContest: true })
+		const punished = setup(contest())
+		await punished.dispatcher.run(1, 'warn', MOD, { message: 'x' })
+		const calls = [...punished.external.overturnGame.mock.calls, ...punished.external.voidGame.mock.calls]
+		expect(calls.length).toBeGreaterThan(0)
+		expect(calls.every(([game]) => (game as { decidesContest?: boolean }).decidesContest === true)).toBe(true)
+	})
+
+	it('does not mark a non-contest void as deciding a contest', async () => {
+		const { dispatcher, external } = setup(item({ itemType: 'forfeit_reconciliation', sourceId: '5' }))
+		await dispatcher.run(1, 'void', ADMIN, {})
+		expect(external.voidGame.mock.calls[0][0]).not.toHaveProperty('decidesContest')
 	})
 
 	it('dismisses a contest nobody reported a result for without rating anything', async () => {
 		const { dispatcher, external, world } = setup(contest(), { originalResultOf: async () => [] })
 		expect(await dispatcher.run(1, 'dismiss', MOD, {})).toMatchObject({ ok: true })
 		expect(external.overturnGame).not.toHaveBeenCalled()
+		expect(external.tellContestVoided).toHaveBeenCalledWith({ runId: 'run-1', matchmade: true, ranked: true, decidesContest: true })
 		expect(world.items.get(1)?.status).toBe('resolved')
 	})
 
@@ -442,7 +495,7 @@ describe('a contest item', () => {
 		const { dispatcher, external, world } = setup(contest())
 		const result = await dispatcher.run(1, 'overturn', ADMIN, { toReportOf: 'b' })
 		expect(result).toMatchObject({ ok: true, value: { effects: { overturned: { runId: 'run-1', rerated: true } } } })
-		expect(external.overturnGame).toHaveBeenCalledWith({ runId: 'run-1', matchmade: true, ranked: true }, [
+		expect(external.overturnGame).toHaveBeenCalledWith({ runId: 'run-1', matchmade: true, ranked: true, decidesContest: true }, [
 			{ playerId: 'b', place: 1, rated: true },
 			{ playerId: 'a', place: 2, rated: false },
 		])

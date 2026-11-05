@@ -4,26 +4,9 @@
 import { INVALID_ARGUMENT, runtimeError } from '../errors'
 import { readRun } from '../lobby/storage'
 import { parsePayload, requireServer } from '../rpc'
-import { NotificationKind, type ResultOutcome } from './kinds'
+import { NotificationKind } from './kinds'
+import { outcomeOf } from './result_change'
 import { sendNotification } from './store'
-
-interface Placed {
-	playerId: string
-	place: number
-}
-
-// Best place wins; everyone on one place is a draw; the rest lose.
-export function outcomeOf(
-	placements: readonly Placed[],
-	playerId: string,
-): ResultOutcome | null {
-	const own = placements.find((p) => p.playerId === playerId)
-	if (!own) return null
-	const places = placements.map((p) => p.place)
-	const best = Math.min(...places)
-	if (best === Math.max(...places)) return 'draw'
-	return own.place === best ? 'win' : 'loss'
-}
 
 // {runId, contesterId} -> {told: number}. The contester is told nothing.
 export function rpcAdminContestWithdrawn(

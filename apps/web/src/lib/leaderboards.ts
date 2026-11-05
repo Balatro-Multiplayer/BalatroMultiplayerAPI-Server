@@ -4,7 +4,7 @@
 // ranked queue keys each mod's Find Game pillars use (PvP:
 // ui/main_menu/find_game.lua `count_key`), in the mod's pillar order.
 
-import { displayScore, fromNumber } from '@bmp/types'
+import { BOARD_NAMES, displayScore, fromNumber } from '@bmp/types'
 
 export type MetricKind = 'time' | 'score'
 
@@ -28,28 +28,19 @@ export interface LeaderboardCategory {
 export const LEADERBOARD_CATEGORIES: LeaderboardCategory[] = [
   {
     id: 'speedrun',
-    label: 'Speedrun',
+    label: BOARD_NAMES.MultiplayerSPDRN.label,
     modId: 'MultiplayerSPDRN',
     metric: 'time',
     metricLabel: 'Best Time',
-    modes: [
-      { id: 'spdrn_white_stake_triple', label: 'White Stake Triple' },
-      { id: 'spdrn_gold_stake_single', label: 'Gold Stake Single' },
-    ],
+    modes: Object.entries(BOARD_NAMES.MultiplayerSPDRN.modes).map(([id, label]) => ({ id, label })),
   },
   {
     id: 'pvp',
-    label: 'PvP',
+    label: BOARD_NAMES.MultiplayerPvP.label,
     modId: 'MultiplayerPvP',
     metric: 'score',
     metricLabel: 'Best Score',
-    modes: [
-      { id: 'pvp_ranked_vanilla', label: 'Vanilla' },
-      { id: 'pvp_ranked_balanced', label: 'Balanced' },
-      { id: 'pvp_ranked_expanded', label: 'Expanded' },
-      { id: 'pvp_ranked_majorleague', label: 'MLBa' },
-      { id: 'pvp_ranked_smallworld', label: 'Smallworld' },
-    ],
+    modes: Object.entries(BOARD_NAMES.MultiplayerPvP.modes).map(([id, label]) => ({ id, label })),
   },
 ]
 

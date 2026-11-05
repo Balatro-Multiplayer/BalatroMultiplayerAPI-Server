@@ -361,6 +361,9 @@ export interface RunRecord {
 	ratingChanges?: { [userId: string]: RatingChange }
 	// Set for a contested run: who contested whom, and when.
 	contest?: Contest
+	// What staff last told each player about this run (rating/match_edit.ts),
+	// so deciding it again the same way tells them nothing new.
+	told?: { [userId: string]: 'win' | 'draw' | 'loss' | 'void' }
 }
 
 export type FlagReason = 'hash_mismatch' | 'elapsed_time_gate' | 'unverified_log'

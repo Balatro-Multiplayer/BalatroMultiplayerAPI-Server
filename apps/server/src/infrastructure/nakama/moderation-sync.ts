@@ -50,6 +50,57 @@ export async function notifyWarnedInNakama(
 	return result.ok
 }
 
+// Tells the player their appeal was decided (admin_punishment_notify). Nakama
+// sends it once per appeal.
+export async function notifyAppealDecidedInNakama(decided: {
+	playerId: string
+	appealId: string
+	accepted: boolean
+	target: string
+	result: string | null
+}): Promise<boolean> {
+	const userId = await nakamaUserIdOf(decided.playerId)
+	if (!userId) return false
+	const result = await callNakamaRpc('admin_punishment_notify', {
+		userId,
+		kind: 'appeal_decided',
+		key: decided.appealId,
+		params: { accepted: decided.accepted, target: decided.target, result: decided.result },
+	})
+	if (!result.ok) console.warn(`[nakama] Appeal ${decided.appealId} decision not sent: ${result.error}`)
+	return result.ok
+}
+
+// Tells the player their ban ended (admin_punishment_notify). Nakama sends it
+// once per ban, so a repeat after a failure is safe. A player with no Nakama
+// account has nobody to tell: that counts as done when Nakama is on.
+export async function notifyBanEndedInNakama(ban: {
+	id: string
+	playerId: string
+	banType: string
+}): Promise<boolean> {
+	if (!isNakamaAdminEnabled()) return false
+	const userId = await nakamaUserIdOf(ban.playerId)
+	if (!userId) return true
+	const result = await callNakamaRpc('admin_punishment_notify', {
+		userId,
+		kind: 'punishment_ended',
+		key: ban.id,
+		params: { ban: ban.banType },
+	})
+	if (!result.ok) console.warn(`[nakama] Ban ${ban.id} end not sent, will retry: ${result.error}`)
+	return result.ok
+}
+
+// The "action was taken" Notification for the player who made a report.
+export async function tellReportActionInNakama(reporterId: string): Promise<boolean> {
+	const userId = await nakamaUserIdOf(reporterId)
+	if (!userId) return false
+	const result = await callNakamaRpc('admin_report_action', { userId })
+	if (!result.ok) console.warn(`[nakama] Report action for ${reporterId} not sent: ${result.error}`)
+	return result.ok
+}
+
 export async function liftBanInNakama(playerId: string, banId: string): Promise<boolean> {
 	const userId = await nakamaUserIdOf(playerId)
 	if (!userId) return false

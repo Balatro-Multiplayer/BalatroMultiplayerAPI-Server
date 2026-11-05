@@ -79,6 +79,18 @@ function setup(row: MatchRow | null, over: Partial<MatchEditDeps> = {}) {
 }
 
 describe('editMatch', () => {
+	it('tells Nakama a contest is being decided', async () => {
+		const deps = setup(match({ status: 'resolved' }))
+		await editMatch(deps, { runId: 'run-1', matchmade: true, decidesContest: true }, { kind: 'void' })
+		expect(deps.editRun).toHaveBeenCalledWith(expect.objectContaining({ decidesContest: true }))
+	})
+
+	it('does not send decidesContest for an ordinary edit', async () => {
+		const deps = setup(match({ status: 'resolved' }))
+		await editMatch(deps, { runId: 'run-1', matchmade: true }, { kind: 'void' })
+		expect(deps.editRun).toHaveBeenCalledWith(expect.not.objectContaining({ decidesContest: expect.anything() }))
+	})
+
 	it('sets a ranked result: Nakama first with the season, then the rows with the rating changes', async () => {
 		const deps = setup(match())
 		const outcome = await editMatch(

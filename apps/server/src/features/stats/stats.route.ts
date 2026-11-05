@@ -16,25 +16,10 @@ import { getCurrentSeason } from '../../infrastructure/gateways/rating.gateway.j
 import { AppError } from '../../shared/utils/errors.js'
 import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
 import { createTtlCache } from '../../shared/utils/ttl-cache.js'
-import {
-	DECAY_FLOOR,
-	DECAY_INACTIVE_THRESHOLD_DAYS,
-	DECAY_RATE_PER_DAY,
-	PLACEMENT_GAMES,
-} from '../ratings/elo.js'
+import { PLACEMENT_GAMES } from '../ratings/elo.js'
+import { effectiveRating } from '../ratings/effective-rating.js'
 import { createOnlinePlayers } from './online-players.js'
 import { createQueueStats } from './queue-counts.js'
-
-// Nakama decays an inactive rating when it next reads it and only stores the
-// result after the player's next game, so the mirrored rating is the
-// undecayed one. Apply the same decay here (rating/season.ts decayedRating).
-// Every query below reads matchmaking_ratings as `r`.
-const effectiveRating = sql.raw(`CASE
-	WHEN r.games_played >= ${PLACEMENT_GAMES}
-	 AND r.rating > ${DECAY_FLOOR}
-	 AND r.last_match_at < now() - interval '${DECAY_INACTIVE_THRESHOLD_DAYS} days'
-	THEN GREATEST(${DECAY_FLOOR}, r.rating - floor(extract(epoch FROM now() - r.last_match_at) / 86400 - ${DECAY_INACTIVE_THRESHOLD_DAYS})::int * ${DECAY_RATE_PER_DAY})
-	ELSE r.rating END`)
 
 // Legacy match total from the old www system (Seasons 1–6).
 // Unique players is not carried forward — account systems don't overlap.

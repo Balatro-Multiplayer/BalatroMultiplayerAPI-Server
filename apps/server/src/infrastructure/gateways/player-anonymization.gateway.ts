@@ -336,6 +336,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'additional_detail',
 		'page_opened_at',
 		'withdrawn_at',
+		'reporter_told_at',
 		'created_at',
 	],
 	reported_lobby_messages: [
@@ -399,6 +400,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'status',
 		'outcome',
 		'decided_at',
+		'notified_at',
 		'created_at',
 	],
 	contests: ['id', 'run_id', 'kind', 'reason', 'page_opened_at', 'withdrawn_at', 'created_at'],
@@ -444,7 +446,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'season_best',
 		'updated_at',
 	],
-	seasons: ['id', 'name', 'started_at', 'ends_at', 'ended_at'],
+	seasons: ['id', 'name', 'started_at', 'ends_at', 'ended_at', 'end_notified_at'],
 	// The owner's id, and a copy of one Season board in a JSON column. It is kept
 	// whole so a restore puts the board back as it was.
 	season_replay_backups: ['id', 'season', 'created_by', 'created_at', 'data'],
@@ -483,6 +485,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'issued_at',
 		'reason',
 		'lifted_at',
+		'end_notified_at',
 	],
 	player_mutes: ['id', 'created_at'],
 	lobby_runs: [

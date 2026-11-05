@@ -67,6 +67,7 @@ import { rpcAdminCheckpointsSweep } from './lobby/checkpoint_sweep'
 import { rpcAdminRunsExpired, rpcAdminRunsPurgeNamed } from './lobby/retention'
 import { rpcAdminRatingsSet } from './rating/admin'
 import { rpcAdminMatchEdit } from './rating/match_edit'
+import { rpcAdminReportAction, rpcAdminRunTellVoided } from './notification/rpc'
 import { rpcAdminRatingsReplayFold, rpcAdminRatingsReplayList } from './rating/replay'
 import {
 	rpcAdminRatingsBoardExport,
@@ -76,6 +77,8 @@ import {
 import { rpcAdminRunGet, rpcAdminRunSetResult } from './review/rpc'
 import { rpcRunGet, rpcRunLogs, rpcRunsMine } from './lobby/storage'
 import { rpcLegacyRatingsImport } from './rating/legacy'
+import { rpcAdminSeasonEndNotify } from './notification/season_end'
+import { rpcAdminPunishmentNotify } from './notification/punishment'
 import { configureSeason } from './rating/season'
 import { seedAllowedModIdsExtra } from './standing/seed'
 import { refuseClientAccountDelete, rpcAdminAccountDelete, rpcAdminProfileSet } from './player/admin'
@@ -215,9 +218,13 @@ function InitModule(
 	initializer.registerRpc('admin_ratings_season_export', rpcAdminRatingsSeasonExport)
 	initializer.registerRpc('admin_ratings_board_export', rpcAdminRatingsBoardExport)
 	initializer.registerRpc('admin_ratings_season_clear', rpcAdminRatingsSeasonClear)
+	initializer.registerRpc('admin_season_end_notify', rpcAdminSeasonEndNotify)
+	initializer.registerRpc('admin_punishment_notify', rpcAdminPunishmentNotify)
 	initializer.registerRpc('admin_run_get', rpcAdminRunGet)
 	initializer.registerRpc('admin_run_set_result', rpcAdminRunSetResult)
 	initializer.registerRpc('admin_match_edit', rpcAdminMatchEdit)
+	initializer.registerRpc('admin_run_tell_voided', rpcAdminRunTellVoided)
+	initializer.registerRpc('admin_report_action', rpcAdminReportAction)
 	logger.info('BMP lobby module loaded')
 }
 

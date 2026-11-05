@@ -216,6 +216,8 @@ export const reports = pgTable('reports', {
 	pageOpenedAt: timestamp('page_opened_at', { withTimezone: true }),
 	// Set when the reporter withdrew it before staff decided.
 	withdrawnAt: timestamp('withdrawn_at', { withTimezone: true }),
+	// Set once, when the reporter was told staff acted on the player they reported.
+	reporterToldAt: timestamp('reporter_told_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -517,6 +519,8 @@ export const appeals = pgTable(
 		outcome: varchar('outcome', { length: 16 }),
 		decidedBy: text('decided_by'),
 		decidedAt: timestamp('decided_at', { withTimezone: true }),
+		// When Nakama confirmed the player's decision Notification.
+		notifiedAt: timestamp('notified_at', { withTimezone: true }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => [
@@ -628,6 +632,8 @@ export const seasons = pgTable('seasons', {
 	startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
 	endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
 	endedAt: timestamp('ended_at', { withTimezone: true }),
+	// When Nakama confirmed it told the ranked players how the season ended.
+	endNotifiedAt: timestamp('end_notified_at', { withTimezone: true }),
 })
 
 // What the owner's season replay overwrote, kept so the old board can come back
@@ -792,6 +798,8 @@ export const playerBans = pgTable(
 		reason: text('reason').notNull().default(''),
 		liftedAt: timestamp('lifted_at', { withTimezone: true }), // set when lifted early
 		liftedBy: text('lifted_by'),
+		// When Nakama confirmed the player's "ban ended" Notification.
+		endNotifiedAt: timestamp('end_notified_at', { withTimezone: true }),
 	},
 	(t) => [index('player_bans_player_idx').on(t.playerId)],
 )

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { RUNS_COLLECTION, SYSTEM_USER_ID } from '../lobby/protocol'
 import { fakeLogger, fakeNk, playerCtx, serverCtx } from '../testing/fake_nk'
-import { outcomeOf, rpcAdminContestWithdrawn } from './contest_withdrawn'
+import { rpcAdminContestWithdrawn } from './contest_withdrawn'
 
 const asNk = (nk: unknown) => nk as nkruntime.Nakama
 
@@ -19,19 +19,6 @@ function runWith(nk: ReturnType<typeof fakeNk>, placements: { playerId: string; 
 		},
 	])
 }
-
-describe('outcomeOf', () => {
-	it('is a win on the best place, a loss behind it, a draw when all tie', () => {
-		const placed = [
-			{ playerId: 'a', place: 1 },
-			{ playerId: 'b', place: 2 },
-		]
-		expect(outcomeOf(placed, 'a')).toBe('win')
-		expect(outcomeOf(placed, 'b')).toBe('loss')
-		expect(outcomeOf([{ playerId: 'a', place: 1 }, { playerId: 'b', place: 1 }], 'a')).toBe('draw')
-		expect(outcomeOf(placed, 'z')).toBeNull()
-	})
-})
 
 describe('admin_contest_withdrawn', () => {
 	it('tells every other player their result, and not the contester', () => {

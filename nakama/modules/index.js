@@ -8818,7 +8818,21 @@ var NotificationKind = {
   // A ranked result, told to every player it rated.
   RESULT_RANKED: "result_ranked",
   // A player withdrew their in-game Contest: the other players are told.
-  CONTEST_WITHDRAWN: "contest_withdrawn"
+  CONTEST_WITHDRAWN: "contest_withdrawn",
+  // A moderator decided a contested match.
+  CONTEST_DECIDED: "contest_decided",
+  // Staff voided a match.
+  RESULT_VOIDED: "result_voided",
+  // Staff set a match's result.
+  RESULT_CHANGED: "result_changed",
+  // Staff punished a player the recipient reported.
+  REPORT_ACTION: "report_action",
+  // A season ended: the player's place and rating on each board they are on.
+  SEASON_END: "season_end",
+  // An appeal was decided.
+  APPEAL_DECIDED: "appeal_decided",
+  // A chat, queue or account ban ended, by time or lifted early.
+  PUNISHMENT_ENDED: "punishment_ended"
 };
 
 // src/notification/store.ts
@@ -10345,6 +10359,61 @@ function rpcAdminRatingsSet(ctx, logger, nk, payload) {
   return JSON.stringify({ written: written.length, cleared: cleared.length });
 }
 
+// src/notification/result_change.ts
+function outcomeOf2(placements, playerId) {
+  const own = placements.find((p) => p.playerId === playerId);
+  if (!own) return null;
+  const places = placements.map((p) => p.place);
+  const best = Math.min(...places);
+  if (own.place !== best) return "loss";
+  return Math.max(...places) === best && placements.length > 1 ? "draw" : "win";
+}
+function knownOutcome(before, playerId) {
+  var _a;
+  const told = (_a = before.told) == null ? void 0 : _a[playerId];
+  if (told) return told;
+  if (before.voided) return "void";
+  if (before.status === "contested") return null;
+  return outcomeOf2(before.placements, playerId);
+}
+function outcomeAfter(after, playerId) {
+  return after.voided ? "void" : outcomeOf2(after.placements, playerId);
+}
+function planResultNotifications(before, after, decidesContest) {
+  const sends = [];
+  const told = __spreadValues({}, before.told);
+  const contest2 = decidesContest ? before.contest : void 0;
+  for (const player of before.players) {
+    const now = outcomeAfter(after, player.id);
+    if (!now) continue;
+    if (now === knownOutcome(before, player.id)) continue;
+    told[player.id] = now;
+    if (now === "void") {
+      sends.push({
+        userId: player.id,
+        kind: NotificationKind.RESULT_VOIDED,
+        params: {}
+      });
+    } else if (contest2) {
+      sends.push({
+        userId: player.id,
+        kind: NotificationKind.CONTEST_DECIDED,
+        params: {
+          role: player.id === contest2.by ? "contester" : "opponent",
+          outcome: now
+        }
+      });
+    } else {
+      sends.push({
+        userId: player.id,
+        kind: NotificationKind.RESULT_CHANGED,
+        params: { outcome: now }
+      });
+    }
+  }
+  return { sends, told };
+}
+
 // src/rating/match_edit.ts
 var refuse2 = (refusal) => ({
   ok: false,
@@ -10524,6 +10593,8 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
       INVALID_ARGUMENT,
       "placements must be a list of {playerId, place}"
     );
+  const decidesContest = input.decidesContest === true;
+  const silent = input.silent === true;
   const season = input.season;
   if (season !== void 0 && (typeof season !== "number" || !Number.isInteger(season) || season < 1))
     throw runtimeError(INVALID_ARGUMENT, "season must be a positive integer");
@@ -10563,14 +10634,33 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
       now: Date.now()
     });
     if (!plan.ok) {
-      if (plan.refusal.kind === "unchanged")
+      if (plan.refusal.kind === "unchanged") {
+        const told2 = planResultNotifications(run, run, decidesContest);
+        if (told2.sends.length > 0) {
+          nk.storageWrite([
+            {
+              collection: RUNS_COLLECTION,
+              key: run.runId,
+              userId: SYSTEM_USER_ID,
+              value: __spreadProps(__spreadValues({}, run), { told: told2.told }),
+              permissionRead: 2,
+              permissionWrite: 0
+            }
+          ]);
+          if (!silent)
+            for (const send of told2.sends)
+              sendNotification(nk, send.userId, send.kind, send.params);
+        }
         return JSON.stringify({
           run,
           changes: (_a = run.ratingChanges) != null ? _a : {},
           applied: false
         });
+      }
       throw runtimeError(INVALID_ARGUMENT, REFUSAL_TEXT[plan.refusal.kind]);
     }
+    const told = planResultNotifications(run, plan.run, decidesContest);
+    const storedRun = __spreadProps(__spreadValues({}, plan.run), { told: told.told });
     const key = myRunKey(run);
     const pointers = nk.storageRead(
       ids.map((id) => ({ collection: MY_RUNS_COLLECTION, key, userId: id }))
@@ -10580,7 +10670,7 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
         collection: RUNS_COLLECTION,
         key: run.runId,
         userId: SYSTEM_USER_ID,
-        value: plan.run,
+        value: storedRun,
         permissionRead: 2,
         permissionWrite: 0
       }
@@ -10636,6 +10726,9 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
         );
       }
     }
+    if (!silent)
+      for (const send of told.sends)
+        sendNotification(nk, send.userId, send.kind, send.params);
     logger.info(
       "Run %s %s by staff",
       run.runId,
@@ -10651,6 +10744,56 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
     INVALID_ARGUMENT,
     "The ratings changed while editing; try again"
   );
+}
+
+// src/notification/rpc.ts
+var MAX_IDS = 100;
+function rpcNotificationsPending(ctx, logger, nk, payload) {
+  const userId = requireUser(ctx);
+  return JSON.stringify({ notifications: listNotifications(nk, userId) });
+}
+function rpcNotificationsRead(ctx, logger, nk, payload) {
+  const userId = requireUser(ctx);
+  const ids = parsePayload(payload).ids;
+  if (!Array.isArray(ids) || ids.length > MAX_IDS || ids.some((id) => typeof id !== "string"))
+    throw runtimeError(
+      INVALID_ARGUMENT,
+      "Missing or invalid ids (array of strings)"
+    );
+  markNotificationsRead(nk, userId, ids);
+  return "{}";
+}
+function rpcAdminRunTellVoided(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const run = readRun(nk, parsePayload(payload).runId);
+  const plan = planResultNotifications(
+    run,
+    __spreadProps(__spreadValues({}, run), { voided: { at: Date.now() } }),
+    false
+  );
+  if (plan.sends.length > 0) {
+    nk.storageWrite([
+      {
+        collection: RUNS_COLLECTION,
+        key: run.runId,
+        userId: SYSTEM_USER_ID,
+        value: __spreadProps(__spreadValues({}, run), { told: plan.told }),
+        permissionRead: 2,
+        permissionWrite: 0
+      }
+    ]);
+    for (const send of plan.sends)
+      sendNotification(nk, send.userId, send.kind, send.params);
+  }
+  return JSON.stringify({ told: plan.sends.length });
+}
+function rpcAdminReportAction(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const userId = parsePayload(payload).userId;
+  if (typeof userId !== "string" || userId === "")
+    throw runtimeError(INVALID_ARGUMENT, "userId is required");
+  sendNotification(nk, userId, NotificationKind.REPORT_ACTION, {});
+  return "{}";
 }
 
 // src/rating/replay.ts
@@ -10883,6 +11026,121 @@ function rpcAdminRatingsSeasonClear(ctx, logger, nk, payload) {
   }
   logger.info("Season %d ratings cleared: %d records", season, found.length);
   return JSON.stringify({ cleared: found.length, cursor });
+}
+
+// src/notification/season_end.ts
+var SEASON_END_COLLECTION = "season_end_notified";
+var USER_ID_PATTERN5 = /^[0-9a-f-]{36}$/;
+var MAX_PLAYERS2 = 500;
+var MAX_BOARDS = 50;
+function parseBoards(value) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_BOARDS)
+    return void 0;
+  const boards = [];
+  for (const b of value) {
+    if (typeof b !== "object" || b === null) return void 0;
+    const { name, place, rating } = b;
+    if (typeof name !== "string" || name === "" || typeof place !== "number" || !Number.isInteger(place) || place < 1 || typeof rating !== "number" || !Number.isFinite(rating))
+      return void 0;
+    boards.push({ name, place, rating: Math.round(rating) });
+  }
+  return boards;
+}
+function rpcAdminSeasonEndNotify(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const input = parsePayload(payload);
+  const season = input.season;
+  if (typeof season !== "number" || !Number.isInteger(season) || season < 1)
+    throw runtimeError(INVALID_ARGUMENT, "season must be a positive integer");
+  const name = typeof input.name === "string" && input.name !== "" ? input.name : `Season ${season}`;
+  if (!Array.isArray(input.players) || input.players.length > MAX_PLAYERS2)
+    throw runtimeError(INVALID_ARGUMENT, "players must be a list of up to 500");
+  const key = String(season);
+  let notified = 0;
+  let skipped = 0;
+  for (const p of input.players) {
+    const userId = p == null ? void 0 : p.userId;
+    const boards = parseBoards(p == null ? void 0 : p.boards);
+    if (typeof userId !== "string" || !USER_ID_PATTERN5.test(userId) || !boards)
+      throw runtimeError(INVALID_ARGUMENT, "Invalid player entry");
+    const done = nk.storageRead([
+      { collection: SEASON_END_COLLECTION, key, userId }
+    ]);
+    if (done.length > 0) {
+      skipped++;
+      continue;
+    }
+    const params = { season, name, boards };
+    sendNotification(nk, userId, NotificationKind.SEASON_END, params);
+    nk.storageWrite([
+      {
+        collection: SEASON_END_COLLECTION,
+        key,
+        userId,
+        value: { at: Date.now() },
+        permissionRead: 0,
+        permissionWrite: 0
+      }
+    ]);
+    notified++;
+  }
+  logger.info("Season %d end told to %d players (%d skipped)", season, notified, skipped);
+  return JSON.stringify({ notified, skipped });
+}
+
+// src/notification/punishment.ts
+var PUNISHMENT_NOTIFIED_COLLECTION = "punishment_notified";
+var USER_ID_PATTERN6 = /^[0-9a-f-]{36}$/;
+var BAN_KINDS = ["chat", "queue", "account"];
+var TARGETS = [...BAN_KINDS, "warning", "network"];
+var MAX_KEY_LENGTH = 100;
+function parseAppeal(value) {
+  if (typeof value !== "object" || value === null) return void 0;
+  const { accepted, target, result } = value;
+  if (typeof accepted !== "boolean") return void 0;
+  if (typeof target !== "string" || !TARGETS.includes(target)) return void 0;
+  if (!accepted) return { accepted, target, result: null };
+  if (result !== "lifted" && result !== "shortened") return void 0;
+  return { accepted, target, result };
+}
+function parseEnded(value) {
+  if (typeof value !== "object" || value === null) return void 0;
+  const { ban } = value;
+  if (typeof ban !== "string" || !BAN_KINDS.includes(ban)) return void 0;
+  return { ban };
+}
+function rpcAdminPunishmentNotify(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const input = parsePayload(payload);
+  const { userId, kind, key } = input;
+  if (typeof userId !== "string" || !USER_ID_PATTERN6.test(userId))
+    throw runtimeError(INVALID_ARGUMENT, "Invalid userId");
+  if (typeof key !== "string" || key === "" || key.length > MAX_KEY_LENGTH)
+    throw runtimeError(INVALID_ARGUMENT, "Invalid key");
+  if (kind !== NotificationKind.APPEAL_DECIDED && kind !== NotificationKind.PUNISHMENT_ENDED)
+    throw runtimeError(INVALID_ARGUMENT, "Invalid kind");
+  const appeal = kind === NotificationKind.APPEAL_DECIDED ? parseAppeal(input.params) : void 0;
+  const ended = kind === NotificationKind.PUNISHMENT_ENDED ? parseEnded(input.params) : void 0;
+  if (!appeal && !ended) throw runtimeError(INVALID_ARGUMENT, "Invalid params");
+  const recordKey2 = `${kind}:${key}`;
+  const done = nk.storageRead([
+    { collection: PUNISHMENT_NOTIFIED_COLLECTION, key: recordKey2, userId }
+  ]);
+  if (done.length > 0) return JSON.stringify({ sent: false });
+  if (appeal) sendNotification(nk, userId, NotificationKind.APPEAL_DECIDED, appeal);
+  else sendNotification(nk, userId, NotificationKind.PUNISHMENT_ENDED, ended);
+  nk.storageWrite([
+    {
+      collection: PUNISHMENT_NOTIFIED_COLLECTION,
+      key: recordKey2,
+      userId,
+      value: { at: Date.now() },
+      permissionRead: 0,
+      permissionWrite: 0
+    }
+  ]);
+  logger.info("Told %s of %s %s", userId, kind, key);
+  return JSON.stringify({ sent: true });
 }
 
 // src/standing/seed.ts
@@ -11295,14 +11553,6 @@ function refuseClientAccountDelete(ctx, logger, nk) {
 }
 
 // src/notification/contest_withdrawn.ts
-function outcomeOf2(placements, playerId) {
-  const own = placements.find((p) => p.playerId === playerId);
-  if (!own) return null;
-  const places = placements.map((p) => p.place);
-  const best = Math.min(...places);
-  if (best === Math.max(...places)) return "draw";
-  return own.place === best ? "win" : "loss";
-}
 function rpcAdminContestWithdrawn(ctx, logger, nk, payload) {
   requireServer(ctx);
   const input = parsePayload(payload);
@@ -11321,24 +11571,6 @@ function rpcAdminContestWithdrawn(ctx, logger, nk, payload) {
     told++;
   }
   return JSON.stringify({ told });
-}
-
-// src/notification/rpc.ts
-var MAX_IDS = 100;
-function rpcNotificationsPending(ctx, logger, nk, payload) {
-  const userId = requireUser(ctx);
-  return JSON.stringify({ notifications: listNotifications(nk, userId) });
-}
-function rpcNotificationsRead(ctx, logger, nk, payload) {
-  const userId = requireUser(ctx);
-  const ids = parsePayload(payload).ids;
-  if (!Array.isArray(ids) || ids.length > MAX_IDS || ids.some((id) => typeof id !== "string"))
-    throw runtimeError(
-      INVALID_ARGUMENT,
-      "Missing or invalid ids (array of strings)"
-    );
-  markNotificationsRead(nk, userId, ids);
-  return "{}";
 }
 
 // src/moderation/report.ts
@@ -11578,9 +11810,13 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("admin_ratings_season_export", rpcAdminRatingsSeasonExport);
   initializer.registerRpc("admin_ratings_board_export", rpcAdminRatingsBoardExport);
   initializer.registerRpc("admin_ratings_season_clear", rpcAdminRatingsSeasonClear);
+  initializer.registerRpc("admin_season_end_notify", rpcAdminSeasonEndNotify);
+  initializer.registerRpc("admin_punishment_notify", rpcAdminPunishmentNotify);
   initializer.registerRpc("admin_run_get", rpcAdminRunGet);
   initializer.registerRpc("admin_run_set_result", rpcAdminRunSetResult);
   initializer.registerRpc("admin_match_edit", rpcAdminMatchEdit);
+  initializer.registerRpc("admin_run_tell_voided", rpcAdminRunTellVoided);
+  initializer.registerRpc("admin_report_action", rpcAdminReportAction);
   logger.info("BMP lobby module loaded");
 }
 !InitModule && InitModule.bind(null);
