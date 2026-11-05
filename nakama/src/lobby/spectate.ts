@@ -3,14 +3,24 @@
 // SPECTATE_SNAPSHOT to start from, then every participant's replay event as a
 // SPECTATE_EVENT. They are never seated, counted, readied or sent the
 // participants' own ops.
+import { checkedRunSave, eventsOf } from './active'
 import {
 	ServerOp,
 	type SpectateEvent,
+	type SpectateRun,
 	type SpectateSnapshot,
 	type SpectatorManifest,
 	type SpectatorSnapshotEntry,
 } from './protocol'
-import { DIFFERENT_MOD, type Lobby, type Outbound, type Step, findPlayer, isSpectatable } from './state'
+import {
+	DIFFERENT_MOD,
+	type Lobby,
+	type Outbound,
+	type Step,
+	findPlayer,
+	isParticipant,
+	isSpectatable,
+} from './state'
 
 export const MAX_SPECTATORS = 16
 export const SPECTATOR_ROLE = 'spectator'
@@ -145,6 +155,37 @@ export function spectateEvent(lobby: Lobby, event: SpectateEvent): Outbound[] {
 	const to = spectatorsOf(lobby)
 	if (to.length === 0) return []
 	return [{ kind: 'send', op: ServerOp.SPECTATE_EVENT, payload: event, to }]
+}
+
+// What a spectator needs to show `playerId` as they are now: their Run save
+// and the events after it. Only a spectator of the lobby gets it; a player in
+// the match never gets another player's Run save. fromStart skips the Run save
+// and gives the whole log, for a spectator whose client could not load it.
+export function spectateRunOf(
+	lobby: Lobby,
+	userId: string,
+	playerId: string,
+	sha256: (input: string) => string,
+	fromStart = false,
+): Step {
+	if (!isSpectator(lobby, userId) || !isParticipant(lobby, playerId))
+		return { lobby, out: [] }
+	const lines = lobby.game.logs[playerId]?.lines ?? []
+	const { runSave, runSaveSkipped } = fromStart
+		? { runSave: null, runSaveSkipped: null }
+		: checkedRunSave(lobby, playerId, lines, sha256)
+	const pos = runSave ? runSave.pos : 0
+	const payload: SpectateRun = {
+		playerId,
+		runSave,
+		runSaveSkipped,
+		pos,
+		events: eventsOf(lines.slice(pos)),
+	}
+	return {
+		lobby,
+		out: [{ kind: 'send', op: ServerOp.SPECTATE_RUN, payload, to: [userId] }],
+	}
 }
 
 export interface SpectatableLobby {

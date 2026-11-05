@@ -195,6 +195,12 @@ export function emptyGame(): GameState {
 	}
 }
 
+// Whether userId is one of the players who started the running game.
+export function isParticipant(lobby: Lobby, userId: string): boolean {
+	const started = lobby.game.started
+	return !!started && started.players.some((p) => p.id === userId)
+}
+
 // The API's lobby types: the matchmaker makes 'public' lobbies, players make
 // 'private' ones by code.
 export function lobbyType(lobby: Lobby): 'public' | 'private' {

@@ -59,6 +59,7 @@ import {
 	isSpectator,
 	removeSpectator,
 	spectateRejection,
+	spectateRunOf,
 } from './spectate'
 import { recordRun } from '../achievements/record'
 import { sendLateResults, sendRankedResults } from './late_result'
@@ -700,6 +701,16 @@ function stepForMessage(
 				senderId,
 				data.state === undefined ? null : data.state,
 			)
+		case ClientOp.SPECTATE_VIEW:
+			return typeof data.playerId === 'string'
+				? spectateRunOf(
+						lobby,
+						senderId,
+						data.playerId,
+						(input) => nk.sha256Hash(input),
+						data.fromStart === true,
+					)
+				: null
 		case ClientOp.CATCHING_UP:
 			return setCatchingUp(lobby, senderId, data.catchingUp === true, Date.now())
 		default:
@@ -815,7 +826,14 @@ export function lobbyMatchSignal(
 		return { state: next || { ...state, lobby: { ...state.lobby, closed: true } }, data: answer.reply }
 	}
 	if (signal.type === 'get_active') {
-		return { state, data: JSON.stringify(activeRunOf(state.lobby, signal.userId)) }
+		return {
+			state,
+			data: JSON.stringify(
+				activeRunOf(state.lobby, signal.userId, (input) =>
+					nk.sha256Hash(input),
+				),
+			),
+		}
 	}
 	if (signal.type === 'chat_check') {
 		const check = chatCheck(state.lobby, signal.userId, Date.now())

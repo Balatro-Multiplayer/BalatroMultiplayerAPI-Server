@@ -21,6 +21,10 @@ export const ClientOp = {
 	// {catchingUp} -- the sender is (or is no longer) replaying its own run
 	// after a crash. The seat is safe either way: nothing waits for it.
 	CATCHING_UP: 6,
+	// {playerId, fromStart?} -- a spectator asks for the run of the player it watches: that
+	// player's Run save and the events after it (answered with SPECTATE_RUN).
+	// fromStart asks for the whole log and no Run save.
+	SPECTATE_VIEW: 7,
 } as const
 
 export const ServerOp = {
@@ -54,6 +58,8 @@ export const ServerOp = {
 	// GroupQueueMessage, to the home lobby's players: its group queue moved on
 	// (matchmaking/group).
 	GROUP_QUEUE: 112,
+	// SpectateRun, to the spectator that asked (ClientOp.SPECTATE_VIEW).
+	SPECTATE_RUN: 113,
 } as const
 
 // Where an ACTION goes: a player id, '*' for everyone (the sender included),
@@ -233,6 +239,30 @@ export interface GameState {
 	// The result was pending at some point in this run. Stays set after the
 	// flag clears, so the settled run knows to tell players who left earlier.
 	resultWasPending?: boolean
+	// The latest complete Run save of each player (actions/run_save.ts), apart
+	// from the log. Never sent to a client from here.
+	runSaves?: { [userId: string]: RunSave }
+	// A player's Run save still missing parts.
+	runSavePending?: { [userId: string]: PendingRunSave }
+}
+
+// One player's Run save: the base64 text of the compressed save, whole, with
+// the event position it was taken at and the hash of the log up to there.
+export interface RunSave {
+	id: string
+	pos: number
+	hash: string
+	data: string
+	at: number
+}
+
+export interface PendingRunSave {
+	id: string
+	count: number
+	pos: number
+	hash: string
+	// Part index (as text) -> its data.
+	parts: { [index: string]: string }
 }
 
 export interface Contest {
@@ -351,6 +381,15 @@ export interface ActiveRun {
 	// A matchmade game's bar for coming back (lobby/match.ts); null for a
 	// private lobby, which never gates.
 	requiredStanding: RequiredStanding | null
+	// The owner's latest complete Run save, for a rejoin from zero; null when
+	// they have none, or when the log no longer matches it (runSaveSkipped says
+	// why). Only the owner's own active run carries it.
+	runSave: Omit<RunSave, 'at'> | null
+	runSaveSkipped: 'hash_mismatch' | 'beyond_log' | null
+	// The text the log hash is taken over: the log's events as they arrived,
+	// joined into a JSON array. A client that resumes the log needs it to hash
+	// the events it adds to the old ones.
+	logText: string
 }
 
 // The other participants' logs so far, each as ActiveRun's events.
@@ -386,6 +425,17 @@ export interface SpectateSnapshot {
 	runId: string | null
 	players: { playerId: string; displayName: string }[]
 	snapshot: SpectatorSnapshotEntry[]
+}
+
+// A spectator's starting point for one player: the player's Run save, checked
+// against the log as in ActiveRun, and the events after it (all of them when
+// there is no save). `pos` is how many events the save covers.
+export interface SpectateRun {
+	playerId: string
+	runSave: ActiveRun['runSave']
+	runSaveSkipped: ActiveRun['runSaveSkipped']
+	pos: number
+	events: ReplayEvent[]
 }
 
 export interface SpectateEvent {

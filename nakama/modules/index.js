@@ -1535,7 +1535,11 @@ var ClientOp = {
   ACTION: 5,
   // {catchingUp} -- the sender is (or is no longer) replaying its own run
   // after a crash. The seat is safe either way: nothing waits for it.
-  CATCHING_UP: 6
+  CATCHING_UP: 6,
+  // {playerId, fromStart?} -- a spectator asks for the run of the player it watches: that
+  // player's Run save and the events after it (answered with SPECTATE_RUN).
+  // fromStart asks for the whole log and no Run save.
+  SPECTATE_VIEW: 7
 };
 var ServerOp = {
   // Snapshot, to the joining player only.
@@ -1567,7 +1571,9 @@ var ServerOp = {
   REPLAY_TAIL: 111,
   // GroupQueueMessage, to the home lobby's players: its group queue moved on
   // (matchmaking/group).
-  GROUP_QUEUE: 112
+  GROUP_QUEUE: 112,
+  // SpectateRun, to the spectator that asked (ClientOp.SPECTATE_VIEW).
+  SPECTATE_RUN: 113
 };
 var BROADCAST_TARGET = "*";
 var SERVER_TARGET = "server";
@@ -2625,11 +2631,21 @@ function setupAfterDowntime(game, downtime) {
 
 // src/lobby/checkpoint.ts
 var CLAIM_TIMEOUT_MS = 3e4;
+function withoutPendingRunSaves(lobby) {
+  if (!lobby.game.runSavePending) return lobby;
+  const _a = lobby.game, { runSavePending } = _a, game = __objRest(_a, ["runSavePending"]);
+  return __spreadProps(__spreadValues({}, lobby), { game });
+}
 function checkpointOf(lobby, now) {
   if (lobby.closed || lobby.players.length === 0) return null;
   const gq = lobby.groupQueue;
   const parkedUntil = gq && gq.phase === "away" ? gq.until : 0;
-  return { lobby, at: now, claimedAt: null, expiresAt: Math.max(now + CHECKPOINT_TTL_MS, parkedUntil) };
+  return {
+    lobby: withoutPendingRunSaves(lobby),
+    at: now,
+    claimedAt: null,
+    expiresAt: Math.max(now + CHECKPOINT_TTL_MS, parkedUntil)
+  };
 }
 function isExpired(checkpoint, now) {
   return now >= checkpointExpiry(checkpoint);
@@ -2922,32 +2938,91 @@ function lobbyKindOfLabel(label) {
   }
 }
 
+// src/lobby/log_check.ts
+var FRAMING_OPCODES = { end: true, chk: true };
+function opcodeOf(line) {
+  return JSON.parse(line)[1];
+}
+function hashInput(lines) {
+  return `[${lines.filter((line) => !FRAMING_OPCODES[opcodeOf(line)]).join(",")}]`;
+}
+function claimedHash(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const event2 = JSON.parse(lines[i]);
+    if (event2[1] !== "chk") continue;
+    const args = event2[2];
+    return args && typeof args.carbon === "string" ? args.carbon : null;
+  }
+  return null;
+}
+function checkLog(log, sha256) {
+  if (!log) return { carbonHash: null, check: "unavailable" };
+  const carbonHash = claimedHash(log.lines);
+  if (carbonHash === null || log.truncated)
+    return { carbonHash, check: "unavailable" };
+  const recomputed = sha256(hashInput(log.lines)).toLowerCase();
+  return {
+    carbonHash,
+    check: recomputed === carbonHash.toLowerCase() ? "match" : "mismatch"
+  };
+}
+
 // src/lobby/active.ts
-function activeRunOf(lobby, userId) {
+function activeRunOf(lobby, userId, sha256) {
+  var _a, _b;
   const started = lobby.game.started;
   if (!started || lobby.closed) return null;
-  if (!started.players.some((p) => p.id === userId)) return null;
+  if (!isParticipant(lobby, userId)) return null;
   if (!lobby.players.some((p) => p.id === userId)) return null;
+  const lines = (_b = (_a = lobby.game.logs[userId]) == null ? void 0 : _a.lines) != null ? _b : [];
+  const { runSave, runSaveSkipped } = checkedRunSave(
+    lobby,
+    userId,
+    lines,
+    sha256
+  );
   return {
     runId: started.runId,
     code: lobby.code,
     modId: lobby.modId,
-    events: eventsOf(lobby.game.logs[userId]),
-    requiredStanding: lobby.requiredStanding || null
+    events: eventsOf(lines),
+    requiredStanding: lobby.requiredStanding || null,
+    runSave,
+    runSaveSkipped,
+    logText: hashInput(lines)
   };
 }
 function replayTailOf(lobby, userId) {
   const started = lobby.game.started;
   if (!started || lobby.closed) return null;
   if (!started.players.some((p) => p.id === userId)) return null;
-  const tails = started.players.filter((p) => p.id !== userId).map((p) => ({ playerId: p.id, events: eventsOf(lobby.game.logs[p.id]) })).filter((tail) => tail.events.length > 0);
+  const tails = started.players.filter((p) => p.id !== userId).map((p) => {
+    var _a, _b;
+    return {
+      playerId: p.id,
+      events: eventsOf((_b = (_a = lobby.game.logs[p.id]) == null ? void 0 : _a.lines) != null ? _b : [])
+    };
+  }).filter((tail) => tail.events.length > 0);
   return tails.length > 0 ? { runId: started.runId, tails } : null;
 }
-function eventsOf(log) {
-  return (log ? log.lines : []).map((line) => {
+function eventsOf(lines) {
+  return lines.map((line) => {
     const [t, opcode, args] = JSON.parse(line);
     return { t, opcode, args };
   });
+}
+function checkedRunSave(lobby, userId, lines, sha256) {
+  var _a;
+  const save = (_a = lobby.game.runSaves) == null ? void 0 : _a[userId];
+  if (!save) return { runSave: null, runSaveSkipped: null };
+  if (save.pos > lines.length)
+    return { runSave: null, runSaveSkipped: "beyond_log" };
+  if (sha256(hashInput(lines.slice(0, save.pos))).toLowerCase() !== save.hash.toLowerCase())
+    return { runSave: null, runSaveSkipped: "hash_mismatch" };
+  return {
+    runSave: { id: save.id, pos: save.pos, hash: save.hash, data: save.data },
+    runSaveSkipped: null
+  };
 }
 
 // src/lobby/catch_up.ts
@@ -3368,6 +3443,10 @@ function emptyGame() {
     settleFrom: null,
     logs: {}
   };
+}
+function isParticipant(lobby, userId) {
+  const started = lobby.game.started;
+  return !!started && started.players.some((p) => p.id === userId);
 }
 function lobbyType(lobby) {
   return lobby.allowedIds ? "public" : "private";
@@ -3908,6 +3987,25 @@ function spectateEvent(lobby, event2) {
   const to = spectatorsOf(lobby);
   if (to.length === 0) return [];
   return [{ kind: "send", op: ServerOp.SPECTATE_EVENT, payload: event2, to }];
+}
+function spectateRunOf(lobby, userId, playerId, sha256, fromStart = false) {
+  var _a, _b;
+  if (!isSpectator(lobby, userId) || !isParticipant(lobby, playerId))
+    return { lobby, out: [] };
+  const lines = (_b = (_a = lobby.game.logs[playerId]) == null ? void 0 : _a.lines) != null ? _b : [];
+  const { runSave, runSaveSkipped } = fromStart ? { runSave: null, runSaveSkipped: null } : checkedRunSave(lobby, playerId, lines, sha256);
+  const pos = runSave ? runSave.pos : 0;
+  const payload = {
+    playerId,
+    runSave,
+    runSaveSkipped,
+    pos,
+    events: eventsOf(lines.slice(pos))
+  };
+  return {
+    lobby,
+    out: [{ kind: "send", op: ServerOp.SPECTATE_RUN, payload, to: [userId] }]
+  };
 }
 function spectatableLobbies(labels) {
   const lobbies = [];
@@ -5955,35 +6053,6 @@ function eventsByPlayer(logs) {
   return events;
 }
 
-// src/lobby/log_check.ts
-var FRAMING_OPCODES = { end: true, chk: true };
-function opcodeOf(line) {
-  return JSON.parse(line)[1];
-}
-function hashInput(lines) {
-  return `[${lines.filter((line) => !FRAMING_OPCODES[opcodeOf(line)]).join(",")}]`;
-}
-function claimedHash(lines) {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const event2 = JSON.parse(lines[i]);
-    if (event2[1] !== "chk") continue;
-    const args = event2[2];
-    return args && typeof args.carbon === "string" ? args.carbon : null;
-  }
-  return null;
-}
-function checkLog(log, sha256) {
-  if (!log) return { carbonHash: null, check: "unavailable" };
-  const carbonHash = claimedHash(log.lines);
-  if (carbonHash === null || log.truncated)
-    return { carbonHash, check: "unavailable" };
-  const recomputed = sha256(hashInput(log.lines)).toLowerCase();
-  return {
-    carbonHash,
-    check: recomputed === carbonHash.toLowerCase() ? "match" : "mismatch"
-  };
-}
-
 // src/lobby/storage.ts
 function myRunKey(run) {
   const reversed = String(9999999999999 - run.endedAt).padStart(13, "0");
@@ -7888,6 +7957,71 @@ function beforeSessionRefresh(ctx, logger, nk, data) {
   return data;
 }
 
+// src/actions/run_save.ts
+var RUN_SAVE_PART_KEY = "mpapi_run_save_part";
+var MAX_RUN_SAVE_PART_BYTES = 12 * 1024;
+var MAX_RUN_SAVE_PARTS = 16;
+var MAX_ID_LENGTH = 64;
+var HASH_PATTERN2 = /^[0-9a-f]{64}$/i;
+function isPlainObject3(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isCount2(value, max) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= max;
+}
+function isNonNegativeInt(value) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+var runSavePart = {
+  key: RUN_SAVE_PART_KEY,
+  reduce(lobby, ctx, params) {
+    var _a, _b, _c;
+    if (!lobby.game.started) return { reject: "not_in_game" };
+    if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
+    if (!isPlainObject3(params) || typeof params.id !== "string" || params.id.length === 0 || params.id.length > MAX_ID_LENGTH || !isCount2(params.count, MAX_RUN_SAVE_PARTS) || !isNonNegativeInt(params.index) || params.index >= params.count || !isNonNegativeInt(params.pos) || typeof params.hash !== "string" || !HASH_PATTERN2.test(params.hash) || typeof params.data !== "string" || params.data.length > MAX_RUN_SAVE_PART_BYTES)
+      return { reject: "bad_params" };
+    if (typeof params.run === "string" && params.run !== lobby.game.started.runId)
+      return { game: lobby.game, params: null, to: "none" };
+    const game = lobby.game;
+    const held = (_a = game.runSavePending) == null ? void 0 : _a[ctx.from];
+    const same = held && held.id === params.id && held.count === params.count && held.pos === params.pos && held.hash === params.hash;
+    const pending = same ? __spreadProps(__spreadValues({}, held), { parts: __spreadValues({}, held.parts) }) : {
+      id: params.id,
+      count: params.count,
+      pos: params.pos,
+      hash: params.hash,
+      parts: {}
+    };
+    pending.parts[String(params.index)] = params.data;
+    const rest = __spreadValues({}, (_b = game.runSavePending) != null ? _b : {});
+    if (Object.keys(pending.parts).length < pending.count) {
+      return {
+        game: __spreadProps(__spreadValues({}, game), { runSavePending: __spreadProps(__spreadValues({}, rest), { [ctx.from]: pending }) }),
+        params: null,
+        to: "none"
+      };
+    }
+    delete rest[ctx.from];
+    let data = "";
+    for (let i = 0; i < pending.count; i++) data += pending.parts[String(i)];
+    const save = {
+      id: pending.id,
+      pos: pending.pos,
+      hash: pending.hash,
+      data,
+      at: ctx.now
+    };
+    return {
+      game: __spreadProps(__spreadValues({}, game), {
+        runSaves: __spreadProps(__spreadValues({}, (_c = game.runSaves) != null ? _c : {}), { [ctx.from]: save }),
+        runSavePending: rest
+      }),
+      params: null,
+      to: "none"
+    };
+  }
+};
+
 // src/actions/results.ts
 function parsePlacements(value, participants) {
   if (!Array.isArray(value) || value.length !== participants.length)
@@ -8039,13 +8173,13 @@ function settle(lobby, now) {
 // src/actions/registry.ts
 var MAX_OPTIONS_BYTES = 4 * 1024;
 var MIN_GAME_PLAYERS = 2;
-function isPlainObject3(value) {
+function isPlainObject4(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 var ready = {
   key: "mpapi_ready",
   reduce(lobby, ctx, params) {
-    if (!isPlainObject3(params) || typeof params.ready !== "boolean")
+    if (!isPlainObject4(params) || typeof params.ready !== "boolean")
       return { reject: "bad_params" };
     if (lobby.game.started) return { reject: "in_game" };
     const readyMap = __spreadValues({}, lobby.game.ready);
@@ -8083,7 +8217,7 @@ function newGame(lobby, ctx, stake, options) {
 var startGame = {
   key: "mpapi_start_game",
   reduce(lobby, ctx, params) {
-    const p = isPlainObject3(params) ? params : {};
+    const p = isPlainObject4(params) ? params : {};
     if (p.stake !== void 0 && typeof p.stake !== "number")
       return { reject: "bad_params" };
     if (p.minPlayers !== void 0 && (typeof p.minPlayers !== "number" || p.minPlayers % 1 !== 0))
@@ -8157,10 +8291,6 @@ var abandonGame = {
     };
   }
 };
-function isParticipant(lobby, userId) {
-  const started = lobby.game.started;
-  return !!started && started.players.some((p) => p.id === userId);
-}
 var reportResult = {
   key: "mpapi_report_result",
   reduce(lobby, ctx, params) {
@@ -8168,7 +8298,7 @@ var reportResult = {
     if (!started) return { reject: "not_in_game" };
     if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
     const placements = parsePlacements(
-      isPlainObject3(params) ? params.placements : null,
+      isPlainObject4(params) ? params.placements : null,
       started.players
     );
     if (!placements) return { reject: "bad_params" };
@@ -8189,7 +8319,7 @@ var setResultPending = {
     const started = lobby.game.started;
     if (!started) return { reject: "not_in_game" };
     if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
-    if (!isPlainObject3(params) || typeof params.pending !== "boolean")
+    if (!isPlainObject4(params) || typeof params.pending !== "boolean")
       return { reject: "bad_params" };
     const game = __spreadProps(__spreadValues({}, lobby.game), {
       resultPending: params.pending,
@@ -8206,7 +8336,7 @@ var contest = {
     if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
     if (!lobby.rankedMode && !lobby.gameMode) return { reject: "not_matchmade" };
     if (lobby.game.contest) return { reject: "already_contested" };
-    const input = isPlainObject3(params) ? params : {};
+    const input = isPlainObject4(params) ? params : {};
     const others = started.players.filter((p) => p.id !== ctx.from);
     let against;
     if (input.opponentId === void 0 || input.opponentId === null) {
@@ -8229,7 +8359,7 @@ var MAX_LOG_EVENTS = 2e4;
 var MAX_LOG_BYTES = 1024 * 1024;
 var MAX_OPCODE_LENGTH = 64;
 function appendLogEvent(lobby, from, now, params) {
-  if (!isPlainObject3(params) || typeof params.t !== "number" || typeof params.opcode !== "string" || params.opcode.length === 0 || params.opcode.length > MAX_OPCODE_LENGTH)
+  if (!isPlainObject4(params) || typeof params.t !== "number" || typeof params.opcode !== "string" || params.opcode.length === 0 || params.opcode.length > MAX_OPCODE_LENGTH)
     return { reject: "bad_params" };
   const started = lobby.game.started;
   if (!started) return { reject: "not_in_game" };
@@ -8278,7 +8408,7 @@ var logEvents = {
   reduce(lobby, ctx, params) {
     if (!lobby.game.started) return { reject: "not_in_game" };
     if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
-    if (!isPlainObject3(params) || !Array.isArray(params.events) || params.events.length === 0 || params.events.length > MAX_LOG_BATCH)
+    if (!isPlainObject4(params) || !Array.isArray(params.events) || params.events.length === 0 || params.events.length > MAX_LOG_BATCH)
       return { reject: "bad_params" };
     let current = lobby;
     const relayed2 = [];
@@ -8307,7 +8437,8 @@ var REGISTRY = {
   [setResultPending.key]: setResultPending,
   [contest.key]: contest,
   [logEvent.key]: logEvent,
-  [logEvents.key]: logEvents
+  [logEvents.key]: logEvents,
+  [runSavePart.key]: runSavePart
 };
 for (const setupAction of SETUP_ACTIONS) REGISTRY[setupAction.key] = setupAction;
 var LOG_EVENT_KEY = logEvent.key;
@@ -9167,6 +9298,14 @@ function stepForMessage(nk, lobby, senderId, opCode, data) {
         senderId,
         data.state === void 0 ? null : data.state
       );
+    case ClientOp.SPECTATE_VIEW:
+      return typeof data.playerId === "string" ? spectateRunOf(
+        lobby,
+        senderId,
+        data.playerId,
+        (input) => nk.sha256Hash(input),
+        data.fromStart === true
+      ) : null;
     case ClientOp.CATCHING_UP:
       return setCatchingUp(lobby, senderId, data.catchingUp === true, Date.now());
     default:
@@ -9257,7 +9396,16 @@ function lobbyMatchSignal(ctx, logger, nk, dispatcher, tickNumber, state, data) 
     return { state: next || __spreadProps(__spreadValues({}, state), { lobby: __spreadProps(__spreadValues({}, state.lobby), { closed: true }) }), data: answer2.reply };
   }
   if (signal2.type === "get_active") {
-    return { state, data: JSON.stringify(activeRunOf(state.lobby, signal2.userId)) };
+    return {
+      state,
+      data: JSON.stringify(
+        activeRunOf(
+          state.lobby,
+          signal2.userId,
+          (input) => nk.sha256Hash(input)
+        )
+      )
+    };
   }
   if (signal2.type === "chat_check") {
     const check = chatCheck(state.lobby, signal2.userId, Date.now());
@@ -9987,7 +10135,7 @@ function syncLeaderboardEntry(nk, logger, board, metadata, userId, name, record)
 var USER_ID_PATTERN4 = /^[0-9a-f-]{36}$/;
 var MODE_PATTERN2 = /^[A-Za-z0-9_:.-]{1,64}$/;
 var MAX_ENTRIES = 1e3;
-function isCount2(value) {
+function isCount3(value) {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 function isSeasonBest(value) {
@@ -10000,7 +10148,7 @@ function recordOf3(value) {
   if (typeof value !== "object" || Array.isArray(value)) return void 0;
   const r = value;
   if (typeof r.rating !== "number" || !Number.isFinite(r.rating)) return void 0;
-  if (!isCount2(r.wins) || !isCount2(r.losses) || !isCount2(r.gamesPlayed) || !isCount2(r.lastMatchAt)) return void 0;
+  if (!isCount3(r.wins) || !isCount3(r.losses) || !isCount3(r.gamesPlayed) || !isCount3(r.lastMatchAt)) return void 0;
   if (!isSeasonBest(r.seasonBest)) return void 0;
   return {
     rating: r.rating,

@@ -867,28 +867,33 @@ describe('replay logs', () => {
 
 describe('active run', () => {
 	it('is null when no game is running', () => {
-		expect(activeRunOf({ ...started('a', 'b'), game: emptyGame() }, 'a')).toBeNull()
+		expect(
+			activeRunOf({ ...started('a', 'b'), game: emptyGame() }, 'a', sha256),
+		).toBeNull()
 	})
 
 	it('gives a participant their own events so far, as {t, opcode, args}', () => {
 		const lobby = log2(started('a', 'b'))
-		const active = activeRunOf(lobby, 'a')
+		const active = activeRunOf(lobby, 'a', sha256)
 		expect(active).toMatchObject({ runId: lobby.game.started?.runId, code: lobby.code, modId: lobby.modId })
 		expect(active?.events).toEqual([{ t: 1, opcode: 'play', args: null }])
-		expect(activeRunOf(lobby, 'b')?.events).toEqual([])
+		expect(activeRunOf(lobby, 'b', sha256)?.events).toEqual([])
 	})
 
 	it("names the game's bar for coming back, null for a lobby without one", () => {
 		const lobby = log2(started('a', 'b'))
-		expect(activeRunOf(lobby, 'a')?.requiredStanding).toBeNull()
-		expect(activeRunOf({ ...lobby, requiredStanding: 'verified' }, 'a')?.requiredStanding).toBe('verified')
+		expect(activeRunOf(lobby, 'a', sha256)?.requiredStanding).toBeNull()
+		expect(
+			activeRunOf({ ...lobby, requiredStanding: 'verified' }, 'a', sha256)
+				?.requiredStanding,
+		).toBe('verified')
 	})
 
 	it('is null for someone who is not playing or has left', () => {
 		const lobby = started('a', 'b')
-		expect(activeRunOf(lobby, 'z')).toBeNull()
+		expect(activeRunOf(lobby, 'z', sha256)).toBeNull()
 		const gone = { ...lobby, players: lobby.players.filter((p) => p.id !== 'b') }
-		expect(activeRunOf(gone, 'b')).toBeNull()
+		expect(activeRunOf(gone, 'b', sha256)).toBeNull()
 	})
 })
 

@@ -32,14 +32,28 @@ export interface Checkpoint {
 	expiresAt?: number
 }
 
+function withoutPendingRunSaves(lobby: Lobby): Lobby {
+	if (!lobby.game.runSavePending) return lobby
+	const { runSavePending, ...game } = lobby.game
+	return { ...lobby, game }
+}
+
 // What a lobby is worth keeping across a restart: one with players in it.
 // A lobby whose group is away (lobby/group_queue.ts) waits for its players as
 // long as their seats are parked, not just the usual ten minutes.
+// Each player's latest complete Run save rides along in lobby.game.runSaves;
+// parts of a save still arriving (runSavePending) are left out, since the
+// client resends a whole new save at its next Blind Select screen.
 export function checkpointOf(lobby: Lobby, now: number): Checkpoint | null {
 	if (lobby.closed || lobby.players.length === 0) return null
 	const gq = lobby.groupQueue
 	const parkedUntil = gq && gq.phase === 'away' ? gq.until : 0
-	return { lobby, at: now, claimedAt: null, expiresAt: Math.max(now + CHECKPOINT_TTL_MS, parkedUntil) }
+	return {
+		lobby: withoutPendingRunSaves(lobby),
+		at: now,
+		claimedAt: null,
+		expiresAt: Math.max(now + CHECKPOINT_TTL_MS, parkedUntil),
+	}
 }
 
 export function isExpired(checkpoint: Checkpoint, now: number): boolean {

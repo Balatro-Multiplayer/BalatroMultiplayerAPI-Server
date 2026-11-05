@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { ServerOp } from './protocol'
+import { ServerOp, type SpectateRun } from './protocol'
 import { action } from './relay'
 import {
 	MAX_SPECTATORS,
@@ -9,6 +10,7 @@ import {
 	snapshotEntry,
 	spectatableLobbies,
 	spectateRejection,
+	spectateRunOf,
 	spectateSnapshot,
 } from './spectate'
 import { type Lobby, type Outbound, type Step, adminRemove, close, join, joinRejection, labelOf, newLobby } from './state'
@@ -190,5 +192,113 @@ describe('spectatableLobbies', () => {
 		expect(spectatableLobbies([watchable, hidden, full, 'garbage'])).toEqual([
 			{ code: 'ABC123', modId: 'MultiplayerPvP', playerCount: 2, started: false, spectators: 0 },
 		])
+	})
+})
+
+describe('spectateRunOf', () => {
+	const sha = (input: string) =>
+		createHash('sha256').update(input).digest('hex')
+	const hashAfter = (lobby: Lobby, id: string, count: number) =>
+		sha(`[${(lobby.game.logs[id]?.lines ?? []).slice(0, count).join(',')}]`)
+	const part = (pos: number, hash: string, data = 'SAVE') => ({
+		run: 'RUN1',
+		id: 's1',
+		index: 0,
+		count: 1,
+		pos,
+		hash,
+		data,
+	})
+
+	// 'a' has logged three events and saved after the first two.
+	function watched(hash?: (lobby: Lobby) => string): Lobby {
+		let lobby = started(lobbyWith(['a', 'b'], true))
+		for (const [t, opcode] of [
+			[1, 'play'],
+			[2, 'buy'],
+			[3, 'sell'],
+		] as const)
+			lobby = logEvent(lobby, 'a', t, opcode, [t]).lobby
+		const saved = send(lobby, 'a', {
+			cid: 'p',
+			action: 'mpapi_run_save_part',
+			to: 'server',
+			params: part(2, hash ? hash(lobby) : hashAfter(lobby, 'a', 2)),
+		}).lobby
+		return addSpectator(saved, 'z').lobby
+	}
+
+	it('gives a spectator the watched player run save and only the events after it', () => {
+		const lobby = watched()
+		const step = spectateRunOf(lobby, 'z', 'a', sha)
+		const [run] = sends(step, ServerOp.SPECTATE_RUN)
+		expect(run.to).toEqual(['z'])
+		expect(run.payload).toMatchObject({
+			playerId: 'a',
+			runSave: {
+				id: 's1',
+				pos: 2,
+				hash: hashAfter(lobby, 'a', 2),
+				data: 'SAVE',
+			},
+			runSaveSkipped: null,
+			pos: 2,
+		})
+		expect((run.payload as SpectateRun).events).toEqual([
+			{ t: 3, opcode: 'sell', args: [3] },
+		])
+	})
+
+	it('gives all of the events when the player has no run save yet', () => {
+		let lobby = started(lobbyWith(['a', 'b'], true))
+		lobby = logEvent(lobby, 'a', 1, 'play', [1]).lobby
+		lobby = addSpectator(lobby, 'z').lobby
+		const [run] = sends(
+			spectateRunOf(lobby, 'z', 'a', sha),
+			ServerOp.SPECTATE_RUN,
+		)
+		expect(run.payload).toMatchObject({
+			playerId: 'a',
+			runSave: null,
+			runSaveSkipped: null,
+			pos: 0,
+		})
+		expect((run.payload as SpectateRun).events).toHaveLength(1)
+	})
+
+	it('holds back a run save that does not match the log, and sends the whole log', () => {
+		const lobby = watched(() => 'f'.repeat(64))
+		const [run] = sends(
+			spectateRunOf(lobby, 'z', 'a', sha),
+			ServerOp.SPECTATE_RUN,
+		)
+		expect(run.payload).toMatchObject({
+			runSave: null,
+			runSaveSkipped: 'hash_mismatch',
+			pos: 0,
+		})
+		expect((run.payload as SpectateRun).events).toHaveLength(3)
+	})
+
+	it('sends the whole log, with no run save, to a spectator whose run save would not load', () => {
+		const lobby = watched()
+		const [run] = sends(
+			spectateRunOf(lobby, 'z', 'a', sha, true),
+			ServerOp.SPECTATE_RUN,
+		)
+		expect(run.payload).toMatchObject({
+			runSave: null,
+			runSaveSkipped: null,
+			pos: 0,
+		})
+		expect((run.payload as SpectateRun).events).toHaveLength(3)
+	})
+
+	it('gives nothing to a player in the match, to a stranger, or about a player not in the match', () => {
+		const lobby = watched()
+		expect(spectateRunOf(lobby, 'b', 'a', sha).out).toEqual([])
+		expect(spectateRunOf(lobby, 'a', 'a', sha).out).toEqual([])
+		expect(spectateRunOf(lobby, 'nobody', 'a', sha).out).toEqual([])
+		expect(spectateRunOf(lobby, 'z', 'zzz', sha).out).toEqual([])
 	})
 })
