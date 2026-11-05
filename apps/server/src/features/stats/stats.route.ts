@@ -45,6 +45,8 @@ const TOTALS_TTL_MS = 5 * 60 * 1000
 // Cached apart from the totals: the page polls them every 15 seconds.
 const ONLINE_PLAYERS_TTL_MS = 10 * 1000
 const QUEUE_STATS_TTL_MS = 10 * 1000
+// The Leaderboards page orders its tabs by these counts.
+const BOARD_COUNTS_TTL_MS = 10 * 60 * 1000
 
 export interface StatsRouterDeps {
 	fetchMetrics: FetchMetrics
@@ -66,6 +68,15 @@ export function createStatsRouter({
 			uniquePlayers: LEGACY_UNIQUE_PLAYERS + counts.players,
 		}
 	}, TOTALS_TTL_MS)
+	const getBoardCounts = createTtlCache(async () => {
+		const { season, boards } = await statsRepository.countBoardEntries()
+		const counts: Record<string, Record<string, number>> = {}
+		for (const board of boards) {
+			counts[board.modId] ??= {}
+			counts[board.modId][board.gameMode] = board.entries
+		}
+		return { season, counts }
+	}, BOARD_COUNTS_TTL_MS)
 	const getOnlinePlayers = createOnlinePlayers(
 		fetchMetrics,
 		ONLINE_PLAYERS_TTL_MS,
@@ -172,6 +183,14 @@ export function createStatsRouter({
 				totalPages: Math.max(1, Math.ceil(total / pageSize)),
 				entries,
 			})
+		} catch (err) {
+			next(err)
+		}
+	})
+
+	router.get('/leaderboard-counts', async (_req, res, next) => {
+		try {
+			res.json(await getBoardCounts(Date.now()))
 		} catch (err) {
 			next(err)
 		}

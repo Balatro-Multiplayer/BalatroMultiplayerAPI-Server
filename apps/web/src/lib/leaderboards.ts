@@ -61,26 +61,6 @@ export function gameModeKey(modeId: string): string {
   return `ranked:${modeId}`
 }
 
-export function getCategory(id: string | null | undefined): LeaderboardCategory {
-  // biome-ignore lint/style/noNonNullAssertion: LEADERBOARD_CATEGORIES is non-empty
-  return LEADERBOARD_CATEGORIES.find((c) => c.id === id) ?? LEADERBOARD_CATEGORIES[0]!
-}
-
-/** Returns the mode if it belongs to the category, otherwise the first mode. */
-export function getMode(
-  category: LeaderboardCategory,
-  modeId: string | null | undefined,
-): LeaderboardMode {
-  // biome-ignore lint/style/noNonNullAssertion: every category has at least one mode
-  return category.modes.find((m) => m.id === modeId) ?? category.modes[0]!
-}
-
-/** First mode of a category (every category has at least one). */
-export function firstMode(category: LeaderboardCategory): LeaderboardMode {
-  // biome-ignore lint/style/noNonNullAssertion: every category has at least one mode
-  return category.modes[0]!
-}
-
 /** Format ms as m:ss.mmm (speedrun completion time). */
 export function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000)
