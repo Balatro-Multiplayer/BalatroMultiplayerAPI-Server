@@ -2,6 +2,7 @@ import { PVP_BLIND_KEY } from '@bmp/types'
 import type { ResolvedCard } from '../card-ref'
 import { isRawRef, resolveCardRef } from '../card-ref'
 import type { DecodedPlayerLog } from '../decode-player-logs'
+import { isStickerName } from '../joker-modifiers'
 import { findMatchInfo } from '../manifest'
 import { isPlainRecord } from '../plain-record'
 import { buildTimeline } from '../timeline'
@@ -84,20 +85,20 @@ function isJoker(card: ResolvedCard): boolean {
   )
 }
 
-// "j_blueprint|foil" -> a joker card; the mod records these as plain strings.
+// "j_blueprint|foil" or "j_joker|foil|eternal" -> a joker card; the mod records
+// these as plain strings.
 export function parseJokerTokens(tokens: unknown): ResolvedCard[] {
   if (!Array.isArray(tokens)) return []
   return tokens.flatMap((token): ResolvedCard[] => {
     if (typeof token !== 'string' || token === '') return []
-    const [key = '', edition] = token.split('|')
-    return [
-      {
-        type: 'other_card',
-        kind: 'Joker',
-        ident: key,
-        tags: edition ? [`ed:${edition}`] : [],
-      },
-    ]
+    const [key = '', ...mods] = token.split('|')
+    // Each extra part is a sticker or, failing that, the edition.
+    const tags = mods
+      .filter((m) => m !== '')
+      .map((m) =>
+        m.includes(':') ? m : isStickerName(m) ? `st:${m}` : `ed:${m}`
+      )
+    return [{ type: 'other_card', kind: 'Joker', ident: key, tags }]
   })
 }
 
@@ -229,6 +230,13 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
   rounds.push(current)
 
   let jokers: Resolved[] = []
+  // The owned jokers the last play recorded, kept up to date with the buys and
+  // sells after it. Jokers can also appear or vanish through effects (Ankh,
+  // Invisible Joker, Gros Michel, ...) that no buy/sell event covers, so
+  // when a play recorded them, that snapshot is the truth the shop events are
+  // applied to rather than the reconstruction from shop events alone.
+  let snapshotJokers: ResolvedCard[] | null = null
+  let snapshotAdjusted = false
   const vouchers: ResolvedCard[] = []
   let seed: string | null = null
   let deck: string | null = null
@@ -318,6 +326,10 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
           opcode === 'play' && (Array.isArray(a[2]) || isPlainRecord(a[2]))
             ? parseJokerTokens(a[2])
             : null
+        if (jokerSnapshot) {
+          snapshotJokers = jokerSnapshot
+          snapshotAdjusted = false
+        }
         if (opcode === 'play') current.handsPlayed++
         else current.discards++
         push({
@@ -488,6 +500,22 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
         }
     }
 
+    function addToSnapshot(card: ResolvedCard) {
+      if (!snapshotJokers) return
+      snapshotJokers = [...snapshotJokers, card]
+      snapshotAdjusted = true
+    }
+
+    function removeFromSnapshot(card: ResolvedCard) {
+      if (!snapshotJokers || card.type !== 'other_card') return
+      const at = snapshotJokers.findIndex(
+        (j) => j.type === 'other_card' && j.ident === card.ident
+      )
+      if (at === -1) return
+      snapshotJokers = snapshotJokers.filter((_, i) => i !== at)
+      snapshotAdjusted = true
+    }
+
     function handleShop(initial: ShopAction) {
       let action = initial
       let card: ResolvedCard | null = null
@@ -511,10 +539,14 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
         } else if (action !== 'sell') {
           cost = followingSpend()
         }
-        if (r && action === 'buy' && isJoker(r.card)) jokers.push(r)
+        if (r && action === 'buy' && isJoker(r.card)) {
+          jokers.push(r)
+          addToSnapshot(r.card)
+        }
         if (r && action === 'voucher') vouchers.push(r.card)
         if (r && action === 'sell' && area === AREA_JOKERS) {
           jokers = jokers.filter((j) => j.id !== r.id)
+          if (isJoker(r.card)) removeFromSnapshot(r.card)
         }
       } else if (action === 'use' || action === 'pack_pick') {
         const r = resolve(a[2])
@@ -529,7 +561,10 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
           cost = followingSpend()
         }
         targets = resolveAll(a[3], resolve).map((x) => x.card)
-        if (r && action === 'pack_pick' && isJoker(r.card)) jokers.push(r)
+        if (r && action === 'pack_pick' && isJoker(r.card)) {
+          jokers.push(r)
+          addToSnapshot(r.card)
+        }
       } else if (action === 'pack_skip') {
         resolveAll(a[0], resolve)
       } else if (action === 'reroll') {
@@ -582,13 +617,13 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
     rounds: rounds
       .filter((r) => r.entry !== 'setup' || r.events.length > 0)
       .map(({ lastScore: _ignored, ...round }) => round),
-    finalJokers: jokers.map((j) => j.card),
+    finalJokers: snapshotJokers ?? jokers.map((j) => j.card),
     finalDeck,
     vouchers,
     livesLost,
     rerolls,
     itemizedPurchases,
-    reconstructed: sawBlind,
+    reconstructed: snapshotJokers ? snapshotAdjusted : sawBlind,
   }
 }
 
