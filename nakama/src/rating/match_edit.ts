@@ -285,7 +285,7 @@ const REFUSAL_TEXT: { [kind in MatchEditRefusal['kind']]: string } = {
 	record_too_small: "a player's rating record cannot hold the change",
 }
 
-// {runId, placements | void: true, season?, decidesContest?} -> {run, changes,
+// {runId, placements | void: true, season?, decidesContest?, contesters?} -> {run, changes,
 // applied}. Each player whose result the edit changes gets a Notification;
 // `decidesContest` (the service queue deciding a contest) picks the contest
 // wording. `silent` records who was told but sends nothing.
@@ -309,6 +309,11 @@ export function rpcAdminMatchEdit(
 			'placements must be a list of {playerId, place}',
 		)
 	const decidesContest = input.decidesContest === true
+	// The players whose Contests stand: they get the contester wording, in-game
+	// or from the website.
+	const contesters = Array.isArray(input.contesters)
+		? input.contesters.filter((id): id is string => typeof id === 'string')
+		: []
 	// A caller that tells the players itself (a withdrawn Contest) sets
 	// `silent`: the edit still records who was told, but sends nothing.
 	const silent = input.silent === true
@@ -363,7 +368,7 @@ export function rpcAdminMatchEdit(
 			if (plan.refusal.kind === 'unchanged') {
 				// A contest decided by keeping the reported result changes no
 				// record, but the players have not been told yet.
-				const told = planResultNotifications(run, run, decidesContest)
+				const told = planResultNotifications(run, run, decidesContest, contesters)
 				if (told.sends.length > 0) {
 					nk.storageWrite([
 						{
@@ -390,7 +395,7 @@ export function rpcAdminMatchEdit(
 			throw runtimeError(INVALID_ARGUMENT, REFUSAL_TEXT[plan.refusal.kind])
 		}
 
-		const told = planResultNotifications(run, plan.run, decidesContest)
+		const told = planResultNotifications(run, plan.run, decidesContest, contesters)
 		const storedRun = { ...plan.run, told: told.told }
 		const key = myRunKey(run)
 		const pointers = nk.storageRead(

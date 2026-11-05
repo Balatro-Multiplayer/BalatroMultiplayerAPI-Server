@@ -308,6 +308,21 @@ describe('opening and withdrawing a website Contest', () => {
 		expect(world.item).toMatchObject({ status: 'open', contesterId: 'p2' })
 	})
 
+	it('in-game withdraw still forfeits but leaves the item open for a website Contest', async () => {
+		world.contests = [row(1, 'p2', 'in_game')]
+		world.item = { id: 9, status: 'open', resolutionAction: null, contesterId: 'p2' }
+		const app = appOver(world)
+		await contest(app, 'p1')
+		expect((await withdraw(app, 'p2')).status).toBe(200)
+		expect(world.forfeits).toHaveLength(1)
+		expect(world.told).toEqual(['p2'])
+		expect(world.item).toMatchObject({ status: 'open', contesterId: 'p1' })
+		expect(world.contests.map((c) => c.withdrawnAt !== null)).toEqual([true, false])
+		// The website Contest is the last one: its withdraw closes the item.
+		expect((await withdraw(app, 'p1')).status).toBe(200)
+		expect(world.item?.status).toBe('resolved')
+	})
+
 	it('refuses after staff decided, and a second withdraw', async () => {
 		const app = appOver(world)
 		await contest(app, 'p1')

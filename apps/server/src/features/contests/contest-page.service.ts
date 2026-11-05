@@ -103,9 +103,9 @@ export function createContestPageService<Tx>(deps: ContestPageDeps<Tx>) {
 		return item && item.status !== 'open' ? 'decided' : 'open'
 	}
 
-	// Removes only this Contest. The item closes with the last one; the result and
-	// the ratings stay, and no Notification goes out.
-	async function withdrawWebsite(
+	// Removes only this Contest. The item closes with the last one, and stays
+	// open for the others while any stands.
+	async function removeContest(
 		contest: ContestPageRow,
 		item: { id: number; contesterId?: string | null },
 		playerId: string,
@@ -161,7 +161,7 @@ export function createContestPageService<Tx>(deps: ContestPageDeps<Tx>) {
 			const item = await deps.findQueueItem(runId)
 			if (!item) return fail('match_running')
 			if (item.status !== 'open') return fail('decided')
-			if (contest.kind === 'website') return withdrawWebsite(contest, item, playerId)
+			if (contest.kind === 'website') return removeContest(contest, item, playerId)
 			const game = await deps.gameOf(runId)
 			if (!game) return fail('match_running')
 
@@ -173,15 +173,8 @@ export function createContestPageService<Tx>(deps: ContestPageDeps<Tx>) {
 			const forfeited = await deps.forfeitGame(game, ratedPlacements(placements, flagged, game.ranked))
 			if (!forfeited.ok) return fail('forfeit_failed', forfeited.reason)
 
-			const now = deps.now()
-			const actor = `player:${playerId}`
-			const closed = await deps.transaction(async (tx) => {
-				if (!(await deps.closeItem(tx, item.id, actor, now))) return false
-				if (!(await deps.markWithdrawn(tx, contest.id, now))) throw new Error('contest already withdrawn')
-				await deps.recordWithdrawn(tx, item.id, actor)
-				return true
-			})
-			if (!closed) return fail('decided')
+			const removed = await removeContest(contest, item, playerId)
+			if (!removed.ok) return removed
 			await deps.notifyWithdrawn(runId, playerId)
 			return { ok: true, value: null }
 		},
