@@ -1,19 +1,14 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { ApiError, apiFetch } from '@/lib/api'
+import { apiFetch, apiFetchWithReason } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { SaveBar } from '../../../app/(home)/admin/config/components/save-bar'
+import { SectionFrame } from '../../../app/(home)/admin/config/components/section-frame'
 import { TYPE_LABELS } from '../../../app/(home)/admin/service-queue/lib/format'
 import {
   ITEM_TYPES,
@@ -22,7 +17,6 @@ import {
 import {
   MAX_PRESET_LENGTH,
   addReason,
-  canSaveList,
   editReason,
   isChanged,
   listProblem,
@@ -32,8 +26,13 @@ import {
 } from './lists'
 
 // The Configuration page's Preset reasons section: one list per queue item
-// type. Edits stay in a draft until an admin saves with a note.
-export function PresetReasonsSection() {
+// type. Edits stay in a draft until an admin saves with a note. A save writes
+// every list that changed.
+export function PresetReasonsSection({
+  onDirtyChange,
+}: {
+  onDirtyChange?: (dirty: boolean) => void
+}) {
   const qc = useQueryClient()
   const { data } = useQuery<{ presetReasons: Record<ItemType, string[]> }>({
     queryKey: presetReasonsKey,
@@ -42,49 +41,67 @@ export function PresetReasonsSection() {
   const [type, setType] = useState<ItemType>(ITEM_TYPES[0])
   const [drafts, setDrafts] = useState<Partial<Record<ItemType, string[]>>>({})
   const [adding, setAdding] = useState('')
-  const [note, setNote] = useState('')
+
+  const savedOf = (t: ItemType) => data?.presetReasons[t] ?? []
+  const draftOf = (t: ItemType) => drafts[t] ?? savedOf(t)
+  const changedTypes = ITEM_TYPES.filter((t) =>
+    isChanged(savedOf(t), draftOf(t)),
+  )
+  const problem = changedTypes.map((t) => listProblem(draftOf(t))).find(Boolean)
+
+  useEffect(
+    () => onDirtyChange?.(changedTypes.length > 0),
+    [changedTypes.length, onDirtyChange],
+  )
 
   const save = useMutation({
-    mutationFn: (body: { reasons: string[]; reason: string }) =>
-      apiFetch(`/webadmin/config/preset-reasons/${type}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          reasons: body.reasons.map((t) => t.trim()),
-          reason: body.reason,
-        }),
-      }),
-    onSuccess: () => {
-      toast.success('Preset reasons saved')
-      setDrafts((d) => ({ ...d, [type]: undefined }))
-      setNote('')
-      qc.invalidateQueries({ queryKey: presetReasonsKey })
+    mutationFn: async (note: string) => {
+      for (const t of changedTypes)
+        await apiFetchWithReason(
+          `/webadmin/config/preset-reasons/${t}`,
+          {
+            method: 'PUT',
+            body: JSON.stringify({ reasons: draftOf(t).map((x) => x.trim()) }),
+          },
+          note,
+        )
     },
+    onSuccess: () => toast.success('Preset reasons saved'),
     onError: (e: unknown) =>
       toast.error(
-        e instanceof ApiError && typeof e.body.message === 'string'
-          ? e.body.message
-          : 'Could not save preset reasons',
+        e instanceof Error ? e.message : 'Could not save preset reasons',
       ),
+    onSettled: () => qc.invalidateQueries({ queryKey: presetReasonsKey }),
   })
 
-  const saved = data?.presetReasons[type] ?? []
-  const draft = drafts[type] ?? saved
+  const draft = draftOf(type)
   const edit = (next: string[]) => setDrafts((d) => ({ ...d, [type]: next }))
-  const problem = listProblem(draft)
-  const changed = isChanged(saved, draft)
 
   return (
-    <Card data-testid='preset-reasons'>
-      <CardHeader>
-        <CardTitle>Preset reasons</CardTitle>
-        <CardDescription>
-          Ready-made notes staff pick for a queue item of one type, then edit.
-          They show as chips above the note field. The first in the list shows
-          first. Each save goes in the staff log.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className='space-y-4'>
-        <div className='flex flex-wrap gap-2'>
+    <SectionFrame
+      testId='preset-reasons'
+      title='Preset reasons'
+      description='Ready-made notes staff pick for a queue item of one type, then edit. They show as chips above the note field. The first in the list shows first.'
+      footer={
+        <>
+          {problem && (
+            <p className='px-5 pb-1 text-amber-400 text-sm'>{problem}</p>
+          )}
+          <SaveBar
+            changeCount={problem ? 0 : changedTypes.length}
+            pending={save.isPending}
+            saveLabel='Save preset reasons'
+            onSave={(note) => save.mutate(note)}
+            onReset={() => {
+              setDrafts({})
+              setAdding('')
+            }}
+          />
+        </>
+      }
+    >
+      <div className='grid gap-4 md:grid-cols-[200px_1fr]'>
+        <div className='flex flex-col gap-0.5 text-sm'>
           {ITEM_TYPES.map((t) => (
             <button
               key={t}
@@ -92,119 +109,109 @@ export function PresetReasonsSection() {
               onClick={() => setType(t)}
               aria-pressed={t === type}
               className={cn(
-                'rounded-md border px-3 py-1.5 text-sm',
+                'flex items-center rounded-md px-2.5 py-1.5 text-left',
                 t === type
-                  ? 'border-primary bg-primary/10'
-                  : 'border-border hover:bg-accent',
+                  ? 'bg-destructive/15 font-semibold'
+                  : 'hover:bg-accent',
               )}
             >
-              {TYPE_LABELS[t]}{' '}
-              <span className='text-muted-foreground'>
-                {(drafts[t] ?? data?.presetReasons[t] ?? []).length}
+              {TYPE_LABELS[t]}
+              {changedTypes.includes(t) && (
+                <span className='ml-1 text-bal-gold text-xs'>edited</span>
+              )}
+              <span className='ml-auto text-muted-foreground'>
+                {draftOf(t).length}
               </span>
             </button>
           ))}
         </div>
 
-        <div className='space-y-2'>
-          {draft.length === 0 && (
-            <p className='text-muted-foreground text-sm'>
-              No preset reasons for this type.
-            </p>
-          )}
-          {draft.map((text, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: rows are edited in place and reordered by index
-            <div key={i} className='flex items-center gap-2'>
-              <Button
-                size='sm'
-                variant='outline'
-                disabled={i === 0}
-                onClick={() => edit(moveReason(draft, i, -1))}
-              >
-                Up
-              </Button>
-              <Button
-                size='sm'
-                variant='outline'
-                disabled={i === draft.length - 1}
-                onClick={() => edit(moveReason(draft, i, 1))}
-              >
-                Down
-              </Button>
-              <Input
-                aria-label={`Preset reason ${i + 1}`}
-                value={text}
-                maxLength={MAX_PRESET_LENGTH}
-                onChange={(e) => edit(editReason(draft, i, e.target.value))}
-              />
-              <Button
-                size='sm'
-                variant='outline'
-                onClick={() => edit(removeReason(draft, i))}
-              >
-                Remove
-              </Button>
-            </div>
-          ))}
-          <form
-            className='flex gap-2'
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (adding.trim()) {
-                edit(addReason(draft, adding))
-                setAdding('')
-              }
-            }}
-          >
-            <Input
-              aria-label='New preset reason'
-              placeholder='Add a note'
-              value={adding}
-              maxLength={MAX_PRESET_LENGTH}
-              onChange={(e) => setAdding(e.target.value)}
-            />
-            <Button type='submit' disabled={!adding.trim()}>
-              Add
-            </Button>
-          </form>
-          {problem && <p className='text-amber-400 text-sm'>{problem}</p>}
-        </div>
-
-        {changed && (
-          <form
-            className='flex flex-wrap gap-2'
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (canSaveList(saved, draft, note, save.isPending))
-                save.mutate({ reasons: draft, reason: note.trim() })
-            }}
-          >
-            <Input
-              aria-label='Note for the staff log'
-              placeholder='Note for the staff log (needed)'
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              className='max-w-md'
-            />
-            <Button
-              type='submit'
-              disabled={!canSaveList(saved, draft, note, save.isPending)}
-            >
-              Save preset reasons
-            </Button>
-            <Button
-              type='button'
-              variant='ghost'
-              onClick={() => {
-                edit(saved)
-                setNote('')
+        <div className='space-y-4'>
+          <div className='space-y-2'>
+            {draft.length === 0 && (
+              <p className='text-muted-foreground text-sm'>
+                No preset reasons for this type.
+              </p>
+            )}
+            {draft.map((text, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: rows are edited in place and reordered by index
+              <div key={i} className='flex items-center gap-2'>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={i === 0}
+                  onClick={() => edit(moveReason(draft, i, -1))}
+                >
+                  Up
+                </Button>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={i === draft.length - 1}
+                  onClick={() => edit(moveReason(draft, i, 1))}
+                >
+                  Down
+                </Button>
+                <Input
+                  aria-label={`Preset reason ${i + 1}`}
+                  value={text}
+                  maxLength={MAX_PRESET_LENGTH}
+                  onChange={(e) => edit(editReason(draft, i, e.target.value))}
+                />
+                <Button
+                  size='sm'
+                  variant='outline'
+                  onClick={() => edit(removeReason(draft, i))}
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+            <form
+              className='flex gap-2'
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (adding.trim()) {
+                  edit(addReason(draft, adding))
+                  setAdding('')
+                }
               }}
             >
-              Reset
-            </Button>
-          </form>
-        )}
-      </CardContent>
-    </Card>
+              <Input
+                aria-label='New preset reason'
+                placeholder='Add a note'
+                value={adding}
+                maxLength={MAX_PRESET_LENGTH}
+                onChange={(e) => setAdding(e.target.value)}
+              />
+              <Button type='submit' disabled={!adding.trim()}>
+                Add
+              </Button>
+            </form>
+          </div>
+
+          {draft.length > 0 && (
+            <div className='rounded-lg border border-border p-4'>
+              <h3 className='mb-2 font-pixel text-muted-foreground text-sm uppercase'>
+                How staff see it
+              </h3>
+              <div className='flex flex-wrap gap-2'>
+                {draft
+                  .filter((t) => t.trim())
+                  .map((t, i) => (
+                    <span
+                      // biome-ignore lint/suspicious/noArrayIndexKey: preview of an editable list
+                      key={i}
+                      className='rounded-full border border-border border-dashed px-3 py-1 text-muted-foreground text-xs'
+                    >
+                      {t}
+                    </span>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </SectionFrame>
   )
 }
