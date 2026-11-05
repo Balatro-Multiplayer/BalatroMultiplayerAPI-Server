@@ -22,3 +22,27 @@ export function encodeBundlePathForApi(bundlePath: string): string {
     .replace(/\//g, '_')
     .replace(/=+$/, '')
 }
+
+// The archive the list highlights for a page's path segments. A thread's
+// page highlights its parent channel.
+export function listedBundlePath(segments: string[]): string | null {
+  if (segments.length === 0) return null
+  const at = segments.indexOf('threads')
+  return (at === -1 ? segments : segments.slice(0, at)).join('/')
+}
+
+// The segments after "/admin/archives" in a pathname, decoded.
+export function archiveSegments(pathname: string): string[] {
+  const rest = pathname.replace(/^\/admin\/archives\/?/, '')
+  if (!rest) return []
+  return rest
+    .split('/')
+    .filter(Boolean)
+    .map((s) => {
+      try {
+        return decodeURIComponent(s)
+      } catch {
+        return s
+      }
+    })
+}
