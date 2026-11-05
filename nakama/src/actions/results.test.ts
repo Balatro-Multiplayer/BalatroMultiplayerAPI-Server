@@ -460,10 +460,10 @@ describe('contest', () => {
 	it('records the Contest for the mirror right away, before the run ends', () => {
 		const lobby = startedMatchmade('a', 'b', 'c')
 		const step = send(lobby, 'a', 'mpapi_contest', { opponentId: 'c' }, 2000)
-		const made = step.out.filter((o) => o.kind === 'contested')
+		const made = step.out.filter((o) => o.kind === 'contest')
 		expect(made).toEqual([
 			{
-				kind: 'contested',
+				kind: 'contest',
 				runId: lobby.game.started?.runId,
 				code: lobby.code,
 				by: 'a',

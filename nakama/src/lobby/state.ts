@@ -129,7 +129,7 @@ export type Outbound =
 	| { kind: 'forfeited'; userId: string; runId: string; code: string; at: number; lobbyKind: LobbyKind }
 	// A player contested the started game: the API records the Contest at once,
 	// before the run ends, so its page can open (mirror/outbox.ts).
-	| { kind: 'contested'; runId: string; code: string; by: string; against: string; at: number; lobbyKind: LobbyKind }
+	| { kind: 'contest'; runId: string; code: string; by: string; against: string; at: number; lobbyKind: LobbyKind }
 	| {
 			kind: 'saveRun'
 			run: RunRecord

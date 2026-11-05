@@ -1,6 +1,6 @@
 // What a Notification can be about. A new event adds a kind here and its
 // params type below, sends it with sendNotification, and adds its wording to
-// the client (MPAPI ui/notification_kinds.lua). Nothing else changes: storage,
+// the client (MPAPI api/notification/kinds.lua). Nothing else changes: storage,
 // expiry, the chat line and the login overlays are the same for every kind.
 import type { LateResult, RankedResult } from '../lobby/late_result'
 
@@ -35,6 +35,9 @@ export type NotificationKindName =
 // What a staff decision means for one player. A draw is every player on the
 // same place; a win is the best place without that tie.
 export type ResultOutcome = 'win' | 'draw' | 'loss'
+
+// A ResultOutcome, or 'void' when staff voided the match.
+export type TellOutcome = ResultOutcome | 'void'
 
 export interface SeasonEndBoard {
 	// The board's display name, for example "PvP Vanilla".

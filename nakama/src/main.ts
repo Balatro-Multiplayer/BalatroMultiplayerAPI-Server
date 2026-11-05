@@ -67,7 +67,8 @@ import { rpcAdminCheckpointsSweep } from './lobby/checkpoint_sweep'
 import { rpcAdminRunsExpired, rpcAdminRunsPurgeNamed } from './lobby/retention'
 import { rpcAdminRatingsSet } from './rating/admin'
 import { rpcAdminMatchEdit } from './rating/match_edit'
-import { rpcAdminReportAction, rpcAdminRunTellVoided } from './notification/rpc'
+import { rpcAdminReportAction } from './notification/report_action'
+import { rpcAdminRunTellVoided } from './notification/tell_voided'
 import { rpcAdminRatingsReplayFold, rpcAdminRatingsReplayList } from './rating/replay'
 import {
 	rpcAdminRatingsBoardExport,

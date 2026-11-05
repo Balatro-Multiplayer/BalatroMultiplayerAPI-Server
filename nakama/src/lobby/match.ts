@@ -291,7 +291,7 @@ function runEffect(
 			}
 			return
 		}
-		case 'contested':
+		case 'contest':
 			try {
 				enqueue(nk, {
 					kind: 'contest',
