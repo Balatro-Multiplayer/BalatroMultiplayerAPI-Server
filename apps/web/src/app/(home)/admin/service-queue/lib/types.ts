@@ -417,6 +417,16 @@ export interface ContestEvidence {
   } | null
   // The result reported before the contest, which a dismiss rates.
   recorded: (Placement & { rated?: boolean })[] | null
+  // Every Contest on the run: from the game or the website.
+  contests: {
+    id: number
+    kind: string
+    contesterId: string
+    reason: string | null
+    detail: string | null
+    createdAt: string
+    withdrawn: boolean
+  }[]
   players: ContestPlayer[]
   run: NakamaRunView | null
   replay: ReplayView | null

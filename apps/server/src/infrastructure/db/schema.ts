@@ -227,6 +227,34 @@ export const reports = pgTable('reports', {
 	index('reports_reporter_idx').on(t.reporterId),
 ])
 
+// A player's Contest of a match: made in the game, or from the website after
+// the match. A match has one queue item (service_queue_items, type 'contest',
+// source_id = run id) and this table holds every Contest it carries, one per
+// player.
+export const contests = pgTable(
+	'contests',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		runId: varchar('run_id', { length: 36 }).notNull(),
+		// 'in_game' | 'website'
+		kind: varchar('kind', { length: 16 }).notNull(),
+		contesterId: uuid('contester_id')
+			.notNull()
+			.references(() => players.id),
+		// The player contested in the game; null for a website Contest.
+		againstId: uuid('against_id').references(() => players.id),
+		// 'stalling' | 'rule_breaking' | 'other', set on the Contest page.
+		reason: varchar('reason', { length: 16 }),
+		detail: text('detail'),
+		// Set once, when the Contest's one-time page is first opened.
+		pageOpenedAt: timestamp('page_opened_at', { withTimezone: true }),
+		// Set when the contester withdrew it before staff decided.
+		withdrawnAt: timestamp('withdrawn_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [uniqueIndex('contests_run_contester_idx').on(t.runId, t.contesterId)],
+)
+
 // Chat messages saved when a lobby receives a report.
 // Contains the buffered history at report time plus all subsequent messages.
 export const reportedLobbyMessages = pgTable('reported_lobby_messages', {

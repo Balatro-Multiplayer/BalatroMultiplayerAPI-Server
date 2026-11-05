@@ -505,6 +505,14 @@ describe('admin_match_edit', () => {
 			])
 		})
 
+		it('sends nothing when the caller tells the players itself, and does not tell again later', () => {
+			const { nk, call } = world(contested, {})
+			call({ placements: aWins, silent: true })
+			expect(sent(nk as never)).toHaveLength(0)
+			call({ placements: aWins })
+			expect(sent(nk as never)).toHaveLength(0)
+		})
+
 		it('tells a contest keeping the reported result, once', () => {
 			const { nk, call } = world(contested, {})
 			call({ placements: drawRun().placements, decidesContest: true })

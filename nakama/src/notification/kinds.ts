@@ -9,6 +9,8 @@ export const NotificationKind = {
 	RESULT_LATE: 'result_late',
 	// A ranked result, told to every player it rated.
 	RESULT_RANKED: 'result_ranked',
+	// A player withdrew their in-game Contest: the other players are told.
+	CONTEST_WITHDRAWN: 'contest_withdrawn',
 	// A moderator decided a contested match.
 	CONTEST_DECIDED: 'contest_decided',
 	// Staff voided a match.
@@ -62,9 +64,16 @@ export interface PunishmentEnded {
 	ban: BanKindName
 }
 
+// What the player's result became once the contester forfeited.
+export interface ContestWithdrawn {
+	runId: string
+	outcome: ResultOutcome
+}
+
 export interface NotificationParams {
 	result_late: LateResult
 	result_ranked: RankedResult
+	contest_withdrawn: ContestWithdrawn
 	// `contester` is the player who contested; the others are told of it.
 	contest_decided: {
 		role: 'contester' | 'opponent'

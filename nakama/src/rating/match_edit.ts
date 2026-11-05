@@ -288,7 +288,7 @@ const REFUSAL_TEXT: { [kind in MatchEditRefusal['kind']]: string } = {
 // {runId, placements | void: true, season?, decidesContest?} -> {run, changes,
 // applied}. Each player whose result the edit changes gets a Notification;
 // `decidesContest` (the service queue deciding a contest) picks the contest
-// wording.
+// wording. `silent` records who was told but sends nothing.
 // With a season, a ranked run's players are re-rated on that board by the
 // difference. One storage write holds the run, each my_runs entry and the
 // ratings, so they agree; the leaderboard follows. A repeated edit answers
@@ -309,6 +309,9 @@ export function rpcAdminMatchEdit(
 			'placements must be a list of {playerId, place}',
 		)
 	const decidesContest = input.decidesContest === true
+	// A caller that tells the players itself (a withdrawn Contest) sets
+	// `silent`: the edit still records who was told, but sends nothing.
+	const silent = input.silent === true
 	const season = input.season
 	if (
 		season !== undefined &&
@@ -374,8 +377,9 @@ export function rpcAdminMatchEdit(
 							permissionWrite: 0,
 						},
 					])
-					for (const send of told.sends)
-						sendNotification(nk, send.userId, send.kind, send.params as never)
+					if (!silent)
+						for (const send of told.sends)
+							sendNotification(nk, send.userId, send.kind, send.params as never)
 				}
 				return JSON.stringify({
 					run,
@@ -453,8 +457,9 @@ export function rpcAdminMatchEdit(
 				)
 			}
 		}
-		for (const send of told.sends)
-			sendNotification(nk, send.userId, send.kind, send.params as never)
+		if (!silent)
+			for (const send of told.sends)
+				sendNotification(nk, send.userId, send.kind, send.params as never)
 		logger.info(
 			'Run %s %s by staff',
 			run.runId,

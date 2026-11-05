@@ -21,6 +21,7 @@ import {
 } from '../../../infrastructure/db/schema.js'
 import { appealHistory, findPunishmentRef, getAppealById } from '../../../infrastructure/gateways/appeal.gateway.js'
 import { loadFlaggedMembers, lobbyConversation } from '../../../infrastructure/gateways/flagged-chat.gateway.js'
+import { listContestsOfRun } from '../../../infrastructure/gateways/contest.gateway.js'
 import { listWarnings } from '../../../infrastructure/gateways/warning.gateway.js'
 import { callNakamaRpc } from '../../../infrastructure/nakama/admin-client.js'
 import { type ServiceQueueItemRecord, actorNames } from '../../../infrastructure/gateways/service-queue.gateway.js'
@@ -410,7 +411,7 @@ async function contestEvidence(item: ServiceQueueItemRecord) {
 	const [match] = UUID.test(runId)
 		? await db.select().from(matchmakingMatches).where(eq(matchmakingMatches.matchId, runId)).limit(1)
 		: []
-	const [run, replay] = await Promise.all([nakamaRun(runId), replayOf(runId)])
+	const [run, replay, contestRows] = await Promise.all([nakamaRun(runId), replayOf(runId), UUID.test(runId) ? listContestsOfRun(runId) : []])
 	const playerIds = [
 		...new Set([contest.contesterId, ...(contest.againstId ? [contest.againstId] : []), ...(match ? ((match.players as string[]) ?? []) : [])]),
 	]
@@ -451,6 +452,16 @@ async function contestEvidence(item: ServiceQueueItemRecord) {
 			: null,
 		// What was reported before the contest: what a dismiss rates.
 		recorded: match?.resultPlacements ?? null,
+		// Every Contest on this run, from the game or the website.
+		contests: contestRows.map((c) => ({
+			id: c.id,
+			kind: c.kind,
+			contesterId: c.contesterId,
+			reason: c.reason,
+			detail: c.detail,
+			createdAt: c.createdAt,
+			withdrawn: c.withdrawnAt !== null,
+		})),
 		players,
 		run,
 		replay,

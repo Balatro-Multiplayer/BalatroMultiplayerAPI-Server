@@ -219,7 +219,7 @@ describe('runRowsOf: contests', () => {
 
 	it('files the contester and the contested player, as player ids', () => {
 		const rows = runRowsOf(contested(), ids)
-		expect(rows.contest).toEqual({ contesterId: 'pg-b', againstId: 'pg-a' })
+		expect(rows.contest).toMatchObject({ contesterId: 'pg-b', againstId: 'pg-a', at: expect.any(Date) })
 		expect(rows.lobbyRun.status).toBe('completed')
 		expect(runRowsOf(run(), ids).contest).toBeNull()
 	})
@@ -298,6 +298,7 @@ function deps() {
 		storeChat: vi.fn(async () => undefined),
 		storeForfeit: vi.fn(async () => undefined),
 		storeNoticeAcceptance: vi.fn(async () => undefined),
+		storeContest: vi.fn(async () => undefined),
 	}
 	const service = createMirrorService({ players, store })
 	return { players, store, service }
@@ -438,5 +439,22 @@ describe('rankedGameModeOf', () => {
 	it('keys a Nakama board the way the website reads it', () => {
 		expect(rankedGameModeOf('duel')).toBe('ranked:duel')
 		expect(rankedGameModeOf('ranked:duel')).toBe('ranked:duel')
+	})
+})
+
+describe('a contest entry', () => {
+	it('records the Contest of a game that is still running', async () => {
+		const { store, service } = deps()
+		const result = await service.storePull({
+			entries: [{ key: 'k-c', kind: 'contest', at: T0, runId: 'r1', code: 'ABCDE', by: 'na', against: 'nb', lobbyKind: 'ranked' }],
+			players: {
+				na: { steamIdHash: null, legacyPlayerId: null, displayName: '' },
+				nb: { steamIdHash: null, legacyPlayerId: null, displayName: '' },
+			},
+		})
+		expect(result.stored).toEqual(['k-c'])
+		expect(store.storeContest).toHaveBeenCalledWith(
+			expect.objectContaining({ runId: 'r1', contesterId: 'pg-a', madeAt: new Date(T0) }),
+		)
 	})
 })

@@ -13,6 +13,7 @@ import {
 	emptyGame,
 	isParticipant,
 } from '../lobby/state'
+import { lobbyKindOf } from '../review/ranked'
 import { runSavePart } from './run_save'
 import { finishGame, parsePlacements } from './results'
 import { SETUP_ACTIONS, setupForRestart } from './setup'
@@ -280,6 +281,17 @@ const contest: AuthoritativeAction = {
 		return {
 			game: { ...lobby.game, contest: contested },
 			params: { playerId: ctx.from, against },
+			out: [
+				{
+					kind: 'contested',
+					runId: started.runId,
+					code: lobby.code,
+					by: ctx.from,
+					against,
+					at: ctx.now,
+					lobbyKind: lobbyKindOf(lobby),
+				},
+			],
 		}
 	},
 }

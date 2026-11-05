@@ -31,6 +31,16 @@ export type MirrorEntry =
 	  }
 	// A player accepted the Notice (player/session.ts rpcTosAccept); at is when.
 	| { kind: 'notice'; at: number; userId: string; version: number }
+	// A player contested the started game (mpapi_contest); the run is not over yet.
+	| {
+			kind: 'contest'
+			at: number
+			runId: string
+			code: string
+			by: string
+			against: string
+			lobbyKind: LobbyKind
+	  }
 
 // The rating board a ranked run counted on.
 export interface RatingBoard {
@@ -132,7 +142,18 @@ export interface PulledNotice {
 	version: number
 }
 
-export type PulledEntry = PulledRun | PulledChat | PulledForfeit | PulledNotice
+export interface PulledContest {
+	key: string
+	kind: 'contest'
+	at: number
+	runId: string
+	code: string
+	by: string
+	against: string
+	lobbyKind: LobbyKind
+}
+
+export type PulledEntry = PulledRun | PulledChat | PulledForfeit | PulledNotice | PulledContest
 
 function expandRun(nk: nkruntime.Nakama, key: string, entry: Extract<MirrorEntry, { kind: 'run' }>): PulledRun | null {
 	const runs = nk.storageRead([{ collection: RUNS_COLLECTION, key: entry.runId, userId: SYSTEM_USER_ID }])
@@ -199,6 +220,10 @@ export function pullEntries(
 			entries.push({ key: object.key, kind: 'chat', at: entry.at, line: entry.line })
 		} else if (entry.kind === 'forfeit' || entry.kind === 'notice') {
 			userIds[entry.userId] = true
+			entries.push({ key: object.key, ...entry })
+		} else if (entry.kind === 'contest') {
+			userIds[entry.by] = true
+			userIds[entry.against] = true
 			entries.push({ key: object.key, ...entry })
 		} else {
 			dropped.push(object.key)

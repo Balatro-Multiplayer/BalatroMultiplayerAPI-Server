@@ -151,8 +151,8 @@ function anonymizeRuns(
 }
 
 // Pending mirror entries: the player's own ones (normal chat, a Notice
-// acceptance) go; flagged chat and forfeits are moderation data and name the
-// anonymous id. A run entry names only its run, handled above.
+// acceptance) go; flagged chat, forfeits and Contests are moderation data and
+// name the anonymous id. A run entry names only its run, handled above.
 function anonymizeMirror(
 	nk: nkruntime.Nakama,
 	userId: string,
@@ -167,7 +167,11 @@ function anonymizeMirror(
 				? entry.line.userId
 				: entry.kind === 'run'
 					? null
-					: entry.userId
+					: entry.kind === 'contest'
+						? entry.by === userId || entry.against === userId
+							? userId
+							: null
+						: entry.userId
 		if (owner !== userId) continue
 		const own =
 			entry.kind === 'notice' || (entry.kind === 'chat' && !entry.line.flagged)
