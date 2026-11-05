@@ -22,7 +22,7 @@ import { activeClaimant } from '../service-queue/claim.js'
 import { evidenceOf, subjectCard } from '../service-queue/evidence/assemble.js'
 import type { QueueLane } from '../service-queue/lanes.js'
 import { allowedActionsFor } from '../service-queue/permissions.js'
-import { claim, dismissAutomaticItemsOf, release, serviceQueueDispatcher } from '../service-queue/queue.service.js'
+import { claim, dismissAutomaticItemsOf, dismissListedAutomaticItems, release, serviceQueueDispatcher } from '../service-queue/queue.service.js'
 import { type QueueRefusal, httpOf } from '../service-queue/refusals.js'
 import { staffOf } from '../service-queue/staff.js'
 import { targetsOf } from '../service-queue/targets.js'
@@ -149,6 +149,33 @@ router.post('/service-queue/automatic/:playerId/dismiss', async (req, res, next)
 		if (!result.ok) return res.status(400).json({ error: 'A reason is required', code: result.error })
 		console.log(
 			`[webadmin] ${staff.role}:${staff.playerId} dismissed ${result.dismissed} automatic items of ${req.params.playerId}`,
+		)
+		res.json(result)
+	} catch (err) {
+		next(err)
+	}
+})
+
+// Dismisses the automatic items the rail shows, with one note.
+const MAX_BULK_DISMISS = 100
+
+router.post('/service-queue/automatic/dismiss', async (req, res, next) => {
+	try {
+		const staff = await staffOf(req)
+		if (!staff) return sendRefusal(res, { code: 'forbidden' })
+		const reason = typeof req.body?.reason === 'string' ? req.body.reason : ''
+		const itemIds: unknown = req.body?.itemIds
+		if (
+			!Array.isArray(itemIds) ||
+			itemIds.length === 0 ||
+			itemIds.length > MAX_BULK_DISMISS ||
+			!itemIds.every((id) => Number.isInteger(id) && id > 0)
+		)
+			return res.status(400).json({ error: 'A list of item ids is required', code: 'item_ids_required' })
+		const result = await dismissListedAutomaticItems(itemIds as number[], staff, reason)
+		if (!result.ok) return res.status(400).json({ error: 'A reason is required', code: result.error })
+		console.log(
+			`[webadmin] ${staff.role}:${staff.playerId} dismissed ${result.dismissed} of ${itemIds.length} listed automatic items`,
 		)
 		res.json(result)
 	} catch (err) {

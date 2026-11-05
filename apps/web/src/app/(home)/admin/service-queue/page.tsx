@@ -83,8 +83,12 @@ function ServiceQueue() {
   const filters: ListFilters = useMemo(
     () => ({
       // A player search looks through every item, automatic ones too.
-      lane: url.subject.trim() ? null : ('main' as const),
-      itemType: url.type,
+      lane: url.automatic
+        ? ('automatic' as const)
+        : url.subject.trim()
+          ? null
+          : ('main' as const),
+      itemType: url.automatic ? null : url.type,
       status: 'open' as const,
       sort: 'priority' as const,
       subject: url.subject,
