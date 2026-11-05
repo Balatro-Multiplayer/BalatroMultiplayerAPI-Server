@@ -209,6 +209,7 @@ export default function MatchPage() {
             <GameLogView
               log={gameLog}
               hiddenPlayerIds={hidden}
+              viewerId={viewerId}
               playerLabel={(id) => (
                 <PlayerLabel
                   playerId={id}
