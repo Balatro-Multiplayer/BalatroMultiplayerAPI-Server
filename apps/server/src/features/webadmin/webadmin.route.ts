@@ -13,6 +13,7 @@ import launcherReleasesRouter from './launcher-releases.route.js'
 import lobbiesRouter from './lobbies.route.js'
 import matchConflictsRouter from './match-conflicts.route.js'
 import matchEditRouter from './match-edit.route.js'
+import matchStaffRouter from './match-staff.route.js'
 import matchesRouter from './matches.route.js'
 import modsRouter from './mods.route.js'
 import playerPageRouter from './player-page.route.js'
@@ -51,6 +52,7 @@ router.use(chatLabelsRouter)
 router.use(reportsRouter)
 router.use(seasonsRouter)
 router.use(matchesRouter)
+router.use(matchStaffRouter)
 router.use(matchEditRouter)
 router.use(lobbiesRouter)
 router.use(matchConflictsRouter)
