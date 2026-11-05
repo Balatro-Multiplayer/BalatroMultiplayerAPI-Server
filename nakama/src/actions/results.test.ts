@@ -457,6 +457,24 @@ describe('contest', () => {
 		expect(echoed.length).toBeGreaterThan(0)
 	})
 
+	it('records the Contest for the mirror right away, before the run ends', () => {
+		const lobby = startedMatchmade('a', 'b', 'c')
+		const step = send(lobby, 'a', 'mpapi_contest', { opponentId: 'c' }, 2000)
+		const made = step.out.filter((o) => o.kind === 'contested')
+		expect(made).toEqual([
+			{
+				kind: 'contested',
+				runId: lobby.game.started?.runId,
+				code: lobby.code,
+				by: 'a',
+				against: 'c',
+				at: 2000,
+				lobbyKind: expect.any(String),
+			},
+		])
+		expect(saved(step)).toBeUndefined()
+	})
+
 	it('needs the opponent named in a match of more than 2', () => {
 		const lobby = startedMatchmade('a', 'b', 'c')
 		expect(rejection(send(lobby, 'a', 'mpapi_contest', {}))).toBe('bad_params')

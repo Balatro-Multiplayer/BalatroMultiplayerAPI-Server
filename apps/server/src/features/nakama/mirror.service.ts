@@ -117,7 +117,19 @@ export interface PulledNotice {
 	version: number
 }
 
-export type PulledEntry = PulledRun | PulledChat | PulledForfeit | PulledNotice
+// A player contested a game that is still running (nakama mpapi_contest).
+export interface PulledContest {
+	key: string
+	kind: 'contest'
+	at: number
+	runId: string
+	code: string
+	by: string
+	against: string
+	lobbyKind: GameKind
+}
+
+export type PulledEntry = PulledRun | PulledChat | PulledForfeit | PulledNotice | PulledContest
 
 export interface MirrorPlayer {
 	steamIdHash: string | null
@@ -210,7 +222,7 @@ export interface RunRows {
 		conflictingPlacements: { playerId: string; place: number }[]
 	}[]
 	// A contested run: a contest service-queue item (Nakama review's hold).
-	contest: { contesterId: string; againstId: string } | null
+	contest: { contesterId: string; againstId: string; at: Date } | null
 }
 
 export function rankedGameModeOf(mode: string): string {
@@ -272,6 +284,23 @@ export interface ForfeitRow {
 	playerId: string
 	forfeitedAt: Date
 	reconnectedAt: Date
+}
+
+// The Contest of a game that is still running: its page can open before the
+// run is stored.
+export interface ContestRow {
+	runId: string
+	contesterId: string
+	againstId: string
+	madeAt: Date
+}
+
+export function contestRowOf(
+	entry: PulledContest,
+	contesterId: string,
+	againstId: string,
+): ContestRow {
+	return { runId: entry.runId, contesterId, againstId, madeAt: new Date(entry.at) }
 }
 
 export function forfeitRowOf(
@@ -404,7 +433,7 @@ export function runRowsOf(entry: PulledRun, ids: Map<string, string>): RunRows {
 		conflicts: conflictsOf(run, ids),
 		contest:
 			run.contest && ids.has(run.contest.by) && ids.has(run.contest.against)
-				? { contesterId: pg(run.contest.by), againstId: pg(run.contest.against) }
+				? { contesterId: pg(run.contest.by), againstId: pg(run.contest.against), at: new Date(run.contest.at) }
 				: null,
 		lobbyRun: {
 			id: run.runId,
@@ -536,6 +565,7 @@ export interface MirrorDeps {
 		storeChat(rows: ChatRows): Promise<void>
 		storeForfeit(row: ForfeitRow, lobbyKind: GameKind | null): Promise<void>
 		storeNoticeAcceptance(row: NoticeAcceptanceRow): Promise<void>
+		storeContest(row: ContestRow): Promise<void>
 	}
 }
 
@@ -608,6 +638,10 @@ export function createMirrorService(deps: MirrorDeps) {
 				} else if (entry.kind === 'forfeit') {
 					const playerId = ids.get(entry.userId)
 					if (playerId) await store.storeForfeit(forfeitRowOf(entry, playerId), entry.lobbyKind ?? null)
+				} else if (entry.kind === 'contest') {
+					const contesterId = ids.get(entry.by)
+					const againstId = ids.get(entry.against)
+					if (contesterId && againstId) await store.storeContest(contestRowOf(entry, contesterId, againstId))
 				} else if (entry.kind === 'notice') {
 					const playerId = ids.get(entry.userId)
 					if (playerId)

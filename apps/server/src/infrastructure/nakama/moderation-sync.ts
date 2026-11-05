@@ -175,3 +175,13 @@ export async function closeNakamaLobby(code: string): Promise<boolean> {
 	const result = await callNakamaRpc('admin_lobby_close', { code })
 	return result.ok
 }
+
+// Tells the other players of a match that its Contest was withdrawn and what
+// their result is (nakama notification/contest_withdrawn.ts). Best effort.
+export async function notifyContestWithdrawnInNakama(runId: string, contesterPlayerId: string): Promise<boolean> {
+	const contesterId = await nakamaUserIdOf(contesterPlayerId)
+	if (!contesterId) return false
+	const result = await callNakamaRpc('admin_contest_withdrawn', { runId, contesterId })
+	if (!result.ok) console.warn(`[contests] Could not tell the players of run ${runId} about the withdraw: ${result.error}`)
+	return result.ok
+}

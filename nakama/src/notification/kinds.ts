@@ -9,6 +9,8 @@ export const NotificationKind = {
 	RESULT_LATE: 'result_late',
 	// A ranked result, told to every player it rated.
 	RESULT_RANKED: 'result_ranked',
+	// A player withdrew their in-game Contest: the other players are told.
+	CONTEST_WITHDRAWN: 'contest_withdrawn',
 } as const
 
 export type NotificationKindName =
@@ -17,6 +19,15 @@ export type NotificationKindName =
 export interface NotificationParams {
 	result_late: LateResult
 	result_ranked: RankedResult
+	contest_withdrawn: ContestWithdrawn
+}
+
+export type ResultOutcome = 'win' | 'draw' | 'loss'
+
+// What the player's result became once the contester forfeited.
+export interface ContestWithdrawn {
+	runId: string
+	outcome: ResultOutcome
 }
 
 export interface StoredNotification {

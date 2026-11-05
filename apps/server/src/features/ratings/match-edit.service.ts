@@ -11,7 +11,8 @@ export interface EditedPlacement {
 }
 
 export type MatchEditRequest =
-	| { kind: 'result'; placements: EditedPlacement[] }
+	// `silent`: the caller tells the players itself, so Nakama sends none.
+	| { kind: 'result'; placements: EditedPlacement[]; silent?: boolean }
 	| { kind: 'void' }
 
 export interface MatchRow {
@@ -161,6 +162,7 @@ export async function editMatch(
 			playerId: ids.get(p.playerId) as string,
 			place: p.place,
 		}))
+		if (request.silent) body.silent = true
 	}
 
 	const edited = await deps.editRun(body)

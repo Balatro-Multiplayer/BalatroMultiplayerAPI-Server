@@ -32,6 +32,8 @@ vi.mock('../../features/service-queue/queue.service.js', () => ({
 	claim: vi.fn(),
 	release: vi.fn(),
 	serviceQueueDispatcher: { run: vi.fn() },
+	gameOfRun: vi.fn(),
+	matchResultDeps: {},
 }))
 
 const app = createTestApp()

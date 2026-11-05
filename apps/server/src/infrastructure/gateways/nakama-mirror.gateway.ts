@@ -11,6 +11,7 @@ import {
 	matchmakingMatches,
 	matchmakingRatings,
 } from '../db/schema.js'
+import { insertContest } from './contest.gateway.js'
 import { hasOpenForfeitReconciliationFlag, insertForfeitReconciliationFlag } from './forfeit-reconciliation.gateway.js'
 import { summaryOf } from '../../features/service-queue/flagged-chat.js'
 import { addToFlaggedChatItem } from './flagged-chat.gateway.js'
@@ -100,6 +101,15 @@ export async function storeMirroredRun(rows: RunRows): Promise<void> {
 	// One item per contested run (sourceId = the run id), however often the
 	// entry is stored. The held run waits on it.
 	if (rows.contest) {
+		// Normally there from the moment of the Contest; this covers an entry
+		// from before Contests were mirrored on their own.
+		await insertContest({
+			runId: rows.lobbyRun.id,
+			kind: 'in_game',
+			contesterId: rows.contest.contesterId,
+			againstId: rows.contest.againstId,
+			createdAt: rows.contest.at,
+		})
 		await enqueueServiceQueueItem({
 			itemType: 'contest',
 			sourceId: rows.lobbyRun.id,

@@ -2855,6 +2855,10 @@ function pullEntries(nk, limit) {
     } else if (entry.kind === "forfeit" || entry.kind === "notice") {
       userIds[entry.userId] = true;
       entries.push(__spreadValues({ key: object.key }, entry));
+    } else if (entry.kind === "contest") {
+      userIds[entry.by] = true;
+      userIds[entry.against] = true;
+      entries.push(__spreadValues({ key: object.key }, entry));
     } else {
       dropped.push(object.key);
     }
@@ -8354,7 +8358,18 @@ var contest = {
     const contested = { by: ctx.from, against, at: ctx.now };
     return {
       game: __spreadProps(__spreadValues({}, lobby.game), { contest: contested }),
-      params: { playerId: ctx.from, against }
+      params: { playerId: ctx.from, against },
+      out: [
+        {
+          kind: "contested",
+          runId: started.runId,
+          code: lobby.code,
+          by: ctx.from,
+          against,
+          at: ctx.now,
+          lobbyKind: lobbyKindOf(lobby)
+        }
+      ]
     };
   }
 };
@@ -8801,7 +8816,9 @@ var NotificationKind = {
   // A pending result ended after the player left.
   RESULT_LATE: "result_late",
   // A ranked result, told to every player it rated.
-  RESULT_RANKED: "result_ranked"
+  RESULT_RANKED: "result_ranked",
+  // A player withdrew their in-game Contest: the other players are told.
+  CONTEST_WITHDRAWN: "contest_withdrawn"
 };
 
 // src/notification/store.ts
@@ -9094,6 +9111,21 @@ function runEffect(ctx, logger, nk, dispatcher, lobby, presences, effect) {
       }
       return;
     }
+    case "contested":
+      try {
+        enqueue(nk, {
+          kind: "contest",
+          at: effect.at,
+          runId: effect.runId,
+          code: effect.code,
+          by: effect.by,
+          against: effect.against,
+          lobbyKind: effect.lobbyKind
+        });
+      } catch (e) {
+        logger.warn("Lobby %s: could not record the contest of run %s: %v", lobby.code, effect.runId, e);
+      }
+      return;
     case "forfeited":
       try {
         recordForfeit(nk, effect.userId, { runId: effect.runId, code: effect.code, at: effect.at, lobbyKind: effect.lobbyKind });
@@ -10952,7 +10984,7 @@ function anonymizeMirror(nk, userId, anonymousId) {
   const deletes = [];
   for (const o of listAll(nk, SYSTEM_USER_ID, MIRROR_COLLECTION)) {
     const entry = o.value;
-    const owner = entry.kind === "chat" ? entry.line.userId : entry.kind === "run" ? null : entry.userId;
+    const owner = entry.kind === "chat" ? entry.line.userId : entry.kind === "run" ? null : entry.kind === "contest" ? entry.by === userId || entry.against === userId ? userId : null : entry.userId;
     if (owner !== userId) continue;
     const own = entry.kind === "notice" || entry.kind === "chat" && !entry.line.flagged;
     if (own) {
@@ -11262,6 +11294,35 @@ function refuseClientAccountDelete(ctx, logger, nk) {
   throw runtimeError(PERMISSION_DENIED, "Delete your account on the website (your profile page)");
 }
 
+// src/notification/contest_withdrawn.ts
+function outcomeOf2(placements, playerId) {
+  const own = placements.find((p) => p.playerId === playerId);
+  if (!own) return null;
+  const places = placements.map((p) => p.place);
+  const best = Math.min(...places);
+  if (best === Math.max(...places)) return "draw";
+  return own.place === best ? "win" : "loss";
+}
+function rpcAdminContestWithdrawn(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const input = parsePayload(payload);
+  if (typeof input.contesterId !== "string" || input.contesterId === "")
+    throw runtimeError(INVALID_ARGUMENT, "contesterId is required");
+  const run = readRun(nk, input.runId);
+  let told = 0;
+  for (const player of run.players) {
+    if (player.id === input.contesterId) continue;
+    const outcome = outcomeOf2(run.placements, player.id);
+    if (!outcome) continue;
+    sendNotification(nk, player.id, NotificationKind.CONTEST_WITHDRAWN, {
+      runId: run.runId,
+      outcome
+    });
+    told++;
+  }
+  return JSON.stringify({ told });
+}
+
 // src/notification/rpc.ts
 var MAX_IDS = 100;
 function rpcNotificationsPending(ctx, logger, nk, payload) {
@@ -11482,6 +11543,7 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("leaderboard_get", rpcLeaderboardGet);
   initializer.registerRpc("admin_ping", rpcAdminPing);
   initializer.registerRpc("admin_notify", rpcAdminNotify);
+  initializer.registerRpc("admin_contest_withdrawn", rpcAdminContestWithdrawn);
   initializer.registerRpc("admin_config_set", rpcAdminConfigSet);
   initializer.registerRpc("admin_ban_apply", rpcAdminBanApply);
   initializer.registerRpc("admin_ban_lift", rpcAdminBanLift);

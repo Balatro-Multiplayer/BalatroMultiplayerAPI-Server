@@ -1,5 +1,6 @@
 import { callNakamaRpc } from '../../infrastructure/nakama/admin-client.js'
 import type { NakamaRpcError } from '../../infrastructure/nakama/admin-client.js'
+import { insertContest } from '../../infrastructure/gateways/contest.gateway.js'
 import * as playerGateway from '../../infrastructure/gateways/player.gateway.js'
 import { storeMirroredChat, storeMirroredForfeit, storeMirroredRun } from '../../infrastructure/gateways/nakama-mirror.gateway.js'
 import type { Result } from '../../shared/utils/result.js'
@@ -46,6 +47,14 @@ export function startMirrorJob(): () => void {
 			storeRun: storeMirroredRun,
 			storeChat: storeMirroredChat,
 			storeForfeit: storeMirroredForfeit,
+			storeContest: (row) =>
+				insertContest({
+					runId: row.runId,
+					kind: 'in_game',
+					contesterId: row.contesterId,
+					againstId: row.againstId,
+					createdAt: row.madeAt,
+				}),
 			storeNoticeAcceptance: (row) => playerGateway.recordNoticeAcceptance(row.playerId, row.version, row.acceptedAt),
 		},
 	})

@@ -66,7 +66,10 @@ async function runIdOf(item: QueueItem): Promise<string | null> {
 
 export async function gameOf(item: QueueItem): Promise<GameRef | null> {
 	const runId = await runIdOf(item)
-	if (!runId) return null
+	return runId ? gameOfRun(runId) : null
+}
+
+export async function gameOfRun(runId: string): Promise<GameRef> {
 	const [match] = await db
 		.select({ gameMode: matchmakingMatches.gameMode })
 		.from(matchmakingMatches)
@@ -82,10 +85,13 @@ const editMatchOf = matchEditorFor()
 async function overturnGame(
 	game: GameRef,
 	placements: (Placement & { rated?: boolean })[],
+	// The caller tells the players itself (a withdrawn Contest).
+	options: { silent?: boolean } = {},
 ): Promise<{ kind: 'applied'; rerated: boolean; edit?: MatchEditSummary } | { kind: 'failed'; reason: string }> {
 	const outcome = await editMatchOf(game, {
 		kind: 'result',
 		placements: placements.map(({ playerId, place }) => ({ playerId, place })),
+		...(options.silent ? { silent: true } : {}),
 	})
 	switch (outcome.kind) {
 		case 'edited':
@@ -214,6 +220,17 @@ const deps: DispatcherDeps<DbTransaction> = {
 }
 
 export const serviceQueueDispatcher = createDispatcher(deps)
+
+// What a withdrawn Contest's forfeit reads and sets on the match.
+export const matchResultDeps = {
+	participantsOf: deps.participantsOf,
+	originalResultOf: deps.originalResultOf,
+	flaggedPlayersOf: deps.flaggedPlayersOf,
+	forfeitGame: async (game: GameRef, placements: (Placement & { rated?: boolean })[]) => {
+		const result = await overturnGame(game, placements, { silent: true })
+		return result.kind === 'applied' ? ({ ok: true } as const) : ({ ok: false, reason: result.reason } as const)
+	},
+}
 
 // Moves an item's source row (report, conflict, forfeit flag) along with the item.
 export const setSourceStatusOf = deps.setSourceStatus

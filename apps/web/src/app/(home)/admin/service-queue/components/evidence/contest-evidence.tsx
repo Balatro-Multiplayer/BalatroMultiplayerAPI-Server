@@ -47,6 +47,34 @@ export function ContestEvidence({
         </div>
       </Section>
 
+      {evidence.contests.length > 0 && (
+        <Section title='Contests'>
+          <ul className='space-y-2 text-sm'>
+            {evidence.contests.map((c) => (
+              <li key={c.id} className='rounded border border-border p-2'>
+                <div className='font-semibold'>
+                  {names.get(c.contesterId) ?? c.contesterId}
+                  <Badge variant='secondary' className='ml-1'>
+                    {c.kind === 'in_game' ? 'In the game' : 'On the website'}
+                  </Badge>
+                  {c.withdrawn && (
+                    <Badge variant='outline' className='ml-1'>
+                      Withdrawn
+                    </Badge>
+                  )}
+                </div>
+                <div className='text-muted-foreground'>
+                  {c.reason ?? 'No reason given'}
+                </div>
+                {c.detail && (
+                  <div className='whitespace-pre-wrap'>{c.detail}</div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
       <Section title='Players'>
         <div className='overflow-x-auto'>
           <table className='w-full text-sm'>

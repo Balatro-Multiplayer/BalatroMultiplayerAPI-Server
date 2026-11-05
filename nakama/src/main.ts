@@ -80,6 +80,7 @@ import { configureSeason } from './rating/season'
 import { seedAllowedModIdsExtra } from './standing/seed'
 import { refuseClientAccountDelete, rpcAdminAccountDelete, rpcAdminProfileSet } from './player/admin'
 import { rpcSessionInit, rpcTosAccept } from './player/session'
+import { rpcAdminContestWithdrawn } from './notification/contest_withdrawn'
 import { rpcNotificationsPending, rpcNotificationsRead } from './notification/rpc'
 import { rpcMuteSet, rpcProfileSetDisplay, rpcProfileSetJoker, rpcProfileSetMods } from './player/rpc'
 import { rpcReportSubmit } from './moderation/report'
@@ -179,6 +180,7 @@ function InitModule(
 	// Server to server only (http key); see admin.ts.
 	initializer.registerRpc('admin_ping', rpcAdminPing)
 	initializer.registerRpc('admin_notify', rpcAdminNotify)
+	initializer.registerRpc('admin_contest_withdrawn', rpcAdminContestWithdrawn)
 	initializer.registerRpc('admin_config_set', rpcAdminConfigSet)
 	initializer.registerRpc('admin_ban_apply', rpcAdminBanApply)
 	initializer.registerRpc('admin_ban_lift', rpcAdminBanLift)

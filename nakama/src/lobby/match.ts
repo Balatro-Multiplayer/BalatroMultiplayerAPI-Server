@@ -291,6 +291,21 @@ function runEffect(
 			}
 			return
 		}
+		case 'contested':
+			try {
+				enqueue(nk, {
+					kind: 'contest',
+					at: effect.at,
+					runId: effect.runId,
+					code: effect.code,
+					by: effect.by,
+					against: effect.against,
+					lobbyKind: effect.lobbyKind,
+				})
+			} catch (e) {
+				logger.warn('Lobby %s: could not record the contest of run %s: %v', lobby.code, effect.runId, e)
+			}
+			return
 		case 'forfeited':
 			try {
 				recordForfeit(nk, effect.userId, { runId: effect.runId, code: effect.code, at: effect.at, lobbyKind: effect.lobbyKind })
