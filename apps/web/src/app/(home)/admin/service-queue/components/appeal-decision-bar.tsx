@@ -33,16 +33,17 @@ function DecisionDialog({
   detail,
   mode,
   onClose,
+  onDone,
 }: {
   detail: ItemDetail
   mode: Mode
   onClose: () => void
+  onDone: () => void
 }) {
   const qc = useQueryClient()
   const [reason, setReason] = useState('')
-  const [duration, setDuration] = useState<(typeof SHORTEN_PRESETS)[number]>(
-    '7d'
-  )
+  const [duration, setDuration] =
+    useState<(typeof SHORTEN_PRESETS)[number]>('7d')
   const body: AppealDecisionBody =
     mode === 'deny'
       ? { decision: 'deny', reason }
@@ -54,6 +55,7 @@ function DecisionDialog({
     onSuccess: ({ appeal }) => {
       toast.success(`Appeal ${appeal.status}.`)
       qc.invalidateQueries({ queryKey: queueKeys.all })
+      onDone()
       onClose()
     },
     onError: (err: Error) =>
@@ -127,9 +129,11 @@ function DecisionDialog({
 export function AppealDecisionBar({
   detail,
   heldByOther,
+  onDone,
 }: {
   detail: ItemDetail
   heldByOther: boolean
+  onDone: () => void
 }) {
   const [open, setOpen] = useState<Mode | null>(null)
   const decisions = detail.appealDecisions
@@ -166,6 +170,7 @@ export function AppealDecisionBar({
           detail={detail}
           mode={open}
           onClose={() => setOpen(null)}
+          onDone={onDone}
         />
       )}
     </div>

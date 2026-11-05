@@ -10,7 +10,7 @@ export default async function ServiceQueueItemPage({
   const itemId = Number.parseInt(id, 10)
   redirect(
     Number.isInteger(itemId) && itemId > 0
-      ? `/admin/service-queue?status=all&item=${itemId}`
+      ? `/admin/service-queue?item=${itemId}`
       : '/admin/service-queue'
   )
 }

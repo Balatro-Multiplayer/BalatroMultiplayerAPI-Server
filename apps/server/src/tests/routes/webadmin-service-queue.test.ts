@@ -15,6 +15,7 @@ vi.mock('../../infrastructure/gateways/service-queue.gateway.js', async (importO
 		listServiceQueueItems: vi.fn(),
 		getServiceQueueItemById: vi.fn(),
 		openCountsByType: vi.fn(),
+		countClaimedByOthers: vi.fn(),
 		listItemEvents: vi.fn(),
 		recordItemEvent: vi.fn(),
 		actorNames: vi.fn(),
@@ -98,6 +99,18 @@ describe('GET /api/webadmin/service-queue', () => {
 		expect(serviceQueueGateway.listServiceQueueItems).toHaveBeenCalledWith(
 			expect.objectContaining({ status: 'all', sort: 'priority', claimedBy: undefined }),
 		)
+	})
+
+	it('hides items other staff claimed and reports how many there are', async () => {
+		const token = authAs('moderator', 'mod-1')
+		vi.mocked(serviceQueueGateway.listServiceQueueItems).mockResolvedValue({ items: [], total: 0 })
+		vi.mocked(serviceQueueGateway.countClaimedByOthers).mockResolvedValue(12)
+		const res = await request(app).get('/api/webadmin/service-queue?status=open&hideClaimed=1').set('Authorization', token)
+		expect(res.body.claimedByOthers).toBe(12)
+		expect(serviceQueueGateway.listServiceQueueItems).toHaveBeenCalledWith(
+			expect.objectContaining({ hideClaimedFrom: 'mod-1' }),
+		)
+		expect(serviceQueueGateway.countClaimedByOthers).toHaveBeenCalledWith('mod-1', expect.any(Date))
 	})
 
 	it('passes the filters through', async () => {

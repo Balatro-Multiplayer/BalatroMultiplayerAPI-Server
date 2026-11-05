@@ -26,6 +26,8 @@ export interface ListFilters {
   claimedByMe: boolean
   olderThanHours: number
   page: number
+  // Leave out items other staff hold a claim on.
+  hideClaimed?: boolean
 }
 
 export const queueKeys = {
@@ -49,6 +51,7 @@ export function listQueue(filters: ListFilters): Promise<QueueList> {
   if (filters.itemType) params.set('itemType', filters.itemType)
   if (filters.subject.trim()) params.set('subject', filters.subject.trim())
   if (filters.claimedByMe) params.set('claimedByMe', '1')
+  if (filters.hideClaimed) params.set('hideClaimed', '1')
   if (filters.olderThanHours > 0)
     params.set('olderThanHours', String(filters.olderThanHours))
   return apiFetch(`${BASE}?${params}`)

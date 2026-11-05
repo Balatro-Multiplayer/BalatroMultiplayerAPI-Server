@@ -144,11 +144,15 @@ export function InvestigationPanel({
   now,
   onOpenItem,
   onShowAllItems,
+  onSkip,
+  onClosed,
 }: {
   itemId: number
   now: number
   onOpenItem: (id: number) => void
   onShowAllItems: (playerId: string) => void
+  onSkip: () => void
+  onClosed: () => void
 }) {
   const [showHistory, setShowHistory] = useState(false)
   const {
@@ -174,8 +178,11 @@ export function InvestigationPanel({
     )
 
   return (
-    <div className='flex min-h-full flex-col' data-testid='investigation-panel'>
-      <div className='flex-1 space-y-3 p-3'>
+    <div
+      className='flex min-h-0 flex-1 flex-col'
+      data-testid='investigation-panel'
+    >
+      <div className='min-h-0 flex-1 space-y-4 overflow-y-auto p-4'>
         <Header detail={detail} />
         <ClaimBanner
           outcome={outcome}
@@ -206,11 +213,14 @@ export function InvestigationPanel({
       <AppealDecisionBar
         detail={detail}
         heldByOther={outcome?.kind === 'held'}
+        onDone={onClosed}
       />
       <ActionBar
         detail={detail}
         names={names}
         heldByOther={outcome?.kind === 'held'}
+        onDone={onClosed}
+        onSkip={onSkip}
       />
     </div>
   )
