@@ -48,9 +48,13 @@ export async function apiFetch<T>(
 // answer throws, and nothing is sent.
 export async function apiFetchWithReason<T>(
   path: string,
-  init?: RequestInit
+  init?: RequestInit,
+  // A note already written (by the confirm card). Without one, ask for it.
+  note?: string
 ): Promise<T> {
-  const reason = window.prompt('Reason for this action (saved in the staff log):')?.trim()
+  const reason = (
+    note ?? window.prompt('Reason for this action (saved in the staff log):')
+  )?.trim()
   if (!reason) throw new Error('A reason is required')
   const body =
     typeof init?.body === 'string' && init.body

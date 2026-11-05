@@ -144,6 +144,8 @@ export interface ListFilters {
 	subject?: string
 	// Only items this player holds a live claim on.
 	claimedBy?: string
+	// Leaves out items someone other than this player holds a live claim on.
+	hideClaimedFrom?: string
 	// Only items created at least this long ago.
 	olderThanMs?: number
 	sort: QueueSort
@@ -156,6 +158,31 @@ export interface QueueListRow extends ServiceQueueItemRecord {
 }
 
 const escapeLike = (text: string) => text.replace(/[%_\\]/g, (c) => `\\${c}`)
+
+// An item nobody else holds: no claim, a lapsed one, or the viewer's own.
+function notClaimedByOthers(playerId: string, now: Date) {
+	return or(
+		isNull(serviceQueueItems.claimedUntil),
+		lte(serviceQueueItems.claimedUntil, now),
+		sql`split_part(${serviceQueueItems.claimedBy}, ':', 2) = ${playerId}`,
+	)
+}
+
+// Open main-lane items other staff hold a live claim on; the rail only counts them.
+export async function countClaimedByOthers(playerId: string, now: Date): Promise<number> {
+	const [row] = await db
+		.select({ n: count() })
+		.from(serviceQueueItems)
+		.where(
+			and(
+				eq(serviceQueueItems.status, 'open'),
+				notInArray(serviceQueueItems.itemType, [...AUTOMATIC_TYPES]),
+				gt(serviceQueueItems.claimedUntil, now),
+				sql`split_part(${serviceQueueItems.claimedBy}, ':', 2) <> ${playerId}`,
+			),
+		)
+	return Number(row?.n ?? 0)
+}
 
 export async function listServiceQueueItems(opts: ListFilters): Promise<{ items: QueueListRow[]; total: number }> {
 	const offset = (opts.page - 1) * opts.limit
@@ -182,6 +209,7 @@ export async function listServiceQueueItems(opts: ListFilters): Promise<{ items:
 					gt(serviceQueueItems.claimedUntil, opts.now),
 				)
 			: undefined,
+		opts.hideClaimedFrom ? notClaimedByOthers(opts.hideClaimedFrom, opts.now) : undefined,
 		opts.olderThanMs !== undefined
 			? lte(serviceQueueItems.createdAt, new Date(opts.now.getTime() - opts.olderThanMs))
 			: undefined,

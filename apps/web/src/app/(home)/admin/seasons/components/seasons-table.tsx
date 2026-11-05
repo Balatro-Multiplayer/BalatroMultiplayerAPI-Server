@@ -8,46 +8,36 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-
-interface Season {
-  id: number
-  name: string
-  startedAt: string
-  endsAt: string | null
-  endedAt: string | null
-  active: boolean
-}
-
-function fmt(d: string | null): string {
-  return d ? new Date(d).toLocaleDateString() : '-'
-}
+import { cn } from '@/lib/utils'
+import { formatDay, type Season } from './seasons-types'
 
 export function SeasonsTable({
   seasons,
   isLoading,
-  activatePending,
-  endPending,
-  onActivate,
+  busy,
   onEnd,
+  onActivate,
 }: {
   seasons: Season[]
   isLoading: boolean
-  activatePending: boolean
-  endPending: boolean
-  onActivate: (id: number) => void
-  onEnd: (id: number) => void
+  busy: boolean
+  onEnd: (season: Season) => void
+  onActivate: (season: Season) => void
 }) {
+  // Newest first.
+  const rows = [...seasons].sort((a, b) => b.id - a.id)
   return (
-    <div className='overflow-hidden rounded-lg border border-border'>
+    <section className='rounded-xl border border-border bg-card p-4'>
+      <h2 className='mb-2 font-pixel text-lg'>All seasons</h2>
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>ID</TableHead>
+            <TableHead>Id</TableHead>
             <TableHead>Name</TableHead>
             <TableHead>Started</TableHead>
             <TableHead>Ends</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead className='text-right'>Actions</TableHead>
+            <TableHead />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -57,19 +47,22 @@ export function SeasonsTable({
                 Loading…
               </TableCell>
             </TableRow>
-          ) : seasons.length === 0 ? (
+          ) : rows.length === 0 ? (
             <TableRow>
               <TableCell colSpan={6} className='text-muted-foreground'>
                 No seasons yet
               </TableCell>
             </TableRow>
           ) : (
-            seasons.map((s) => (
-              <TableRow key={s.id}>
-                <TableCell>{s.id}</TableCell>
+            rows.map((s) => (
+              <TableRow
+                key={s.id}
+                className={cn(s.active && 'bg-destructive/10')}
+              >
+                <TableCell className='font-mono'>{s.id}</TableCell>
                 <TableCell className='font-medium'>{s.name}</TableCell>
-                <TableCell>{fmt(s.startedAt)}</TableCell>
-                <TableCell>{fmt(s.endsAt)}</TableCell>
+                <TableCell>{formatDay(s.startedAt)}</TableCell>
+                <TableCell>{formatDay(s.endsAt)}</TableCell>
                 <TableCell>
                   {s.active ? (
                     <Badge>Active</Badge>
@@ -82,19 +75,20 @@ export function SeasonsTable({
                     <Button
                       variant='outline'
                       size='sm'
-                      onClick={() => onEnd(s.id)}
-                      disabled={endPending}
+                      className='border-destructive/60 text-destructive'
+                      onClick={() => onEnd(s)}
+                      disabled={busy}
                     >
-                      End
+                      End…
                     </Button>
                   ) : (
                     <Button
                       variant='outline'
                       size='sm'
-                      onClick={() => onActivate(s.id)}
-                      disabled={activatePending}
+                      onClick={() => onActivate(s)}
+                      disabled={busy}
                     >
-                      Activate
+                      Activate…
                     </Button>
                   )}
                 </TableCell>
@@ -103,6 +97,6 @@ export function SeasonsTable({
           )}
         </TableBody>
       </Table>
-    </div>
+    </section>
   )
 }

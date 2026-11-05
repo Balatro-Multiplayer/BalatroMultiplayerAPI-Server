@@ -14,16 +14,7 @@ import {
 import { useEffect, useRef } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import type { ListFilters } from '../lib/api'
 import {
@@ -35,13 +26,7 @@ import {
   TYPE_LABELS,
   TYPE_TABS,
 } from '../lib/format'
-import type {
-  ItemType,
-  QueueList as List,
-  ListedItem,
-  QueueSort,
-  StatusFilter,
-} from '../lib/types'
+import type { ItemType, QueueList as List, ListedItem } from '../lib/types'
 import { AutomaticList } from './automatic-list'
 
 const TYPE_ICONS: Record<ItemType, LucideIcon> = {
@@ -60,13 +45,6 @@ const PRIORITY_DOT: Record<PriorityBand, string> = {
   medium: 'bg-amber-400',
   low: 'bg-slate-500',
 }
-
-const AGE_FILTERS: { hours: number; label: string }[] = [
-  { hours: 0, label: 'Any age' },
-  { hours: 1, label: 'Older than 1h' },
-  { hours: 24, label: 'Older than 1 day' },
-  { hours: 24 * 7, label: 'Older than 7 days' },
-]
 
 const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
@@ -205,7 +183,7 @@ export function QueueList({
   return (
     <div className='flex min-h-0 flex-col'>
       <div
-        className='flex flex-wrap gap-1 border-border border-b p-2'
+        className='flex flex-wrap gap-1.5 border-border border-b p-3'
         role='tablist'
       >
         {TYPE_TABS.map((tab) => {
@@ -254,68 +232,13 @@ export function QueueList({
         <AutomaticList now={now} onOpen={onOpen} />
       ) : (
         <>
-          <div className='flex flex-wrap items-center gap-2 border-border border-b p-2'>
-            <Select
-              value={filters.status}
-              onValueChange={(v) =>
-                setFilters({ status: v as StatusFilter, page: 1 })
-              }
-            >
-              <SelectTrigger className='w-28' size='sm' aria-label='Status'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='open'>Open</SelectItem>
-                <SelectItem value='resolved'>Resolved</SelectItem>
-                <SelectItem value='all'>All</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={filters.sort}
-              onValueChange={(v) =>
-                setFilters({ sort: v as QueueSort, page: 1 })
-              }
-            >
-              <SelectTrigger className='w-28' size='sm' aria-label='Sort'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='priority'>Priority</SelectItem>
-                <SelectItem value='age'>Newest</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={String(filters.olderThanHours)}
-              onValueChange={(v) =>
-                setFilters({ olderThanHours: Number(v), page: 1 })
-              }
-            >
-              <SelectTrigger className='w-36' size='sm' aria-label='Age'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {AGE_FILTERS.map((a) => (
-                  <SelectItem key={a.hours} value={String(a.hours)}>
-                    {a.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className='border-border border-b p-2'>
             <Input
-              className='h-8 w-40 flex-1'
-              placeholder='Subject name or id'
+              className='h-8'
+              placeholder='Find a player by name or id'
               value={filters.subject}
               onChange={(e) => setFilters({ subject: e.target.value, page: 1 })}
             />
-            <Label className='flex items-center gap-1 text-xs'>
-              <Checkbox
-                checked={filters.claimedByMe}
-                onCheckedChange={(c) =>
-                  setFilters({ claimedByMe: c === true, page: 1 })
-                }
-              />
-              Claimed by me
-            </Label>
           </div>
 
           <div

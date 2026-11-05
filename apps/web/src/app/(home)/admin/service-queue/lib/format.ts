@@ -25,10 +25,10 @@ export const TYPE_LABELS: Record<ItemType, string> = {
 
 // The tab strip's order and wording.
 export const TYPE_TABS: { type: ItemType | null; label: string }[] = [
-  { type: null, label: 'All' },
+  { type: null, label: 'Main' },
   { type: 'report', label: 'Reports' },
   { type: 'flagged_chat', label: 'Chat' },
-  { type: 'match_conflict', label: 'Match results' },
+  { type: 'match_conflict', label: 'Results' },
   { type: 'forfeit_reconciliation', label: 'Forfeits' },
   { type: 'contest', label: 'Contests' },
   { type: 'appeal', label: 'Appeals' },

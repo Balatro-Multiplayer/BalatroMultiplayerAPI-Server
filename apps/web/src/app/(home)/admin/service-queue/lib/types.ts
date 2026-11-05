@@ -107,6 +107,8 @@ export interface QueueList {
   limit: number
   pages: number
   counts: Record<ItemType, number>
+  // Open items other staff hold a claim on; the rail does not list them.
+  claimedByOthers: number
 }
 
 export interface AllowedAction {

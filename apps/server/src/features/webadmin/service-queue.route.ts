@@ -10,6 +10,7 @@ import {
 	listAutomaticGroups,
 	listItemEvents,
 	listServiceQueueItems,
+	countClaimedByOthers,
 	openCountsByType,
 	recordItemEvent,
 	viewedSince,
@@ -94,9 +95,10 @@ router.get('/service-queue', async (req, res, next) => {
 			typeof req.query.subject === 'string' && req.query.subject.trim() ? req.query.subject.trim() : undefined
 		const olderThanHours = queryInt(req.query.olderThanHours, 0, 0, 24 * 365)
 		const claimedByMe = req.query.claimedByMe === '1' || req.query.claimedByMe === 'true'
+		const hideClaimed = req.query.hideClaimed === '1' || req.query.hideClaimed === 'true'
 		const now = new Date()
 
-		const [{ items, total }, counts] = await Promise.all([
+		const [{ items, total }, counts, claimedByOthers] = await Promise.all([
 			listServiceQueueItems({
 				page,
 				limit,
@@ -105,11 +107,13 @@ router.get('/service-queue', async (req, res, next) => {
 				status,
 				subject,
 				claimedBy: claimedByMe ? req.player!.playerId : undefined,
+				hideClaimedFrom: hideClaimed ? req.player!.playerId : undefined,
 				olderThanMs: olderThanHours > 0 ? olderThanHours * 60 * 60 * 1000 : undefined,
 				sort,
 				now,
 			}),
 			openCountsByType(),
+			countClaimedByOthers(req.player!.playerId, now),
 		])
 		const names = await actorNames(items.map((item) => activeClaimant(item, now)))
 		res.json({
@@ -119,6 +123,7 @@ router.get('/service-queue', async (req, res, next) => {
 			limit,
 			pages: Math.ceil(total / limit),
 			counts,
+			claimedByOthers,
 		})
 	} catch (err) {
 		next(err)
