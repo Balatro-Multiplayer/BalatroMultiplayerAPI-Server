@@ -11,6 +11,8 @@ export const ITEM_TYPES = [
 	'anti_cheat',
 	'integrity',
 	'appeal',
+	// A moderator's note to admins about a match; only admins see it.
+	'staff_report',
 ] as const
 export type ItemType = (typeof ITEM_TYPES)[number]
 

@@ -21,6 +21,7 @@ export const TYPE_LABELS: Record<ItemType, string> = {
   anti_cheat: 'Anti-cheat',
   integrity: 'Integrity',
   appeal: 'Appeal',
+  staff_report: 'Staff report',
 }
 
 // The tab strip's order and wording.

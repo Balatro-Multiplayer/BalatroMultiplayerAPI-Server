@@ -47,6 +47,14 @@ export interface ItemContext {
 	contest?: ContestParties
 	// A flagged chat item: the flagged messages it holds (flagged_messages ids).
 	flaggedMessageIds?: number[]
+	// A staff report item: the match, who reported it and why.
+	staffReport?: StaffReportContext
+}
+
+export interface StaffReportContext {
+	runId: string
+	reporterId: string
+	note: string
 }
 
 export interface ContestParties {
@@ -95,6 +103,7 @@ export function contextOf(value: unknown): ItemContext {
 		integrityTrigger?: unknown
 		contest?: unknown
 		flaggedMessageIds?: unknown
+		staffReport?: unknown
 	}
 	return {
 		...(isLobbyKind(record.lobbyKind) ? { lobbyKind: record.lobbyKind } : {}),
@@ -102,10 +111,18 @@ export function contextOf(value: unknown): ItemContext {
 			? { integrityTrigger: record.integrityTrigger }
 			: {}),
 		...contestOf(record.contest),
+		...staffReportOf(record.staffReport),
 		...(Array.isArray(record.flaggedMessageIds) && record.flaggedMessageIds.every((id) => Number.isInteger(id))
 			? { flaggedMessageIds: record.flaggedMessageIds as number[] }
 			: {}),
 	}
+}
+
+function staffReportOf(value: unknown): { staffReport?: StaffReportContext } {
+	if (typeof value !== 'object' || value === null) return {}
+	const { runId, reporterId, note } = value as { runId?: unknown; reporterId?: unknown; note?: unknown }
+	if (typeof runId !== 'string' || typeof reporterId !== 'string' || typeof note !== 'string') return {}
+	return { staffReport: { runId, reporterId, note } }
 }
 
 function contestOf(value: unknown): { contest?: ContestParties } {

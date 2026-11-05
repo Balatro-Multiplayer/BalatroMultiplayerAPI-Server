@@ -1,9 +1,16 @@
 import { Router } from 'express'
 import type { Response } from 'express'
+import { findRunWindow } from '../../infrastructure/gateways/match-staff.gateway.js'
 import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gateway.js'
 import { parseReason } from '../../shared/staff-log/actions.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { requireRole } from '../../shared/utils/staff-role.js'
+import {
+	matchItemsDeps,
+	mayEditMatch,
+	reportMatchToAdmins,
+	resolveItemsOfVoid,
+} from '../service-queue/match-items.js'
 import { matchEditorFor } from '../ratings/match-edit.deps.js'
 import type {
 	EditedPlacement,
@@ -11,9 +18,10 @@ import type {
 	MatchEditRequest,
 } from '../ratings/match-edit.service.js'
 
-// An admin sets or voids the result of any stored match from its match page.
-// Moderators do the same only from a queue item (service-queue.route.ts).
-// Either way only that match's players' ratings move (ADR 0010).
+// Staff set or void the result of a stored match from its match page. An admin
+// always may; a moderator only while the match has an open queue item they see
+// (otherwise they report it to admins). A void closes every open queue item
+// about the match. Either way only that match's players' ratings move (ADR 0010).
 const router = Router()
 
 export function parsePlacements(value: unknown): EditedPlacement[] | null {
@@ -58,7 +66,7 @@ async function edit(
 	res: Response,
 	request: MatchEditRequest | null,
 ) {
-	const role = await requireRole(req, 'admin')
+	const role = await requireRole(req, 'moderator')
 	const reason = parseReason(
 		(req.body as { reason?: unknown } | undefined)?.reason,
 	)
@@ -73,6 +81,11 @@ async function edit(
 		role,
 	}
 	const matchId = String(req.params.matchId)
+	if (!(await mayEditMatch(matchItemsDeps, role, matchId)))
+		throw new AppError(
+			'A moderator can change a match only while it has an open queue item. Report it to admins instead.',
+			403,
+		)
 	const outcome = await matchEditorFor(async (tx, match, changes) => {
 		await recordStaffAction(tx, {
 			staff,
@@ -85,6 +98,8 @@ async function edit(
 				ratingChanges: changes,
 			},
 		})
+		if (request.kind === 'void')
+			await resolveItemsOfVoid(matchItemsDeps, tx, matchId, staff, reason.reason)
 	})({ runId: matchId, matchmade: true }, request)
 	send(res, outcome)
 }
@@ -103,6 +118,27 @@ router.post('/matches/:matchId/result', async (req, res, next) => {
 router.post('/matches/:matchId/void', async (req, res, next) => {
 	try {
 		await edit(req, res, { kind: 'void' })
+	} catch (err) {
+		next(err)
+	}
+})
+
+// A moderator hands a match to admins with a note. It becomes a queue item
+// that only admins see and act on.
+router.post('/matches/:matchId/report', async (req, res, next) => {
+	try {
+		const role = await requireRole(req, 'moderator')
+		const note = parseReason((req.body as { note?: unknown } | undefined)?.note)
+		if (!note.ok) throw new AppError(note.message.replace('reason', 'note'), 400)
+		const matchId = String(req.params.matchId)
+		if (!(await findRunWindow(matchId))) throw new AppError('Run not found', 404)
+		await reportMatchToAdmins(
+			matchItemsDeps,
+			matchId,
+			{ playerId: (req.player as { playerId: string }).playerId, role },
+			note.reason,
+		)
+		res.status(201).json({ reported: true })
 	} catch (err) {
 		next(err)
 	}

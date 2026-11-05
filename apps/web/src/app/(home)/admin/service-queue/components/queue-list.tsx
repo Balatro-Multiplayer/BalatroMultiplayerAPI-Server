@@ -38,6 +38,7 @@ const TYPE_ICONS: Record<ItemType, LucideIcon> = {
   anti_cheat: ShieldAlertIcon,
   integrity: AlertTriangleIcon,
   appeal: GavelIcon,
+  staff_report: FlagIcon,
 }
 
 const PRIORITY_DOT: Record<PriorityBand, string> = {
