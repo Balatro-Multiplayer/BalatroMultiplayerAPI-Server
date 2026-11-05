@@ -6,6 +6,9 @@ import { bindCode, lookupCode, releaseCode, reserveCode } from '../lobby/codes'
 import { LOBBY_MATCH, type RunRecord } from '../lobby/protocol'
 import { CODE_ATTEMPTS, MATCHMADE_CODE_LENGTH, generateCode } from '../lobby/rpc'
 import { NotifyCode, notify } from '../notify'
+import { readConfig } from '../config'
+import { integrityRefusal, readIntegrity } from '../integrity'
+import { requiredStandingFor } from '../standing/standing'
 import { resolveBracket } from './engine/resolve'
 import type { Change } from './lifecycle'
 import { type LobbyNeed, claimLobby, gameEnded, lobbiesNeeded, lobbyClosed, lobbyLost, lobbyOpened, lobbyReused, minutesLeft } from './matches'
@@ -118,7 +121,8 @@ function createLobby(nk: nkruntime.Nakama, logger: nkruntime.Logger, t: Tourname
 				rankedMode: '',
 				allowedIds: need.players.join(','),
 				gameMode: '',
-				requiredStanding: 'valid',
+				// A ranked-profile tournament's games hold players to it too.
+				requiredStanding: requiredStandingFor(claimed.requireRanked === true, readConfig(nk).integrityEnforced),
 				tournament: JSON.stringify(ref),
 				metadata: JSON.stringify(lobbyMetadata(claimed, need)),
 			})
@@ -250,6 +254,15 @@ function sendNotifications(nk: nkruntime.Nakama, before: Tournament, after: Tour
 			else if (e.kind === 'promoted' && typeof e.userId === 'string') to = realPlayers([e.userId])
 			for (const userId of to.filter((id, i) => to.indexOf(id) === i)) {
 				notify(nk, userId, NotifyCode.TOURNAMENT_UPDATED, after.name, { ...base, kind: e.kind, matchId: matchId ?? null } as { [key: string]: unknown })
+			}
+		}
+		// Check-in opened on a ranked-profile tournament: tell anyone not on
+		// their ranked profile now, while there is time to switch.
+		if (e.kind === 'check_in_opened' && after.requireRanked === true) {
+			const config = readConfig(nk)
+			for (const userId of realPlayers(after.entrants.map((x) => x.userId))) {
+				if (!integrityRefusal(config, readIntegrity(nk, userId), now)) continue
+				notify(nk, userId, NotifyCode.TOURNAMENT_UPDATED, `${after.name}: switch to your ranked profile to check in`, { ...base, kind: 'ranked_profile_needed', matchId: null })
 			}
 		}
 	}

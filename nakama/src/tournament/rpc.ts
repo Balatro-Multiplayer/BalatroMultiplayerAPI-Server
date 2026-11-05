@@ -4,6 +4,7 @@
 // Each call also catches the tournament up first (advance), so state is never
 // staler than the request even if the clock missed a tick.
 import { readConfig } from '../config'
+import { integrityRefusal, readIntegrity } from '../integrity'
 import { FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED, runtimeError } from '../errors'
 import { banMessage, playRefusal } from '../moderation/access'
 import { activeBan, readBans } from '../moderation/bans'
@@ -88,6 +89,26 @@ export function tournamentIdOf(input: Input): string {
 	return inputString(input, 'id', TOURNAMENT_ID_PATTERN)
 }
 
+export const RANKED_PROFILE_NEEDED =
+	'Ranked profile required: launch a ranked profile through the BET launcher and keep the launcher open, then try again.'
+
+// A tournament with requireRanked: the ranked queue's rule on top of the entry
+// rules -- a launcher verdict while the server enforces it (otherwise the
+// allowed mods entry already checks). Not the ranked queue's on/off switch.
+export function rankedProfileRefusal(nk: nkruntime.Nakama, ctx: nkruntime.Context, userId: string, now: number): string | null {
+	const entry = entryRefusal(nk, ctx, userId, now)
+	if (entry) return entry
+	return integrityRefusal(readConfig(nk), readIntegrity(nk, userId), now) ? RANKED_PROFILE_NEEDED : null
+}
+
+// Throws when the tournament needs a ranked profile the player isn't on.
+function requireRankedProfile(nk: nkruntime.Nakama, ctx: nkruntime.Context, id: string, userId: string, now: number) {
+	const stored = readTournament(nk, id)
+	if (!stored || stored.t.requireRanked !== true) return
+	const refused = rankedProfileRefusal(nk, ctx, userId, now)
+	if (refused) throw runtimeError(PERMISSION_DENIED, refused)
+}
+
 // Who may play in a tournament: no matchmaking ban, not locked out by
 // testing mode, and an account standing (reported mods) that may queue.
 export function entryRefusal(nk: nkruntime.Nakama, ctx: nkruntime.Context, userId: string, now: number): string | null {
@@ -111,8 +132,18 @@ export function catchUpTournament(nk: nkruntime.Nakama, logger: nkruntime.Logger
 	return checkLobbies(nk, logger, t, real)
 }
 
-function respond(t: Tournament, viewerId: string, real: number): string {
-	return JSON.stringify({ tournament: tournamentView(t, viewerId, nowFor(t, real)) })
+// The viewer's own ranked profile, for a tournament that needs one: whether
+// they qualify right now (so the client can warn them early) and why not.
+function rankedProfileOf(nk: nkruntime.Nakama, ctx: nkruntime.Context, t: Tournament, userId: string, real: number) {
+	if (t.requireRanked !== true) return undefined
+	const refused = rankedProfileRefusal(nk, ctx, userId, real)
+	return { ok: refused === null, message: refused }
+}
+
+function respond(t: Tournament, viewerId: string, real: number, nk?: nkruntime.Nakama, ctx?: nkruntime.Context): string {
+	const view = tournamentView(t, viewerId, nowFor(t, real))
+	const ranked = nk && ctx ? rankedProfileOf(nk, ctx, t, viewerId, real) : undefined
+	return JSON.stringify({ tournament: ranked ? { ...view, rankedProfile: ranked } : view })
 }
 
 // Applies a lifecycle change at the tournament's own now, settles the
@@ -136,7 +167,7 @@ function changeTournament(
 		const r = apply(t, userId, now, input)
 		return r.ok ? { ok: true, value: settleTimetable(r.value, now) } : r
 	})
-	return respond(saved, userId, real)
+	return respond(saved, userId, real, nk, ctx)
 }
 
 // Making (or keeping) a tournament official needs the official privilege.
@@ -200,13 +231,15 @@ export function rpcTournamentGet(ctx: nkruntime.Context, logger: nkruntime.Logge
 	const viaCode = typeof input.code === 'string' && input.code.toUpperCase() === t.inviteCode
 	if (t.visibility === 'private' && !member && !viaCode) throw runtimeError(NOT_FOUND, 'No such tournament')
 	if (t.status === 'draft' && !isManager(t, userId)) throw runtimeError(NOT_FOUND, 'No such tournament')
-	if (input.provisional !== true || t.bracket) return respond(t, userId, real)
+	if (input.provisional !== true || t.bracket) return respond(t, userId, real, nk, ctx)
 	// Not started: the bracket as if it started now (the bracket viewer).
 	const now = nowFor(t, real)
 	const view = tournamentView(t, userId, now)
 	const drawn = provisionalOf(t, userId, now, ratingsLookup(nk, now))
-	if (!drawn) return JSON.stringify({ tournament: view })
-	return JSON.stringify({ tournament: { ...view, bracket: drawn.bracket, standings: drawn.standings, schedule: drawn.schedule, provisional: true } })
+	const ranked = rankedProfileOf(nk, ctx, t, userId, real)
+	const withRanked = ranked ? { ...view, rankedProfile: ranked } : view
+	if (!drawn) return JSON.stringify({ tournament: withRanked })
+	return JSON.stringify({ tournament: { ...withRanked, bracket: drawn.bracket, standings: drawn.standings, schedule: drawn.schedule, provisional: true } })
 }
 
 // {} -> summaries of every tournament the caller organises, helps run,
@@ -220,14 +253,24 @@ export function rpcTournamentMine(ctx: nkruntime.Context, logger: nkruntime.Logg
 	const ids = readMineIds(nk, userId)
 	const entries = readIndexEntries(nk, ids)
 	// Catch up the ones still going, so countdowns and statuses are current.
+	// Whether the caller is on a ranked profile, for the ones that need it.
+	let rankedOk: boolean | null = null
+	const rankedOkNow = () => {
+		if (rankedOk === null) rankedOk = rankedProfileRefusal(nk, ctx, userId, real) === null
+		return rankedOk
+	}
 	const out = entries.map((e) => {
 		const over = e.status === 'finished' || e.status === 'cancelled' || e.status === 'draft'
 		const t = over ? (readTournament(nk, e.id) || { t: null }).t : catchUpTournament(nk, logger, e.id, real)
 		if (!t) return { ...publicSummary(e), organiser: e.organiserId === userId, role: 'none' }
+		const role = roleOf(t, userId)
+		const playing = role === 'entrant' || role === 'waitlist'
+		const live = t.status === 'registration' || t.status === 'check_in' || t.status === 'running'
 		return {
 			...publicSummary({ ...e, status: t.status, players: t.entrants.length, startsAt: t.startsAt }),
 			organiser: e.organiserId === userId,
-			role: roleOf(t, userId),
+			role,
+			rankedOk: t.requireRanked === true && playing && live ? rankedOkNow() : undefined,
 		}
 	})
 	return JSON.stringify({ serverNow: real, tournaments: out })
@@ -245,6 +288,7 @@ export function rpcTournamentJoin(ctx: nkruntime.Context, logger: nkruntime.Logg
 	const real = Date.now()
 	const refused = entryRefusal(nk, ctx, userId, real)
 	if (refused) throw runtimeError(PERMISSION_DENIED, refused)
+	requireRankedProfile(nk, ctx, id, userId, real)
 	const name = displayNameFor(nk, ctx, userId)
 	ensureClock(nk)
 	catchUpTournament(nk, logger, id, real)
@@ -252,7 +296,7 @@ export function rpcTournamentJoin(ctx: nkruntime.Context, logger: nkruntime.Logg
 		if (t.visibility === 'private' && !viaCode) return { ok: false, error: { code: NOT_FOUND, message: 'No such tournament' } }
 		return joinTournament(t, { id: userId, name }, nowFor(t, real))
 	})
-	return respond(saved, userId, real)
+	return respond(saved, userId, real, nk, ctx)
 }
 
 export function rpcTournamentLeave(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
@@ -260,6 +304,7 @@ export function rpcTournamentLeave(ctx: nkruntime.Context, logger: nkruntime.Log
 }
 
 export function rpcTournamentCheckIn(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	requireRankedProfile(nk, ctx, tournamentIdOf(parsePayload(payload)), requireUser(ctx), Date.now())
 	return changeTournament(nk, logger, ctx, payload, (t, userId, now) => checkInEntrant(t, userId, now))
 }
 
@@ -371,6 +416,8 @@ export function rpcTournamentCancel(ctx: nkruntime.Context, logger: nkruntime.Lo
 // {id, matchId?, ready?: boolean (default true)} -> the caller's ready flag
 // for their current (or the given) match.
 export function rpcTournamentReady(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	const asked = parsePayload(payload)
+	if (asked.ready !== false) requireRankedProfile(nk, ctx, tournamentIdOf(asked), requireUser(ctx), Date.now())
 	return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
 		const matchId = typeof input.matchId === 'string' ? input.matchId : null
 		return readyUp(t, userId, matchId, input.ready !== false, now)

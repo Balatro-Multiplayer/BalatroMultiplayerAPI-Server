@@ -192,6 +192,62 @@ describe('a tournament from creation to start', () => {
 	})
 })
 
+describe('tournaments that need a ranked profile', () => {
+	const verify = (userId: string, verified: boolean) =>
+		nk.storageWrite([{ collection: 'integrity', key: 'status', userId, value: { verified, expiresAt: null }, permissionRead: 0, permissionWrite: 0 }])
+
+	it('hold players to the ranked rule: join, check-in, and their view says so', () => {
+		writeConfig(nk as unknown as nkruntime.Nakama, { ...DEFAULT_CONFIG, tournamentsEnabled: true, integrityEnforced: true })
+		const t = created({ requireRanked: true })
+		expect(t.summary.requireRanked).toBe(true)
+		const id = t.summary.id
+		call(rpcTournamentOpen, ORG, { id })
+		// Not on the launcher: refused, with what to do.
+		expect(fails(rpcTournamentJoin, P(1), { id }).message).toMatch(/ranked profile/)
+		verify(P(1), true)
+		const joined = call(rpcTournamentJoin, P(1), { id }).tournament
+		expect(joined.rankedProfile).toEqual({ ok: true, message: null })
+		expect(call(rpcTournamentMine, P(1)).tournaments[0].rankedOk).toBe(true)
+		// The verdict lapses: the view and the list say so, and check-in refuses.
+		verify(P(1), false)
+		const view = call(rpcTournamentGet, P(1), { id }).tournament
+		expect(view.rankedProfile.ok).toBe(false)
+		expect(view.rankedProfile.message).toMatch(/ranked profile/)
+		expect(call(rpcTournamentMine, P(1)).tournaments[0].rankedOk).toBe(false)
+		vi.setSystemTime(T0 + 30 * MIN)
+		expect(fails(rpcTournamentCheckIn, P(1), { id }).message).toMatch(/ranked profile/)
+		verify(P(1), true)
+		expect(call(rpcTournamentCheckIn, P(1), { id }).tournament.summary.status).toBe('check_in')
+	})
+
+	it('reminds players not on it when check-in opens', () => {
+		writeConfig(nk as unknown as nkruntime.Nakama, { ...DEFAULT_CONFIG, tournamentsEnabled: true, integrityEnforced: true })
+		const id = created({ requireRanked: true }).summary.id
+		call(rpcTournamentOpen, ORG, { id })
+		for (const n of [1, 2]) {
+			verify(P(n), true)
+			call(rpcTournamentJoin, P(n), { id })
+		}
+		verify(P(2), false)
+		vi.setSystemTime(T0 + 30 * MIN)
+		sweep(nk as unknown as nkruntime.Nakama, fakeLogger, Date.now(), catchUpTournament)
+		const reminded = nk.notifications.filter((n) => n.content && n.content.kind === 'ranked_profile_needed').map((n) => n.userId)
+		expect(reminded).toEqual([P(2)])
+	})
+
+	it('needs only allowed mods where the server does not enforce the launcher', () => {
+		const id = created({ requireRanked: true }).summary.id
+		call(rpcTournamentOpen, ORG, { id })
+		expect(call(rpcTournamentJoin, P(1), { id }).tournament.rankedProfile.ok).toBe(true)
+	})
+
+	it("leaves other tournaments' views as they were", () => {
+		const id = created().summary.id
+		call(rpcTournamentOpen, ORG, { id })
+		expect(call(rpcTournamentJoin, P(1), { id }).tournament.rankedProfile).toBeUndefined()
+	})
+})
+
 describe('the provisional bracket', () => {
 	it('draws a tournament that has not started from its sign-ups, when asked', () => {
 		const id = created({ checkInMinutes: null }).summary.id

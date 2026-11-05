@@ -96,6 +96,9 @@ export interface Tournament {
 	// Run by the game's own organisers: highlighted in the client. Only players
 	// with the OFFICIAL_PRIVILEGE may create or set it (rpc.ts checks).
 	official?: boolean
+	// Players need their ranked profile, as for ranked matchmaking (rpc.ts
+	// rankedProfileRefusal): to join, check in and ready up.
+	requireRanked?: boolean
 	inviteCode: string
 	format: Format
 	formatOptions: { grandFinalReset?: boolean; groupSize?: number; swissRounds?: number }
@@ -332,6 +335,11 @@ export function validSettings(input: Input, now: number, partial: boolean): Resu
 		const official = input.official ?? false
 		if (typeof official !== 'boolean') return err('official must be true or false')
 		out.official = official
+	}
+	if (has('requireRanked') || !partial) {
+		const required = input.requireRanked ?? false
+		if (typeof required !== 'boolean') return err('requireRanked must be true or false')
+		out.requireRanked = required
 	}
 	if (has('visibility') || !partial) {
 		const v = input.visibility ?? 'public'

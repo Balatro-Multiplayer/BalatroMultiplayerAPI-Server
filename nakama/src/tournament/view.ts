@@ -26,6 +26,7 @@ export interface TournamentSummary {
 	ruleset: string
 	registrationOpen: boolean
 	official: boolean
+	requireRanked: boolean
 }
 
 export function summaryOf(t: Tournament): TournamentSummary {
@@ -45,6 +46,7 @@ export function summaryOf(t: Tournament): TournamentSummary {
 		ruleset: t.rounds.defaults.ruleset,
 		registrationOpen: t.status === 'registration' && !t.registrationClosed,
 		official: t.official === true,
+		requireRanked: t.requireRanked === true,
 	}
 }
 

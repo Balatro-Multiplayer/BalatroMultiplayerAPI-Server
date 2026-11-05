@@ -10165,7 +10165,7 @@ function validTimetable(value) {
   return err("timetable.kind must be preset or custom");
 }
 function validSettings(input, now, partial) {
-  var _a, _b, _c, _d;
+  var _a, _b, _c, _d, _e;
   const out = {};
   const has = (key) => input[key] !== void 0;
   if (has("name") || !partial) {
@@ -10182,8 +10182,13 @@ function validSettings(input, now, partial) {
     if (typeof official !== "boolean") return err("official must be true or false");
     out.official = official;
   }
+  if (has("requireRanked") || !partial) {
+    const required = (_b = input.requireRanked) != null ? _b : false;
+    if (typeof required !== "boolean") return err("requireRanked must be true or false");
+    out.requireRanked = required;
+  }
   if (has("visibility") || !partial) {
-    const v = (_b = input.visibility) != null ? _b : "public";
+    const v = (_c = input.visibility) != null ? _c : "public";
     if (v !== "public" && v !== "private") return err("visibility must be public or private");
     out.visibility = v;
   }
@@ -10221,12 +10226,12 @@ function validSettings(input, now, partial) {
     out.startsAt = input.startsAt;
   }
   if (has("checkInMinutes") || !partial) {
-    const c = (_c = input.checkInMinutes) != null ? _c : null;
+    const c = (_d = input.checkInMinutes) != null ? _d : null;
     if (c !== null && (!int(c) || c < 10 || c > 60)) return err("checkInMinutes must be 10-60, or null for no check-in");
     out.checkInMinutes = c;
   }
   if (has("seeding") || !partial) {
-    const s = (_d = input.seeding) != null ? _d : { kind: "rating" };
+    const s = (_e = input.seeding) != null ? _e : { kind: "rating" };
     if (!isInputObject(s) || ["rating", "random", "manual"].indexOf(s.kind) === -1) return err("seeding.kind must be rating, random or manual");
     if (s.board !== void 0 && (typeof s.board !== "string" || !KEY_PATTERN.test(s.board))) return err("seeding.board is not a board key");
     out.seeding = { kind: s.kind, board: s.board };
@@ -11081,7 +11086,8 @@ function summaryOf(t) {
     gameMode: t.rounds.defaults.gameMode,
     ruleset: t.rounds.defaults.ruleset,
     registrationOpen: t.status === "registration" && !t.registrationClosed,
-    official: t.official === true
+    official: t.official === true,
+    requireRanked: t.requireRanked === true
   };
 }
 function nameMap(t) {
@@ -11452,7 +11458,8 @@ function createLobby(nk, logger, t, need) {
         rankedMode: "",
         allowedIds: need.players.join(","),
         gameMode: "",
-        requiredStanding: "valid",
+        // A ranked-profile tournament's games hold players to it too.
+        requiredStanding: requiredStandingFor(claimed.requireRanked === true, readConfig(nk).integrityEnforced),
         tournament: JSON.stringify(ref),
         metadata: JSON.stringify(lobbyMetadata(claimed, need))
       });
@@ -11570,6 +11577,13 @@ function sendNotifications(nk, before, after) {
       else if (e.kind === "promoted" && typeof e.userId === "string") to = realPlayers([e.userId]);
       for (const userId of to.filter((id, i) => to.indexOf(id) === i)) {
         notify(nk, userId, NotifyCode.TOURNAMENT_UPDATED, after.name, __spreadProps(__spreadValues({}, base), { kind: e.kind, matchId: matchId != null ? matchId : null }));
+      }
+    }
+    if (e.kind === "check_in_opened" && after.requireRanked === true) {
+      const config = readConfig(nk);
+      for (const userId of realPlayers(after.entrants.map((x) => x.userId))) {
+        if (!integrityRefusal(config, readIntegrity(nk, userId), now)) continue;
+        notify(nk, userId, NotifyCode.TOURNAMENT_UPDATED, `${after.name}: switch to your ranked profile to check in`, __spreadProps(__spreadValues({}, base), { kind: "ranked_profile_needed", matchId: null }));
       }
     }
   }
@@ -13766,6 +13780,18 @@ function inputString(input, key, pattern2) {
 function tournamentIdOf(input) {
   return inputString(input, "id", TOURNAMENT_ID_PATTERN);
 }
+var RANKED_PROFILE_NEEDED = "Ranked profile required: launch a ranked profile through the BET launcher and keep the launcher open, then try again.";
+function rankedProfileRefusal(nk, ctx, userId, now) {
+  const entry = entryRefusal(nk, ctx, userId, now);
+  if (entry) return entry;
+  return integrityRefusal(readConfig(nk), readIntegrity(nk, userId), now) ? RANKED_PROFILE_NEEDED : null;
+}
+function requireRankedProfile(nk, ctx, id, userId, now) {
+  const stored = readTournament(nk, id);
+  if (!stored || stored.t.requireRanked !== true) return;
+  const refused = rankedProfileRefusal(nk, ctx, userId, now);
+  if (refused) throw runtimeError(PERMISSION_DENIED, refused);
+}
 function entryRefusal(nk, ctx, userId, now) {
   const config = readConfig(nk);
   const ban = activeBan(readBans(nk, userId), "queue", now);
@@ -13783,8 +13809,15 @@ function catchUpTournament(nk, logger, id, real) {
   });
   return checkLobbies(nk, logger, t, real);
 }
-function respond(t, viewerId, real) {
-  return JSON.stringify({ tournament: tournamentView(t, viewerId, nowFor(t, real)) });
+function rankedProfileOf(nk, ctx, t, userId, real) {
+  if (t.requireRanked !== true) return void 0;
+  const refused = rankedProfileRefusal(nk, ctx, userId, real);
+  return { ok: refused === null, message: refused };
+}
+function respond(t, viewerId, real, nk, ctx) {
+  const view = tournamentView(t, viewerId, nowFor(t, real));
+  const ranked = nk && ctx ? rankedProfileOf(nk, ctx, t, viewerId, real) : void 0;
+  return JSON.stringify({ tournament: ranked ? __spreadProps(__spreadValues({}, view), { rankedProfile: ranked }) : view });
 }
 function changeTournament(nk, logger, ctx, payload, apply2) {
   requireEnabled(nk);
@@ -13799,7 +13832,7 @@ function changeTournament(nk, logger, ctx, payload, apply2) {
     const r = apply2(t, userId, now, input);
     return r.ok ? { ok: true, value: settleTimetable(r.value, now) } : r;
   });
-  return respond(saved, userId, real);
+  return respond(saved, userId, real, nk, ctx);
 }
 function requireOfficialRight(nk, userId, input) {
   if (input.official !== true) return;
@@ -13851,12 +13884,14 @@ function rpcTournamentGet(ctx, logger, nk, payload) {
   const viaCode = typeof input.code === "string" && input.code.toUpperCase() === t.inviteCode;
   if (t.visibility === "private" && !member && !viaCode) throw runtimeError(NOT_FOUND, "No such tournament");
   if (t.status === "draft" && !isManager(t, userId)) throw runtimeError(NOT_FOUND, "No such tournament");
-  if (input.provisional !== true || t.bracket) return respond(t, userId, real);
+  if (input.provisional !== true || t.bracket) return respond(t, userId, real, nk, ctx);
   const now = nowFor(t, real);
   const view = tournamentView(t, userId, now);
   const drawn = provisionalOf(t, userId, now, ratingsLookup(nk, now));
-  if (!drawn) return JSON.stringify({ tournament: view });
-  return JSON.stringify({ tournament: __spreadProps(__spreadValues({}, view), { bracket: drawn.bracket, standings: drawn.standings, schedule: drawn.schedule, provisional: true }) });
+  const ranked = rankedProfileOf(nk, ctx, t, userId, real);
+  const withRanked = ranked ? __spreadProps(__spreadValues({}, view), { rankedProfile: ranked }) : view;
+  if (!drawn) return JSON.stringify({ tournament: withRanked });
+  return JSON.stringify({ tournament: __spreadProps(__spreadValues({}, withRanked), { bracket: drawn.bracket, standings: drawn.standings, schedule: drawn.schedule, provisional: true }) });
 }
 function rpcTournamentMine(ctx, logger, nk, payload) {
   requireEnabled(nk);
@@ -13865,13 +13900,22 @@ function rpcTournamentMine(ctx, logger, nk, payload) {
   ensureClock(nk);
   const ids = readMineIds(nk, userId);
   const entries = readIndexEntries(nk, ids);
+  let rankedOk = null;
+  const rankedOkNow = () => {
+    if (rankedOk === null) rankedOk = rankedProfileRefusal(nk, ctx, userId, real) === null;
+    return rankedOk;
+  };
   const out = entries.map((e) => {
     const over = e.status === "finished" || e.status === "cancelled" || e.status === "draft";
     const t = over ? (readTournament(nk, e.id) || { t: null }).t : catchUpTournament(nk, logger, e.id, real);
     if (!t) return __spreadProps(__spreadValues({}, publicSummary(e)), { organiser: e.organiserId === userId, role: "none" });
+    const role = roleOf(t, userId);
+    const playing = role === "entrant" || role === "waitlist";
+    const live = t.status === "registration" || t.status === "check_in" || t.status === "running";
     return __spreadProps(__spreadValues({}, publicSummary(__spreadProps(__spreadValues({}, e), { status: t.status, players: t.entrants.length, startsAt: t.startsAt }))), {
       organiser: e.organiserId === userId,
-      role: roleOf(t, userId)
+      role,
+      rankedOk: t.requireRanked === true && playing && live ? rankedOkNow() : void 0
     });
   });
   return JSON.stringify({ serverNow: real, tournaments: out });
@@ -13887,6 +13931,7 @@ function rpcTournamentJoin(ctx, logger, nk, payload) {
   const real = Date.now();
   const refused = entryRefusal(nk, ctx, userId, real);
   if (refused) throw runtimeError(PERMISSION_DENIED, refused);
+  requireRankedProfile(nk, ctx, id, userId, real);
   const name = displayNameFor(nk, ctx, userId);
   ensureClock(nk);
   catchUpTournament(nk, logger, id, real);
@@ -13894,12 +13939,13 @@ function rpcTournamentJoin(ctx, logger, nk, payload) {
     if (t.visibility === "private" && !viaCode) return { ok: false, error: { code: NOT_FOUND, message: "No such tournament" } };
     return joinTournament(t, { id: userId, name }, nowFor(t, real));
   });
-  return respond(saved, userId, real);
+  return respond(saved, userId, real, nk, ctx);
 }
 function rpcTournamentLeave(ctx, logger, nk, payload) {
   return changeTournament(nk, logger, ctx, payload, (t, userId, now) => leaveTournament(t, userId, now));
 }
 function rpcTournamentCheckIn(ctx, logger, nk, payload) {
+  requireRankedProfile(nk, ctx, tournamentIdOf(parsePayload(payload)), requireUser(ctx), Date.now());
   return changeTournament(nk, logger, ctx, payload, (t, userId, now) => checkInEntrant(t, userId, now));
 }
 function rpcTournamentCreate(ctx, logger, nk, payload) {
@@ -13982,6 +14028,8 @@ function rpcTournamentCancel(ctx, logger, nk, payload) {
   return changeTournament(nk, logger, ctx, payload, (t, userId, now) => cancel(t, userId, now));
 }
 function rpcTournamentReady(ctx, logger, nk, payload) {
+  const asked = parsePayload(payload);
+  if (asked.ready !== false) requireRankedProfile(nk, ctx, tournamentIdOf(asked), requireUser(ctx), Date.now());
   return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
     const matchId = typeof input.matchId === "string" ? input.matchId : null;
     return readyUp(t, userId, matchId, input.ready !== false, now);
