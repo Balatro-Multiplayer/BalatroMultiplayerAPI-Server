@@ -13,8 +13,13 @@ vi.mock(
 	}),
 )
 
+vi.mock('../../infrastructure/gateways/replay-log.gateway.js', () => ({
+	getActiveRunIdForLobbyCode: vi.fn().mockResolvedValue(null),
+}))
+
 import { signJwt } from '../../features/auth/jwt.js'
 import * as playerGateway from '../../infrastructure/gateways/player.gateway.js'
+import { getActiveRunIdForLobbyCode } from '../../infrastructure/gateways/replay-log.gateway.js'
 import {
 	closeNakamaLobby,
 	getNakamaLobby,
@@ -68,6 +73,7 @@ const DETAIL: NakamaLobbyDetail = {
 }
 
 beforeEach(() => {
+	vi.mocked(getActiveRunIdForLobbyCode).mockClear()
 	vi.mocked(listNakamaLobbies).mockResolvedValue([])
 	vi.mocked(getNakamaLobby).mockResolvedValue(null)
 	vi.mocked(kickFromNakamaLobby).mockResolvedValue(false)
@@ -133,6 +139,34 @@ describe('GET /api/webadmin/lobbies', () => {
 })
 
 describe('GET /api/webadmin/lobbies/:code', () => {
+	it('links the running match and the site players', async () => {
+		vi.mocked(getNakamaLobby).mockResolvedValue(DETAIL)
+		vi.mocked(getActiveRunIdForLobbyCode).mockResolvedValue('run-1')
+		vi.mocked(playerGateway.findPlayerIdsByNakamaUserIds).mockResolvedValue(
+			new Map([['host-1', 'player-1']]),
+		)
+
+		const res = await request(app)
+			.get('/api/webadmin/lobbies/ABCDE')
+			.set('Authorization', authWith(['admin'], 'admin-1', 'Admin'))
+
+		expect(getActiveRunIdForLobbyCode).toHaveBeenCalledWith('ABCDE')
+		expect(res.body.lobby.runId).toBe('run-1')
+		expect(res.body.players[0].playerId).toBe('player-1')
+		expect(res.body.players[1].playerId).toBeNull()
+	})
+
+	it('has no match link before the game starts', async () => {
+		vi.mocked(getNakamaLobby).mockResolvedValue({ ...DETAIL, started: false })
+
+		const res = await request(app)
+			.get('/api/webadmin/lobbies/ABCDE')
+			.set('Authorization', authWith(['admin'], 'admin-1', 'Admin'))
+
+		expect(res.body.lobby.runId).toBeNull()
+		expect(getActiveRunIdForLobbyCode).not.toHaveBeenCalled()
+	})
+
 	it('returns lobby detail including players', async () => {
 		vi.mocked(getNakamaLobby).mockResolvedValue(DETAIL)
 

@@ -1,18 +1,23 @@
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 
-interface AdminLobby {
+export interface AdminLobby {
   code: string
-  hostName: string | null
+  modId: string
   type: 'public' | 'private'
+  mode?: string
+  started?: boolean
   playerCount: number
   maxPlayers: number
-  isReported: boolean
 }
+
+export const LOBBY_PAGE_SIZE = 50
 
 export function LobbyList({
   lobbies,
+  total,
   selectedCode,
   search,
   page,
@@ -21,6 +26,7 @@ export function LobbyList({
   onPageChange,
 }: {
   lobbies: AdminLobby[]
+  total: number
   selectedCode: string | null
   search: string
   page: number
@@ -29,16 +35,19 @@ export function LobbyList({
   onPageChange: (p: number) => void
 }) {
   return (
-    <div className='space-y-3'>
-      <Input
-        placeholder='Search by code or username…'
-        value={search}
-        onChange={(e) => {
-          onSearchChange(e.target.value)
-          onPageChange(1)
-        }}
-      />
-      <div className='max-h-[60vh] space-y-1 overflow-y-auto rounded-lg border border-border p-1'>
+    <div className='flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card/80'>
+      <div className='border-border border-b p-3'>
+        <Input
+          placeholder='Search by code'
+          aria-label='Search lobbies by code'
+          value={search}
+          onChange={(e) => {
+            onSearchChange(e.target.value)
+            onPageChange(1)
+          }}
+        />
+      </div>
+      <div className='min-h-0 flex-1 overflow-y-auto' data-testid='lobby-list'>
         {lobbies.length === 0 ? (
           <p className='p-4 text-muted-foreground text-sm'>No lobbies found.</p>
         ) : (
@@ -47,31 +56,30 @@ export function LobbyList({
               key={l.code}
               type='button'
               onClick={() => onSelect(l.code)}
-              className={`flex w-full flex-col gap-1 rounded-md px-3 py-2 text-left transition-colors ${
+              aria-current={selectedCode === l.code}
+              className={cn(
+                'flex w-full flex-col gap-1.5 border-border border-b px-4 py-3 text-left transition-colors',
                 selectedCode === l.code
-                  ? 'bg-accent text-accent-foreground'
+                  ? 'border-l-2 border-l-destructive bg-destructive/10'
                   : 'hover:bg-muted'
-              }`}
+              )}
             >
-              <span className='font-mono font-semibold text-sm'>{l.code}</span>
-              <span className='text-muted-foreground text-xs'>
-                {l.hostName ?? l.code} · {l.playerCount}/{l.maxPlayers}
+              <span className='flex items-baseline justify-between'>
+                <span className='font-mono font-semibold'>{l.code}</span>
+                <span className='font-bold'>
+                  {l.playerCount}/{l.maxPlayers}
+                </span>
               </span>
-              <div className='flex flex-wrap gap-1'>
-                <Badge variant='outline' className='text-[10px]'>
-                  {l.type}
-                </Badge>
-                {l.isReported && (
-                  <Badge variant='destructive' className='text-[10px]'>
-                    reported
-                  </Badge>
-                )}
-              </div>
+              <span className='flex flex-wrap gap-1'>
+                <Badge variant='outline'>{l.type}</Badge>
+                <Badge variant='outline'>{l.modId}</Badge>
+                {l.started && <Badge variant='outline'>in match</Badge>}
+              </span>
             </button>
           ))
         )}
       </div>
-      <div className='flex items-center justify-between'>
+      <div className='flex items-center justify-between border-border border-t p-3'>
         <Button
           variant='outline'
           size='sm'
@@ -80,12 +88,14 @@ export function LobbyList({
         >
           Previous
         </Button>
-        <span className='text-muted-foreground text-xs'>Page {page}</span>
+        <span className='text-muted-foreground text-sm'>
+          Page {page}, {total} total
+        </span>
         <Button
           variant='outline'
           size='sm'
           onClick={() => onPageChange(page + 1)}
-          disabled={lobbies.length < 50}
+          disabled={page * LOBBY_PAGE_SIZE >= total}
         >
           Next
         </Button>
