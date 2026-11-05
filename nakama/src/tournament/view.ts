@@ -92,6 +92,8 @@ export function tournamentView(t: Tournament, viewerId: string, now: number) {
 				outcome: m.outcome ? { winner: m.outcome.winner, draw: m.outcome.draw, reason: m.outcome.reason } : null,
 				gameMode: settings.gameMode,
 				ruleset: settings.ruleset,
+				// The round's deck rule (locked deck + stake, or a ban-and-pick pool).
+				deck: settings.deck ?? null,
 				clock: c ? { phase: c.phase, deadline: c.deadline, ready: c.ready, openedAt: c.openedAt } : null,
 				// The lobby for the current game (only seats its two players).
 				lobby: lobbyOf(t, m.def.id),

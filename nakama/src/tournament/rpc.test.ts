@@ -3,7 +3,7 @@ import { DEFAULT_CONFIG, writeConfig } from '../config'
 import { writeBans } from '../moderation/bans'
 import { defaultProfile, writeProfile } from '../player/profile'
 import { writeModReport } from '../standing/storage'
-import { type FakeNk, fakeLogger, fakeNk, playerCtx } from '../testing/fake_nk'
+import { type FakeNk, fakeLogger, fakeNk, playerCtx, storeLikeNakama } from '../testing/fake_nk'
 import { sweep } from './clock'
 import { rpcTournamentDevFill, rpcTournamentDevTime } from './dev'
 import {
@@ -17,6 +17,8 @@ import {
 	rpcTournamentList,
 	rpcTournamentMine,
 	rpcTournamentOpen,
+	rpcTournamentPause,
+	rpcTournamentResume,
 	rpcTournamentStart,
 	rpcTournamentUpdate,
 } from './rpc'
@@ -38,7 +40,8 @@ let clocks: string[] = []
 function setup(enabled = true) {
 	ids = 0
 	clocks = []
-	nk = fakeNk({
+	// Saved like Nakama saves: a field cleared with undefined comes back null.
+	nk = storeLikeNakama(fakeNk({
 		uuidv4: () => `cccccccc-0000-4000-8000-${String(++ids).padStart(12, '0')}`,
 		matchList: () => clocks.map((id) => ({ matchId: id, authoritative: true, label: 'bmp_tournament_clock', size: 0 })),
 		matchCreate: (module: string) => {
@@ -46,7 +49,7 @@ function setup(enabled = true) {
 			clocks.push(id)
 			return id
 		},
-	})
+	}))
 	writeConfig(nk as unknown as nkruntime.Nakama, { ...DEFAULT_CONFIG, tournamentsEnabled: enabled })
 	for (const id of [ORG, P(1), P(2), P(3), P(4)]) writeModReport(nk as unknown as nkruntime.Nakama, id, { mods: [], reportedAt: T0 })
 }
@@ -186,6 +189,29 @@ describe('a tournament from creation to start', () => {
 		const refused = fails(rpcTournamentJoin, P(4), { id })
 		expect(refused.code).toBe(7)
 		expect(refused.message).toMatch(/banned from matchmaking/)
+	})
+})
+
+describe('pause and resume', () => {
+	it('resumes once, moving the open deadlines by the paused time', () => {
+		const id = created({ checkInMinutes: null }).summary.id
+		call(rpcTournamentOpen, ORG, { id })
+		for (const n of [1, 2]) call(rpcTournamentJoin, P(n), { id })
+		const started = call(rpcTournamentStart, ORG, { id }).tournament
+		const deadline = started.bracket[0].clock.deadline
+		expect(deadline).toBeGreaterThan(T0)
+
+		vi.setSystemTime(T0 + 1 * MIN)
+		expect(call(rpcTournamentPause, ORG, { id }).tournament.paused).toBe(true)
+		vi.setSystemTime(T0 + 3 * MIN)
+		const resumed = call(rpcTournamentResume, ORG, { id }).tournament
+		expect(resumed.paused).toBe(false)
+		expect(resumed.bracket[0].clock.deadline).toBe(deadline + 2 * MIN)
+		// Read back from storage: still running, and a second resume is refused.
+		const again = call(rpcTournamentGet, ORG, { id }).tournament
+		expect(again.paused).toBe(false)
+		expect(again.bracket[0].clock.deadline).toBe(deadline + 2 * MIN)
+		expect(fails(rpcTournamentResume, ORG, { id }).message).toMatch(/Not paused/)
 	})
 })
 

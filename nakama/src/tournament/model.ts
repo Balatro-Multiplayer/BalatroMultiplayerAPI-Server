@@ -1,8 +1,9 @@
 // A tournament as stored (one system-owned object per tournament) and the
 // checks on what an organiser sends. Pure.
 import { type Result, err, ok } from '../shared/result'
+import { MAX_STAKE } from '../actions/setup'
 import { BEST_OF_CHOICES, MAX_ENTRANTS, MIN_ENTRANTS } from './engine/bracket'
-import type { Preset, ScheduleBlock, TimetableState } from './engine/schedule'
+import { type Preset, type ScheduleBlock, type TimetableState, roundSteps } from './engine/schedule'
 import type { Bracket, Format } from './engine/types'
 
 export const TOURNAMENT_MOD_ID = 'MultiplayerPvP'
@@ -35,11 +36,25 @@ export interface RoundSettings {
 	ruleset: string
 	bestOf: number
 	// Deck + stake: locked to one pair, or drafted from a pool with a ban order.
+	// Locked to PvP's Cocktail deck: the decks it mixes. A pool can also hold
+	// Cocktails, each its own mix (and an item of the pool).
 	deck?:
-		| { kind: 'locked'; deck: string; stake: number }
-		| { kind: 'draft'; decks: string[]; stakes: number[]; banOrder: BanOrder }
+		| { kind: 'locked'; deck: string; stake: number; cocktail?: CocktailRecipe }
+		| { kind: 'draft'; decks: string[]; stakes: number[]; banOrder: BanOrder; cocktails?: CocktailRecipe[] }
 	lobbyOptions?: { [key: string]: unknown }
 }
+
+// PvP's Cocktail deck plays 1-3 other decks at once; the lobby's metadata
+// cocktail_recipe says which (objects/decks/ZZ_cocktail.lua in PvP).
+export interface CocktailRecipe {
+	name?: string
+	decks: string[]
+}
+
+export const COCKTAIL_DECK = 'b_mp_cocktail'
+export const COCKTAIL_NAME_MAX = 32
+export const COCKTAIL_DECKS_MAX = 3
+export const POOL_COCKTAILS_MAX = 8
 
 export type BanOrder = 'lower_seed_first' | 'lower_seed_last' | 'random' | 'previous_loser_first'
 
@@ -145,7 +160,10 @@ export const DESCRIPTION_MAX = 500
 export const CO_ORGANISERS_MAX = 5
 export const EVENTS_KEPT = 200
 const KEY_PATTERN = /^[A-Za-z0-9_:.-]{1,64}$/
-const ROUND_KEY_PATTERN = /^(W|L|GF|RR|SW)[0-9]{1,3}$/
+// Round override keys, weakest first: R<n> (the n-th round played: in double
+// elimination a winners round and the losers round alongside it), a named
+// round counted from the end, and an exact bracket round (W3, L5, GF1...).
+const ROUND_KEY_PATTERN = /^((W|L|GF|RR|SW|R)[0-9]{1,3}|FINAL|SEMI|QUARTER|WINNERS_FINAL|LOSERS_FINAL)$/
 const LOBBY_OPTIONS_MAX_BYTES = 4096
 const MIN_LEAD_MS = 5 * 60 * 1000
 const MAX_LEAD_MS = 90 * 24 * 60 * 60 * 1000
@@ -158,6 +176,22 @@ function isInputObject(v: unknown): v is Input {
 
 function int(v: unknown): v is number {
 	return typeof v === 'number' && Number.isInteger(v)
+}
+
+function validCocktail(value: unknown): Result<CocktailRecipe, string> {
+	if (!isInputObject(value)) return err('The Cocktail needs its decks (cocktail: {decks})')
+	const decks = value.decks
+	if (!Array.isArray(decks) || decks.length < 1 || decks.length > COCKTAIL_DECKS_MAX) return err(`A Cocktail mixes 1-${COCKTAIL_DECKS_MAX} decks`)
+	for (let i = 0; i < decks.length; i++) {
+		const d = decks[i]
+		if (typeof d !== 'string' || !KEY_PATTERN.test(d) || d === COCKTAIL_DECK || decks.indexOf(d) !== i) return err('A Cocktail mixes different decks (not the Cocktail itself)')
+	}
+	const out: CocktailRecipe = { decks: decks as string[] }
+	if (value.name !== undefined) {
+		if (typeof value.name !== 'string' || value.name.trim().length > COCKTAIL_NAME_MAX) return err(`The Cocktail's name can be at most ${COCKTAIL_NAME_MAX} characters`)
+		if (value.name.trim().length > 0) out.name = value.name.trim()
+	}
+	return ok(out)
 }
 
 export function validRoundSettings(value: unknown, partial: boolean): Result<Partial<RoundSettings>, string> {
@@ -177,22 +211,38 @@ export function validRoundSettings(value: unknown, partial: boolean): Result<Par
 	if (deck !== undefined && deck !== null) {
 		if (!isInputObject(deck)) return err('deck must be an object')
 		if (deck.kind === 'locked') {
-			if (typeof deck.deck !== 'string' || !KEY_PATTERN.test(deck.deck) || !int(deck.stake) || deck.stake < 1 || deck.stake > 8) {
-				return err('A locked deck needs a deck key and a stake from 1 to 8')
+			if (typeof deck.deck !== 'string' || !KEY_PATTERN.test(deck.deck) || !int(deck.stake) || deck.stake < 1 || deck.stake > MAX_STAKE) {
+				return err(`A locked deck needs a deck key and a stake from 1 to ${MAX_STAKE}`)
 			}
 			out.deck = { kind: 'locked', deck: deck.deck, stake: deck.stake }
+			if (deck.deck === COCKTAIL_DECK) {
+				const recipe = validCocktail(deck.cocktail)
+				if (!recipe.ok) return recipe
+				out.deck.cocktail = recipe.value
+			}
 		} else if (deck.kind === 'draft') {
 			const decks = deck.decks
 			const stakes = deck.stakes
-			if (!Array.isArray(decks) || decks.length < 1 || decks.length > 64 || !decks.every((d) => typeof d === 'string' && KEY_PATTERN.test(d))) {
-				return err('A draft needs 1-64 deck keys')
+			if (!Array.isArray(decks) || decks.length > 64 || !decks.every((d) => typeof d === 'string' && KEY_PATTERN.test(d) && d !== COCKTAIL_DECK)) {
+				return err('A draft pool lists up to 64 deck keys (Cocktails go in cocktails)')
 			}
-			if (!Array.isArray(stakes) || stakes.length < 1 || !stakes.every((s) => int(s) && s >= 1 && s <= 8)) {
-				return err('A draft needs stakes from 1 to 8')
+			const cocktails: CocktailRecipe[] = []
+			if (deck.cocktails !== undefined) {
+				if (!Array.isArray(deck.cocktails) || deck.cocktails.length > POOL_COCKTAILS_MAX) return err(`A pool holds at most ${POOL_COCKTAILS_MAX} Cocktails`)
+				for (const c of deck.cocktails) {
+					const recipe = validCocktail(c)
+					if (!recipe.ok) return recipe
+					cocktails.push(recipe.value)
+				}
+			}
+			if (decks.length + cocktails.length < 1) return err('A draft pool needs at least one deck or Cocktail')
+			if (!Array.isArray(stakes) || stakes.length < 1 || !stakes.every((s) => int(s) && s >= 1 && s <= MAX_STAKE)) {
+				return err(`A draft needs stakes from 1 to ${MAX_STAKE}`)
 			}
 			const orders: BanOrder[] = ['lower_seed_first', 'lower_seed_last', 'random', 'previous_loser_first']
 			if (orders.indexOf(deck.banOrder as BanOrder) === -1) return err('Unknown ban order')
 			out.deck = { kind: 'draft', decks: decks as string[], stakes: stakes as number[], banOrder: deck.banOrder as BanOrder }
+			if (cocktails.length > 0) out.deck.cocktails = cocktails
 		} else return err('deck.kind must be locked or draft')
 	}
 	if (value.lobbyOptions !== undefined) {
@@ -347,9 +397,45 @@ export function validSettings(input: Input, now: number, partial: boolean): Resu
 	return ok(out)
 }
 
-// The round settings that apply to one round (defaults + its override).
-export function roundSettingsFor(t: Tournament, stage: string, round: number): RoundSettings {
-	return { ...t.rounds.defaults, ...(t.rounds.overrides[`${stage}${round}`] ?? {}) } as RoundSettings
+// Which round (1-based, in playing order) a bracket round is, or null.
+export function roundNumberOf(bracket: Bracket, stage: string, round: number): number | null {
+	const steps = roundSteps(bracket)
+	for (let i = 0; i < steps.length; i++) if (steps[i].some((r) => r.stage === stage && r.round === round)) return i + 1
+	return null
+}
+
+// The names a bracket round has, counted from the end: the final (in double
+// elimination the grand final, reset included), semifinals, quarterfinals,
+// the winners and losers finals.
+export function roundNamesOf(bracket: Bracket, stage: string, round: number): string[] {
+	const last = (s: string) => bracket.matches.reduce((max, m) => (m.stage === s ? Math.max(max, m.round) : max), 0)
+	if (bracket.format === 'single_elim' && stage === 'W') {
+		const k = last('W')
+		if (round === k) return ['FINAL']
+		if (round === k - 1) return ['SEMI']
+		if (round === k - 2) return ['QUARTER']
+	}
+	if (bracket.format === 'double_elim') {
+		if (stage === 'GF') return ['FINAL']
+		if (stage === 'W' && round === last('W')) return ['WINNERS_FINAL']
+		if (stage === 'L' && round === last('L')) return ['LOSERS_FINAL']
+	}
+	return []
+}
+
+// The round settings that apply to one round: the defaults, then its round
+// number (R2), then its name (FINAL), then the exact round (W3); each only
+// changes what it sets. bracket: the tournament's, or one being built.
+export function roundSettingsFor(t: Tournament, stage: string, round: number, bracket: Bracket | undefined = t.bracket): RoundSettings {
+	const o = t.rounds.overrides
+	const layers: Partial<RoundSettings>[] = [t.rounds.defaults]
+	if (bracket) {
+		const n = roundNumberOf(bracket, stage, round)
+		if (n !== null && o[`R${n}`]) layers.push(o[`R${n}`])
+		for (const name of roundNamesOf(bracket, stage, round)) if (o[name]) layers.push(o[name])
+	}
+	if (o[`${stage}${round}`]) layers.push(o[`${stage}${round}`])
+	return Object.assign({}, ...layers) as RoundSettings
 }
 
 // The tournament's own "now": real time plus a Dev-server clock skip.

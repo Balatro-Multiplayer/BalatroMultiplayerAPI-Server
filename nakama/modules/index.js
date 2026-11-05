@@ -9980,13 +9980,17 @@ var FAKE_ENTRANT_PREFIX = "dev-bot-";
 function isFakeEntrant(id) {
   return id.indexOf(FAKE_ENTRANT_PREFIX) === 0;
 }
+var COCKTAIL_DECK = "b_mp_cocktail";
+var COCKTAIL_NAME_MAX = 32;
+var COCKTAIL_DECKS_MAX = 3;
+var POOL_COCKTAILS_MAX = 8;
 var OFFICIAL_PRIVILEGE = "tournament_official";
 var NAME_MAX = 48;
 var DESCRIPTION_MAX = 500;
 var CO_ORGANISERS_MAX = 5;
 var EVENTS_KEPT = 200;
 var KEY_PATTERN = /^[A-Za-z0-9_:.-]{1,64}$/;
-var ROUND_KEY_PATTERN = /^(W|L|GF|RR|SW)[0-9]{1,3}$/;
+var ROUND_KEY_PATTERN = /^((W|L|GF|RR|SW|R)[0-9]{1,3}|FINAL|SEMI|QUARTER|WINNERS_FINAL|LOSERS_FINAL)$/;
 var LOBBY_OPTIONS_MAX_BYTES = 4096;
 var MIN_LEAD_MS = 5 * 60 * 1e3;
 var MAX_LEAD_MS = 90 * 24 * 60 * 60 * 1e3;
@@ -9995,6 +9999,21 @@ function isInputObject(v) {
 }
 function int(v) {
   return typeof v === "number" && Number.isInteger(v);
+}
+function validCocktail(value) {
+  if (!isInputObject(value)) return err("The Cocktail needs its decks (cocktail: {decks})");
+  const decks = value.decks;
+  if (!Array.isArray(decks) || decks.length < 1 || decks.length > COCKTAIL_DECKS_MAX) return err(`A Cocktail mixes 1-${COCKTAIL_DECKS_MAX} decks`);
+  for (let i = 0; i < decks.length; i++) {
+    const d = decks[i];
+    if (typeof d !== "string" || !KEY_PATTERN.test(d) || d === COCKTAIL_DECK || decks.indexOf(d) !== i) return err("A Cocktail mixes different decks (not the Cocktail itself)");
+  }
+  const out = { decks };
+  if (value.name !== void 0) {
+    if (typeof value.name !== "string" || value.name.trim().length > COCKTAIL_NAME_MAX) return err(`The Cocktail's name can be at most ${COCKTAIL_NAME_MAX} characters`);
+    if (value.name.trim().length > 0) out.name = value.name.trim();
+  }
+  return ok(out);
 }
 function validRoundSettings(value, partial) {
   if (!isInputObject(value)) return err("Round settings must be an object");
@@ -10013,22 +10032,38 @@ function validRoundSettings(value, partial) {
   if (deck !== void 0 && deck !== null) {
     if (!isInputObject(deck)) return err("deck must be an object");
     if (deck.kind === "locked") {
-      if (typeof deck.deck !== "string" || !KEY_PATTERN.test(deck.deck) || !int(deck.stake) || deck.stake < 1 || deck.stake > 8) {
-        return err("A locked deck needs a deck key and a stake from 1 to 8");
+      if (typeof deck.deck !== "string" || !KEY_PATTERN.test(deck.deck) || !int(deck.stake) || deck.stake < 1 || deck.stake > MAX_STAKE) {
+        return err(`A locked deck needs a deck key and a stake from 1 to ${MAX_STAKE}`);
       }
       out.deck = { kind: "locked", deck: deck.deck, stake: deck.stake };
+      if (deck.deck === COCKTAIL_DECK) {
+        const recipe = validCocktail(deck.cocktail);
+        if (!recipe.ok) return recipe;
+        out.deck.cocktail = recipe.value;
+      }
     } else if (deck.kind === "draft") {
       const decks = deck.decks;
       const stakes = deck.stakes;
-      if (!Array.isArray(decks) || decks.length < 1 || decks.length > 64 || !decks.every((d) => typeof d === "string" && KEY_PATTERN.test(d))) {
-        return err("A draft needs 1-64 deck keys");
+      if (!Array.isArray(decks) || decks.length > 64 || !decks.every((d) => typeof d === "string" && KEY_PATTERN.test(d) && d !== COCKTAIL_DECK)) {
+        return err("A draft pool lists up to 64 deck keys (Cocktails go in cocktails)");
       }
-      if (!Array.isArray(stakes) || stakes.length < 1 || !stakes.every((s) => int(s) && s >= 1 && s <= 8)) {
-        return err("A draft needs stakes from 1 to 8");
+      const cocktails = [];
+      if (deck.cocktails !== void 0) {
+        if (!Array.isArray(deck.cocktails) || deck.cocktails.length > POOL_COCKTAILS_MAX) return err(`A pool holds at most ${POOL_COCKTAILS_MAX} Cocktails`);
+        for (const c of deck.cocktails) {
+          const recipe = validCocktail(c);
+          if (!recipe.ok) return recipe;
+          cocktails.push(recipe.value);
+        }
+      }
+      if (decks.length + cocktails.length < 1) return err("A draft pool needs at least one deck or Cocktail");
+      if (!Array.isArray(stakes) || stakes.length < 1 || !stakes.every((s) => int(s) && s >= 1 && s <= MAX_STAKE)) {
+        return err(`A draft needs stakes from 1 to ${MAX_STAKE}`);
       }
       const orders = ["lower_seed_first", "lower_seed_last", "random", "previous_loser_first"];
       if (orders.indexOf(deck.banOrder) === -1) return err("Unknown ban order");
       out.deck = { kind: "draft", decks, stakes, banOrder: deck.banOrder };
+      if (cocktails.length > 0) out.deck.cocktails = cocktails;
     } else return err("deck.kind must be locked or draft");
   }
   if (value.lobbyOptions !== void 0) {
@@ -10172,9 +10207,36 @@ function validSettings(input, now, partial) {
   }
   return ok(out);
 }
-function roundSettingsFor(t, stage, round) {
-  var _a;
-  return __spreadValues(__spreadValues({}, t.rounds.defaults), (_a = t.rounds.overrides[`${stage}${round}`]) != null ? _a : {});
+function roundNumberOf(bracket, stage, round) {
+  const steps = roundSteps(bracket);
+  for (let i = 0; i < steps.length; i++) if (steps[i].some((r) => r.stage === stage && r.round === round)) return i + 1;
+  return null;
+}
+function roundNamesOf(bracket, stage, round) {
+  const last = (s) => bracket.matches.reduce((max, m) => m.stage === s ? Math.max(max, m.round) : max, 0);
+  if (bracket.format === "single_elim" && stage === "W") {
+    const k = last("W");
+    if (round === k) return ["FINAL"];
+    if (round === k - 1) return ["SEMI"];
+    if (round === k - 2) return ["QUARTER"];
+  }
+  if (bracket.format === "double_elim") {
+    if (stage === "GF") return ["FINAL"];
+    if (stage === "W" && round === last("W")) return ["WINNERS_FINAL"];
+    if (stage === "L" && round === last("L")) return ["LOSERS_FINAL"];
+  }
+  return [];
+}
+function roundSettingsFor(t, stage, round, bracket = t.bracket) {
+  const o = t.rounds.overrides;
+  const layers = [t.rounds.defaults];
+  if (bracket) {
+    const n = roundNumberOf(bracket, stage, round);
+    if (n !== null && o[`R${n}`]) layers.push(o[`R${n}`]);
+    for (const name of roundNamesOf(bracket, stage, round)) if (o[name]) layers.push(o[name]);
+  }
+  if (o[`${stage}${round}`]) layers.push(o[`${stage}${round}`]);
+  return Object.assign({}, ...layers);
 }
 function nowFor(t, real) {
   var _a;
@@ -10459,7 +10521,7 @@ function start(t, now, ratingsFor, rng) {
   let bracket = built.value;
   for (const step of roundSteps(bracket)) {
     for (const r of step) {
-      const changed2 = setRoundBestOf(bracket, r.stage, r.round, roundSettingsFor(t, r.stage, r.round).bestOf);
+      const changed2 = setRoundBestOf(bracket, r.stage, r.round, roundSettingsFor(t, r.stage, r.round, bracket).bestOf);
       if (changed2.ok) bracket = changed2.value;
     }
   }
@@ -10877,7 +10939,7 @@ function tournamentView(t, viewerId, now) {
     const resolved = resolveBracket(t.bracket, t.dropped);
     const clock = t.clock ? t.clock.matches : {};
     bracket = resolved.matches.map((m) => {
-      var _a2;
+      var _a2, _b2;
       const c = clock[m.def.id];
       const settings = roundSettingsFor(t, m.def.stage, m.def.round);
       return {
@@ -10894,6 +10956,8 @@ function tournamentView(t, viewerId, now) {
         outcome: m.outcome ? { winner: m.outcome.winner, draw: m.outcome.draw, reason: m.outcome.reason } : null,
         gameMode: settings.gameMode,
         ruleset: settings.ruleset,
+        // The round's deck rule (locked deck + stake, or a ban-and-pick pool).
+        deck: (_b2 = settings.deck) != null ? _b2 : null,
         clock: c ? { phase: c.phase, deadline: c.deadline, ready: c.ready, openedAt: c.openedAt } : null,
         // The lobby for the current game (only seats its two players).
         lobby: lobbyOf(t, m.def.id)
@@ -11000,6 +11064,9 @@ function isVersionConflict(e) {
   const message = e instanceof Error ? e.message : typeof e === "object" && e !== null ? String(e.message) : String(e);
   return /version/i.test(message);
 }
+function storable(value) {
+  return JSON.parse(JSON.stringify(value));
+}
 function writeTournament(nk, previous, next, version) {
   var _a, _b;
   const before = tournamentMemberIds(previous);
@@ -11012,7 +11079,7 @@ function writeTournament(nk, previous, next, version) {
       collection: TOURNAMENTS,
       key: next.id,
       userId: SYSTEM_USER_ID,
-      value: next,
+      value: storable(next),
       version: version != null ? version : "*",
       permissionRead: 0,
       permissionWrite: 0
@@ -11021,7 +11088,7 @@ function writeTournament(nk, previous, next, version) {
       collection: TOURNAMENT_INDEX,
       key: next.id,
       userId: SYSTEM_USER_ID,
-      value: indexEntry(next),
+      value: storable(indexEntry(next)),
       permissionRead: 0,
       permissionWrite: 0
     }
@@ -13424,6 +13491,66 @@ function sweep(nk, logger, real, advanceOne) {
   return ids.length;
 }
 
+// src/tournament/preview.ts
+var ORGANISER = { id: "preview-organiser", name: "Organiser" };
+var MINUTE_MS2 = 60 * 1e3;
+var FAVOURITE_WINS = 0.7;
+var MAX_GAMES = 16;
+var previewPlayerId = (n) => `preview-${n}`;
+function simulate(t, upTo, rng) {
+  let bracket = t.bracket;
+  for (let s = 1; s <= upTo; s++) {
+    if (bracket.format === "swiss" && swissRoundsPlayed(bracket) < s) {
+      const paired = nextSwissRound(bracket, [], roundSettingsFor(t, "SW", s, bracket).bestOf);
+      if (!paired.ok) break;
+      bracket = paired.value;
+    }
+    const step = roundSteps(bracket)[s - 1];
+    if (!step) break;
+    const inStep = (stage, round) => step.some((r) => r.stage === stage && r.round === round);
+    for (let game = 0; game < MAX_GAMES; game++) {
+      const open = resolveBracket(bracket, []).matches.filter((m) => inStep(m.def.stage, m.def.round) && (m.status === "ready" || m.status === "in_progress"));
+      if (open.length === 0) break;
+      for (const m of open) {
+        const [a, b] = m.players;
+        const favourite = bracket.seeds.indexOf(a) <= bracket.seeds.indexOf(b) ? 0 : 1;
+        const winner = rng() < FAVOURITE_WINS ? favourite : 1 - favourite;
+        const r = recordGame(bracket, m.def.id, winner, []);
+        if (r.ok) bracket = r.value;
+      }
+    }
+  }
+  return bracket;
+}
+function previewTournament(settings, players, step, now) {
+  if (!Number.isInteger(players) || players < MIN_ENTRANTS || players > MAX_ENTRANTS) return err(`players must be ${MIN_ENTRANTS}-${MAX_ENTRANTS}`);
+  if (!Number.isInteger(step) || step < 0) return err("step must be 0 or more");
+  const input = __spreadProps(__spreadValues({}, settings), { name: "Preview", description: "", official: false, visibility: "private", maxPlayers: players, startsAt: now + 60 * MINUTE_MS2, checkInMinutes: null });
+  const created = createTournament("preview", ORGANISER, input, "PREVIEW", now);
+  if (!created.ok) return err(created.error.message);
+  const opened = openRegistration(created.value, ORGANISER.id, now);
+  if (!opened.ok) return err(opened.error.message);
+  let t = opened.value;
+  for (let n = 1; n <= players; n++) {
+    const joined = joinTournament(t, { id: previewPlayerId(n), name: `Player ${n}` }, now);
+    if (!joined.ok) return err(joined.error.message);
+    t = joined.value;
+  }
+  const ratings = (ids) => {
+    const out = {};
+    for (const id of ids) out[id] = 3e3 - Number(id.slice("preview-".length));
+    return out;
+  };
+  const started = start(t, now, ratings, seededRng(players));
+  if (!started.ok) return err(started.error.message);
+  t = started.value;
+  const steps = roundSteps(t.bracket).length;
+  const played = Math.min(step, steps);
+  const bracket = simulate(t, played, seededRng(1e3 + players));
+  const shown = __spreadProps(__spreadValues({}, t), { bracket, clock: void 0, schedule: void 0, lobbies: void 0 });
+  return ok({ tournament: tournamentView(shown, ORGANISER.id, now), steps, step: played });
+}
+
 // src/tournament/rpc.ts
 var TOURNAMENT_ID_PATTERN = /^[0-9a-f-]{36}$/;
 var LIST_LIMIT = 100;
@@ -13600,6 +13727,18 @@ function rpcTournamentCreate(ctx, logger, nk, payload) {
   insertTournament(nk, created.value);
   logger.info("Tournament %s created by %s", id, userId);
   return respond(created.value, userId, real);
+}
+function rpcTournamentPreview(ctx, logger, nk, payload) {
+  requireEnabled(nk);
+  requireUser(ctx);
+  const input = parsePayload(payload);
+  const settings = input.settings;
+  if (typeof settings !== "object" || settings === null || Array.isArray(settings)) throw runtimeError(INVALID_ARGUMENT, "settings must be an object");
+  const players = typeof input.players === "number" ? input.players : Number.NaN;
+  const step = typeof input.step === "number" ? input.step : 0;
+  const r = previewTournament(settings, players, step, Date.now());
+  if (!r.ok) throw runtimeError(INVALID_ARGUMENT, r.error);
+  return JSON.stringify(r.value);
 }
 function rpcTournamentUpdate(ctx, logger, nk, payload) {
   return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
@@ -13922,6 +14061,7 @@ function InitModule(ctx, logger, nk, initializer) {
   });
   initializer.registerRpc("tournament_list", rpcTournamentList);
   initializer.registerRpc("tournament_get", rpcTournamentGet);
+  initializer.registerRpc("tournament_preview", rpcTournamentPreview);
   initializer.registerRpc("tournament_mine", rpcTournamentMine);
   initializer.registerRpc("tournament_join", rpcTournamentJoin);
   initializer.registerRpc("tournament_leave", rpcTournamentLeave);

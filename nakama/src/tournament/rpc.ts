@@ -50,6 +50,7 @@ import {
 	spendTournamentCreate,
 	tournamentIdForCode,
 } from './storage'
+import { previewTournament } from './preview'
 import { tournamentView } from './view'
 import { checkLobbies, commit } from './effects'
 import { type ResultInput, clearResult, extend, readyUp, setPaused, setResult, startNextRound } from './matches'
@@ -274,6 +275,22 @@ export function rpcTournamentCreate(ctx: nkruntime.Context, logger: nkruntime.Lo
 	insertTournament(nk, created.value)
 	logger.info('Tournament %s created by %s', id, userId)
 	return respond(created.value, userId, real)
+}
+
+// {settings, players, step} -> {tournament, steps, step}: the bracket the
+// settings would make with `players` dummy players, played up to round
+// `step` (create wizard preview). Saves nothing.
+export function rpcTournamentPreview(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	requireEnabled(nk)
+	requireUser(ctx)
+	const input = parsePayload(payload)
+	const settings = input.settings
+	if (typeof settings !== 'object' || settings === null || Array.isArray(settings)) throw runtimeError(INVALID_ARGUMENT, 'settings must be an object')
+	const players = typeof input.players === 'number' ? input.players : Number.NaN
+	const step = typeof input.step === 'number' ? input.step : 0
+	const r = previewTournament(settings as Input, players, step, Date.now())
+	if (!r.ok) throw runtimeError(INVALID_ARGUMENT, r.error)
+	return JSON.stringify(r.value)
 }
 
 // {id, ...settings to change}

@@ -68,6 +68,14 @@ function isVersionConflict(e: unknown): boolean {
 	return /version/i.test(message)
 }
 
+// The value as JSON would save it. Nakama saves an undefined property as
+// null, and the code clears optional fields with undefined (resume sets
+// pausedSince = undefined): read back as null, the tournament would still
+// count as paused. JSON drops those fields instead.
+function storable(value: object): { [key: string]: unknown } {
+	return JSON.parse(JSON.stringify(value))
+}
+
 // Writes `next` (replacing `previous`, read at `version`; both null/undefined
 // for a new tournament) with its index entry, due time and the member lists
 // it changes. Throws on a version conflict.
@@ -82,7 +90,7 @@ function writeTournament(nk: nkruntime.Nakama, previous: Tournament | null, next
 			collection: TOURNAMENTS,
 			key: next.id,
 			userId: SYSTEM_USER_ID,
-			value: next as unknown as { [key: string]: unknown },
+			value: storable(next),
 			version: version ?? '*',
 			permissionRead: 0,
 			permissionWrite: 0,
@@ -91,7 +99,7 @@ function writeTournament(nk: nkruntime.Nakama, previous: Tournament | null, next
 			collection: TOURNAMENT_INDEX,
 			key: next.id,
 			userId: SYSTEM_USER_ID,
-			value: indexEntry(next) as unknown as { [key: string]: unknown },
+			value: storable(indexEntry(next)),
 			permissionRead: 0,
 			permissionWrite: 0,
 		},

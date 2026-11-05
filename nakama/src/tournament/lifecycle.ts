@@ -348,7 +348,7 @@ export function start(t: Tournament, now: number, ratingsFor: RatingsLookup, rng
 	let bracket = built.value
 	for (const step of roundSteps(bracket)) {
 		for (const r of step) {
-			const changed = setRoundBestOf(bracket, r.stage, r.round, roundSettingsFor(t, r.stage, r.round).bestOf)
+			const changed = setRoundBestOf(bracket, r.stage, r.round, roundSettingsFor(t, r.stage, r.round, bracket).bestOf)
 			if (changed.ok) bracket = changed.value
 		}
 	}
