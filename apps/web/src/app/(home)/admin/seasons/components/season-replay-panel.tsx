@@ -3,17 +3,7 @@
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { ApiError, apiFetch, apiFetchWithReason } from '@/lib/api'
+import { ConfirmCard } from '@/components/admin/confirm-card'
 import { Button } from '@/components/ui/button'
 import {
   Table,
@@ -23,6 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { ApiError, apiFetch, apiFetchWithReason } from '@/lib/api'
 
 interface RatingRecord {
   rating: number
@@ -73,23 +64,28 @@ export function SeasonReplayPanel() {
   })
   const result = replayMut.data
   const [confirming, setConfirming] = useState(false)
-  const applyMut = useMutation<ApplyResponse, Error, string>({
-    mutationFn: (token) =>
-      apiFetchWithReason('/webadmin/ratings/season-replay/apply', {
-        method: 'POST',
-        body: JSON.stringify({ token }),
-      }),
+  const applyMut = useMutation<
+    ApplyResponse,
+    Error,
+    { token: string; note: string }
+  >({
+    mutationFn: ({ token, note }) =>
+      apiFetchWithReason(
+        '/webadmin/ratings/season-replay/apply',
+        { method: 'POST', body: JSON.stringify({ token }) },
+        note
+      ),
     onSettled: () => setConfirming(false),
     onError: toastError,
   })
   const applied = applyMut.data
 
   return (
-    <div className='space-y-3 rounded-lg border border-border p-4'>
+    <div className='space-y-3 rounded-xl border border-border bg-card p-4'>
       <div className='flex items-center justify-between gap-4'>
         <div>
-          <h2 className='text-lg font-semibold'>Season replay</h2>
-          <p className='text-sm text-muted-foreground'>
+          <h2 className='font-pixel text-lg'>Season replay</h2>
+          <p className='text-muted-foreground text-sm'>
             Replays every ranked game of the current Season under the current
             rules and shows each player&apos;s rating before and after. Games
             with an anti-cheat flag are rated too, and the Season best is
@@ -115,19 +111,19 @@ export function SeasonReplayPanel() {
             ranked games are running now.
           </p>
           {result.activeRankedGames > 0 && (
-            <p className='text-sm font-medium text-destructive'>
+            <p className='font-medium text-destructive text-sm'>
               Apply is refused while a ranked game is running.
             </p>
           )}
           {result.retentionRisk && (
-            <p className='text-sm font-medium text-destructive'>
+            <p className='font-medium text-destructive text-sm'>
               This Season started before the run retention window (180 days).
               Some of its runs may be purged, so the replay would miss them.
               Apply is refused.
             </p>
           )}
           {applied ? (
-            <p className='text-sm font-medium'>
+            <p className='font-medium text-sm'>
               Applied: {applied.games} games, {applied.players} players,{' '}
               {applied.repairedGames} games now rated, {applied.dismissedItems}{' '}
               queue items dismissed
@@ -137,7 +133,7 @@ export function SeasonReplayPanel() {
             </p>
           ) : (
             <Button variant='destructive' onClick={() => setConfirming(true)}>
-              Apply this replay
+              Apply this replay…
             </Button>
           )}
           <div className='overflow-hidden rounded-lg border border-border'>
@@ -166,38 +162,34 @@ export function SeasonReplayPanel() {
           </div>
         </>
       )}
-      <AlertDialog open={confirming} onOpenChange={setConfirming}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Apply the season replay?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Replaces the whole Season board with the numbers above
-              {result
-                ? ` (${result.games} games, ${result.changedPlayers} players change)`
-                : ''}
-              . A backup is saved first. The anti-cheat flag queue items of the
-              repaired games are dismissed. It is refused if a ranked game is
-              running, or if the replay changed since this dry run. No player is
-              messaged.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={applyMut.isPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={applyMut.isPending}
-              onClick={(e) => {
-                e.preventDefault()
-                if (result) applyMut.mutate(result.token)
-              }}
-              className='bg-destructive text-white hover:bg-destructive/90'
-            >
-              {applyMut.isPending ? 'Applying…' : 'Apply'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {confirming && result && (
+        <ConfirmCard
+          title='Apply the season replay?'
+          rows={[
+            {
+              label: 'Season board',
+              value: `Replaced with the numbers above (${result.games} games, ${result.changedPlayers} players change)`,
+            },
+            { label: 'Backup', value: 'Saved first' },
+            {
+              label: 'Queue items',
+              value:
+                'The anti-cheat flag items of the repaired games are dismissed',
+            },
+            {
+              label: 'Refused if',
+              value:
+                'A ranked game is running, or the replay changed since this dry run',
+            },
+            { label: 'Players', value: 'No player is messaged' },
+          ]}
+          placeholder='Why apply this replay?'
+          confirmLabel='Apply replay'
+          pending={applyMut.isPending}
+          onCancel={() => setConfirming(false)}
+          onConfirm={(note) => applyMut.mutate({ token: result.token, note })}
+        />
+      )}
     </div>
   )
 }
