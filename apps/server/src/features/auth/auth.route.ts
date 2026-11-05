@@ -28,6 +28,7 @@ import type { SubmitRefusal } from '../appeals/appeals.service.js'
 import { appealService } from '../appeals/appeals.deps.js'
 import { appealStateOf, buildPunishmentList } from '../punishments/player-punishments.js'
 import { discordLinkService } from '../nakama/discord-link.js'
+import { webLoginLinks } from '../nakama/web-login-link.js'
 import type { AuthService } from './auth.service.js'
 import { getDiscordAuthUrl, validateDiscordCode } from './discord.js'
 import { signTosPendingToken, verifyTosPendingToken } from './jwt.js'
@@ -164,6 +165,28 @@ export function createAuthRouter(service: AuthService): Router {
 			res.redirect(
 				`${env.WEB_BASE_URL}/auth/callback?token=${encodeURIComponent(token)}`,
 			)
+		} catch (err) {
+			next(err)
+		}
+	})
+
+	// {code} -> {token, path} or {tosToken, path}: the game's one-time login
+	// link (features/nakama/web-login-link.ts). The code works once.
+	router.post('/link-login', async (req, res, next) => {
+		try {
+			const code = req.body?.code
+			const target = typeof code === 'string' ? webLoginLinks.consume(code) : null
+			const login = target ? await service.authenticateNakamaUser(target.nakamaUserId) : null
+			if (!target || !login) {
+				res.status(401).json({ error: 'This login link has expired or was already used', code: 'link_invalid' })
+				return
+			}
+			const gate = tosGate(login.session)
+			if (gate) {
+				res.json({ tosToken: gate.token, path: target.path })
+				return
+			}
+			res.json({ token: login.token, path: target.path })
 		} catch (err) {
 			next(err)
 		}
