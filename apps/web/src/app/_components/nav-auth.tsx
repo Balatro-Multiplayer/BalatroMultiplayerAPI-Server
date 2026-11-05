@@ -20,7 +20,7 @@ export function NavAuth() {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant='ghost' size='sm' className='gap-1.5 text-sm'>
+          <Button variant='ghost' size='sm' className='gap-1.5 font-pixel text-base'>
             <User className='size-4' />
             <span className='max-sm:hidden'>{player.displayName}</span>
           </Button>

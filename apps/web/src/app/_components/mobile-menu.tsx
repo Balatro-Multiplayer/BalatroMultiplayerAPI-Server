@@ -49,7 +49,7 @@ function MobileMenuLink({
     <Link
       href={href}
       onClick={onClick}
-      className='flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-foreground text-sm transition-colors hover:bg-accent hover:text-accent-foreground active:bg-accent/80'
+      className='flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium font-pixel text-base text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground active:bg-accent/80'
     >
       {icon}
       {children}
