@@ -10,9 +10,8 @@ import {
 	type NotificationKindName,
 	type NotificationParams,
 	type ResultOutcome,
+	type TellOutcome,
 } from './kinds'
-
-export type TellOutcome = ResultOutcome | 'void'
 
 export interface ResultNotification {
 	userId: string

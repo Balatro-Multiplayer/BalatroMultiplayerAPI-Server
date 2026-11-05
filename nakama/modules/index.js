@@ -8707,7 +8707,7 @@ var contest = {
       params: { playerId: ctx.from, against },
       out: [
         {
-          kind: "contested",
+          kind: "contest",
           runId: started.runId,
           code: lobby.code,
           by: ctx.from,
@@ -9169,17 +9169,20 @@ function lateResultContent(run, playerId) {
     rating: run.ratings && run.ratings[playerId] || null
   };
 }
+function tellResult(nk, userId, kind, code, subject, content) {
+  sendNotification(nk, userId, kind, content);
+  notify(nk, userId, code, subject, __spreadValues({}, content), false);
+}
 function sendLateResults(nk, run, playerIds) {
   for (const playerId of playerIds) {
     const content = lateResultContent(run, playerId);
-    sendNotification(nk, playerId, NotificationKind.RESULT_LATE, content);
-    notify(
+    tellResult(
       nk,
       playerId,
+      NotificationKind.RESULT_LATE,
       NotifyCode.RESULT_LATE,
       "result_late",
-      __spreadValues({}, content),
-      false
+      content
     );
   }
 }
@@ -9195,14 +9198,13 @@ function sendRankedResults(nk, run) {
   for (const player of run.players) {
     if (!run.ratings || !run.ratings[player.id]) continue;
     const content = rankedResultContent(run, player.id);
-    sendNotification(nk, player.id, NotificationKind.RESULT_RANKED, content);
-    notify(
+    tellResult(
       nk,
       player.id,
+      NotificationKind.RESULT_RANKED,
       NotifyCode.RESULT_RANKED,
       "result_ranked",
-      __spreadValues({}, content),
-      false
+      content
     );
   }
 }
@@ -9370,7 +9372,7 @@ function runEffect(ctx, logger, nk, dispatcher, lobby, presences, effect) {
       }
       return;
     }
-    case "contested":
+    case "contest":
       try {
         enqueue(nk, {
           kind: "contest",
@@ -10967,23 +10969,17 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
   );
 }
 
-// src/notification/rpc.ts
-var MAX_IDS = 100;
-function rpcNotificationsPending(ctx, logger, nk, payload) {
-  const userId = requireUser(ctx);
-  return JSON.stringify({ notifications: listNotifications(nk, userId) });
-}
-function rpcNotificationsRead(ctx, logger, nk, payload) {
-  const userId = requireUser(ctx);
-  const ids = parsePayload(payload).ids;
-  if (!Array.isArray(ids) || ids.length > MAX_IDS || ids.some((id) => typeof id !== "string"))
-    throw runtimeError(
-      INVALID_ARGUMENT,
-      "Missing or invalid ids (array of strings)"
-    );
-  markNotificationsRead(nk, userId, ids);
+// src/notification/report_action.ts
+function rpcAdminReportAction(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const userId = parsePayload(payload).userId;
+  if (typeof userId !== "string" || userId === "")
+    throw runtimeError(INVALID_ARGUMENT, "userId is required");
+  sendNotification(nk, userId, NotificationKind.REPORT_ACTION, {});
   return "{}";
 }
+
+// src/notification/tell_voided.ts
 function rpcAdminRunTellVoided(ctx, logger, nk, payload) {
   requireServer(ctx);
   const run = readRun(nk, parsePayload(payload).runId);
@@ -11007,14 +11003,6 @@ function rpcAdminRunTellVoided(ctx, logger, nk, payload) {
       sendNotification(nk, send.userId, send.kind, send.params);
   }
   return JSON.stringify({ told: plan.sends.length });
-}
-function rpcAdminReportAction(ctx, logger, nk, payload) {
-  requireServer(ctx);
-  const userId = parsePayload(payload).userId;
-  if (typeof userId !== "string" || userId === "")
-    throw runtimeError(INVALID_ARGUMENT, "userId is required");
-  sendNotification(nk, userId, NotificationKind.REPORT_ACTION, {});
-  return "{}";
 }
 
 // src/rating/replay.ts
@@ -11792,6 +11780,24 @@ function rpcAdminContestWithdrawn(ctx, logger, nk, payload) {
     told++;
   }
   return JSON.stringify({ told });
+}
+
+// src/notification/rpc.ts
+var MAX_IDS = 100;
+function rpcNotificationsPending(ctx, logger, nk, payload) {
+  const userId = requireUser(ctx);
+  return JSON.stringify({ notifications: listNotifications(nk, userId) });
+}
+function rpcNotificationsRead(ctx, logger, nk, payload) {
+  const userId = requireUser(ctx);
+  const ids = parsePayload(payload).ids;
+  if (!Array.isArray(ids) || ids.length > MAX_IDS || ids.some((id) => typeof id !== "string"))
+    throw runtimeError(
+      INVALID_ARGUMENT,
+      "Missing or invalid ids (array of strings)"
+    );
+  markNotificationsRead(nk, userId, ids);
+  return "{}";
 }
 
 // src/moderation/report.ts

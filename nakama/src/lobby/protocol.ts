@@ -1,6 +1,7 @@
 // Wire protocol between MPAPI (networking/nakama_lobby.lua) and the bmp_lobby
 // match. Every payload is JSON. Op codes are plain objects rather than enums:
 // isolatedModules builds can't inline const enums.
+import type { TellOutcome } from '../notification/kinds'
 import type { QueueRefusalCode } from '../matchmaking/queue_refusal'
 import type { AccountStanding, RequiredStanding } from '../standing/standing'
 
@@ -363,7 +364,7 @@ export interface RunRecord {
 	contest?: Contest
 	// What staff last told each player about this run (rating/match_edit.ts),
 	// so deciding it again the same way tells them nothing new.
-	told?: { [userId: string]: 'win' | 'draw' | 'loss' | 'void' }
+	told?: { [userId: string]: TellOutcome }
 }
 
 export type FlagReason = 'hash_mismatch' | 'elapsed_time_gate' | 'unverified_log'

@@ -12,12 +12,13 @@ import {
 	players,
 	seasons,
 } from '../../infrastructure/db/schema.js'
-import { usernameBannedAmong, usernameBannedSql } from '../../infrastructure/gateways/ban.gateway.js'
+import { usernameBannedAmong } from '../../infrastructure/gateways/ban.gateway.js'
 import { getCurrentSeason } from '../../infrastructure/gateways/rating.gateway.js'
+import { countLeaderboard, leaderboardPage } from '../../infrastructure/gateways/stats.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
 import { createTtlCache } from '../../shared/utils/ttl-cache.js'
-import { banNameFor, shownNameOf } from '../../shared/players/shown-name.js'
+import { shownNameOf } from '../../shared/players/shown-name.js'
 import { PLACEMENT_GAMES } from '../ratings/elo.js'
 import { effectiveRating } from '../ratings/effective-rating.js'
 import { createOnlinePlayers } from './online-players.js'
@@ -114,54 +115,21 @@ export function createStatsRouter({
 				typeof req.query.search === 'string' ? req.query.search.trim() : ''
 			const term = search ? `%${search}%` : null
 
-			const totalRes = await db.execute(sql`
-			SELECT count(*)::int AS total
-			FROM matchmaking_ratings r
-			JOIN players p ON p.id = r.player_id
-			WHERE r.mod_id = ${modId} AND r.game_mode = ${gameMode} AND r.season = ${seasonId}
-			  AND r.games_played >= ${PLACEMENT_GAMES}
-			  ${term ? sql`AND NOT ${usernameBannedSql} AND (p.steam_name ILIKE ${term} OR p.discord_username ILIKE ${term})` : sql``}
-		`)
-			const total = Number(
-				(totalRes.rows[0] as { total: number } | undefined)?.total ?? 0,
-			)
-
-			const rowsRes = await db.execute(sql`
-			SELECT rank, player_id, display_name, username_banned, nakama_user_id, rating, wins, losses, games_played, season_best, season_best_text
-			FROM (
-				SELECT
-					r.player_id,
-					CASE WHEN p.use_discord_name AND p.discord_username IS NOT NULL
-					     THEN p.discord_username ELSE p.steam_name END AS display_name,
-					p.steam_name, p.discord_username, p.nakama_user_id,
-					${usernameBannedSql} AS username_banned,
-					${effectiveRating} AS rating, r.wins, r.losses, r.games_played, r.season_best, r.season_best_text,
-					ROW_NUMBER() OVER (ORDER BY ${effectiveRating} DESC, r.wins DESC, r.player_id ASC) AS rank
-				FROM matchmaking_ratings r
-				JOIN players p ON p.id = r.player_id
-				WHERE r.mod_id = ${modId} AND r.game_mode = ${gameMode} AND r.season = ${seasonId}
-				  AND r.games_played >= ${PLACEMENT_GAMES}
-			) ranked
-			${term ? sql`WHERE (NOT ranked.username_banned AND (ranked.steam_name ILIKE ${term} OR ranked.discord_username ILIKE ${term}))` : sql``}
-			ORDER BY rank
-			LIMIT ${pageSize} OFFSET ${offset}
-		`)
-
-			const entries = rowsRes.rows.map((row) => {
-				const r = row as Record<string, unknown>
-				return {
-					rank: Number(r.rank),
-					playerId: r.player_id as string,
-					displayName: r.username_banned
-						? banNameFor({ id: r.player_id as string, nakamaUserId: (r.nakama_user_id as string | null) ?? null })
-						: (r.display_name as string),
-					rating: Number(r.rating),
-					wins: Number(r.wins),
-					losses: Number(r.losses),
-					gamesPlayed: Number(r.games_played),
-					seasonBest: seasonBestOut({ seasonBest: r.season_best, seasonBestText: (r.season_best_text as string | null) ?? null }),
-				}
-			})
+			const query = { modId, gameMode, seasonId, term }
+			const [total, rows] = await Promise.all([
+				countLeaderboard(query),
+				leaderboardPage(query, pageSize, offset),
+			])
+			const entries = rows.map((r) => ({
+				rank: r.rank,
+				playerId: r.playerId,
+				displayName: r.displayName,
+				rating: r.rating,
+				wins: r.wins,
+				losses: r.losses,
+				gamesPlayed: r.gamesPlayed,
+				seasonBest: seasonBestOut({ seasonBest: r.seasonBest, seasonBestText: r.seasonBestText }),
+			}))
 
 			res.json({
 				season: seasonId,

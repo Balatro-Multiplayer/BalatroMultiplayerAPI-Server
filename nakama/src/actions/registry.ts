@@ -283,7 +283,7 @@ const contest: AuthoritativeAction = {
 			params: { playerId: ctx.from, against },
 			out: [
 				{
-					kind: 'contested',
+					kind: 'contest',
 					runId: started.runId,
 					code: lobby.code,
 					by: ctx.from,

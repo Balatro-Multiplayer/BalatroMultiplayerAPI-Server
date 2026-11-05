@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { NotifyCode } from '../notify'
 import { fakeLogger, fakeNk, playerCtx, serverCtx } from '../testing/fake_nk'
 import { NotificationKind } from './kinds'
-import { rpcAdminReportAction, rpcNotificationsPending, rpcNotificationsRead } from './rpc'
+import { rpcAdminReportAction } from './report_action'
+import { rpcNotificationsPending, rpcNotificationsRead } from './rpc'
 import {
 	MAX_STORED_NOTIFICATIONS,
 	NOTIFICATION_TTL_MS,

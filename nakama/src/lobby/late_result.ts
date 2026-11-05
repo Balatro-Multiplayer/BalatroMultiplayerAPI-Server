@@ -36,6 +36,20 @@ export function lateResultContent(
 	}
 }
 
+// The stored Notification, plus the transient notification an older client
+// still reads.
+function tellResult(
+	nk: nkruntime.Nakama,
+	userId: string,
+	kind: typeof NotificationKind.RESULT_LATE | typeof NotificationKind.RESULT_RANKED,
+	code: number,
+	subject: string,
+	content: LateResult | RankedResult,
+) {
+	sendNotification(nk, userId, kind, content as never)
+	notify(nk, userId, code, subject, { ...content }, false)
+}
+
 // Stored, so a player who is offline reads it at their next login. Online
 // players of an older client still get the transient 110.
 export function sendLateResults(
@@ -45,14 +59,13 @@ export function sendLateResults(
 ) {
 	for (const playerId of playerIds) {
 		const content = lateResultContent(run, playerId)
-		sendNotification(nk, playerId, NotificationKind.RESULT_LATE, content)
-		notify(
+		tellResult(
 			nk,
 			playerId,
+			NotificationKind.RESULT_LATE,
 			NotifyCode.RESULT_LATE,
 			'result_late',
-			{ ...content },
-			false,
+			content,
 		)
 	}
 }
@@ -79,14 +92,13 @@ export function sendRankedResults(nk: nkruntime.Nakama, run: RunRecord) {
 	for (const player of run.players) {
 		if (!run.ratings || !run.ratings[player.id]) continue
 		const content = rankedResultContent(run, player.id)
-		sendNotification(nk, player.id, NotificationKind.RESULT_RANKED, content)
-		notify(
+		tellResult(
 			nk,
 			player.id,
+			NotificationKind.RESULT_RANKED,
 			NotifyCode.RESULT_RANKED,
 			'result_ranked',
-			{ ...content },
-			false,
+			content,
 		)
 	}
 }

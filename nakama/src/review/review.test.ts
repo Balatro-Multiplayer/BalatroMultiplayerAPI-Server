@@ -5,7 +5,7 @@ import { fakeLogger, fakeNk, playerCtx, serverCtx } from '../testing/fake_nk'
 import { NotifyCode, isNotifyCode } from '../notify'
 import { lobbyKindOf, lobbyKindOfLabel, rankedContextOf } from './ranked'
 import { overturnRun, parseResultPlacements } from './result'
-import { rpcAdminRunTellVoided } from '../notification/rpc'
+import { rpcAdminRunTellVoided } from '../notification/tell_voided'
 import { rpcAdminRunGet, rpcAdminRunSetResult } from './rpc'
 
 const run = (over: Partial<RunRecord> = {}): RunRecord => ({
