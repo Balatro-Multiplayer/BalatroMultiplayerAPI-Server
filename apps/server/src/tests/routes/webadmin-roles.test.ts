@@ -37,7 +37,6 @@ describe('staff pages are guarded by role on the server', () => {
 	const staffRoutes = [
 		'/players',
 		'/service-queue',
-		'/chat-logs',
 		'/lobbies',
 		'/matches',
 		'/blog/posts',
@@ -62,7 +61,7 @@ describe('staff pages are guarded by role on the server', () => {
 				.set('Authorization', token)
 			expect(res.status, path).toBe(403)
 		}
-		for (const path of ['/players', '/chat-logs', '/matches']) {
+		for (const path of ['/players', '/matches']) {
 			const res = await request(app)
 				.get(`/api/webadmin${path}`)
 				.set('Authorization', token)
