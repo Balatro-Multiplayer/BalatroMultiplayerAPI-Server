@@ -25,7 +25,22 @@ export interface StatsTotals {
 	players: number
 }
 
+export interface BoardEntryCount {
+	modId: string
+	// Stored under the matchmaking key, with the `ranked:` prefix.
+	gameMode: string
+	entries: number
+}
+
+export interface BoardEntryCounts {
+	// null when no season is active.
+	season: number | null
+	boards: BoardEntryCount[]
+}
+
 export interface IStatsRepository {
 	// Rows in matchmaking_matches and players.
 	countTotals(): Promise<StatsTotals>
+	// Entries per board in the current season: the rows the leaderboard lists.
+	countBoardEntries(): Promise<BoardEntryCounts>
 }

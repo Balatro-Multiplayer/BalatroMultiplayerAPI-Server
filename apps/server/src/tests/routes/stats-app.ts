@@ -15,6 +15,7 @@ export function createStatsTestApp(deps: Partial<StatsRouterDeps> = {}) {
 		fetchQueueCounts: vi.fn(async () => err('disabled' as const)),
 		statsRepository: {
 			countTotals: vi.fn(async () => ({ matches: 0, players: 0 })),
+			countBoardEntries: vi.fn(async () => ({ season: null, boards: [] })),
 		},
 		...deps,
 	}
