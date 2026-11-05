@@ -8801,7 +8801,9 @@ var NotificationKind = {
   // A pending result ended after the player left.
   RESULT_LATE: "result_late",
   // A ranked result, told to every player it rated.
-  RESULT_RANKED: "result_ranked"
+  RESULT_RANKED: "result_ranked",
+  // A season ended: the player's place and rating on each board they are on.
+  SEASON_END: "season_end"
 };
 
 // src/notification/store.ts
@@ -10853,6 +10855,90 @@ function rpcAdminRatingsSeasonClear(ctx, logger, nk, payload) {
   return JSON.stringify({ cleared: found.length, cursor });
 }
 
+// src/notification/season_end.ts
+var SEASON_END_COLLECTION = "season_end_notified";
+function splitBoardKey(key, season) {
+  const suffix = `:${season}`;
+  if (!key.endsWith(suffix)) return void 0;
+  const rest = key.slice(0, key.length - suffix.length);
+  const colon = rest.indexOf(":");
+  if (colon <= 0 || colon === rest.length - 1) return void 0;
+  return { modId: rest.slice(0, colon), mode: rest.slice(colon + 1) };
+}
+function seasonEndBoards(entriesByBoard, season) {
+  const byPlayer = /* @__PURE__ */ new Map();
+  const keys = [...entriesByBoard.keys()].sort();
+  for (const key of keys) {
+    const board = splitBoardKey(key, season);
+    if (!board) continue;
+    const ranked = (entriesByBoard.get(key) || []).slice().sort((a, b) => b.rating - a.rating || b.wins - a.wins);
+    ranked.forEach((entry, i) => {
+      const list = byPlayer.get(entry.userId) || [];
+      list.push({
+        modId: board.modId,
+        mode: board.mode,
+        place: i + 1,
+        rating: Math.round(entry.rating)
+      });
+      byPlayer.set(entry.userId, list);
+    });
+  }
+  return byPlayer;
+}
+function readBoards(nk, season) {
+  const entriesByBoard = /* @__PURE__ */ new Map();
+  let cursor = "";
+  do {
+    cursor = scanSeason(nk, season, cursor, (o) => {
+      const v = o.value;
+      if (typeof v.rating !== "number" || typeof v.gamesPlayed !== "number" || v.gamesPlayed < PLACEMENT_GAMES)
+        return;
+      const list = entriesByBoard.get(o.key) || [];
+      list.push({
+        userId: o.userId,
+        rating: v.rating,
+        wins: typeof v.wins === "number" ? v.wins : 0
+      });
+      entriesByBoard.set(o.key, list);
+    });
+  } while (cursor !== "");
+  return entriesByBoard;
+}
+function notifySeasonEnd(nk, season, name) {
+  const byPlayer = seasonEndBoards(readBoards(nk, season), season);
+  for (const [userId, boards] of byPlayer) {
+    const params = { season, name, boards };
+    sendNotification(nk, userId, NotificationKind.SEASON_END, params);
+  }
+  return byPlayer.size;
+}
+function rpcAdminSeasonEndNotify(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const input = parsePayload(payload);
+  const season = input.season;
+  if (typeof season !== "number" || !Number.isInteger(season) || season < 1)
+    throw runtimeError(INVALID_ARGUMENT, "season must be a positive integer");
+  const name = typeof input.name === "string" && input.name !== "" ? input.name : `Season ${season}`;
+  const key = String(season);
+  const done = nk.storageRead([
+    { collection: SEASON_END_COLLECTION, key, userId: SYSTEM_USER_ID }
+  ]);
+  if (done.length > 0) return JSON.stringify({ notified: 0, repeated: true });
+  nk.storageWrite([
+    {
+      collection: SEASON_END_COLLECTION,
+      key,
+      userId: SYSTEM_USER_ID,
+      value: { at: Date.now() },
+      permissionRead: 0,
+      permissionWrite: 0
+    }
+  ]);
+  const notified = notifySeasonEnd(nk, season, name);
+  logger.info("Season %d end told to %d players", season, notified);
+  return JSON.stringify({ notified, repeated: false });
+}
+
 // src/standing/seed.ts
 var EXTRA_SEED_ENV = "QUEUE_ALLOWED_MOD_IDS_EXTRA";
 function seedAllowedModIdsExtra(nk, logger, env) {
@@ -11516,6 +11602,7 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("admin_ratings_season_export", rpcAdminRatingsSeasonExport);
   initializer.registerRpc("admin_ratings_board_export", rpcAdminRatingsBoardExport);
   initializer.registerRpc("admin_ratings_season_clear", rpcAdminRatingsSeasonClear);
+  initializer.registerRpc("admin_season_end_notify", rpcAdminSeasonEndNotify);
   initializer.registerRpc("admin_run_get", rpcAdminRunGet);
   initializer.registerRpc("admin_run_set_result", rpcAdminRunSetResult);
   initializer.registerRpc("admin_match_edit", rpcAdminMatchEdit);

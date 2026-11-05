@@ -31,7 +31,7 @@ function inSeason(key: string, season: number): boolean {
 
 // Runs `visit` on the season's rating records of up to PAGES_PER_CALL storage
 // pages from `cursor`. Returns the cursor to continue from ('' = done).
-function scanSeason(
+export function scanSeason(
 	nk: nkruntime.Nakama,
 	season: number,
 	cursor: string,

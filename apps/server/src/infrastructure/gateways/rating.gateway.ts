@@ -361,8 +361,10 @@ export async function listScopeRatings(
 
 // Ends every season past its end date and opens the next one. Nakama carries
 // ratings into the new season itself (a soft reset on each player's first
-// rating there), so nothing is copied here. Returns how many rolled over.
-export async function checkSeasonRollover(now = new Date()): Promise<number> {
+// rating there), so nothing is copied here. Returns the seasons that ended.
+export async function checkSeasonRollover(
+	now = new Date(),
+): Promise<{ id: number; name: string }[]> {
 	const expired = await db
 		.select()
 		.from(seasons)
@@ -383,5 +385,5 @@ export async function checkSeasonRollover(now = new Date()): Promise<number> {
 			})
 		})
 	}
-	return expired.length
+	return expired.map((season) => ({ id: season.id, name: season.name }))
 }

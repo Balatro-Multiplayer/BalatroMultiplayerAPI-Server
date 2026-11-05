@@ -9,14 +9,30 @@ export const NotificationKind = {
 	RESULT_LATE: 'result_late',
 	// A ranked result, told to every player it rated.
 	RESULT_RANKED: 'result_ranked',
+	// A season ended: the player's place and rating on each board they are on.
+	SEASON_END: 'season_end',
 } as const
 
 export type NotificationKindName =
 	(typeof NotificationKind)[keyof typeof NotificationKind]
 
+export interface SeasonEndBoard {
+	modId: string
+	mode: string
+	place: number
+	rating: number
+}
+
+export interface SeasonEnd {
+	season: number
+	name: string
+	boards: SeasonEndBoard[]
+}
+
 export interface NotificationParams {
 	result_late: LateResult
 	result_ranked: RankedResult
+	season_end: SeasonEnd
 }
 
 export interface StoredNotification {
