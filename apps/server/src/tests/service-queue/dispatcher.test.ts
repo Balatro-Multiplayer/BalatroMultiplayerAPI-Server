@@ -61,6 +61,7 @@ function setup(seed: QueueItem, over: Partial<DispatcherDeps<World>> = {}) {
 		rescore: vi.fn(async () => {}),
 		voidGame: vi.fn(async () => ({ kind: 'voided' as const, rerated: true })),
 		overturnGame: vi.fn(async () => ({ kind: 'applied' as const, rerated: true })),
+		tellContestVoided: vi.fn(async () => true),
 	}
 	const deps: DispatcherDeps<World> = {
 		now: () => NOW,
@@ -426,6 +427,7 @@ describe('a contest item', () => {
 		const { dispatcher, external, world } = setup(contest(), { originalResultOf: async () => [] })
 		expect(await dispatcher.run(1, 'dismiss', MOD, {})).toMatchObject({ ok: true })
 		expect(external.overturnGame).not.toHaveBeenCalled()
+		expect(external.tellContestVoided).toHaveBeenCalledWith({ runId: 'run-1', matchmade: true, ranked: true, decidesContest: true })
 		expect(world.items.get(1)?.status).toBe('resolved')
 	})
 

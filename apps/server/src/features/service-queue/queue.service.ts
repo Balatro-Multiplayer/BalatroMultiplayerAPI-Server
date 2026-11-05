@@ -166,6 +166,10 @@ const deps: DispatcherDeps<DbTransaction> = {
 				return { kind: 'failed', reason: 'the matchmade record is gone' }
 		}
 	},
+	async tellContestVoided(game) {
+		const result = await callNakamaRpc('admin_run_tell_voided', { runId: game.runId })
+		return result.ok
+	},
 	overturnGame,
 
 	transaction: (fn) => db.transaction(fn),

@@ -90,6 +90,8 @@ export interface DispatcherDeps<Tx> {
 	originalResultOf(game: GameRef): Promise<Placement[]>
 	flaggedPlayersOf(runId: string): Promise<Set<string>>
 	voidGame(game: GameRef): Promise<VoidResult>
+	// A contest with no result to rate counts for nobody: tell its players, once.
+	tellContestVoided(game: GameRef): Promise<boolean>
 	overturnGame(game: GameRef, placements: (Placement & { rated?: boolean })[]): Promise<OverturnResult>
 
 	transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T>
@@ -599,7 +601,11 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		}
 		const original = await deps.originalResultOf(game)
 		// Nobody reported before the contest: there is no result to rate.
-		if (original.length < 2) return { ok: true, detail }
+		if (original.length < 2) {
+			if (!(await deps.tellContestVoided(game)))
+				return { ok: false, refusal: { code: 'nakama_failed', reason: 'the players could not be told' } }
+			return { ok: true, detail }
+		}
 		const flagged = game.ranked ? await deps.flaggedPlayersOf(game.runId) : new Set<string>()
 		const result = await deps.overturnGame(game, ratedPlacements(original, flagged, game.ranked))
 		if (result.kind === 'failed') return { ok: false, refusal: { code: 'nakama_failed', reason: result.reason } }

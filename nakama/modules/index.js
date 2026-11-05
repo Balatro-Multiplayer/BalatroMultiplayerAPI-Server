@@ -10703,6 +10703,48 @@ function rpcAdminMatchEdit(ctx, logger, nk, payload) {
   );
 }
 
+// src/notification/rpc.ts
+var MAX_IDS = 100;
+function rpcNotificationsPending(ctx, logger, nk, payload) {
+  const userId = requireUser(ctx);
+  return JSON.stringify({ notifications: listNotifications(nk, userId) });
+}
+function rpcNotificationsRead(ctx, logger, nk, payload) {
+  const userId = requireUser(ctx);
+  const ids = parsePayload(payload).ids;
+  if (!Array.isArray(ids) || ids.length > MAX_IDS || ids.some((id) => typeof id !== "string"))
+    throw runtimeError(
+      INVALID_ARGUMENT,
+      "Missing or invalid ids (array of strings)"
+    );
+  markNotificationsRead(nk, userId, ids);
+  return "{}";
+}
+function rpcAdminRunTellVoided(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const run = readRun(nk, parsePayload(payload).runId);
+  const plan = planResultNotifications(
+    run,
+    __spreadProps(__spreadValues({}, run), { voided: { at: Date.now() } }),
+    false
+  );
+  if (plan.sends.length > 0) {
+    nk.storageWrite([
+      {
+        collection: RUNS_COLLECTION,
+        key: run.runId,
+        userId: SYSTEM_USER_ID,
+        value: __spreadProps(__spreadValues({}, run), { told: plan.told }),
+        permissionRead: 2,
+        permissionWrite: 0
+      }
+    ]);
+    for (const send of plan.sends)
+      sendNotification(nk, send.userId, send.kind, send.params);
+  }
+  return JSON.stringify({ told: plan.sends.length });
+}
+
 // src/rating/replay.ts
 var LIST_PAGE7 = 100;
 var LIST_PAGES_PER_CALL = 10;
@@ -11344,24 +11386,6 @@ function refuseClientAccountDelete(ctx, logger, nk) {
   throw runtimeError(PERMISSION_DENIED, "Delete your account on the website (your profile page)");
 }
 
-// src/notification/rpc.ts
-var MAX_IDS = 100;
-function rpcNotificationsPending(ctx, logger, nk, payload) {
-  const userId = requireUser(ctx);
-  return JSON.stringify({ notifications: listNotifications(nk, userId) });
-}
-function rpcNotificationsRead(ctx, logger, nk, payload) {
-  const userId = requireUser(ctx);
-  const ids = parsePayload(payload).ids;
-  if (!Array.isArray(ids) || ids.length > MAX_IDS || ids.some((id) => typeof id !== "string"))
-    throw runtimeError(
-      INVALID_ARGUMENT,
-      "Missing or invalid ids (array of strings)"
-    );
-  markNotificationsRead(nk, userId, ids);
-  return "{}";
-}
-
 // src/moderation/report.ts
 var REPORT_TYPES = ["cheating", "chat_abuse", "griefing", "inappropriate_username", "other"];
 var MAX_REPORT_MESSAGE = 500;
@@ -11601,6 +11625,7 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("admin_run_get", rpcAdminRunGet);
   initializer.registerRpc("admin_run_set_result", rpcAdminRunSetResult);
   initializer.registerRpc("admin_match_edit", rpcAdminMatchEdit);
+  initializer.registerRpc("admin_run_tell_voided", rpcAdminRunTellVoided);
   logger.info("BMP lobby module loaded");
 }
 !InitModule && InitModule.bind(null);
