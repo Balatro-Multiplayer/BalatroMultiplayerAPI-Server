@@ -26,18 +26,26 @@ function ProfileInfoCard({
         <CardTitle>Profile</CardTitle>
       </CardHeader>
       <CardContent className='space-y-3'>
-        <InfoRow label='Display Name' value={player.displayName} />
-        {player.usernameBanned && (
-          <p className='text-sm text-muted-foreground'>
-            Your name broke the rules, so other players see this name instead. You can appeal below.
-          </p>
-        )}
-        <Separator />
-        <InfoRow label='Steam Name' value={player.steamName} />
-        {player.discordLinked && (
+        {player.usernameBanned ? (
+          // While the username ban lasts, one row with the name everyone sees
+          // replaces the display, Steam and Discord names.
           <>
+            <InfoRow label='Username' value={player.displayName} />
+            <p className='text-sm text-muted-foreground'>
+              Your name broke the rules, so other players see this name instead. You can appeal below.
+            </p>
+          </>
+        ) : (
+          <>
+            <InfoRow label='Display Name' value={player.displayName} />
             <Separator />
-            <InfoRow label='Discord' value={player.discordUsername ?? 'Linked'} />
+            <InfoRow label='Steam Name' value={player.steamName} />
+            {player.discordLinked && (
+              <>
+                <Separator />
+                <InfoRow label='Discord' value={player.discordUsername ?? 'Linked'} />
+              </>
+            )}
           </>
         )}
         {player.preferredJoker && (
