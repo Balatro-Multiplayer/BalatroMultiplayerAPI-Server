@@ -10,150 +10,137 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import type {
-  LauncherPlatform,
-  LauncherRelease,
+import { cn } from '@/lib/utils'
+import type { LauncherRelease } from './launcher-releases-types'
+import {
+  formatFileSize,
+  PLATFORM_LABELS,
+  PLATFORMS,
 } from './launcher-releases-types'
-import { formatFileSize, PLATFORM_LABELS, PLATFORMS } from './launcher-releases-types'
-
-function PlatformCell({
-  release,
-  platform,
-  isPending,
-  onDelete,
-}: {
-  release: LauncherRelease
-  platform: LauncherPlatform
-  isPending: boolean
-  onDelete: (release: LauncherRelease, platform: LauncherPlatform) => void
-}) {
-  const asset = release.assets.find((a) => a.platform === platform)
-  if (!asset) {
-    return (
-      <Badge variant='outline' className='text-muted-foreground'>
-        Not in this release
-      </Badge>
-    )
-  }
-
-  return (
-    <div className='flex items-center gap-2'>
-      <div className='min-w-0'>
-        <p className='truncate text-xs' title={asset.originalFilename}>
-          {asset.originalFilename}
-        </p>
-        <p className='text-muted-foreground text-xs'>
-          {formatFileSize(asset.fileSize)}
-        </p>
-      </div>
-      <Button
-        variant='ghost'
-        size='sm'
-        className='shrink-0 text-destructive hover:text-destructive'
-        disabled={isPending}
-        onClick={() => onDelete(release, platform)}
-      >
-        Remove
-      </Button>
-    </div>
-  )
-}
 
 export function LauncherReleasesTable({
   releases,
   isLoading,
+  selectedId,
   pendingReleaseId,
+  onSelect,
   onResync,
-  onDeletePlatform,
-  onDeleteRelease,
 }: {
   releases: LauncherRelease[]
   isLoading: boolean
+  selectedId: number | null
   pendingReleaseId: number | null
+  onSelect: (release: LauncherRelease) => void
   onResync: (release: LauncherRelease) => void
-  onDeletePlatform: (
-    release: LauncherRelease,
-    platform: LauncherPlatform
-  ) => void
-  onDeleteRelease: (release: LauncherRelease) => void
 }) {
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Version</TableHead>
-          {PLATFORMS.map((platform) => (
-            <TableHead key={platform}>{PLATFORM_LABELS[platform]}</TableHead>
-          ))}
-          <TableHead />
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {isLoading && (
+    <section className='rounded-xl border border-border bg-card p-4'>
+      <div className='mb-2 flex items-baseline justify-between'>
+        <h2 className='font-pixel text-lg'>Imported releases</h2>
+        <span className='text-muted-foreground text-sm'>
+          {releases.length} versions
+        </span>
+      </div>
+      <Table>
+        <TableHeader>
           <TableRow>
-            <TableCell
-              colSpan={PLATFORMS.length + 2}
-              className='text-center text-muted-foreground'
-            >
-              Loading…
-            </TableCell>
+            <TableHead>Version</TableHead>
+            {PLATFORMS.map((platform) => (
+              <TableHead key={platform}>{PLATFORM_LABELS[platform]}</TableHead>
+            ))}
+            <TableHead />
           </TableRow>
-        )}
-        {!isLoading && releases.length === 0 && (
-          <TableRow>
-            <TableCell
-              colSpan={PLATFORMS.length + 2}
-              className='text-center text-muted-foreground'
-            >
-              No launcher releases imported yet.
-            </TableCell>
-          </TableRow>
-        )}
-        {releases.map((release) => {
-          const isPending = pendingReleaseId === release.id
-          return (
-            <TableRow key={release.id}>
-              <TableCell>
-                <p className='font-medium font-mono'>{release.version}</p>
-                <p className='text-muted-foreground text-xs'>
-                  {release.githubReleaseTag}
-                </p>
+        </TableHeader>
+        <TableBody>
+          {isLoading && (
+            <TableRow>
+              <TableCell
+                colSpan={PLATFORMS.length + 2}
+                className='text-center text-muted-foreground'
+              >
+                Loading…
               </TableCell>
-              {PLATFORMS.map((platform) => (
-                <TableCell key={platform}>
-                  <PlatformCell
-                    release={release}
-                    platform={platform}
-                    isPending={isPending}
-                    onDelete={onDeletePlatform}
-                  />
+            </TableRow>
+          )}
+          {!isLoading && releases.length === 0 && (
+            <TableRow>
+              <TableCell
+                colSpan={PLATFORMS.length + 2}
+                className='text-center text-muted-foreground'
+              >
+                No launcher releases imported yet.
+              </TableCell>
+            </TableRow>
+          )}
+          {releases.map((release, i) => {
+            const isPending = pendingReleaseId === release.id
+            return (
+              <TableRow
+                key={release.id}
+                className={cn(
+                  'cursor-pointer',
+                  selectedId === release.id && 'bg-destructive/10'
+                )}
+                onClick={() => onSelect(release)}
+              >
+                <TableCell>
+                  <p className='font-medium font-mono'>{release.version}</p>
+                  <p className='font-mono text-muted-foreground text-xs'>
+                    {release.githubReleaseTag}
+                  </p>
+                  {i === 0 && (
+                    <Badge variant='outline' className='mt-1'>
+                      latest
+                    </Badge>
+                  )}
                 </TableCell>
-              ))}
-              <TableCell>
-                <div className='flex justify-end gap-1'>
+                {PLATFORMS.map((platform) => {
+                  const asset = release.assets.find(
+                    (a) => a.platform === platform
+                  )
+                  return (
+                    <TableCell key={platform}>
+                      {asset ? (
+                        <>
+                          <p
+                            className='max-w-48 truncate text-sm'
+                            title={asset.originalFilename}
+                          >
+                            {asset.originalFilename}
+                          </p>
+                          <p className='text-muted-foreground text-xs'>
+                            {formatFileSize(asset.fileSize)}
+                          </p>
+                        </>
+                      ) : (
+                        <Badge
+                          variant='outline'
+                          className='text-muted-foreground'
+                        >
+                          Not in this release
+                        </Badge>
+                      )}
+                    </TableCell>
+                  )
+                })}
+                <TableCell className='text-right'>
                   <Button
-                    variant='ghost'
+                    variant='outline'
                     size='sm'
                     disabled={isPending}
-                    onClick={() => onResync(release)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onResync(release)
+                    }}
                   >
                     Re-sync
                   </Button>
-                  <Button
-                    variant='ghost'
-                    size='sm'
-                    className='text-destructive hover:text-destructive'
-                    disabled={isPending}
-                    onClick={() => onDeleteRelease(release)}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          )
-        })}
-      </TableBody>
-    </Table>
+                </TableCell>
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+    </section>
   )
 }
