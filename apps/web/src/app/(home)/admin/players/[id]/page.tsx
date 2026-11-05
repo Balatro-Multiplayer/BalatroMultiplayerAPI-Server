@@ -198,7 +198,7 @@ function PlayerPageView() {
                 onLift={isAdmin ? (target) => openBar('lift', target) : null}
               />
             )}
-            {tab === 'chat' && <ChatTab playerId={id} lines={data.chat} />}
+            {tab === 'chat' && <ChatTab playerId={id} fromItem={fromItem} />}
             {tab === 'matches' && (
               <MatchesTab
                 matches={data.matches}

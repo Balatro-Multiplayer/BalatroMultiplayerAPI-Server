@@ -70,6 +70,23 @@ export interface PageChatLine {
   sentAt: string
 }
 
+export interface PlayerChatGroup {
+  key: string
+  lobbyCode: string
+  runId: string | null
+  flagged: boolean
+  lines: (PageChatLine & { lobbyId: string | null; runId: string | null })[]
+}
+
+// GET /webadmin/players/:id/chat
+export interface PlayerChatPage {
+  groups: PlayerChatGroup[]
+  total: number
+  page: number
+  limit: number
+  pages: number
+}
+
 export interface PageQueueItem {
   id: number
   itemType: string

@@ -1,8 +1,9 @@
-import { desc, eq, inArray } from 'drizzle-orm'
+import { count, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { DbExecutor } from '../db/executor.js'
 import { db } from '../db/index.js'
 import {
 	chatLogs,
+	lobbyRuns,
 	playerNotes,
 	players,
 	serviceQueueItems,
@@ -34,6 +35,82 @@ export async function listPlayerChat(
 		.where(eq(chatLogs.playerId, playerId))
 		.orderBy(desc(chatLogs.sentAt), desc(chatLogs.id))
 		.limit(limit)
+}
+
+export interface PlayerChatPageLine {
+	id: number
+	lobbyCode: string
+	lobbyId: string | null
+	// The match the lobby ran while this line was sent, when it ran one.
+	runId: string | null
+	message: string
+	flagged: boolean
+	sentAt: Date
+}
+
+// One page of a player's whole chat, newest first. A lobby's lines stay
+// together: lobby ids repeat only inside one lobby, and a line with no lobby
+// id falls back to its lobby code. With flaggedFirst, lobbies that hold a
+// flagged line of the player come first, newest first inside each half.
+export async function listPlayerChatPage(
+	playerId: string,
+	opts: { page: number; limit: number; flaggedFirst: boolean },
+): Promise<{ lines: PlayerChatPageLine[]; total: number }> {
+	const key = sql`coalesce(${chatLogs.lobbyId}::text, ${chatLogs.lobbyCode})`
+	const lobbyFlagged = sql`bool_or(${chatLogs.flagged}) over (partition by ${key})`
+	const lobbyNewest = sql`max(${chatLogs.sentAt}) over (partition by ${key})`
+	const order = [
+		...(opts.flaggedFirst ? [sql`${lobbyFlagged} desc`] : []),
+		sql`${lobbyNewest} desc`,
+		sql`${key}`,
+		desc(chatLogs.sentAt),
+		desc(chatLogs.id),
+	]
+	const [rows, [{ total }]] = await Promise.all([
+		db
+			.select({
+				id: chatLogs.id,
+				lobbyCode: chatLogs.lobbyCode,
+				lobbyId: chatLogs.lobbyId,
+				message: chatLogs.message,
+				flagged: chatLogs.flagged,
+				sentAt: chatLogs.sentAt,
+			})
+			.from(chatLogs)
+			.where(eq(chatLogs.playerId, playerId))
+			.orderBy(...order)
+			.limit(opts.limit)
+			.offset((opts.page - 1) * opts.limit),
+		db.select({ total: count() }).from(chatLogs).where(eq(chatLogs.playerId, playerId)),
+	])
+	const codes = [...new Set(rows.map((r) => r.lobbyCode))]
+	const runs =
+		codes.length === 0
+			? []
+			: await db
+					.select({
+						id: lobbyRuns.id,
+						lobbyCode: lobbyRuns.lobbyCode,
+						startedAt: lobbyRuns.startedAt,
+						finalizedAt: lobbyRuns.finalizedAt,
+					})
+					.from(lobbyRuns)
+					.where(inArray(lobbyRuns.lobbyCode, codes))
+					.orderBy(desc(lobbyRuns.startedAt))
+	return {
+		total,
+		lines: rows.map((r) => ({
+			...r,
+			// Codes are reused, so a run counts only when the line fell inside it.
+			runId:
+				runs.find(
+					(run) =>
+						run.lobbyCode === r.lobbyCode &&
+						run.startedAt <= r.sentAt &&
+						(run.finalizedAt === null || r.sentAt <= run.finalizedAt),
+				)?.id ?? null,
+		})),
+	}
 }
 
 export async function listPlayerQueueItems(
