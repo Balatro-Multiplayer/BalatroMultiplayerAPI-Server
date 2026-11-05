@@ -10,6 +10,7 @@ import { resolveBracket } from './engine/resolve'
 import type { Change } from './lifecycle'
 import { type LobbyNeed, claimLobby, gameEnded, lobbiesNeeded, lobbyClosed, lobbyLost, lobbyOpened, lobbyReused, minutesLeft } from './matches'
 import { lobbiesToClose } from './lobby_state'
+import { draftOrderFor } from './lobby_draft'
 import {
 	TOURNAMENT_MOD_ID,
 	type Tournament,
@@ -105,7 +106,8 @@ function createLobby(nk: nkruntime.Nakama, logger: nkruntime.Logger, t: Tourname
 			releaseCode(nk, code, '')
 			return null
 		}
-		const ref: TournamentLobbyRef = { tournamentId: t.id, matchId: need.matchId }
+		const draft = draftOrderFor(need.settings, claimed.bracket ? claimed.bracket.seeds : [], need.players)
+		const ref: TournamentLobbyRef = draft ? { tournamentId: t.id, matchId: need.matchId, draft } : { tournamentId: t.id, matchId: need.matchId }
 		let matchId: string
 		try {
 			matchId = nk.matchCreate(LOBBY_MATCH, {

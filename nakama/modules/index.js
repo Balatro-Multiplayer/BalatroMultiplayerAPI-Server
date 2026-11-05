@@ -2242,6 +2242,49 @@ function releaseCode(nk, code, matchId) {
   }
 }
 
+// src/tournament/lobby_draft.ts
+function draftOrderFor(settings, seeds, players) {
+  const deck = settings.deck;
+  if (!deck || deck.kind !== "draft") return void 0;
+  const seed = (id) => {
+    const i = seeds.indexOf(id);
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  const [better, worse] = seed(players[0]) <= seed(players[1]) ? players : [players[1], players[0]];
+  if (deck.banOrder === "lower_seed_first") return { first: worse };
+  if (deck.banOrder === "lower_seed_last") return { first: better };
+  if (deck.banOrder === "previous_loser_first") return { loserFirst: true };
+  return void 0;
+}
+function afterTournamentGame(ref, placements) {
+  if (!ref.draft || !ref.draft.loserFirst || placements.length < 2) return ref;
+  let loser = null;
+  for (const p of placements) if (!loser || p.place > loser.place) loser = p;
+  const best = Math.min(...placements.map((p) => p.place));
+  if (!loser || loser.place === best) return ref;
+  return __spreadProps(__spreadValues({}, ref), { draft: __spreadProps(__spreadValues({}, ref.draft), { first: loser.playerId }) });
+}
+function parseLobbyRef(value) {
+  if (!value || typeof value !== "object") return void 0;
+  const { tournamentId, matchId, draft } = value;
+  if (typeof tournamentId !== "string" || typeof matchId !== "string") return void 0;
+  const ref = { tournamentId, matchId };
+  if (draft && typeof draft === "object") {
+    const d = draft;
+    const order = {};
+    if (typeof d.first === "string") order.first = d.first;
+    if (d.loserFirst === true) order.loserFirst = true;
+    if (order.first !== void 0 || order.loserFirst) ref.draft = order;
+  }
+  return ref;
+}
+function draftFirstIndex(ref, order) {
+  const first = ref && ref.draft ? ref.draft.first : void 0;
+  if (!first) return null;
+  const i = order.indexOf(first);
+  return i === -1 ? null : i;
+}
+
 // src/actions/setup.ts
 var STEP_ID_PATTERN = /^[a-z0-9_]{1,32}$/;
 var MAX_CANDIDATES = 64;
@@ -2427,6 +2470,7 @@ function changed(game, now) {
 var startDraft = {
   key: "mpapi_setup_draft",
   reduce(lobby, ctx, params) {
+    var _a;
     const p = isPlainObject(params) ? params : {};
     const refusal = startRefusal(lobby, ctx, p.id);
     if (refusal) return { reject: refusal };
@@ -2457,7 +2501,8 @@ var startDraft = {
       pool,
       banned: [],
       order,
-      first: pickIndex(order.length, ctx.random),
+      // A tournament lobby's ban order decides; any other lobby rolls.
+      first: (_a = draftFirstIndex(lobby.tournament, order)) != null ? _a : pickIndex(order.length, ctx.random),
       schedule: turns,
       turn: 0,
       remaining: turns.length > 0 ? turns[0].count : 0,
@@ -11395,7 +11440,8 @@ function createLobby(nk, logger, t, need) {
       releaseCode(nk, code, "");
       return null;
     }
-    const ref = { tournamentId: t.id, matchId: need.matchId };
+    const draft = draftOrderFor(need.settings, claimed.bracket ? claimed.bracket.seeds : [], need.players);
+    const ref = draft ? { tournamentId: t.id, matchId: need.matchId, draft } : { tournamentId: t.id, matchId: need.matchId };
     let matchId;
     try {
       matchId = nk.matchCreate(LOBBY_MATCH, {
@@ -11663,6 +11709,7 @@ function runEffect(ctx, logger, nk, dispatcher, lobby, presences, effect) {
         }
       }
       if (stored && lobby.tournament) {
+        lobby.tournament = afterTournamentGame(lobby.tournament, stored.placements);
         try {
           tournamentGameEnded(nk, logger, lobby.tournament, stored);
         } catch (e) {
@@ -11752,11 +11799,7 @@ function requiredStandingParam(params) {
   return value === "valid" || value === "verified" ? value : void 0;
 }
 function tournamentParam(params) {
-  const value = jsonParam(params, "tournament");
-  if (!value || typeof value !== "object") return void 0;
-  const { tournamentId, matchId } = value;
-  if (typeof tournamentId !== "string" || typeof matchId !== "string") return void 0;
-  return { tournamentId, matchId };
+  return parseLobbyRef(jsonParam(params, "tournament"));
 }
 function metadataParam(params) {
   const value = jsonParam(params, "metadata");

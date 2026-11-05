@@ -153,6 +153,9 @@ export interface TournamentLobby {
 export interface TournamentLobbyRef {
 	tournamentId: string
 	matchId: string
+	// Who bans first in its Draft (lobby_draft.ts): a player, or the last
+	// game's loser (the lobby fills `first` in after each game).
+	draft?: { first?: string; loserFirst?: boolean }
 }
 
 // The privilege (Profile.privileges, set by the web admin or admin_profile_set)

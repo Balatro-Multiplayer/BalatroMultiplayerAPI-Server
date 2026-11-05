@@ -77,6 +77,7 @@ import { rejoinRefusal, rejoinRejectMessage } from '../standing/rejoin'
 import type { RequiredStanding } from '../standing/standing'
 import type { TournamentLobbyRef } from '../tournament/model'
 import { tournamentGameEnded } from '../tournament/effects'
+import { afterTournamentGame, parseLobbyRef } from '../tournament/lobby_draft'
 import { settingsOf, type ServerSettings } from '../server_kind'
 
 const TICK_RATE = 5
@@ -292,6 +293,8 @@ function runEffect(
 			}
 			// A tournament lobby's game is a game of its match.
 			if (stored && lobby.tournament) {
+				// "Last game's loser bans first": remember who that is.
+				lobby.tournament = afterTournamentGame(lobby.tournament, stored.placements)
 				try {
 					tournamentGameEnded(nk, logger, lobby.tournament, stored)
 				} catch (e) {
@@ -392,11 +395,7 @@ function requiredStandingParam(params: { [key: string]: unknown }): RequiredStan
 // The tournament module's params (tournament/effects.ts): which match of
 // which tournament this lobby plays, and its first metadata (round settings).
 function tournamentParam(params: { [key: string]: unknown }): TournamentLobbyRef | undefined {
-	const value = jsonParam(params, 'tournament') as { [key: string]: unknown } | null
-	if (!value || typeof value !== 'object') return undefined
-	const { tournamentId, matchId } = value
-	if (typeof tournamentId !== 'string' || typeof matchId !== 'string') return undefined
-	return { tournamentId, matchId }
+	return parseLobbyRef(jsonParam(params, 'tournament'))
 }
 
 function metadataParam(params: { [key: string]: unknown }): { [key: string]: unknown } | undefined {

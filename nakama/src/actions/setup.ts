@@ -22,6 +22,7 @@ import type {
 import { BROADCAST_TARGET, SERVER_TARGET, ServerOp } from '../lobby/protocol'
 import type { Lobby, Step } from '../lobby/state'
 import type { ActionContext, AuthoritativeAction, Reduction } from './registry'
+import { draftFirstIndex } from '../tournament/lobby_draft'
 
 export const STEP_ID_PATTERN = /^[a-z0-9_]{1,32}$/
 export const MAX_CANDIDATES = 64
@@ -333,7 +334,8 @@ const startDraft: AuthoritativeAction = {
 			pool,
 			banned: [],
 			order,
-			first: pickIndex(order.length, ctx.random),
+			// A tournament lobby's ban order decides; any other lobby rolls.
+			first: draftFirstIndex(lobby.tournament, order) ?? pickIndex(order.length, ctx.random),
 			schedule: turns,
 			turn: 0,
 			remaining: turns.length > 0 ? turns[0].count : 0,
