@@ -136,6 +136,21 @@ describe('service-queue.gateway', () => {
 		})
 	})
 
+	describe('listServiceQueueItems hideClaimedFrom', () => {
+		it('adds a condition that leaves out items claimed by others', async () => {
+			const [total] = selects([{ total: 0 }], [])
+			await listServiceQueueItems({
+				page: 1,
+				limit: 50,
+				sort: 'priority',
+				status: 'open',
+				hideClaimedFrom: 'mod-1',
+				now: new Date('2026-02-01T00:00:00Z'),
+			})
+			expect(total.argsOf('where')?.[0]).toBeDefined()
+		})
+	})
+
 	describe('getServiceQueueItemById', () => {
 		it('returns the row when found', async () => {
 			selects([SAMPLE_ROW])
