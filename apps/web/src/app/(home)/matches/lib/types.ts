@@ -1,3 +1,5 @@
+import type { ItemType } from '../../admin/service-queue/lib/types'
+
 export type RunStatus = 'active' | 'completed' | 'abandoned' | 'terminated'
 
 export interface RunRow {
@@ -45,4 +47,61 @@ export interface RunReplayResponse {
   run: ReplayRun
   logs: PlayerLogRow[]
   viewer: { role: ReplayViewerRole; playerId?: string }
+}
+
+// The staff-only parts of the match page (apps/server webadmin match-staff
+// route): the result with rating changes, the queue items about the match and
+// the staff actions taken on it.
+export interface StaffResultRow {
+  playerId: string
+  displayName: string | null
+  place: number
+  /** The match's rating change; null when the player was not rated. */
+  delta: number | null
+  newRating: number | null
+  isPlacement: boolean
+}
+
+export type QueueItemClaim = 'you' | 'other' | null
+
+export interface StaffQueueItem {
+  id: number
+  itemType: ItemType
+  status: 'open' | 'resolved'
+  summary: string
+  createdAt: string
+  claim: QueueItemClaim
+}
+
+export interface StaffActionRow {
+  id: number
+  action: string
+  staffPlayerId: string
+  staffName: string | null
+  staffRole: string
+  itemId: number | null
+  reason: string
+  at: string
+}
+
+export interface MatchStaffResponse {
+  match: { gameMode: string; modId: string; status: string } | null
+  result: StaffResultRow[] | null
+  queueItems: StaffQueueItem[]
+  staffActions: StaffActionRow[]
+  viewer: { role: 'moderator' | 'admin' }
+}
+
+export interface MatchChatLine {
+  id: number
+  playerId: string
+  displayName: string | null
+  message: string
+  flagged: boolean
+  sentAt: string
+}
+
+export interface MatchChatResponse {
+  lines: MatchChatLine[]
+  window: { from: string; to: string | null }
 }

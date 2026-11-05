@@ -2,14 +2,14 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ApiError, apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { GameLogView } from '../components/game-log/game-log-view'
-import { MatchTimeline } from '../components/match-timeline'
+import { StaffMatchView } from '../components/staff-match-view'
 import { PlayerLabel } from '../components/player-label'
 import { RunStatusBadge } from '../components/status-badge'
 import { decodePlayerLogs } from '../lib/decode-player-logs'
@@ -74,7 +74,7 @@ export default function MatchPage() {
   const { pending, player } = useAuth()
   const runId = useParams().runId as string
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<'log' | 'timeline'>('log')
+  const fromItem = Number.parseInt(useSearchParams().get('item') ?? '', 10)
   const queryKey = ['match-replay', runId, player?.id ?? null]
 
   // No login needed: the API decides what this viewer may see.
@@ -128,7 +128,43 @@ export default function MatchPage() {
   const viewerId = data.viewer.playerId ?? null
   const share = shareControl(data)
   const isModerator = data.viewer.role === 'moderator'
-  const showTimeline = isModerator && tab === 'timeline'
+
+  const failureNotes =
+    failures.length > 0 ? (
+      <Card className='border-destructive/40'>
+        <CardContent className='space-y-1 pt-6 text-destructive text-sm'>
+          {failures.map((f) => (
+            <p key={f.playerId}>
+              Player {names.get(f.playerId) ?? f.playerId.slice(0, 8)}: {f.error}
+            </p>
+          ))}
+        </CardContent>
+      </Card>
+    ) : null
+
+  if (isModerator) {
+    return (
+      <StaffMatchView
+        runId={runId}
+        data={data}
+        gameLog={gameLog}
+        names={names}
+        hidden={hidden}
+        failureNotes={failureNotes}
+        fromItem={Number.isInteger(fromItem) ? fromItem : null}
+        shareSlot={
+          share && (
+            <ShareButtons
+              runId={runId}
+              shared={share.shared}
+              busy={shareMutation.isPending}
+              onToggle={() => shareMutation.mutate(!share.shared)}
+            />
+          )
+        }
+      />
+    )
+  }
 
   return (
     <div className='container max-w-6xl space-y-6 py-8'>
@@ -165,60 +201,24 @@ export default function MatchPage() {
         )}
       </div>
 
-      {isModerator && (
-        <div className='flex gap-2'>
-          <Button
-            size='sm'
-            variant={tab === 'log' ? 'default' : 'outline'}
-            onClick={() => setTab('log')}
-          >
-            Match log
-          </Button>
-          <Button
-            size='sm'
-            variant={tab === 'timeline' ? 'default' : 'outline'}
-            onClick={() => setTab('timeline')}
-          >
-            Event timeline
-          </Button>
-        </div>
-      )}
+      {failureNotes}
 
-      {showTimeline ? (
-        <MatchTimeline logs={data.logs} viewerId={viewerId} />
+      {gameLog.players.length === 0 ? (
+        <p className='text-muted-foreground text-sm'>
+          No player logs were recorded for this match.
+        </p>
       ) : (
-        <>
-          {failures.length > 0 && (
-            <Card className='border-destructive/40'>
-              <CardContent className='space-y-1 pt-6 text-destructive text-sm'>
-                {failures.map((f) => (
-                  <p key={f.playerId}>
-                    Player {names.get(f.playerId) ?? f.playerId.slice(0, 8)}:{' '}
-                    {f.error}
-                  </p>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {gameLog.players.length === 0 ? (
-            <p className='text-muted-foreground text-sm'>
-              No player logs were recorded for this match.
-            </p>
-          ) : (
-            <GameLogView
-              log={gameLog}
-              hiddenPlayerIds={hidden}
-              playerLabel={(id) => (
-                <PlayerLabel
-                  playerId={id}
-                  displayName={names.get(id)}
-                  viewerId={viewerId}
-                />
-              )}
+        <GameLogView
+          log={gameLog}
+          hiddenPlayerIds={hidden}
+          playerLabel={(id) => (
+            <PlayerLabel
+              playerId={id}
+              displayName={names.get(id)}
+              viewerId={viewerId}
             />
           )}
-        </>
+        />
       )}
     </div>
   )
