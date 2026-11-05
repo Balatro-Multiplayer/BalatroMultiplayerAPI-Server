@@ -18,9 +18,8 @@ export default function NoticePage() {
     <div className='container max-w-3xl py-10'>
       <div
         className='rounded-lg border border-border bg-card p-8 space-y-4'
-        style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", WebkitFontSmoothing: 'antialiased' }}
       >
-        <h1 className='text-2xl font-bold' style={{ fontFamily: "'m6x11', monospace", textShadow: '3px 3px 0 rgba(0,0,0,0.4)' }}>
+        <h1 className='text-2xl font-bold' style={{ textShadow: '3px 3px 0 rgba(0,0,0,0.4)' }}>
           Privacy &amp; Terms Notice
         </h1>
         <p className='text-xs text-muted-foreground' style={{ marginBottom: 32 }}>Last updated: {lastUpdated}</p>

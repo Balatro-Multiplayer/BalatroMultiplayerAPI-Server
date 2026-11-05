@@ -9,10 +9,14 @@
 
 @theme {
   --font-m6x11: var(--font-m6x11);
-  --font-sans: var(--font-m6x11), 'Courier New', monospace;
-  /* Complementary readable sans for dense informational text (tables, data).
-     Apply with the `font-readable` utility; the pixel font stays for headings. */
-  --font-readable: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  /* Inter is the default text font. The pixel font is opt-in: the `font-pixel`
+     utility (also applied to h1-h6 and card titles below) for the nav, logo,
+     headings, toggle buttons and large numbers. */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-readable: var(--font-sans);
+  --font-pixel: var(--font-m6x11), 'Courier New', monospace;
+  /* Ids, versions and times. */
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, 'SF Mono', Consolas, monospace;
 
   /* Authentic Balatro G.C accent colours → Tailwind utilities (text-bal-*, bg-bal-*).
      Used sparingly as highlights on the muted-dark base. */
@@ -187,13 +191,25 @@
 
   body {
     @apply bg-background text-foreground;
-    -webkit-font-smoothing: none;
-    /* Slight tracking on the pixel font, site-wide (inherited). */
-    letter-spacing: 0.05em;
   }
 
-  /* Form controls don't inherit letter-spacing by default — force it so button
-     labels (e.g. admin username lists) match the rest of the site. */
+  /* The pixel font: headings, card titles and anything marked `font-pixel`.
+     It wants slight tracking and no font smoothing. */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  [data-slot='card-title'],
+  .font-pixel {
+    font-family: var(--font-pixel);
+    letter-spacing: 0.05em;
+    -webkit-font-smoothing: none;
+  }
+
+  /* Form controls don't inherit letter-spacing by default; force it so a
+     `font-pixel` parent tracks its buttons the same way. */
   button,
   input,
   select,

@@ -72,7 +72,7 @@ function StatCard({ label, value, color }: { label: string; value: number | null
   return (
     <Card>
       <CardContent className='pt-6 text-center'>
-        <div className={`text-4xl font-black ${color}`}>
+        <div className={`font-pixel text-4xl font-black ${color}`}>
           {value != null ? value.toLocaleString() : '-'}
         </div>
         <div className='mt-1.5 text-xs uppercase tracking-wider text-muted-foreground'>{label}</div>

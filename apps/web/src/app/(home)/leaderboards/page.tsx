@@ -139,7 +139,7 @@ function LeaderboardsContent() {
               setModeParam(null)
               setPage(1)
             }}
-            className={`rounded-md border px-4 py-2 font-bold text-sm transition-colors ${
+            className={`rounded-md border px-4 py-2 font-bold font-pixel text-base transition-colors ${
               category.id === c.id
                 ? 'border-primary bg-primary text-primary-foreground'
                 : 'border-border bg-muted text-muted-foreground hover:bg-accent'
@@ -259,7 +259,7 @@ function LeaderboardsContent() {
                             {entry.displayName}
                           </a>
                         </td>
-                        <td className='px-4 py-3 font-bold text-bal-gold'>
+                        <td className='px-4 py-3 font-bold font-pixel text-bal-gold'>
                           {Math.round(entry.rating)}
                         </td>
                         <td className='px-4 py-3 font-semibold text-bal-blue'>
