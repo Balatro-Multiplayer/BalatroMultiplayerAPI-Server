@@ -1,216 +1,66 @@
 'use client'
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { BanType } from '@bmp/types'
+import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
-import { type ReactNode, useEffect, useState } from 'react'
+import { useParams, useSearchParams } from 'next/navigation'
+import { Suspense, useMemo, useState } from 'react'
+import { UndoStrip } from '@/components/admin/decision-bar/decision-bar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { Empty, Facts, Section } from '../../service-queue/components/evidence/shared'
-import { formatTime } from '../../service-queue/lib/format'
+import { cn } from '@/lib/utils'
+import { itemIdOf } from '../../service-queue/lib/links'
+import { ChatTab } from '../components/chat-tab'
+import { HistoryTab } from '../components/history-tab'
 import {
-  type BanPreset,
-  IssueBanForm,
-  presetExpiry,
-} from '../components/issue-ban-form'
-import { LadderPick } from '../components/ladder-pick'
+  LinkedAccountsTab,
+  useIdentity,
+} from '../components/linked-accounts-tab'
+import { MatchesTab, ReportsTab } from '../components/list-tabs'
+import { type BarStart, PlayerActionBar } from '../components/player-action-bar'
+import { SideColumn } from '../components/side-column'
+import type { LiftTarget, PlayerAction } from '../lib/player-bar'
 import {
-  defaultLadderOf,
-  LADDER_LABELS,
-  LADDERS,
-  type Ladder,
-  STEP_LABELS,
-} from '../lib/strikes'
-import type { PageAppeal, PageBan, PlayerIdentity, PlayerPage } from '../lib/types'
+  backToQueueItem,
+  openingTab,
+  type PlayerTab,
+  sourceTypeOf,
+  TAB_LABELS,
+  tabsFor,
+} from '../lib/player-tab'
+import { historyOf } from '../lib/player-view'
+import type { PlayerPage } from '../lib/types'
 
-// Every staff action needs a reason for the staff log; nothing is sent without one.
-function askReason(question: string): string | null {
-  const reason = window.prompt(question)?.trim()
-  return reason || null
-}
-
-function Row({ children }: { children: ReactNode }) {
-  return (
-    <li className='rounded-md border border-border p-2 text-sm'>{children}</li>
-  )
-}
-
-function isActive(ban: PageBan): boolean {
-  return !ban.liftedAt && (!ban.expiresAt || new Date(ban.expiresAt) > new Date())
-}
-
-function BanRow({
-  ban,
-  onLift,
-}: {
-  ban: PageBan
-  onLift: (() => void) | null
-}) {
-  const active = isActive(ban)
-  return (
-    <Row>
-      <div className='flex items-start justify-between gap-2'>
-        <div className='space-y-0.5'>
-          <Badge variant={active ? 'destructive' : 'outline'}>
-            {ban.banType}
-          </Badge>{' '}
-          {ban.reason || 'no reason'}
-          <p className='text-muted-foreground text-xs'>
-            Given by {ban.issuedByName ?? 'unknown'} on{' '}
-            {formatTime(ban.issuedAt)}, until{' '}
-            {ban.expiresAt ? formatTime(ban.expiresAt) : 'permanent'}
-          </p>
-          {ban.liftedAt && (
-            <p className='text-muted-foreground text-xs'>
-              Lifted by {ban.liftedByName ?? 'unknown'} on{' '}
-              {formatTime(ban.liftedAt)}
-            </p>
-          )}
-        </div>
-        {active && onLift && (
-          <Button size='sm' variant='outline' onClick={onLift}>
-            Lift
-          </Button>
-        )}
-      </div>
-    </Row>
-  )
-}
-
-function punishmentLabel(p: PageAppeal['punishment']): string {
-  if (p.kind === 'network_ban') return 'Network ban'
-  if (p.kind === 'gone') return 'Punishment no longer on record'
-  const what = p.kind === 'ban' ? `${p.banType ?? ''} ban` : 'Warning'
-  return p.reason ? `${what}: ${p.reason}` : what
-}
-
-function AppealsSection({ appeals }: { appeals: PageAppeal[] }) {
-  return (
-    <Section title={`Appeals (${appeals.length})`}>
-      {appeals.length === 0 ? (
-        <Empty>No appeals.</Empty>
-      ) : (
-        <ul className='space-y-1'>
-          {appeals.map((a) => (
-            <Row key={a.id}>
-              <Badge
-                variant={a.status === 'open' ? 'secondary' : 'outline'}
-              >
-                {a.status}
-                {a.outcome ? ` (${a.outcome})` : ''}
-              </Badge>{' '}
-              {punishmentLabel(a.punishment)}
-              <p className='text-muted-foreground text-xs'>
-                Made {formatTime(a.createdAt)}: {a.message}
-              </p>
-              {a.decidedAt && (
-                <p className='text-muted-foreground text-xs'>
-                  Decided by {a.decidedByName ?? 'unknown'} on{' '}
-                  {formatTime(a.decidedAt)}
-                  {a.decisionReason ? `: ${a.decisionReason}` : ''}
-                </p>
-              )}
-            </Row>
-          ))}
-        </ul>
-      )}
-    </Section>
-  )
-}
-
-function IdentitySection({ playerId }: { playerId: string }) {
-  const { data, isError } = useQuery<PlayerIdentity>({
-    queryKey: ['admin-player-identity', playerId],
-    queryFn: () => apiFetch(`/webadmin/players/${playerId}/identity`),
-    retry: false,
-  })
-  if (isError)
-    return (
-      <Section title='Identity'>
-        <Empty>Identity data is not available right now.</Empty>
-      </Section>
-    )
-  if (!data) return null
-  return (
-    <Section title='Identity (admins only)'>
-      <Facts
-        rows={[
-          ['Steam id hash', data.steamIdHash ?? '-'],
-          ['Discord id hash', data.discordIdHash ?? '-'],
-          ['Discord name', data.discordUsername ?? '-'],
-          ['Networks (30 days)', String(data.networks.count)],
-        ]}
-      />
-      {data.networks.hashes.length > 0 && (
-        <ul className='font-mono text-muted-foreground text-xs'>
-          {data.networks.hashes.map((n) => (
-            <li key={n.hash} className='break-all'>
-              {n.hash} (last seen {formatTime(n.lastSeen)})
-            </li>
-          ))}
-        </ul>
-      )}
-      <h4 className='pt-2 font-medium text-sm'>Network bans</h4>
-      {data.networkBans.length === 0 ? (
-        <Empty>None.</Empty>
-      ) : (
-        <ul className='space-y-1'>
-          {data.networkBans.map((b) => (
-            <Row key={b.banId}>
-              {b.own ? 'Caused by this account' : 'Covers a network it used'},{' '}
-              {b.networks} network{b.networks === 1 ? '' : 's'}, from{' '}
-              {formatTime(b.bannedAt)}
-              {b.liftedAt ? `, lifted ${formatTime(b.liftedAt)}` : ''}
-            </Row>
-          ))}
-        </ul>
-      )}
-      <h4 className='pt-2 font-medium text-sm'>Linked accounts</h4>
-      {data.linkedAccounts.length === 0 ? (
-        <Empty>None.</Empty>
-      ) : (
-        <ul className='space-y-1'>
-          {data.linkedAccounts.map((a) => (
-            <Row key={a.playerId}>
-              <Link
-                href={`/admin/players/${a.playerId}`}
-                className='text-bal-blue hover:underline'
-              >
-                {a.name ?? a.playerId}
-              </Link>{' '}
-              (banned on a network this account used)
-            </Row>
-          ))}
-        </ul>
-      )}
-    </Section>
-  )
-}
+const HEADER_BUTTONS: { action: PlayerAction; label: string; red?: boolean }[] =
+  [
+    { action: 'note', label: 'Add note' },
+    { action: 'warn', label: 'Warn' },
+    { action: 'chat_ban', label: 'Chat ban' },
+    { action: 'queue_ban', label: 'Queue ban', red: true },
+  ]
 
 export default function AdminPlayerPage() {
-  const { id } = useParams<{ id: string }>()
-  const { isAdmin, isModerator } = useAuth()
-  const qc = useQueryClient()
-  const canAccess = isAdmin || isModerator
+  // useSearchParams needs a Suspense boundary for the static build.
+  return (
+    <Suspense
+      fallback={
+        <div className='container py-8 text-muted-foreground'>Loading…</div>
+      }
+    >
+      <PlayerPageView />
+    </Suspense>
+  )
+}
 
-  const [banType, setBanType] = useState<BanType>('chat')
-  const [banPreset, setBanPreset] = useState<BanPreset>('7d')
-  const [banExpiry, setBanExpiry] = useState('')
-  const [banReason, setBanReason] = useState('')
-  const [warnMessage, setWarnMessage] = useState('')
-  const [warnReason, setWarnReason] = useState('')
-  const [note, setNote] = useState('')
-  // The ladder each punishment counts on; null follows the ban type.
-  const [banLadder, setBanLadder] = useState<Ladder | null>(null)
-  const [banDeviation, setBanDeviation] = useState('')
-  const [warnLadder, setWarnLadder] = useState<Ladder>('play')
-  const [warnDeviation, setWarnDeviation] = useState('')
+function PlayerPageView() {
+  const { id } = useParams<{ id: string }>()
+  const fromItem = itemIdOf(useSearchParams().get('item'))
+  const { isAdmin, isModerator } = useAuth()
+  const canAccess = isAdmin || isModerator
+  const [chosenTab, setChosenTab] = useState<PlayerTab | null>(null)
+  const [bar, setBar] = useState<BarStart | null>(null)
+  const [now] = useState(() => Date.now())
 
   const { data, isLoading, error } = useQuery<PlayerPage>({
     queryKey: ['admin-player-page', id],
@@ -218,95 +68,8 @@ export default function AdminPlayerPage() {
     enabled: canAccess,
     retry: false,
   })
-  const activeBanLadder: Ladder | null =
-    banType === 'account' ? null : (banLadder ?? defaultLadderOf(banType))
-  const banRecommended =
-    data && activeBanLadder ? data.strikes[activeBanLadder].recommended : null
-  // Preselect the recommended length (a staff member can pick another).
-  useEffect(() => {
-    if (banRecommended && banRecommended !== 'warning')
-      setBanPreset(banRecommended)
-  }, [banRecommended])
-  const banChosen = isAdmin
-    ? banExpiry
-      ? 'custom'
-      : 'permanent'
-    : banPreset
-  const refresh = () =>
-    qc.invalidateQueries({ queryKey: ['admin-player-page', id] })
-
-  const ban = useMutation({
-    mutationFn: () =>
-      apiFetch(`/webadmin/players/${id}/bans`, {
-        method: 'POST',
-        body: JSON.stringify({
-          type: banType,
-          reason: banReason,
-          ...(activeBanLadder
-            ? {
-                ladder: activeBanLadder,
-                deviationReason: banDeviation.trim() || undefined,
-              }
-            : {}),
-          expiresAt: isAdmin
-            ? banExpiry
-              ? new Date(banExpiry).toISOString()
-              : null
-            : presetExpiry(banPreset),
-        }),
-      }),
-    onSuccess: () => {
-      setBanReason('')
-      setBanExpiry('')
-      setBanDeviation('')
-      void refresh()
-    },
-  })
-  const lift = useMutation({
-    mutationFn: (vars: { banId: string; reason: string }) =>
-      apiFetch(`/webadmin/players/${id}/bans/${vars.banId}`, {
-        method: 'DELETE',
-        body: JSON.stringify({ reason: vars.reason }),
-      }),
-    onSuccess: () => void refresh(),
-  })
-  const liftWarning = useMutation({
-    mutationFn: (vars: { warningId: string; reason: string }) =>
-      apiFetch(`/webadmin/players/${id}/warnings/${vars.warningId}`, {
-        method: 'DELETE',
-        body: JSON.stringify({ reason: vars.reason }),
-      }),
-    onSuccess: () => void refresh(),
-  })
-  const warn = useMutation({
-    mutationFn: () =>
-      apiFetch(`/webadmin/players/${id}/warnings`, {
-        method: 'POST',
-        body: JSON.stringify({
-          message: warnMessage,
-          reason: warnReason,
-          ladder: warnLadder,
-          deviationReason: warnDeviation.trim() || undefined,
-        }),
-      }),
-    onSuccess: () => {
-      setWarnMessage('')
-      setWarnReason('')
-      setWarnDeviation('')
-      void refresh()
-    },
-  })
-  const addNote = useMutation({
-    mutationFn: () =>
-      apiFetch(`/webadmin/players/${id}/notes`, {
-        method: 'POST',
-        body: JSON.stringify({ note }),
-      }),
-    onSuccess: () => {
-      setNote('')
-      void refresh()
-    },
-  })
+  const identity = useIdentity(id, isAdmin && canAccess)
+  const history = useMemo(() => (data ? historyOf(data) : []), [data])
 
   if (!canAccess) return null
   if (isLoading)
@@ -314,308 +77,159 @@ export default function AdminPlayerPage() {
   if (error || !data)
     return <div className='container py-8'>Player not found.</div>
 
-  const { player, punishments } = data
-  const failure = ban.error ?? warn.error ?? addNote.error ?? lift.error ?? liftWarning.error
+  const { player } = data
+  const items = data.queueItems
+  const tab: PlayerTab = chosenTab ?? openingTab(sourceTypeOf(fromItem, items))
+  const back = backToQueueItem(fromItem, items)
+  const openBar = (action: PlayerAction, lift?: LiftTarget) =>
+    setBar((b) => ({ action, lift, nonce: (b?.nonce ?? 0) + 1 }))
+  const openItems = items.filter((i) => i.status === 'open').length
+
+  const counts: Record<PlayerTab, number | null> = {
+    history: history.length,
+    chat: data.chat.length,
+    matches: data.matchTotal,
+    reports: items.length,
+    linked: identity.data ? identity.data.linkedAccounts.length : null,
+  }
 
   return (
-    <div className='container max-w-4xl space-y-4 py-8'>
-      <div>
-        <Link
-          href='/admin/players'
-          className='text-bal-blue text-xs hover:underline'
-        >
-          All players
-        </Link>
-        <h1 className='font-bold text-2xl tracking-tight'>
-          {player.steamName}
-        </h1>
-        <p className='font-mono text-muted-foreground text-xs'>{player.id}</p>
-        <div className='flex flex-wrap gap-1 pt-1'>
+    <div className={cn('container max-w-6xl space-y-4 py-8', bar && 'pb-80')}>
+      <div className='space-y-2'>
+        {back ? (
+          <Link
+            href={back.href}
+            className='text-bal-blue text-sm hover:underline'
+            data-testid='back-to-item'
+          >
+            {back.text}
+          </Link>
+        ) : (
+          <Link
+            href='/admin/players'
+            className='text-bal-blue text-sm hover:underline'
+          >
+            All players
+          </Link>
+        )}
+        <div className='flex flex-wrap items-center gap-3'>
+          <h1 className='font-pixel text-4xl'>{player.steamName}</h1>
           {player.privileges.map((p) => (
             <Badge key={p} variant='secondary'>
               {p}
             </Badge>
           ))}
           {player.deletedAt && <Badge variant='destructive'>deleted</Badge>}
+          {openItems > 0 && (
+            <Badge variant='destructive'>
+              {openItems} open {openItems === 1 ? 'item' : 'items'}
+            </Badge>
+          )}
+          <div className='ml-auto flex flex-wrap gap-2' data-testid='player-actions'>
+            {HEADER_BUTTONS.map((b) => (
+              <Button
+                key={b.action}
+                size='sm'
+                variant={b.red ? 'destructive' : 'outline'}
+                data-action={b.action}
+                onClick={() => openBar(b.action)}
+              >
+                {b.label}
+              </Button>
+            ))}
+            {isAdmin && (
+              <Button
+                size='sm'
+                variant='destructive'
+                data-action='account_ban'
+                onClick={() => openBar('account_ban')}
+              >
+                Account ban
+              </Button>
+            )}
+          </div>
+        </div>
+        <p className='flex flex-wrap items-center gap-3 text-xs'>
+          <span className='font-mono text-muted-foreground'>{player.id}</span>
           <Link
             href={`/players/${player.id}`}
-            className='text-bal-blue text-xs hover:underline'
+            className='text-bal-blue hover:underline'
           >
             Public profile
           </Link>
-        </div>
+        </p>
       </div>
 
-      {failure && (
-        <p className='text-red-400 text-sm'>{(failure as Error).message}</p>
-      )}
-
-      <Section title='Punishments'>
-        {punishments.bans.length === 0 && punishments.warnings.length === 0 ? (
-          <Empty>No punishments on record.</Empty>
-        ) : (
-          <ul className='space-y-1'>
-            {punishments.bans.map((b) => (
-              <BanRow
-                key={b.id}
-                ban={b}
-                onLift={
-                  isAdmin
-                    ? () => {
-                        const reason = askReason('Reason for lifting this ban')
-                        if (reason) lift.mutate({ banId: b.id, reason })
-                      }
-                    : null
-                }
-              />
-            ))}
-            {punishments.warnings.map((w) => (
-              <Row key={w.id}>
-                <div className='flex items-start justify-between gap-2'>
-                  <div>
-                    <Badge variant={w.liftedAt ? 'outline' : 'secondary'}>
-                      warning
-                    </Badge>{' '}
-                    {w.message}
-                    <p className='text-muted-foreground text-xs'>
-                      Given by {w.issuedByName ?? 'unknown'} on{' '}
-                      {formatTime(w.issuedAt)}
-                      {w.liftedAt ? `. Lifted ${formatTime(w.liftedAt)}` : ''}
-                    </p>
-                  </div>
-                  {isAdmin && !w.liftedAt && (
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      onClick={() => {
-                        const reason = askReason('Reason for lifting this warning')
-                        if (reason)
-                          liftWarning.mutate({ warningId: w.id, reason })
-                      }}
-                    >
-                      Lift
-                    </Button>
-                  )}
-                </div>
-              </Row>
-            ))}
-          </ul>
-        )}
-        <IssueBanForm
-          isAdmin={isAdmin}
-          banPreset={banPreset}
-          onPresetChange={setBanPreset}
-          banType={banType}
-          banReason={banReason}
-          banExpiry={banExpiry}
-          isPending={ban.isPending}
-          onBanTypeChange={setBanType}
-          onReasonChange={setBanReason}
-          onExpiryChange={setBanExpiry}
-          onSubmit={() => ban.mutate()}
-          canSubmit={
-            !activeBanLadder ||
-            banChosen === banRecommended ||
-            banDeviation.trim() !== ''
-          }
-          ladderSlot={
-            activeBanLadder && (
-              <LadderPick
-                ladder={activeBanLadder}
-                onLadderChange={setBanLadder}
-                recommended={banRecommended}
-                chosen={banChosen}
-                deviationReason={banDeviation}
-                onDeviationReasonChange={setBanDeviation}
-              />
-            )
-          }
-        />
-        <div className='space-y-2 border-border border-t pt-3'>
-          <Label className='text-muted-foreground text-xs'>
-            Send a warning
-          </Label>
-          <Textarea
-            placeholder='Message the player sees'
-            value={warnMessage}
-            onChange={(e) => setWarnMessage(e.target.value)}
-          />
-          <LadderPick
-            ladder={warnLadder}
-            onLadderChange={setWarnLadder}
-            recommended={data.strikes[warnLadder].recommended}
-            chosen='warning'
-            deviationReason={warnDeviation}
-            onDeviationReasonChange={setWarnDeviation}
-          />
-          <div className='flex gap-2'>
-            <Input
-              placeholder='Reason (staff log)'
-              value={warnReason}
-              onChange={(e) => setWarnReason(e.target.value)}
-            />
-            <Button
-              onClick={() => warn.mutate()}
-              disabled={
-                !warnMessage.trim() ||
-                !warnReason.trim() ||
-                warn.isPending ||
-                (data.strikes[warnLadder].recommended !== 'warning' &&
-                  !warnDeviation.trim())
-              }
-            >
-              Warn
-            </Button>
-          </div>
-        </div>
-      </Section>
-
-      <Section title='Strikes'>
-        {LADDERS.map((ladder) => {
-          const summary = data.strikes[ladder]
-          return (
-            <div key={ladder} className='space-y-1' data-testid={`strikes-${ladder}`}>
-              <h4 className='font-medium text-sm'>
-                {LADDER_LABELS[ladder]}: {summary.counting.length} counting,
-                next step {STEP_LABELS[summary.recommended]}
-              </h4>
-              {summary.counting.length === 0 ? (
-                <Empty>No strikes count now.</Empty>
-              ) : (
-                <ul className='space-y-1'>
-                  {summary.counting.map((s) => (
-                    <Row key={s.id}>
-                      {STEP_LABELS[s.appliedStep]}, given{' '}
-                      {formatTime(s.issuedAt)}
-                      <p className='text-muted-foreground text-xs'>
-                        Stops counting {formatTime(s.stopsCountingAt)}
-                        {s.deviationReason
-                          ? `. Recommended was ${STEP_LABELS[s.recommendedStep]}: ${s.deviationReason}`
-                          : ''}
-                      </p>
-                    </Row>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )
-        })}
-      </Section>
-
-      <Section title={`Matches (${data.matchTotal})`}>
-        {data.matches.length === 0 ? (
-          <Empty>No matches.</Empty>
-        ) : (
-          <ul className='space-y-1'>
-            {data.matches.map((m) => (
-              <Row key={m.id}>
-                <Link
-                  href={`/matches/${m.id}`}
-                  className='text-bal-blue hover:underline'
-                >
-                  {m.modId} ({m.lobbyType}, {m.status})
-                </Link>{' '}
-                <span className='text-muted-foreground text-xs'>
-                  {formatTime(m.startedAt)}
-                </span>
-              </Row>
-            ))}
-          </ul>
-        )}
-      </Section>
-
-      <Section title='Queue items'>
-        {data.queueItems.length === 0 ? (
-          <Empty>No queue items about this player.</Empty>
-        ) : (
-          <ul className='space-y-1'>
-            {data.queueItems.map((i) => (
-              <Row key={i.id}>
-                <Link
-                  href={`/admin/service-queue/${i.id}`}
-                  className='text-bal-blue hover:underline'
-                >
-                  #{i.id}
-                </Link>{' '}
-                <Badge variant='outline'>{i.itemType}</Badge> {i.summary}{' '}
-                <span className='text-muted-foreground text-xs'>
-                  {i.status === 'open'
-                    ? 'open'
-                    : `closed (${i.resolutionAction ?? 'resolved'})`}
-                  , {formatTime(i.createdAt)}
-                </span>
-              </Row>
-            ))}
-          </ul>
-        )}
-      </Section>
-
-      <Section title='Chat'>
-        {data.chat.length === 0 ? (
-          <Empty>No chat lines.</Empty>
-        ) : (
-          <ul className='space-y-1'>
-            {data.chat.map((c) => (
-              <Row key={c.id}>
-                {c.flagged && <Badge variant='destructive'>flagged</Badge>}{' '}
-                {c.message}{' '}
-                <span className='text-muted-foreground text-xs'>
-                  {c.lobbyCode}, {formatTime(c.sentAt)}
-                </span>
-              </Row>
-            ))}
-          </ul>
-        )}
-      </Section>
-
-      <Section title='Launcher integrity failures'>
-        {data.integrityEvents.length === 0 ? (
-          <Empty>None.</Empty>
-        ) : (
-          <ul className='space-y-1'>
-            {data.integrityEvents.map((e) => (
-              <Row key={e.id}>
-                {e.kind}: {e.reason}{' '}
-                <span className='text-muted-foreground text-xs'>
-                  {formatTime(e.occurredAt)}
-                </span>
-              </Row>
-            ))}
-          </ul>
-        )}
-      </Section>
-
-      <Section title='Staff notes'>
-        {data.notes.length === 0 ? (
-          <Empty>No notes.</Empty>
-        ) : (
-          <ul className='space-y-1'>
-            {data.notes.map((n) => (
-              <Row key={n.id}>
-                {n.note}
-                <p className='text-muted-foreground text-xs'>
-                  {n.authorName ?? 'unknown'}, {formatTime(n.createdAt)}
-                </p>
-              </Row>
-            ))}
-          </ul>
-        )}
-        <div className='flex gap-2'>
-          <Input
-            placeholder='Add a note'
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
-          <Button
-            onClick={() => addNote.mutate()}
-            disabled={!note.trim() || addNote.isPending}
+      <div className='grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]'>
+        <section className='min-w-0 rounded-lg border border-border bg-card/80'>
+          <div
+            className='flex flex-wrap gap-x-5 gap-y-1 border-border border-b px-4 pt-3'
+            role='tablist'
           >
-            Add note
-          </Button>
-        </div>
-      </Section>
+            {tabsFor(isAdmin).map((t) => (
+              <button
+                key={t}
+                type='button'
+                role='tab'
+                aria-selected={t === tab}
+                data-tab={t}
+                onClick={() => setChosenTab(t)}
+                className={cn(
+                  '-mb-px border-b-2 pb-2 font-medium text-sm',
+                  t === tab
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {TAB_LABELS[t]}
+                {counts[t] !== null && (
+                  <span className='ml-1.5 text-muted-foreground text-xs'>
+                    {counts[t]}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className='p-4' role='tabpanel' data-testid={`tab-${tab}`}>
+            {tab === 'history' && (
+              <HistoryTab
+                entries={history}
+                now={now}
+                onLift={isAdmin ? (target) => openBar('lift', target) : null}
+              />
+            )}
+            {tab === 'chat' && <ChatTab playerId={id} lines={data.chat} />}
+            {tab === 'matches' && (
+              <MatchesTab
+                matches={data.matches}
+                total={data.matchTotal}
+                fromItem={fromItem}
+              />
+            )}
+            {tab === 'reports' && <ReportsTab items={items} />}
+            {tab === 'linked' && isAdmin && (
+              <LinkedAccountsTab playerId={id} fromItem={fromItem} />
+            )}
+          </div>
+        </section>
+        <SideColumn playerId={id} page={data} now={now}>
+          {/* The admin Staff role card mounts here. */}
+        </SideColumn>
+      </div>
 
-      {isAdmin && <IdentitySection playerId={player.id} />}
+      <div className='fixed inset-x-0 bottom-0 z-40'>
+        <UndoStrip className='bg-sky-950' />
+        {bar && (
+          <PlayerActionBar
+            playerId={id}
+            playerName={player.steamName}
+            page={data}
+            isAdmin={isAdmin}
+            start={bar}
+            onClose={() => setBar(null)}
+          />
+        )}
+      </div>
     </div>
   )
 }

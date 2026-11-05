@@ -3,6 +3,7 @@
 import { Badge } from '@/components/ui/badge'
 import { formatTime } from '../../lib/format'
 import type { IntegrityEvidence as Evidence } from '../../lib/types'
+import { ItemLink } from '../item-link'
 import { IntegrityEventList } from './anti-cheat-evidence'
 import { Empty, Facts, Section } from './shared'
 
@@ -43,12 +44,12 @@ export function IntegrityEvidence({ evidence }: { evidence: Evidence }) {
                   {formatTime(g.resultReportedAt)}
                 </span>{' '}
                 {g.gameMode} <Badge variant='outline'>{g.status}</Badge>{' '}
-                <a
+                <ItemLink
                   className='text-bal-blue hover:underline'
-                  href={`/matches/${g.matchId}`}
+                  to={{ match: g.matchId }}
                 >
                   replay
-                </a>
+                </ItemLink>
               </li>
             ))}
           </ul>

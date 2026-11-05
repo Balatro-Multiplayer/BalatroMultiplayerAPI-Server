@@ -1,13 +1,13 @@
 'use client'
 
 import { DownloadIcon, ExternalLinkIcon } from 'lucide-react'
-import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { downloadReplay } from '../../lib/api'
+import { ItemLink } from '../item-link'
 import { formatTime, nameOf } from '../../lib/format'
 import type {
   ChatLine,
@@ -95,9 +95,9 @@ export function ReplayLinks({ runId }: { runId: string | null | undefined }) {
   return (
     <div className='flex flex-wrap gap-2'>
       <Button asChild size='sm' variant='outline'>
-        <Link href={`/matches/${runId}`} target='_blank'>
+        <ItemLink to={{ match: runId }}>
           <ExternalLinkIcon /> Open replay
-        </Link>
+        </ItemLink>
       </Button>
       <Button
         size='sm'

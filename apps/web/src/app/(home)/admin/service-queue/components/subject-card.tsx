@@ -9,6 +9,7 @@ import {
   TYPE_LABELS,
 } from '../lib/format'
 import type { BanRow, SubjectCard as Card } from '../lib/types'
+import { ItemLink } from './item-link'
 import { Empty, Facts, Section } from './evidence/shared'
 
 function BanLine({ ban }: { ban: BanRow }) {
@@ -57,12 +58,12 @@ export function SubjectCard({
       }
     >
       <div className='flex flex-wrap items-center gap-2'>
-        <a
-          href={`/admin/players/${player.id}`}
+        <ItemLink
+          to={{ player: player.id }}
           className='font-semibold text-bal-blue text-lg hover:underline'
         >
           {player.name ?? 'Unknown player'}
-        </a>
+        </ItemLink>
         {player.deleted && <Badge variant='destructive'>deleted</Badge>}
         {player.privileges.map((p) => (
           <Badge key={p} variant='secondary'>
