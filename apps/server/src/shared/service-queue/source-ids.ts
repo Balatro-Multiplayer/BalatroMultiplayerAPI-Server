@@ -1,6 +1,7 @@
 // The sourceId each item type keys its source row by, and back.
 //   anti_cheat: 'runId:playerId' (match_run_logs' composite key)
 //   integrity:  'playerId:YYYY-MM-DD' (the UTC day of the failed check)
+//   staff_report: 'runId:epochMs' (a match can be reported more than once)
 //   the rest:   the source row's integer id
 
 export function antiCheatSourceId(runId: string, playerId: string): string {
@@ -32,4 +33,14 @@ export function parseIntegritySourceId(sourceId: string): { playerId: string; da
 
 export function numericSourceId(sourceId: string): number | null {
 	return /^\d+$/.test(sourceId) ? Number(sourceId) : null
+}
+
+export function staffReportSourceId(runId: string, at: Date): string {
+	return `${runId}:${at.getTime()}`
+}
+
+export function parseStaffReportSourceId(sourceId: string): { runId: string } | null {
+	const at = sourceId.lastIndexOf(':')
+	if (at <= 0 || !/^\d+$/.test(sourceId.slice(at + 1))) return null
+	return { runId: sourceId.slice(0, at) }
 }

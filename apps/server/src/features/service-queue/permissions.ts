@@ -36,7 +36,11 @@ const ALL: readonly ItemType[] = [
 	'contest',
 	'anti_cheat',
 	'integrity',
+	'staff_report',
 ]
+
+// Item types only admins see or act on, whatever an action's least role says.
+export const ADMIN_ONLY_TYPES: readonly ItemType[] = ['staff_report']
 
 export const ACTION_RULES: Readonly<Record<ActionKey, ActionRule>> = {
 	dismiss: { itemTypes: ALL, status: 'open', minRole: 'moderator' },
@@ -94,6 +98,7 @@ export const ACTION_RULES: Readonly<Record<ActionKey, ActionRule>> = {
 			'forfeit_reconciliation',
 			'contest',
 			'anti_cheat',
+			'staff_report',
 		],
 		status: 'open',
 		minRole: 'moderator',
@@ -134,6 +139,7 @@ export function permissionFor(
 	if (!rule.itemTypes.includes(item.itemType)) return { ok: false, refusal: 'not_for_type' }
 	if (!statusMatches(rule.status, item.status)) return { ok: false, refusal: 'wrong_status' }
 	if (!roleMeets(role, rule.minRole)) return { ok: false, refusal: 'forbidden' }
+	if (ADMIN_ONLY_TYPES.includes(item.itemType) && role !== 'admin') return { ok: false, refusal: 'forbidden' }
 	if (rule.presets && preset !== undefined) {
 		const least = rule.presets[preset]
 		if (!least) return { ok: false, refusal: 'not_for_type' }

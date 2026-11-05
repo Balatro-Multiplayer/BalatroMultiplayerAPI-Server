@@ -26,6 +26,8 @@ export const BASE_PRIORITY: Readonly<Record<ItemType, number>> = {
 	appeal: 50,
 	forfeit_reconciliation: 35,
 	flagged_chat: 20,
+	// A moderator asked admins to look at a match.
+	staff_report: 50,
 }
 
 const RANKED_BONUS = 15

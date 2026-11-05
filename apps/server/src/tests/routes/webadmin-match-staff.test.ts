@@ -8,6 +8,8 @@ vi.mock('../../infrastructure/gateways/match-staff.gateway.js', () => ({
 	listQueueItemsAboutRun: vi.fn(),
 	listRunChat: vi.fn(),
 	listStaffActionsForRun: vi.fn(),
+	hasOpenItemVisibleTo: vi.fn(),
+	listOpenItemsAboutRun: vi.fn(),
 }))
 
 import { signJwt } from '../../features/auth/jwt.js'

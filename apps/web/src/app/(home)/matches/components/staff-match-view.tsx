@@ -37,6 +37,11 @@ import type {
   PlayerLogRow,
   RunReplayResponse,
 } from '../lib/types'
+import {
+  MatchEditBar,
+  MatchEditButtons,
+  MatchUndoStrip,
+} from './match-edit-bar'
 import { GameLogView } from './game-log/game-log-view'
 import { MatchTimeline } from './match-timeline'
 import { PlayerLabel } from './player-label'
@@ -68,6 +73,7 @@ export function StaffMatchView({
   shareSlot: ReactNode
 }) {
   const [tab, setTab] = useState<StaffTabKey>('timeline')
+  const [editing, setEditing] = useState<string | null>(null)
   const viewerId = data.viewer.playerId ?? null
 
   const staff = useQuery<MatchStaffResponse>({
@@ -119,7 +125,15 @@ export function StaffMatchView({
           )}
           <RunStatusBadge status={data.run.status} />
           {shareSlot}
+          {staff.data && (
+            <MatchEditButtons
+              role={staff.data.viewer.role}
+              items={staff.data.queueItems}
+              onOpen={setEditing}
+            />
+          )}
         </div>
+        <MatchUndoStrip />
         <p className='text-muted-foreground text-sm'>
           {data.run.modId} · Started{' '}
           {new Date(data.run.startedAt).toLocaleString()}
@@ -273,6 +287,17 @@ export function StaffMatchView({
           </Card>
         </div>
       </div>
+      {staff.data && editing && (
+        <MatchEditBar
+          runId={runId}
+          role={staff.data.viewer.role}
+          items={staff.data.queueItems}
+          result={staff.data.result}
+          players={players}
+          picked={editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   )
 }

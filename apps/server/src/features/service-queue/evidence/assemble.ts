@@ -647,6 +647,8 @@ export async function evidenceOf(item: ServiceQueueItemRecord, now: Date): Promi
 			return integrityEvidence(item)
 		case 'appeal':
 			return appealEvidence(item)
+		case 'staff_report':
+			return contextOf(item.context).staffReport ?? null
 		default:
 			return null
 	}
