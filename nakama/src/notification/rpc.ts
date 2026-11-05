@@ -4,6 +4,7 @@ import { INVALID_ARGUMENT, runtimeError } from '../errors'
 import { RUNS_COLLECTION, SYSTEM_USER_ID } from '../lobby/protocol'
 import { readRun } from '../lobby/storage'
 import { parsePayload, requireServer, requireUser } from '../rpc'
+import { NotificationKind } from './kinds'
 import { planResultNotifications } from './result_change'
 import {
 	listNotifications,
@@ -79,4 +80,20 @@ export function rpcAdminRunTellVoided(
 			sendNotification(nk, send.userId, send.kind, send.params as never)
 	}
 	return JSON.stringify({ told: plan.sends.length })
+}
+
+// {userId} -> {}: staff punished a player this user reported. The API decides
+// when (once per report); this only stores and pushes the Notification.
+export function rpcAdminReportAction(
+	ctx: nkruntime.Context,
+	logger: nkruntime.Logger,
+	nk: nkruntime.Nakama,
+	payload: string,
+) {
+	requireServer(ctx)
+	const userId = parsePayload(payload).userId
+	if (typeof userId !== 'string' || userId === '')
+		throw runtimeError(INVALID_ARGUMENT, 'userId is required')
+	sendNotification(nk, userId, NotificationKind.REPORT_ACTION, {})
+	return '{}'
 }

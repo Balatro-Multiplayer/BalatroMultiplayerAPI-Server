@@ -8807,7 +8807,9 @@ var NotificationKind = {
   // Staff voided a match.
   RESULT_VOIDED: "result_voided",
   // Staff set a match's result.
-  RESULT_CHANGED: "result_changed"
+  RESULT_CHANGED: "result_changed",
+  // Staff punished a player the recipient reported.
+  REPORT_ACTION: "report_action"
 };
 
 // src/notification/store.ts
@@ -10744,6 +10746,14 @@ function rpcAdminRunTellVoided(ctx, logger, nk, payload) {
   }
   return JSON.stringify({ told: plan.sends.length });
 }
+function rpcAdminReportAction(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const userId = parsePayload(payload).userId;
+  if (typeof userId !== "string" || userId === "")
+    throw runtimeError(INVALID_ARGUMENT, "userId is required");
+  sendNotification(nk, userId, NotificationKind.REPORT_ACTION, {});
+  return "{}";
+}
 
 // src/rating/replay.ts
 var LIST_PAGE7 = 100;
@@ -11626,6 +11636,7 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("admin_run_set_result", rpcAdminRunSetResult);
   initializer.registerRpc("admin_match_edit", rpcAdminMatchEdit);
   initializer.registerRpc("admin_run_tell_voided", rpcAdminRunTellVoided);
+  initializer.registerRpc("admin_report_action", rpcAdminReportAction);
   logger.info("BMP lobby module loaded");
 }
 !InitModule && InitModule.bind(null);

@@ -15,6 +15,8 @@ export const NotificationKind = {
 	RESULT_VOIDED: 'result_voided',
 	// Staff set a match's result.
 	RESULT_CHANGED: 'result_changed',
+	// Staff punished a player the recipient reported.
+	REPORT_ACTION: 'report_action',
 } as const
 
 export type NotificationKindName =
@@ -34,6 +36,7 @@ export interface NotificationParams {
 	}
 	result_voided: { [key: string]: never }
 	result_changed: { outcome: ResultOutcome }
+	report_action: { [key: string]: never }
 }
 
 export interface StoredNotification {

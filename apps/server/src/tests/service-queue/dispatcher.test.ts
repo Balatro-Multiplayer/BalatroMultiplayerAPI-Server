@@ -58,6 +58,7 @@ function setup(seed: QueueItem, over: Partial<DispatcherDeps<World>> = {}) {
 		banInNakama: vi.fn(async () => true),
 		liftBanInNakama: vi.fn(async () => true),
 		notifyWarned: vi.fn(async () => true),
+		tellReporterOfAction: vi.fn(async () => true),
 		rescore: vi.fn(async () => {}),
 		voidGame: vi.fn(async () => ({ kind: 'voided' as const, rerated: true })),
 		overturnGame: vi.fn(async () => ({ kind: 'applied' as const, rerated: true })),
@@ -272,6 +273,39 @@ describe('the dispatcher', () => {
 			expiresAt: new Date(NOW.getTime() + 24 * 60 * 60 * 1000),
 			issuedBy: 'moderator:mod',
 		})
+	})
+
+	it('tells the reporter after each punishing action on a report, and after no other', async () => {
+		for (const [action, body] of [
+			['warn', { message: 'x' }],
+			['chat_mute', { duration: '24h' }],
+			['queue_ban', { duration: '7d' }],
+			['account_ban', { duration: 'permanent' }],
+		] as const) {
+			const { dispatcher, external } = setup(item())
+			expect((await dispatcher.run(1, action, ADMIN, body)).ok).toBe(true)
+			expect(external.tellReporterOfAction).toHaveBeenCalledTimes(1)
+		}
+		for (const action of ['dismiss', 'resolve'] as const) {
+			const { dispatcher, external } = setup(item())
+			expect((await dispatcher.run(1, action, ADMIN, {})).ok).toBe(true)
+			expect(external.tellReporterOfAction).not.toHaveBeenCalled()
+		}
+	})
+
+	it('does not tell the reporter when the reporter is the one punished, or on another item type', async () => {
+		const own = setup(item())
+		await own.dispatcher.run(1, 'chat_mute', MOD, { duration: '24h', targetPlayerId: 'rep' })
+		expect(own.external.tellReporterOfAction).not.toHaveBeenCalled()
+		const other = setup(item({ itemType: 'anti_cheat', sourceId: 'run-1:bad' }))
+		await other.dispatcher.run(1, 'queue_ban', MOD, { duration: '7d' })
+		expect(other.external.tellReporterOfAction).not.toHaveBeenCalled()
+	})
+
+	it('still punishes when telling the reporter fails', async () => {
+		const { dispatcher, world } = setup(item(), { tellReporterOfAction: async () => { throw new Error('down') } })
+		expect((await dispatcher.run(1, 'warn', MOD, { message: 'x' })).ok).toBe(true)
+		expect(world.items.get(1)?.status).toBe('resolved')
 	})
 
 	it('bans in Nakama after the commit, and reports a failed delivery without undoing it', async () => {

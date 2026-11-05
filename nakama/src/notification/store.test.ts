@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { NotifyCode } from '../notify'
-import { fakeLogger, fakeNk, playerCtx } from '../testing/fake_nk'
+import { fakeLogger, fakeNk, playerCtx, serverCtx } from '../testing/fake_nk'
 import { NotificationKind } from './kinds'
-import { rpcNotificationsPending, rpcNotificationsRead } from './rpc'
+import { rpcAdminReportAction, rpcNotificationsPending, rpcNotificationsRead } from './rpc'
 import {
 	MAX_STORED_NOTIFICATIONS,
 	NOTIFICATION_TTL_MS,
@@ -182,5 +182,21 @@ describe('Notification RPCs', () => {
 				'',
 			),
 		).toThrow()
+	})
+})
+
+describe('report action Notification', () => {
+	it('stores one report_action Notification for the user', () => {
+		const nk = fakeNk()
+		rpcAdminReportAction(serverCtx(), fakeLogger, asNk(nk), JSON.stringify({ userId: 'a' }))
+		expect(nk.notifications).toHaveLength(1)
+		expect(nk.notifications[0].userId).toBe('a')
+		expect(nk.notifications[0].content).toMatchObject({ kind: 'report_action' })
+	})
+
+	it('refuses a player caller and a missing user', () => {
+		const nk = fakeNk()
+		expect(() => rpcAdminReportAction(playerCtx('a'), fakeLogger, asNk(nk), '{"userId":"a"}')).toThrow(/server/)
+		expect(() => rpcAdminReportAction(serverCtx(), fakeLogger, asNk(nk), '{}')).toThrow()
 	})
 })

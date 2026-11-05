@@ -135,6 +135,8 @@ export interface DispatcherDeps<Tx> {
 	banInNakama(ban: BanRow): Promise<boolean>
 	liftBanInNakama(playerId: string, banId: string): Promise<boolean>
 	notifyWarned(playerId: string, payload: { message: string; itemType: WarningSource; warnedAt: number }): Promise<boolean>
+	// A punishment on a report's item: tell its reporter once (the report keeps the mark).
+	tellReporterOfAction(item: QueueItem): Promise<boolean>
 	rescore(item: QueueItem, playerIds: string[]): Promise<void>
 }
 
@@ -416,8 +418,18 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		const delivered = await deps
 			.notifyWarned(target.playerId, { message: command.message, itemType, warnedAt: now.getTime() })
 			.catch(() => false)
+		await tellReporter(item, itemType, target)
 		await deps.rescore(item, [target.playerId])
 		return done(item, 'warn', { warningId: warning.id, delivered })
+	}
+
+	// After the commit: a punishment on a report's item tells the reporter,
+	// unless the reporter is the one punished (a false report).
+	async function tellReporter(item: QueueItem, itemType: ItemType, target: Target): Promise<void> {
+		if (itemType !== 'report') return
+		const sources = await deps.sourcesOf(item).catch(() => null)
+		if (!sources?.report || sources.report.reporterId === target.playerId) return
+		await deps.tellReporterOfAction(item).catch(() => false)
 	}
 
 	async function sanction(
@@ -475,6 +487,7 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 			return row
 		})
 		const delivered = await deps.banInNakama(ban).catch(() => false)
+		await tellReporter(item, itemType, target)
 		await deps.rescore(item, [target.playerId])
 		return done(item, command.action, { ban, delivered })
 	}
