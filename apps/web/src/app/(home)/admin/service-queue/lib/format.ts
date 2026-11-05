@@ -121,6 +121,7 @@ export const EVENT_LABELS: Record<ItemEventKind, string> = {
   acted: 'acted',
   noted: 'noted',
   reopened: 'reopened',
+  withdrawn: 'withdrawn by the player',
 }
 
 export const REPORT_TYPE_LABELS: Record<string, string> = {
@@ -132,6 +133,7 @@ export const REPORT_TYPE_LABELS: Record<string, string> = {
 }
 
 const REFUSAL_TEXT: Record<RefusalCode, string> = {
+  withdrawn: 'Withdrawn by the player.',
   not_found: 'That item no longer exists.',
   unknown_action: 'Unknown action.',
   invalid_body: 'Something in the form is missing or invalid.',

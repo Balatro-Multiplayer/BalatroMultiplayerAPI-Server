@@ -2,6 +2,7 @@
 // and the least role (per preset, where an action has presets) that may run
 // them. The dispatcher checks it and the detail route sends its answer as
 // allowedActions, so the buttons and the server check cannot drift.
+import { WITHDRAWN_ACTION } from '../reports/report-page.service.js'
 import { expiresAtOf } from './durations.js'
 import {
 	type ActionKey,
@@ -125,6 +126,11 @@ function statusMatches(rule: StatusRule, status: ItemStatus): boolean {
 	return rule === 'any' || rule === status
 }
 
+// The player took the item back (a withdrawn report); staff cannot reopen it.
+export function isWithdrawn(item: { resolutionAction?: string | null }): boolean {
+	return item.resolutionAction === WITHDRAWN_ACTION
+}
+
 export type PermissionRefusal = 'not_for_type' | 'wrong_status' | 'forbidden'
 
 // Whether role may run action (with preset, for one that has presets) on an
@@ -162,13 +168,14 @@ function presetOrder(action: ActionKey): readonly Duration[] {
 
 // The actions role may run on the item right now, presets narrowed to its role.
 export function allowedActionsFor(
-	item: { itemType: ItemType; status: ItemStatus },
+	item: { itemType: ItemType; status: ItemStatus; resolutionAction?: string | null },
 	role: StaffRole,
 ): AllowedAction[] {
 	const allowed: AllowedAction[] = []
 	for (const action of Object.keys(ACTION_RULES) as ActionKey[]) {
 		const rule = ACTION_RULES[action]
 		if (!permissionFor(action, item, role).ok) continue
+		if (isWithdrawn(item) && action !== 'note' && action !== 'unban') continue
 		const entry: AllowedAction = { action, targeted: rule.targeted === true, destructive: rule.destructive === true }
 		if (rule.presets) {
 			const presets = presetOrder(action).filter((p) => {

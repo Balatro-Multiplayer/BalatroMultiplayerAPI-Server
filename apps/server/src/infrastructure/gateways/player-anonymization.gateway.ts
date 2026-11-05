@@ -331,6 +331,8 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'status',
 		'message',
 		'additional_detail',
+		'page_opened_at',
+		'withdrawn_at',
 		'created_at',
 	],
 	reported_lobby_messages: [

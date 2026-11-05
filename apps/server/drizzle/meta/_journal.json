@@ -482,7 +482,14 @@
       "idx": 68,
       "version": "7",
       "when": 1794400000000,
-      "tag": "0068_season_end_notified",
+      "tag": "0068_report_withdraw",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1794500000000,
+      "tag": "0069_season_end_notified",
       "breakpoints": true
     }
   ]

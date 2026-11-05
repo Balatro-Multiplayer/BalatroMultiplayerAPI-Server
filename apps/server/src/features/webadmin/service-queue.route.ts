@@ -207,7 +207,11 @@ router.get('/service-queue/:id', async (req, res, next) => {
 			subject,
 			evidence,
 			allowedActions: allowedActionsFor(
-				{ itemType: item.itemType as ItemType, status: item.status as ItemStatus },
+				{
+					itemType: item.itemType as ItemType,
+					status: item.status as ItemStatus,
+					resolutionAction: item.resolutionAction,
+				},
 				staff.role,
 			),
 			role: staff.role,
