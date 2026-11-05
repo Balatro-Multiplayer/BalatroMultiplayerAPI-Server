@@ -8807,7 +8807,9 @@ var NotificationKind = {
   // Staff voided a match.
   RESULT_VOIDED: "result_voided",
   // Staff set a match's result.
-  RESULT_CHANGED: "result_changed"
+  RESULT_CHANGED: "result_changed",
+  // A season ended: the player's place and rating on each board they are on.
+  SEASON_END: "season_end"
 };
 
 // src/notification/store.ts
@@ -10977,6 +10979,66 @@ function rpcAdminRatingsSeasonClear(ctx, logger, nk, payload) {
   return JSON.stringify({ cleared: found.length, cursor });
 }
 
+// src/notification/season_end.ts
+var SEASON_END_COLLECTION = "season_end_notified";
+var USER_ID_PATTERN5 = /^[0-9a-f-]{36}$/;
+var MAX_PLAYERS2 = 500;
+var MAX_BOARDS = 50;
+function parseBoards(value) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_BOARDS)
+    return void 0;
+  const boards = [];
+  for (const b of value) {
+    if (typeof b !== "object" || b === null) return void 0;
+    const { name, place, rating } = b;
+    if (typeof name !== "string" || name === "" || typeof place !== "number" || !Number.isInteger(place) || place < 1 || typeof rating !== "number" || !Number.isFinite(rating))
+      return void 0;
+    boards.push({ name, place, rating: Math.round(rating) });
+  }
+  return boards;
+}
+function rpcAdminSeasonEndNotify(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const input = parsePayload(payload);
+  const season = input.season;
+  if (typeof season !== "number" || !Number.isInteger(season) || season < 1)
+    throw runtimeError(INVALID_ARGUMENT, "season must be a positive integer");
+  const name = typeof input.name === "string" && input.name !== "" ? input.name : `Season ${season}`;
+  if (!Array.isArray(input.players) || input.players.length > MAX_PLAYERS2)
+    throw runtimeError(INVALID_ARGUMENT, "players must be a list of up to 500");
+  const key = String(season);
+  let notified = 0;
+  let skipped = 0;
+  for (const p of input.players) {
+    const userId = p == null ? void 0 : p.userId;
+    const boards = parseBoards(p == null ? void 0 : p.boards);
+    if (typeof userId !== "string" || !USER_ID_PATTERN5.test(userId) || !boards)
+      throw runtimeError(INVALID_ARGUMENT, "Invalid player entry");
+    const done = nk.storageRead([
+      { collection: SEASON_END_COLLECTION, key, userId }
+    ]);
+    if (done.length > 0) {
+      skipped++;
+      continue;
+    }
+    const params = { season, name, boards };
+    sendNotification(nk, userId, NotificationKind.SEASON_END, params);
+    nk.storageWrite([
+      {
+        collection: SEASON_END_COLLECTION,
+        key,
+        userId,
+        value: { at: Date.now() },
+        permissionRead: 0,
+        permissionWrite: 0
+      }
+    ]);
+    notified++;
+  }
+  logger.info("Season %d end told to %d players (%d skipped)", season, notified, skipped);
+  return JSON.stringify({ notified, skipped });
+}
+
 // src/standing/seed.ts
 var EXTRA_SEED_ENV = "QUEUE_ALLOWED_MOD_IDS_EXTRA";
 function seedAllowedModIdsExtra(nk, logger, env) {
@@ -11622,6 +11684,7 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("admin_ratings_season_export", rpcAdminRatingsSeasonExport);
   initializer.registerRpc("admin_ratings_board_export", rpcAdminRatingsBoardExport);
   initializer.registerRpc("admin_ratings_season_clear", rpcAdminRatingsSeasonClear);
+  initializer.registerRpc("admin_season_end_notify", rpcAdminSeasonEndNotify);
   initializer.registerRpc("admin_run_get", rpcAdminRunGet);
   initializer.registerRpc("admin_run_set_result", rpcAdminRunSetResult);
   initializer.registerRpc("admin_match_edit", rpcAdminMatchEdit);

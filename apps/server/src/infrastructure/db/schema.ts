@@ -600,6 +600,8 @@ export const seasons = pgTable('seasons', {
 	startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
 	endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
 	endedAt: timestamp('ended_at', { withTimezone: true }),
+	// When Nakama confirmed it told the ranked players how the season ended.
+	endNotifiedAt: timestamp('end_notified_at', { withTimezone: true }),
 })
 
 // What the owner's season replay overwrote, kept so the old board can come back
