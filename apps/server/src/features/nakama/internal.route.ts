@@ -9,6 +9,7 @@ import { AppError } from '../../shared/utils/errors.js'
 import { getDiscordAuthUrl } from '../auth/discord.js'
 import { generateLinkState } from '../auth/link-state.js'
 import { discordLinkService } from './discord-link.js'
+import { isWebPagePath, webLoginLinks } from './web-login-link.js'
 import type { DiscordLinkService } from './discord-link.service.js'
 import type { LauncherIntegrityService } from '../launcher-integrity/launcher-integrity.service.js'
 import { nakamaIntegrityService } from './integrity.js'
@@ -93,6 +94,20 @@ export function createInternalNakamaRouter(
 			const nakamaUserId = req.body?.nakamaUserId
 			if (typeof nakamaUserId !== 'string' || !UUID.test(nakamaUserId)) throw new AppError('Bad nakamaUserId', 400)
 			res.json({ url: getDiscordAuthUrl(generateLinkState('', 'game', nakamaUserId)) })
+		} catch (err) {
+			next(err)
+		}
+	})
+
+	// {nakamaUserId, path} -> {url}: a one-time link that logs the player in to
+	// the website and opens path (a page of the site, never an outside address).
+	router.post('/web-login/link', (req, res, next) => {
+		try {
+			const nakamaUserId = nakamaUserIdOf(req.body)
+			const path = req.body?.path
+			if (!isWebPagePath(path)) throw new AppError('Bad path', 400)
+			const code = webLoginLinks.mint(nakamaUserId, path)
+			res.json({ url: `${env.WEB_BASE_URL.replace(/\/$/, '')}/auth/link?code=${code}` })
 		} catch (err) {
 			next(err)
 		}
