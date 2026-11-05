@@ -2,7 +2,7 @@
 // "Deck") and a vanilla joker name (without "Joker"), for example "Nebula
 // Greedy". It is worked out from the player's id every time and never stored,
 // so two players can share one. Nakama, the API, the website and the game
-// client (MPAPI api/ban_name.lua) each carry this rule and these lists; the
+// client (MPAPI lib/ban_name.lua) each carry this rule and these lists; the
 // vectors in ban-name.test.ts are copied into the client's test.
 
 // The 10 vanilla decks after the first 5 (Red, Blue, Yellow, Green, Black).
