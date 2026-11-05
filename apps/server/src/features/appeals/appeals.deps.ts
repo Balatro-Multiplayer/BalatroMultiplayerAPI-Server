@@ -10,7 +10,7 @@ import {
 	setBanEnd,
 	settleAppealRow,
 } from '../../infrastructure/gateways/appeal.gateway.js'
-import { liftBan } from '../../infrastructure/gateways/ban.gateway.js'
+import { liftBan, markBanEndNotified } from '../../infrastructure/gateways/ban.gateway.js'
 import {
 	enqueueServiceQueueItem,
 	getServiceQueueItemById,
@@ -18,7 +18,12 @@ import {
 	recordItemEvent,
 } from '../../infrastructure/gateways/service-queue.gateway.js'
 import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gateway.js'
-import { banInNakama, liftBanInNakama, liftNetworkBanInNakama } from '../../infrastructure/nakama/moderation-sync.js'
+import {
+	banInNakama,
+	liftBanInNakama,
+	liftNetworkBanInNakama,
+	notifyAppealDecidedInNakama,
+} from '../../infrastructure/nakama/moderation-sync.js'
 import { type AppealDeps, type PunishmentRef, createAppealService } from './appeals.service.js'
 
 const deps: AppealDeps<DbTransaction> = {
@@ -47,10 +52,14 @@ const deps: AppealDeps<DbTransaction> = {
 	},
 	settleAppeal: (tx, id, decision) => settleAppealRow(tx, id, decision),
 	async liftPunishment(tx, punishment, liftedBy) {
-		const lifted =
-			punishment.kind === 'ban'
-				? !!(await liftBan(punishment.playerId, punishment.id, liftedBy, tx))
-				: await liftWarning(tx, punishment.id, liftedBy)
+		let lifted: boolean
+		if (punishment.kind === 'ban') {
+			lifted = !!(await liftBan(punishment.playerId, punishment.id, liftedBy, tx))
+			// The appeal's Notification covers it: no separate "ban ended".
+			if (lifted) await markBanEndNotified(punishment.id, tx)
+		} else {
+			lifted = await liftWarning(tx, punishment.id, liftedBy)
+		}
 		return lifted ? { ...punishment, liftedAt: new Date() } : null
 	},
 	async shortenBan(tx, punishment, expiresAt) {
@@ -72,6 +81,7 @@ const deps: AppealDeps<DbTransaction> = {
 			liftedBy: null,
 		}),
 	liftBanInNakama: (playerId, banId) => liftBanInNakama(playerId, banId),
+	notifyDecided: (decided) => notifyAppealDecidedInNakama(decided),
 	async liftNetworkBans(banIds) {
 		for (const banId of banIds) {
 			const result = await liftNetworkBanInNakama(banId)

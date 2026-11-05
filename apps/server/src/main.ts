@@ -10,6 +10,7 @@ import { nakamaIntegrityService } from './features/nakama/integrity.js'
 import { startMirrorJob } from './features/nakama/mirror.job.js'
 import { startRetentionJob } from './features/nakama/retention.job.js'
 import { startRetentionSweepJob } from './features/retention/sweep.job.js'
+import { startBanEndJob } from './features/punishments/ban-end.job.js'
 import { startSeasonJob } from './features/ratings/season.job.js'
 import { db, pool } from './infrastructure/db/index.js'
 import { loadConfigFromDb } from './infrastructure/gateways/config.gateway.js'
@@ -145,6 +146,8 @@ async function start() {
 		// ...and Nakama drops what they no longer keep.
 		startRetentionJob()
 		startSeasonJob()
+		// Players hear when a ban ends.
+		startBanEndJob()
 
 
 		server = app.listen(env.PORT, () => {

@@ -84,6 +84,17 @@ export interface AppealDeps<Tx> {
 	liftBanInNakama(playerId: string, banId: string): Promise<boolean>
 	// Before the commit. ok: false when Nakama cannot say the bans are lifted.
 	liftNetworkBans(banIds: string[]): Promise<{ ok: boolean }>
+	// After the commit; the player's Notification of the decision. Sent once
+	// per appeal, failures are logged by the caller, never undone.
+	notifyDecided(decided: AppealNotice): Promise<boolean>
+}
+
+export interface AppealNotice {
+	playerId: string
+	appealId: string
+	accepted: boolean
+	target: BanKind | 'warning' | 'network'
+	result: AppealOutcome | null
 }
 
 export type SubmitRefusal =
@@ -175,12 +186,19 @@ export function createAppealService<Tx>(deps: AppealDeps<Tx>) {
 		const actor = actorOf(staff.role, staff.playerId)
 		const base = { decisionReason: why.reason, decidedBy: actor, decidedAt: now }
 
+		const target: AppealNotice['target'] = punishment ? (punishment.banType ?? 'warning') : 'network'
+		const tell = (accepted: boolean, result: AppealOutcome | null) =>
+			deps
+				.notifyDecided({ playerId: appeal.playerId, appealId: appeal.id, accepted, target, result })
+				.catch(() => false)
 		const decided = (status: 'denied' | 'granted', outcome: AppealOutcome | null): AppealDecision => ({ ...base, status, outcome })
 		const result = (d: AppealDecision) => ({ ok: true as const, value: { appeal: { ...appeal, ...d } } })
 
 		if (decision === 'deny') {
 			const done = await commit((tx) => settle(tx, item, appeal, decided('denied', null), 'appeal_deny', {}))
-			return done.ok ? result(decided('denied', null)) : refuse(done.refusal)
+			if (!done.ok) return refuse(done.refusal)
+			await tell(false, null)
+			return result(decided('denied', null))
 		}
 
 		const outcome = body.outcome
@@ -209,6 +227,7 @@ export function createAppealService<Tx>(deps: AppealDeps<Tx>) {
 			})
 			if (!done.ok) return refuse(done.refusal)
 			await deps.banInNakama(done.value).catch(() => false)
+			await tell(true, 'shortened')
 			return result(decided('granted', 'shortened'))
 		}
 
@@ -217,7 +236,9 @@ export function createAppealService<Tx>(deps: AppealDeps<Tx>) {
 			if (!lifted.ok) return refuse({ code: 'nakama_failed', reason: 'the network ban could not be lifted' })
 			const detail = { outcome: 'lifted', networkBanIds: appeal.networkBanIds }
 			const done = await commit((tx) => settle(tx, item, appeal, decided('granted', 'lifted'), 'appeal_grant', detail))
-			return done.ok ? result(decided('granted', 'lifted')) : refuse(done.refusal)
+			if (!done.ok) return refuse(done.refusal)
+			await tell(true, 'lifted')
+			return result(decided('granted', 'lifted'))
 		}
 
 		if (punishment.liftedAt) return refuse({ code: 'unchanged' })
@@ -228,6 +249,7 @@ export function createAppealService<Tx>(deps: AppealDeps<Tx>) {
 		})
 		if (!done.ok) return refuse(done.refusal)
 		if (punishment.kind === 'ban') await deps.liftBanInNakama(punishment.playerId, punishment.id).catch(() => false)
+		await tell(true, 'lifted')
 		return result(decided('granted', 'lifted'))
 	}
 

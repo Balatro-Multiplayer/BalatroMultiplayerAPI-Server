@@ -53,6 +53,7 @@ function setup(punishments: PunishmentRef[] = [ban()], over: Partial<AppealDeps<
 		banInNakama: vi.fn(async () => true),
 		liftBanInNakama: vi.fn(async () => true),
 		liftNetworkBans: vi.fn(async () => ({ ok: true as const })),
+		notifyDecided: vi.fn(async () => true),
 	}
 	const deps: AppealDeps<World> = {
 		now: () => NOW,
@@ -321,5 +322,68 @@ describe('deciding an appeal', () => {
 		const until = new Date(NOW.getTime() + 60_000)
 		s.world.items.set(1, { ...s.world.items.get(1)!, claimedBy: 'moderator:mod2', claimedUntil: until })
 		expect(await s.service.decide(1, MOD, { decision: 'deny', reason: 'x' })).toMatchObject({ ok: false, refusal: { code: 'claimed' } })
+	})
+})
+
+describe('telling the player the decision', () => {
+	async function opened(punishments?: PunishmentRef[]) {
+		const s = setup(punishments)
+		await submit(s)
+		return s
+	}
+	const notice = (over: Record<string, unknown>) => ({
+		playerId: PLAYER,
+		appealId: 'appeal-1',
+		accepted: true,
+		target: 'queue',
+		result: 'lifted',
+		...over,
+	})
+
+	it('tells an accepted lift once', async () => {
+		const s = await opened()
+		await s.service.decide(1, ADMIN, { decision: 'grant', outcome: 'lift', reason: 'ok' })
+		expect(s.external.notifyDecided).toHaveBeenCalledTimes(1)
+		expect(s.external.notifyDecided).toHaveBeenCalledWith(notice({}))
+	})
+
+	it('tells an accepted shortening', async () => {
+		const s = await opened()
+		await s.service.decide(1, ADMIN, { decision: 'grant', outcome: 'shorten', duration: '7d', reason: 'ok' })
+		expect(s.external.notifyDecided).toHaveBeenCalledWith(notice({ result: 'shortened' }))
+	})
+
+	it('tells a declined appeal', async () => {
+		const s = await opened()
+		await s.service.decide(1, MOD, { decision: 'deny', reason: 'no' })
+		expect(s.external.notifyDecided).toHaveBeenCalledTimes(1)
+		expect(s.external.notifyDecided).toHaveBeenCalledWith(notice({ accepted: false, result: null }))
+	})
+
+	it('names a warning and a network ban as the target', async () => {
+		const w = setup([{ ...ban(), id: WARN_ID, kind: 'warning', banType: null }])
+		await w.service.submit({ playerId: PLAYER, punishmentId: WARN_ID, message: 'm', networkBanIds: [] })
+		await w.service.decide(1, ADMIN, { decision: 'grant', outcome: 'lift', reason: 'ok' })
+		expect(w.external.notifyDecided).toHaveBeenCalledWith(notice({ target: 'warning' }))
+		const n = setup([])
+		await submit(n, { punishmentId: null, networkBanIds: ['nb-1'] })
+		await n.service.decide(1, ADMIN, { decision: 'grant', outcome: 'lift', reason: 'ok' })
+		expect(n.external.notifyDecided).toHaveBeenCalledWith(notice({ target: 'network' }))
+	})
+
+	it('tells nothing when the decision is refused, and a second decision is refused', async () => {
+		const s = await opened()
+		await s.service.decide(1, OTHER_MOD, { decision: 'grant', outcome: 'lift', reason: 'x' })
+		expect(s.external.notifyDecided).not.toHaveBeenCalled()
+		await s.service.decide(1, ADMIN, { decision: 'deny', reason: 'x' })
+		await s.service.decide(1, ADMIN, { decision: 'deny', reason: 'x' })
+		expect(s.external.notifyDecided).toHaveBeenCalledTimes(1)
+	})
+
+	it('still decides when Nakama cannot be told', async () => {
+		const s = await opened()
+		s.external.notifyDecided.mockRejectedValueOnce(new Error('down'))
+		expect(await s.service.decide(1, MOD, { decision: 'deny', reason: 'no' })).toMatchObject({ ok: true })
+		expect(s.world.appeals[0]!.status).toBe('denied')
 	})
 })
