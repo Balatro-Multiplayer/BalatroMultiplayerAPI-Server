@@ -60,8 +60,7 @@ export default function AdminArchiveDetailPage() {
     enabled: canAccess && bundlePath.length > 0,
   })
 
-  if (pending) return <div className='container py-8'>Loading…</div>
-  if (!canAccess) return null
+  if (pending || !canAccess) return null
 
   const isThread = bundlePathSegments.includes('threads')
   const parentSegments = isThread
@@ -69,26 +68,26 @@ export default function AdminArchiveDetailPage() {
     : bundlePathSegments
 
   return (
-    <div className='container max-w-3xl space-y-6 py-8'>
+    <div className='min-h-0 flex-1 space-y-4 overflow-y-auto p-5'>
       <div>
         {isThread ? (
           <a
             href={archiveDetailHref(parentSegments.join('/'))}
             className='text-bal-blue text-sm hover:underline'
           >
-            ← Back to parent channel
+            Back to parent channel
           </a>
         ) : (
           <a
             href='/admin/archives'
             className='text-bal-blue text-sm hover:underline'
           >
-            ← Back to archives
+            Back to archives
           </a>
         )}
-        <h1 className='font-bold text-2xl tracking-tight'>
+        <h2 className='font-bold text-3xl tracking-tight'>
           #{data?.meta.channelName ?? '…'}
-        </h1>
+        </h2>
         {data && (
           <p className='text-muted-foreground text-sm'>
             {data.meta.threadOnlyChannel
