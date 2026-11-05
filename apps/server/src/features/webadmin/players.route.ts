@@ -6,6 +6,7 @@ import {
 	isBanType,
 	liftBan,
 	listBans,
+	staffNamesOf,
 } from '../../infrastructure/gateways/ban.gateway.js'
 import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
@@ -44,7 +45,7 @@ function reasonOf(value: unknown): string {
 	return checked.reason
 }
 
-const BAN_LOGGED_AS = { chat: 'chat_ban', queue: 'queue_ban', account: 'account_ban' } as const satisfies Record<string, StaffAction>
+const BAN_LOGGED_AS = { chat: 'chat_ban', queue: 'queue_ban', account: 'account_ban', username: 'username_ban' } as const satisfies Record<string, StaffAction>
 
 const STAFF_ROLES = ['moderator', 'admin'] as const
 
@@ -69,6 +70,7 @@ router.get('/players', async (req, res, next) => {
 		const rows = await db
 			.select({
 				id: players.id,
+				nakamaUserId: players.nakamaUserId,
 				steamName: players.steamName,
 				discordUsername: players.discordUsername,
 				privileges: players.privileges,
@@ -89,8 +91,11 @@ router.get('/players', async (req, res, next) => {
 			.offset(offset)
 
 		const staff = await staffOf(req)
+		const shown = await staffNamesOf(rows)
 		res.json({
-			players: rows.map((row) => redactPlayerFor(staff?.role ?? null, row)),
+			players: rows.map(({ nakamaUserId: _n, ...row }) =>
+				redactPlayerFor(staff?.role ?? null, { ...row, steamName: shown.get(row.id) ?? row.steamName }),
+			),
 			total,
 			page,
 			limit,
@@ -107,7 +112,11 @@ router.get('/players/:id', async (req, res, next) => {
 		if (!player) throw new AppError('Player not found', 404)
 		const bans = await listBans(req.params.id)
 		const staff = await staffOf(req)
-		res.json({ player: redactPlayerFor(staff?.role ?? null, player), bans })
+		const shown = await staffNamesOf([{ id: player.id, nakamaUserId: player.nakamaUserId ?? null, steamName: player.steamName }])
+		res.json({
+			player: redactPlayerFor(staff?.role ?? null, { ...player, steamName: shown.get(player.id) ?? player.steamName }),
+			bans,
+		})
 	} catch (err) {
 		next(err)
 	}
@@ -176,12 +185,13 @@ router.post('/players/:id/bans', async (req, res, next) => {
 			deviationReason?: unknown
 		}
 
-		if (!isBanType(type)) throw new AppError("type must be 'chat', 'queue', or 'account'", 400)
+		if (!isBanType(type)) throw new AppError("type must be 'chat', 'queue', 'account' or 'username'", 400)
 
 		const expires = parseExpiresAt(expiresAt)
 		// The service queue's role table holds here too (permissions.ts): a
 		// moderator may pick any preset for a chat or queue ban, permanent
-		// included, but not a custom length; account bans are an admin's.
+		// included, but not a custom length; account bans are an admin's; a username ban is
+		// permanent and a moderator's too.
 		const staff = await staffOf(req)
 		if (!staff || !mayIssueBan(staff.role, type, expires, new Date()))
 			throw new AppError('Your role may not issue this ban', 403)
@@ -193,10 +203,10 @@ router.post('/players/:id/bans', async (req, res, next) => {
 
 		if (ladder !== undefined && ladder !== null && !isLadder(ladder))
 			throw new AppError("ladder must be 'chat' or 'play'", 400)
-		// An account ban is on no ladder. A chat or queue ban counts on the ladder
-		// staff pick, by default the one that matches the ban.
+		// An account ban and a username ban are on no ladder. A chat or queue ban
+		// counts on the ladder staff pick, by default the one that matches the ban.
 		const now = new Date()
-		const onLadder = type === 'account' ? null : (isLadder(ladder) ? ladder : type === 'chat' ? 'chat' : 'play')
+		const onLadder = type === 'account' || type === 'username' ? null : (isLadder(ladder) ? ladder : type === 'chat' ? 'chat' : 'play')
 		const judged = onLadder
 			? await judgeOnLadder(
 					playerId,

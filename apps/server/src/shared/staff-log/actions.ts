@@ -8,6 +8,7 @@ export const STAFF_ACTIONS = [
 	'chat_ban',
 	'queue_ban',
 	'account_ban',
+	'username_ban',
 	'lift_ban',
 	'lift_network_ban',
 	'lift_warning',

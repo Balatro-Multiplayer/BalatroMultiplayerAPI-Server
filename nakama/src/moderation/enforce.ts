@@ -6,6 +6,8 @@
 // - queue: out of a started game (an instant forfeit, as the API's
 //   forfeitMatchForBan), and refused at MatchmakerAdd.
 // - chat: refused at chat_send.
+// - username: the player shows as their Ban name everywhere (username_ban.ts);
+//   nothing is refused.
 //
 // usersBanId has no expiry, so a temporary account ban is lifted lazily: the
 // login before-hooks look the account up in ban_index (Steam id or device id
@@ -21,10 +23,14 @@
 import { runtimeError, PERMISSION_DENIED } from '../errors'
 import { currentLobby } from '../lobby/rpc'
 import { SYSTEM_USER_ID, type LobbySignal } from '../lobby/protocol'
+import { banNameOf } from '../../../packages/types/src/ban-name'
 import { notify, NotifyCode } from '../notify'
+import { NotificationKind } from '../notification/kinds'
+import { sendNotification } from '../notification/store'
 import { forEachStored } from '../shared/storage'
 import { STEAM_HASH_CUSTOM_ID_PREFIX } from '../player/steam_id'
 import { ACCOUNT_BANNED, banMessage } from './access'
+import { showNameChange } from './username_ban'
 import {
 	activeBan,
 	readBans,
@@ -111,9 +117,18 @@ export function applyBan(
 	type: BanType,
 	ban: Ban,
 ): Bans {
-	const bans = withBan(readBans(nk, userId), type, ban)
+	const before = readBans(nk, userId)
+	const bans = withBan(before, type, ban)
 	writeBans(nk, userId, bans)
-	pushBan(nk, userId, type, ban)
+	// A username ban blocks nothing: the player is told by a Notification and
+	// sees the Ban name, so no BANNED push (older clients would read it as an
+	// account ban).
+	if (type === 'username') {
+		showNameChange(nk, logger, userId)
+		// Once per ban: the API repeats a failed apply.
+		if (before.username?.banId !== ban.banId)
+			sendNotification(nk, userId, NotificationKind.USERNAME_BANNED, { banName: banNameOf(userId) })
+	} else pushBan(nk, userId, type, ban)
 	if (type === 'queue') removeFromLobby(nk, userId, 'banned', true)
 	if (type === 'account' && bans.account) enforceAccountBan(nk, userId, bans.account)
 	logger.info('Applied %s ban %s to %s', type, ban.banId, userId)
@@ -133,6 +148,7 @@ export function liftBan(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: 
 	const after = withoutBan(before, banId)
 	writeBans(nk, userId, after)
 	releaseAccount(nk, userId, before, after)
+	if (before.username && !after.username) showNameChange(nk, logger, userId)
 	logger.info('Lifted ban %s of %s', banId, userId)
 	return after
 }

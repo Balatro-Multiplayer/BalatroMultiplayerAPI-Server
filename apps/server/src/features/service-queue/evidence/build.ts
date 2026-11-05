@@ -87,7 +87,7 @@ export function reportsAgainstOf(rows: readonly ReportSummaryRow[]) {
 }
 
 // The resolution actions that count as the reported player being sanctioned.
-export const SANCTIONING_ACTIONS = ['warn', 'chat_mute', 'queue_ban', 'account_ban'] as const
+export const SANCTIONING_ACTIONS = ['warn', 'chat_mute', 'queue_ban', 'account_ban', 'username_ban'] as const
 
 export function reportsFiledOf(rows: readonly { resolutionAction: string | null }[]) {
 	return {

@@ -16,7 +16,7 @@ import { sendNotification } from './store'
 
 export const PUNISHMENT_NOTIFIED_COLLECTION = 'punishment_notified'
 const USER_ID_PATTERN = /^[0-9a-f-]{36}$/
-const BAN_KINDS: readonly string[] = ['chat', 'queue', 'account']
+const BAN_KINDS: readonly string[] = ['chat', 'queue', 'account', 'username']
 const TARGETS: readonly string[] = [...BAN_KINDS, 'warning', 'network']
 const MAX_KEY_LENGTH = 100
 

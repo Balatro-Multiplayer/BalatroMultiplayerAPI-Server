@@ -23,7 +23,7 @@ export interface PlacementEntry {
 }
 
 export type Privilege = 'admin' | 'moderator' | 'tester' | (string & {})
-export type BanType = 'chat' | 'queue' | 'account'
+export type BanType = 'chat' | 'queue' | 'account' | 'username'
 // 'voided' means a resolved match's rating effect has been reversed (e.g. it
 // was wrongly auto-forfeited by a reconnect race, see void-match.ts) --
 // resultPlacements/resultReportedBy/resultReportedAt are left intact as a
@@ -82,3 +82,4 @@ export * from './queue-stats.js'
 export * from './big-score.js'
 export * from './match-events.js'
 export * from './board-names.js'
+export * from './ban-name.js'

@@ -10,6 +10,7 @@ import {
 } from './types.js'
 import { type Ladder, isLadder } from '../strikes/ladder.js'
 import { type DismissLabel, dismissLabelOf, isDismissLabel } from './flagged-chat.js'
+import type { BanType } from '../../infrastructure/gateways/ban.gateway.js'
 import { parseReason } from '../../shared/staff-log/actions.js'
 
 // Where a punishment counts as a strike, and why staff left the recommended step.
@@ -29,13 +30,15 @@ export type QueueCommand =
 	| ({ action: 'chat_mute'; targetPlayerId: string | null; duration: ChatMuteDuration; reason: string; note: string | null } & StrikeChoice)
 	| ({ action: 'queue_ban'; targetPlayerId: string | null; duration: BanDuration; reason: string; note: string | null } & StrikeChoice)
 	| ({ action: 'account_ban'; targetPlayerId: string | null; duration: BanDuration; reason: string; note: string | null } & StrikeChoice)
+	// Always permanent and on no ladder, so it has neither a duration nor a strike choice.
+	| { action: 'username_ban'; targetPlayerId: string | null; reason: string; note: string | null }
 	| { action: 'void'; reason: string; note: string | null }
 	| { action: 'overturn'; reason: string; toReportOf: string; note: string | null }
 	| { action: 'reopen'; reason: string; note: string | null }
 	| { action: 'unban'; reason: string; banId: string; note: string | null }
 	| { action: 'note'; note: string }
 
-export type SanctionCommand = Extract<QueueCommand, { action: 'chat_mute' | 'queue_ban' | 'account_ban' }>
+export type SanctionCommand = Extract<QueueCommand, { action: 'chat_mute' | 'queue_ban' | 'account_ban' | 'username_ban' }>
 
 export interface BodyRefusal {
 	field: string
@@ -126,6 +129,11 @@ export function parseCommand(action: ActionKey, body: Record<string, unknown>): 
 			if (!isBanDuration(duration)) return bad('duration', "duration must be '7d', '30d' or 'permanent'")
 			return ok({ action, targetPlayerId: who.value, duration, reason, note: note.value, ...strike.value })
 		}
+		case 'username_ban': {
+			const who = target(body)
+			if (!who.ok) return who
+			return ok({ action, targetPlayerId: who.value, reason, note: note.value })
+		}
 		case 'overturn': {
 			const to = body.toReportOf
 			if (typeof to !== 'string' || !to) return bad('toReportOf', 'toReportOf must name the reporter whose result stands')
@@ -146,6 +154,7 @@ export function presetOf(command: QueueCommand): ChatMuteDuration | BanDuration 
 		: undefined
 }
 
-export function banTypeOf(command: SanctionCommand): 'chat' | 'queue' | 'account' {
+export function banTypeOf(command: SanctionCommand): BanType {
+	if (command.action === 'username_ban') return 'username'
 	return command.action === 'chat_mute' ? 'chat' : command.action === 'queue_ban' ? 'queue' : 'account'
 }

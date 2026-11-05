@@ -18,7 +18,7 @@ import { type AvatarCatalog, type AvatarEntry, goalText, shownProgress } from '.
 function ProfileInfoCard({
   player,
 }: {
-  player: { displayName: string; steamName: string; discordLinked: boolean; discordUsername: string | null; preferredJoker: string | null; privileges: string[] }
+  player: { displayName: string; steamName: string; discordLinked: boolean; discordUsername: string | null; preferredJoker: string | null; privileges: string[]; usernameBanned?: boolean }
 }) {
   return (
     <Card>
@@ -27,6 +27,11 @@ function ProfileInfoCard({
       </CardHeader>
       <CardContent className='space-y-3'>
         <InfoRow label='Display Name' value={player.displayName} />
+        {player.usernameBanned && (
+          <p className='text-sm text-muted-foreground'>
+            Your name broke the rules, so other players see this name instead. You can appeal below.
+          </p>
+        )}
         <Separator />
         <InfoRow label='Steam Name' value={player.steamName} />
         {player.discordLinked && (

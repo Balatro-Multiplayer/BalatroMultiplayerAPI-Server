@@ -76,7 +76,7 @@ describe('quick chips', () => {
 
   test('Bans sets the three ban actions and keeps other filters', () => {
     const on = toggleChip('bans', { ...NO_FILTERS, player: 'Bob' }, now, 'me')
-    expect(on.action).toEqual(['chat_ban', 'queue_ban', 'account_ban'])
+    expect(on.action).toEqual(['chat_ban', 'queue_ban', 'account_ban', 'username_ban'])
     expect(on.player).toBe('Bob')
   })
 

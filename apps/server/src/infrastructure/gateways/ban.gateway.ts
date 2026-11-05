@@ -1,12 +1,13 @@
-import { and, asc, desc, eq, gt, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import type { DbExecutor } from '../db/executor.js'
 import { db } from '../db/index.js'
-import { playerBans } from '../db/schema.js'
+import { playerBans, players } from '../db/schema.js'
+import { banNameFor } from '../../shared/players/shown-name.js'
 import type { BanType } from '../../shared/types/index.js'
 
 export type { BanType } from '../../shared/types/index.js'
 
-export const BAN_TYPES: readonly BanType[] = ['chat', 'queue', 'account']
+export const BAN_TYPES: readonly BanType[] = ['chat', 'queue', 'account', 'username']
 
 export function isBanType(value: unknown): value is BanType {
 	return typeof value === 'string' && BAN_TYPES.includes(value as BanType)
@@ -61,6 +62,56 @@ export async function hasActiveBan(
 		)
 		.limit(1)
 	return rows.length > 0
+}
+
+/** The players among playerIds with a username ban in force. */
+export async function usernameBannedAmong(playerIds: readonly string[]): Promise<Set<string>> {
+	if (playerIds.length === 0) return new Set()
+	const rows = await db
+		.selectDistinct({ playerId: playerBans.playerId })
+		.from(playerBans)
+		.where(
+			and(
+				inArray(playerBans.playerId, [...playerIds]),
+				eq(playerBans.banType, 'username'),
+				activeCondition(),
+			),
+		)
+	return new Set(rows.map((r) => r.playerId))
+}
+
+/**
+ * SQL for "this player has a username ban in force", for a query that already
+ * has `players` as `p` (the leaderboard).
+ */
+export const usernameBannedSql = sql`EXISTS (
+	SELECT 1 FROM player_bans ub
+	WHERE ub.player_id = p.id AND ub.ban_type = 'username' AND ub.lifted_at IS NULL
+	  AND (ub.expires_at IS NULL OR ub.expires_at > now())
+)`
+
+/** The player's Ban name while a username ban is in force, else null. */
+export async function banNameWhileBanned(playerId: string): Promise<string | null> {
+	if (!(await hasActiveBan(playerId, 'username'))) return null
+	const [row] = await db
+		.select({ nakamaUserId: players.nakamaUserId })
+		.from(players)
+		.where(eq(players.id, playerId))
+		.limit(1)
+	return banNameFor({ id: playerId, nakamaUserId: row?.nakamaUserId ?? null })
+}
+
+/** Names staff see: the Steam name, or the Ban name with the real name next to it. */
+export async function staffNamesOf(
+	rows: readonly { id: string; nakamaUserId: string | null; steamName: string }[],
+): Promise<Map<string, string>> {
+	const banned = await usernameBannedAmong(rows.map((r) => r.id))
+	return new Map(
+		rows.map((r) => [
+			r.id,
+			banned.has(r.id) ? `${banNameFor({ id: r.id, nakamaUserId: r.nakamaUserId })} (${r.steamName})` : r.steamName,
+		]),
+	)
 }
 
 /** Lists every ban for a player — active, expired, and lifted — newest first. */

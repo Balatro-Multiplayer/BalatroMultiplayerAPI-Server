@@ -13,7 +13,7 @@ import { notify, NotifyCode } from '../notify'
 import { parsePayload, requireUser } from '../rpc'
 import { progressFor } from '../achievements/storage'
 import { isSelectable } from '../shared/avatars/unlocked'
-import { displayNameOf, playerView, updateProfile, type Profile } from './profile'
+import { playerView, shownNameOf, updateProfile, type Profile } from './profile'
 import { syncDisplayName } from './session'
 import { settingsOf } from '../server_kind'
 
@@ -31,14 +31,14 @@ export function pushToLobby(nk: nkruntime.Nakama, userId: string, info: Partial<
 }
 
 export function accountUpdated(nk: nkruntime.Nakama, userId: string, profile: Profile) {
-	notify(nk, userId, NotifyCode.ACCOUNT_UPDATED, 'account_updated', { player: playerView(userId, profile) })
+	notify(nk, userId, NotifyCode.ACCOUNT_UPDATED, 'account_updated', { player: playerView(nk, userId, profile) })
 }
 
 // After a change to anything others see: the account's name, the lobby and
 // the player's own sessions all catch up.
 export function profileChanged(nk: nkruntime.Nakama, userId: string, profile: Profile) {
 	syncDisplayName(nk, userId, profile)
-	pushToLobby(nk, userId, { displayName: displayNameOf(profile), preferredJoker: profile.preferredJoker })
+	pushToLobby(nk, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker })
 	accountUpdated(nk, userId, profile)
 }
 
@@ -62,9 +62,9 @@ export function rpcProfileSetDisplay(
 		ctx.username,
 	)
 	syncDisplayName(nk, userId, profile)
-	pushToLobby(nk, userId, { displayName: displayNameOf(profile), preferredJoker: profile.preferredJoker })
+	pushToLobby(nk, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker })
 	accountUpdated(nk, userId, profile)
-	return JSON.stringify({ player: playerView(userId, profile) })
+	return JSON.stringify({ player: playerView(nk, userId, profile) })
 }
 
 // {preferredJoker} -> {player}. Only a default joker, one the player's
@@ -89,9 +89,9 @@ export function rpcProfileSetJoker(
 		},
 		ctx.username,
 	)
-	pushToLobby(nk, userId, { displayName: displayNameOf(profile), preferredJoker: profile.preferredJoker })
+	pushToLobby(nk, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker })
 	accountUpdated(nk, userId, profile)
-	return JSON.stringify({ player: playerView(userId, profile) })
+	return JSON.stringify({ player: playerView(nk, userId, profile) })
 }
 
 // {mods: string[]} -> {mods}. What the client has installed, for the lobby

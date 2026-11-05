@@ -13,6 +13,7 @@ export const CLOSING_ACTIONS: readonly ActionKey[] = [
 	'chat_mute',
 	'queue_ban',
 	'account_ban',
+	'username_ban',
 	'void',
 	'overturn',
 ]

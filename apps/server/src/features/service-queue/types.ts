@@ -16,6 +16,7 @@ export const ACTION_KEYS = [
 	'chat_mute',
 	'queue_ban',
 	'account_ban',
+	'username_ban',
 	'void',
 	'overturn',
 	'reopen',

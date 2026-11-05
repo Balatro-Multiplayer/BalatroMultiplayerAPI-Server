@@ -124,7 +124,7 @@ export function rpcAdminBanApply(
 	requireServer(ctx)
 	const input = parsePayload(payload)
 	const userId = requireUserId(nk, input)
-	if (!isBanType(input.type)) throw runtimeError(INVALID_ARGUMENT, "type must be 'chat', 'queue' or 'account'")
+	if (!isBanType(input.type)) throw runtimeError(INVALID_ARGUMENT, "type must be 'chat', 'queue', 'account' or 'username'")
 	if (typeof input.banId !== 'string' || !input.banId) throw runtimeError(INVALID_ARGUMENT, 'banId is required')
 	const expiresAt = parseExpiresAt(input.expiresAt)
 	if (expiresAt === undefined) throw runtimeError(INVALID_ARGUMENT, 'expiresAt must be a time or null')
@@ -274,7 +274,7 @@ export function rpcAdminPlayerGet(
 	const profile = profileFor(nk, userId)
 	const online = nk.streamUserList({ mode: 0, subject: userId }, true, true).length
 	return JSON.stringify({
-		player: playerView(userId, profile),
+		player: playerView(nk, userId, profile),
 		bans: readBans(nk, userId),
 		lobby: currentLobby(nk, userId),
 		online,

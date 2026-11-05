@@ -116,6 +116,11 @@ export function bodyOf(
         body: { action: 'warn', reason, message, targetPlayerId: target, note, ...strike },
       }
     }
+    case 'username_ban':
+      return {
+        ok: true,
+        body: { action: 'username_ban', reason, targetPlayerId: target, note },
+      }
     case 'chat_mute':
     case 'queue_ban':
     case 'account_ban':

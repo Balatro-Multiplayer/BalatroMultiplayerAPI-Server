@@ -11,7 +11,7 @@ import {
 	setNakamaAvatar,
 } from '../../infrastructure/nakama/avatar-sync.js'
 import { listAppealsOf } from '../../infrastructure/gateways/appeal.gateway.js'
-import { listBans } from '../../infrastructure/gateways/ban.gateway.js'
+import { banNameWhileBanned, listBans } from '../../infrastructure/gateways/ban.gateway.js'
 import { listWarnings } from '../../infrastructure/gateways/warning.gateway.js'
 import { networkBanIdsAt } from '../../infrastructure/nakama/moderation-sync.js'
 import {
@@ -63,7 +63,27 @@ function appealRefusalHttp(refusal: SubmitRefusal): { status: number; body: Reco
 	}
 }
 
-function playerPayload(session: PlayerSession) {
+// Under a username ban the player sees the Ban name for every name of theirs.
+// usernameBanned lets the page say why.
+function withBanName<T extends { steamName: string; displayName: string; discordUsername: string | null }>(
+	player: T,
+	banName: string | null,
+): T & { usernameBanned: boolean } {
+	if (!banName) return { ...player, usernameBanned: false }
+	return {
+		...player,
+		steamName: banName,
+		displayName: banName,
+		discordUsername: player.discordUsername ? banName : null,
+		usernameBanned: true,
+	}
+}
+
+async function playerPayload(session: PlayerSession) {
+	return withBanName(plainPlayerPayload(session), await banNameWhileBanned(session.playerId))
+}
+
+function plainPlayerPayload(session: PlayerSession) {
 	return {
 		id: session.playerId,
 		steamName: session.steamName,
@@ -196,20 +216,25 @@ export function createAuthRouter(service: AuthService): Router {
 		try {
 			const jwt = req.player!
 			const dbPlayer = await findPlayerById(jwt.playerId)
-			res.json({
-				id: jwt.playerId,
-				steamName: jwt.steamName,
-				displayName: jwt.displayName ?? jwt.steamName,
-				useDiscordName: jwt.useDiscordName ?? false,
-				preferredJoker: jwt.preferredJoker ?? null,
-				discordLinked: jwt.discordIdHash != null,
-				discordUsername: jwt.discordUsername ?? null,
-				privileges: effectivePrivileges(
-					jwt.playerId,
-					dbPlayer?.privileges ?? [],
+			res.json(
+				withBanName(
+					{
+						id: jwt.playerId,
+						steamName: jwt.steamName,
+						displayName: jwt.displayName ?? jwt.steamName,
+						useDiscordName: jwt.useDiscordName ?? false,
+						preferredJoker: jwt.preferredJoker ?? null,
+						discordLinked: jwt.discordIdHash != null,
+						discordUsername: jwt.discordUsername ?? null,
+						privileges: effectivePrivileges(
+							jwt.playerId,
+							dbPlayer?.privileges ?? [],
+						),
+						isOwner: isOwner(jwt.playerId),
+					},
+					await banNameWhileBanned(jwt.playerId),
 				),
-				isOwner: isOwner(jwt.playerId),
-			})
+			)
 		} catch (err) {
 			next(err)
 		}
@@ -297,7 +322,7 @@ export function createAuthRouter(service: AuthService): Router {
 
 			res.json({
 				token,
-				player: playerPayload(session),
+				player: await playerPayload(session),
 			})
 		} catch (err) {
 			next(err)
@@ -380,7 +405,7 @@ export function createAuthRouter(service: AuthService): Router {
 
 			res.json({
 				token,
-				player: playerPayload(session),
+				player: await playerPayload(session),
 			})
 		} catch (err) {
 			next(err)
@@ -403,7 +428,7 @@ export function createAuthRouter(service: AuthService): Router {
 
 			res.json({
 				token,
-				player: playerPayload(session),
+				player: await playerPayload(session),
 			})
 		} catch (err) {
 			next(err)
@@ -428,7 +453,7 @@ export function createAuthRouter(service: AuthService): Router {
 
 				res.json({
 					token,
-					player: playerPayload(session),
+					player: await playerPayload(session),
 				})
 			} catch (err) {
 				next(err)
@@ -444,7 +469,7 @@ export function createAuthRouter(service: AuthService): Router {
 			if (session.chatBlocked)
 				throw new AppError('Chat access is permanently restricted', 403)
 			if (session.chatEnabled) {
-				res.json({ player: playerPayload(session) })
+				res.json({ player: await playerPayload(session) })
 				return
 			}
 
@@ -452,7 +477,7 @@ export function createAuthRouter(service: AuthService): Router {
 			session.chatEnabled = true
 			session.chatBlocked = false
 
-			res.json({ player: playerPayload(session) })
+			res.json({ player: await playerPayload(session) })
 		} catch (err) {
 			next(err)
 		}
@@ -491,7 +516,7 @@ export function createAuthRouter(service: AuthService): Router {
 
 			res.json({
 				token,
-				player: playerPayload(session),
+				player: await playerPayload(session),
 			})
 		} catch (err) {
 			next(err)

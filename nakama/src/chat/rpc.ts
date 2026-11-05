@@ -65,7 +65,7 @@ export function rpcChatEnable(
 		},
 		ctx.username,
 	)
-	return JSON.stringify({ enabled: true, player: playerView(userId, profile) })
+	return JSON.stringify({ enabled: true, player: playerView(nk, userId, profile) })
 }
 
 // {message} -> {} once it has been posted to the caller's lobby, or an error:

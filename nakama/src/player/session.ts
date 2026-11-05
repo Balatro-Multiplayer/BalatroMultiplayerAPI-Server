@@ -23,7 +23,7 @@ import { settingsOf, type ServerSettings } from '../server_kind'
 import { parsePayload, requireUser } from '../rpc'
 import {
 	cleanName,
-	displayNameOf,
+	shownNameOf,
 	playerView,
 	readProfile,
 	updateProfile,
@@ -81,7 +81,7 @@ export function withResolvedMutes(profile: Profile, resolved: { [playerId: strin
 // The login response: the API's gameLoginPayload, minus its tokens (the
 // client already holds a Nakama session). Only a server kind with
 // noticeRequired asks for the Notice; every kind asks the age once.
-export function loginResponse(userId: string, profile: Profile, config: ServerConfig, settings: ServerSettings) {
+export function loginResponse(nk: nkruntime.Nakama, userId: string, profile: Profile, config: ServerConfig, settings: ServerSettings) {
 	const tosRequired = settings.noticeRequired && profile.tosAcceptedVersion < NOTICE_VERSION
 	return {
 		tosRequired,
@@ -89,7 +89,7 @@ export function loginResponse(userId: string, profile: Profile, config: ServerCo
 		tosUpdate: tosRequired && profile.tosAcceptedVersion > 0,
 		// The age question is still open (with tosRequired, inside the Notice).
 		ageRequired: !profile.ageAnswered,
-		player: playerView(userId, profile),
+		player: playerView(nk, userId, profile),
 		serverConfig: clientConfig(config),
 	}
 }
@@ -97,7 +97,7 @@ export function loginResponse(userId: string, profile: Profile, config: ServerCo
 // Keeps the Nakama account's display name (shown by Nakama itself, e.g. in
 // presences and the matchmaker) in step with the profile.
 export function syncDisplayName(nk: nkruntime.Nakama, userId: string, profile: Profile) {
-	const name = displayNameOf(profile)
+	const name = shownNameOf(nk, userId, profile)
 	if (nk.accountGetId(userId).user.displayName !== name)
 		nk.accountUpdateId(userId, null, name, null, null, null, null, null)
 }
@@ -160,7 +160,7 @@ export function rpcSessionInit(
 	// and unreported until this session's profile_set_mods.
 	writeIntegrity(nk, userId, UNVERIFIED)
 	clearModReport(nk, userId)
-	return JSON.stringify(loginResponse(userId, profile, readConfig(nk), settingsOf(ctx)))
+	return JSON.stringify(loginResponse(nk, userId, profile, readConfig(nk), settingsOf(ctx)))
 }
 
 // {chatEligible?} -> loginResponse. On a server kind with noticeRequired,
@@ -198,5 +198,5 @@ export function rpcTosAccept(
 	// Postgres (webadmin) keeps who accepted which version, and when.
 	if (settings.noticeRequired)
 		enqueue(nk, { kind: 'notice', at: acceptedAt, userId, version: NOTICE_VERSION })
-	return JSON.stringify(loginResponse(userId, profile, config, settings))
+	return JSON.stringify(loginResponse(nk, userId, profile, config, settings))
 }

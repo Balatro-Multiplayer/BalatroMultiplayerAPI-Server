@@ -50,7 +50,7 @@ export interface Staff {
 export interface BanRow {
 	id: string
 	playerId: string
-	banType: 'chat' | 'queue' | 'account'
+	banType: 'chat' | 'queue' | 'account' | 'username'
 	expiresAt: Date | null
 	reason: string
 	issuedBy: string
@@ -152,6 +152,7 @@ const LOGGED_AS: Record<Exclude<ActionKey, 'note'>, StaffAction> = {
 	chat_mute: 'chat_ban',
 	queue_ban: 'queue_ban',
 	account_ban: 'account_ban',
+	username_ban: 'username_ban',
 	void: 'void',
 	overturn: 'overturn',
 	reopen: 'reopen',
@@ -246,6 +247,7 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 				case 'chat_mute':
 				case 'queue_ban':
 				case 'account_ban':
+				case 'username_ban':
 					return await sanction(item, itemType, command, actor, now, log)
 				case 'unban':
 					return await unban(item, staff, command, actor, now, log)
@@ -442,15 +444,16 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 	): Promise<QueueResult<ActionOutcome>> {
 		const target = await targetFor(item, command.targetPlayerId)
 		const banType = banTypeOf(command)
-		const expiresAt = expiresAtOf(command.duration, now)
-		// An account ban is on no ladder.
+		const duration = command.action === 'username_ban' ? 'permanent' : command.duration
+		const expiresAt = expiresAtOf(duration, now)
+		// An account ban and a username ban are on no ladder.
 		const strike =
-			command.action === 'account_ban'
+			command.action === 'account_ban' || command.action === 'username_ban'
 				? null
 				: await judged(
 						target.playerId,
 						command.ladder ?? (command.action === 'chat_mute' ? 'chat' : 'play'),
-						command.duration,
+						duration,
 						command.deviationReason,
 						now,
 					)
@@ -479,7 +482,7 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 				target,
 				banId: row.id,
 				banType,
-				duration: command.duration,
+				duration,
 				expiresAt,
 				...(strike ? { strike } : {}),
 				...(settled ? settled.detail : {}),

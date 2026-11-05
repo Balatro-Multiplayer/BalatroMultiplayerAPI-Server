@@ -4,7 +4,7 @@
 export const MODERATION_COLLECTION = 'moderation'
 export const BANS_KEY = 'bans'
 
-export const BAN_TYPES = ['chat', 'queue', 'account'] as const
+export const BAN_TYPES = ['chat', 'queue', 'account', 'username'] as const
 export type BanType = (typeof BAN_TYPES)[number]
 
 export interface Ban {
