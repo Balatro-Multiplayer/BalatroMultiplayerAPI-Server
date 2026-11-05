@@ -192,6 +192,37 @@ describe('a tournament from creation to start', () => {
 	})
 })
 
+describe('the provisional bracket', () => {
+	it('draws a tournament that has not started from its sign-ups, when asked', () => {
+		const id = created({ checkInMinutes: null }).summary.id
+		call(rpcTournamentOpen, ORG, { id })
+		// Nobody yet: the full 8-player bracket, all open spots.
+		const empty = call(rpcTournamentGet, P(4), { id, provisional: true }).tournament
+		expect(empty.bracket.length).toBe(7)
+		expect(empty.bracket[0].players.map((p: { name: string }) => p.name)).toEqual(['Open spot', 'Open spot'])
+		for (const n of [1, 2, 3]) call(rpcTournamentJoin, P(n), { id })
+		const plain = call(rpcTournamentGet, P(1), { id }).tournament
+		expect(plain.bracket).toBeNull()
+		const drawn = call(rpcTournamentGet, P(1), { id, provisional: true }).tournament
+		expect(drawn.provisional).toBe(true)
+		expect(drawn.summary.status).toBe('registration')
+		// Still the full size; the three players are the top seeds.
+		expect(drawn.bracket.length).toBe(7)
+		const seeded = drawn.bracket.filter((m: { round: number }) => m.round === 1).map((m: { players: { name: string }[] }) => m.players[0].name)
+		expect(seeded.filter((n: string) => n !== 'Open spot').length).toBe(3)
+		expect(drawn.schedule.length).toBeGreaterThan(0)
+		expect(drawn.bracket.every((m: { clock: unknown }) => m.clock === null)).toBe(true)
+		// Nothing was saved: still not started.
+		expect(call(rpcTournamentGet, ORG, { id }).tournament.bracket).toBeNull()
+		// The same draw on every refresh.
+		expect(JSON.stringify(call(rpcTournamentGet, P(2), { id, provisional: true }).tournament.bracket)).toBe(JSON.stringify(drawn.bracket))
+		// Nothing is played in it, even by bots (dev fill).
+		call(rpcTournamentDevFill, ORG, { id, count: 4 })
+		const bots = call(rpcTournamentGet, P(1), { id, provisional: true }).tournament
+		expect(bots.bracket.filter((m: { status: string; outcome: { reason: string } | null }) => m.status === 'done' && m.outcome?.reason !== 'bye').length).toBe(0)
+	})
+})
+
 describe('pause and resume', () => {
 	it('resumes once, moving the open deadlines by the paused time', () => {
 		const id = created({ checkInMinutes: null }).summary.id

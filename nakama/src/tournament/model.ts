@@ -2,6 +2,7 @@
 // checks on what an organiser sends. Pure.
 import { type Result, err, ok } from '../shared/result'
 import { MAX_STAKE } from '../actions/setup'
+import { type RoundTiming, validRoundTimings } from './round_timing'
 import { BEST_OF_CHOICES, MAX_ENTRANTS, MIN_ENTRANTS } from './engine/bracket'
 import { type Preset, type ScheduleBlock, type TimetableState, roundSteps } from './engine/schedule'
 import type { Bracket, Format } from './engine/types'
@@ -58,7 +59,10 @@ export const POOL_COCKTAILS_MAX = 8
 
 export type BanOrder = 'lower_seed_first' | 'lower_seed_last' | 'random' | 'previous_loser_first'
 
-export type Timetable = { kind: 'preset'; preset: Preset; options: PresetOptions } | { kind: 'custom'; blocks: ScheduleBlock[] }
+// A preset can carry round-by-round changes (round_timing.ts).
+export type Timetable =
+	| { kind: 'preset'; preset: Preset; options: PresetOptions; rounds?: { [key: string]: RoundTiming } }
+	| { kind: 'custom'; blocks: ScheduleBlock[] }
 
 export interface PresetOptions {
 	breakMinutes?: number
@@ -292,7 +296,10 @@ function validTimetable(value: unknown): Result<Timetable, string> {
 		if (presets.indexOf(value.preset as Preset) === -1) return err('Unknown timetable preset')
 		const options = validPresetOptions(value.options)
 		if (!options.ok) return options
-		return ok({ kind: 'preset', preset: value.preset as Preset, options: options.value })
+		if (value.rounds === undefined) return ok({ kind: 'preset', preset: value.preset as Preset, options: options.value })
+		const rounds = validRoundTimings(value.rounds)
+		if (!rounds.ok) return rounds
+		return ok({ kind: 'preset', preset: value.preset as Preset, options: options.value, rounds: rounds.value })
 	}
 	if (value.kind === 'custom') {
 		// Shape only: the blocks are checked against the real bracket at start

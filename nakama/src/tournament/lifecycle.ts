@@ -16,6 +16,7 @@ import { splitGroups } from './engine/round_robin'
 import { MINUTE_MS, type ScheduleBlock, newTimetable, presetSchedule, roundSteps, setReady, tickTimetable, validateSchedule } from './engine/schedule'
 import { type Rng, seedEntrants } from './engine/seeding'
 import type { Bracket, Format, Side } from './engine/types'
+import { applyRoundTimings } from './round_timing'
 import {
 	CO_ORGANISERS_MAX,
 	type Entrant,
@@ -122,6 +123,7 @@ export function scheduleFor(t: Tournament, bracket: Bracket): ScheduleBlock[] {
 				fallback: o.fallback ?? b.unplayed.fallback,
 			},
 		}))
+		blocks = applyRoundTimings(bracket, blocks, t.timetable.rounds)
 	} else {
 		// Keep blocks until one reaches the last round; later ones have no rounds.
 		blocks = []
@@ -316,7 +318,9 @@ export function closeByModerator(t: Tournament, reason: string, now: number): Ch
 export type RatingsLookup = (userIds: string[], board: string) => { [userId: string]: number | undefined }
 
 // Starts the tournament now: check-in removals, seeding, bracket, timetable.
-export function start(t: Tournament, now: number, ratingsFor: RatingsLookup, rng: Rng): Change {
+// play: false only draws it (bracket, timetable) without opening matches or
+// letting dev bots play -- the bracket viewer's preview before the start.
+export function start(t: Tournament, now: number, ratingsFor: RatingsLookup, rng: Rng, play = true): Change {
 	if (t.status !== 'registration' && t.status !== 'check_in') return fail(FAILED_PRECONDITION, 'The tournament cannot start from here')
 	const checkedIn = t.checkInMinutes === null || t.status !== 'check_in' ? t.entrants : t.entrants.filter((e) => e.checkedInAt !== undefined)
 	const noShows = t.entrants.filter((e) => checkedIn.indexOf(e) === -1).map((e) => e.userId)
@@ -368,7 +372,7 @@ export function start(t: Tournament, now: number, ratingsFor: RatingsLookup, rng
 		clock: newTimetable(now, schedule),
 	}
 	next = withEvent(next, now, 'started', { players: seeded.value.length })
-	return ok(touch(advanceRunning(next, now), now))
+	return ok(touch(play ? advanceRunning(next, now) : next, now))
 }
 
 function tickOnce(t: Tournament, now: number): Tournament {

@@ -50,7 +50,7 @@ import {
 	spendTournamentCreate,
 	tournamentIdForCode,
 } from './storage'
-import { previewTournament } from './preview'
+import { previewTournament, provisionalOf } from './preview'
 import { tournamentView } from './view'
 import { checkLobbies, commit } from './effects'
 import { type ResultInput, clearResult, extend, readyUp, setPaused, setResult, startNextRound } from './matches'
@@ -181,7 +181,9 @@ function publicSummary(e: IndexEntry) {
 	return summary
 }
 
-// {id} -> the full view. Private tournaments are visible to their members
+// {id, provisional?} -> the full view. With provisional, a tournament that
+// hasn't started also gets the bracket it would have now (provisional: true).
+// Private tournaments are visible to their members
 // and to anyone who has the invite code ({code}).
 export function rpcTournamentGet(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
 	requireEnabled(nk)
@@ -198,7 +200,13 @@ export function rpcTournamentGet(ctx: nkruntime.Context, logger: nkruntime.Logge
 	const viaCode = typeof input.code === 'string' && input.code.toUpperCase() === t.inviteCode
 	if (t.visibility === 'private' && !member && !viaCode) throw runtimeError(NOT_FOUND, 'No such tournament')
 	if (t.status === 'draft' && !isManager(t, userId)) throw runtimeError(NOT_FOUND, 'No such tournament')
-	return respond(t, userId, real)
+	if (input.provisional !== true || t.bracket) return respond(t, userId, real)
+	// Not started: the bracket as if it started now (the bracket viewer).
+	const now = nowFor(t, real)
+	const view = tournamentView(t, userId, now)
+	const drawn = provisionalOf(t, userId, now, ratingsLookup(nk, now))
+	if (!drawn) return JSON.stringify({ tournament: view })
+	return JSON.stringify({ tournament: { ...view, bracket: drawn.bracket, standings: drawn.standings, schedule: drawn.schedule, provisional: true } })
 }
 
 // {} -> summaries of every tournament the caller organises, helps run,

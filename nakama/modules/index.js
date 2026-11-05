@@ -10107,7 +10107,10 @@ function validTimetable(value) {
     if (presets.indexOf(value.preset) === -1) return err("Unknown timetable preset");
     const options = validPresetOptions(value.options);
     if (!options.ok) return options;
-    return ok({ kind: "preset", preset: value.preset, options: options.value });
+    if (value.rounds === void 0) return ok({ kind: "preset", preset: value.preset, options: options.value });
+    const rounds = validRoundTimings(value.rounds);
+    if (!rounds.ok) return rounds;
+    return ok({ kind: "preset", preset: value.preset, options: options.value, rounds: rounds.value });
   }
   if (value.kind === "custom") {
     if (!Array.isArray(value.blocks) || value.blocks.length < 1 || value.blocks.length > 64) return err("A custom timetable needs 1-64 blocks");
@@ -10260,6 +10263,129 @@ function addEvent(t, event2) {
   return __spreadProps(__spreadValues({}, t), { eventSeq: seq, events: events.length > EVENTS_KEPT ? events.slice(events.length - EVENTS_KEPT) : events });
 }
 
+// src/tournament/round_timing.ts
+var ROUND_TIMING_KEY = /^(R[0-9]{1,3}|FINAL|SEMI|QUARTER|WINNERS_FINAL|LOSERS_FINAL)$/;
+var BREAK_MAX = 7 * 24 * 60;
+var WINDOW_MAX = 30 * 24 * 60;
+function isObject2(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function validRoundTimings(value) {
+  if (!isObject2(value)) return err("timetable.rounds must be an object");
+  const out = {};
+  for (const key of Object.keys(value)) {
+    if (!ROUND_TIMING_KEY.test(key)) return err(`timetable.rounds: unknown round ${key}`);
+    const v = value[key];
+    if (!isObject2(v)) return err(`timetable.rounds.${key} must be an object`);
+    const t = {};
+    if (v.breakBefore !== void 0) {
+      if (typeof v.breakBefore !== "number" || !Number.isInteger(v.breakBefore) || v.breakBefore < 0 || v.breakBefore > BREAK_MAX) return err(`timetable.rounds.${key}: breakBefore must be 0-${BREAK_MAX} minutes`);
+      t.breakBefore = v.breakBefore;
+    }
+    if (v.manualStart !== void 0) {
+      if (typeof v.manualStart !== "boolean") return err(`timetable.rounds.${key}: manualStart must be true or false`);
+      t.manualStart = v.manualStart;
+    }
+    if (v.startAt !== void 0) {
+      if (typeof v.startAt !== "number" || !Number.isInteger(v.startAt) || v.startAt <= 0) return err(`timetable.rounds.${key}: startAt must be a time`);
+      t.startAt = v.startAt;
+    }
+    if (v.onward !== void 0) {
+      if (typeof v.onward !== "boolean") return err(`timetable.rounds.${key}: onward must be true or false`);
+      t.onward = v.onward;
+    }
+    if (v.play !== void 0) {
+      const p = v.play;
+      if (!isObject2(p)) return err(`timetable.rounds.${key}.play must be an object`);
+      if (p.kind === "live") {
+        if (typeof p.readyUpMinutes !== "number" || !Number.isInteger(p.readyUpMinutes) || p.readyUpMinutes < 2 || p.readyUpMinutes > 30) return err(`timetable.rounds.${key}: readyUpMinutes must be 2-30`);
+        t.play = { kind: "live", readyUpMinutes: p.readyUpMinutes };
+      } else if (p.kind === "window") {
+        if (typeof p.durationMinutes !== "number" || !Number.isInteger(p.durationMinutes) || p.durationMinutes < 10 || p.durationMinutes > WINDOW_MAX) return err(`timetable.rounds.${key}: durationMinutes must be 10-${WINDOW_MAX}`);
+        t.play = { kind: "window", durationMinutes: p.durationMinutes };
+      } else return err(`timetable.rounds.${key}.play.kind must be live or window`);
+    }
+    out[key] = t;
+  }
+  return ok(out);
+}
+function sameRule(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+function merged(a, b) {
+  return __spreadValues(__spreadValues({}, a), b);
+}
+function applyRoundTimings(bracket, blocks, timings) {
+  if (!timings || Object.keys(timings).length === 0) return blocks;
+  const steps = roundSteps(bracket);
+  const perStep = [];
+  let b = 0;
+  let first = 1;
+  for (let s = 1; s <= steps.length; s++) {
+    while (b < blocks.length - 1 && s > blocks[b].untilStep) {
+      first = blocks[b].untilStep + 1;
+      b++;
+    }
+    const start2 = s === first ? blocks[b].start : { kind: "after_previous", breakMinutes: 0 };
+    perStep.push({ origin: b, changed: false, block: __spreadProps(__spreadValues({}, blocks[b]), { untilStep: s, start: start2 }) });
+  }
+  let carried = {};
+  let carrying = false;
+  const namesSeen = [];
+  for (let s = 1; s <= steps.length; s++) {
+    const names = [];
+    for (const r of steps[s - 1]) for (const n of roundNamesOf(bracket, r.stage, r.round)) if (names.indexOf(n) === -1) names.push(n);
+    let here = carrying ? __spreadValues({}, carried) : {};
+    let touched = carrying;
+    for (const key of [`R${s}`].concat(names)) {
+      const t = timings[key];
+      if (!t) continue;
+      touched = true;
+      if (t.onward && t.play) {
+        carried = merged(carried, { play: t.play });
+        carrying = true;
+      }
+      const repeat = namesSeen.indexOf(key) !== -1;
+      here = merged(here, repeat ? t.play ? { play: t.play } : {} : t);
+    }
+    for (const n of names) if (namesSeen.indexOf(n) === -1) namesSeen.push(n);
+    if (!touched) continue;
+    const entry = perStep[s - 1];
+    const block = __spreadValues({}, entry.block);
+    if (here.play) {
+      const play = here.play.kind === "live" ? { kind: "live", readyUpMinutes: here.play.readyUpMinutes } : { kind: "window", durationMinutes: here.play.durationMinutes };
+      if (!sameRule(play, block.play)) {
+        block.play = play;
+        if (play.kind === "window") block.opening = "synchronized";
+        entry.changed = true;
+      }
+    }
+    if (s > 1 && here.startAt !== void 0) {
+      block.start = { kind: "at", at: here.startAt };
+      entry.changed = true;
+    } else if (s > 1 && here.manualStart) {
+      block.start = { kind: "manual" };
+      entry.changed = true;
+    } else if (s > 1 && here.breakBefore !== void 0 && here.breakBefore > 0) {
+      block.start = { kind: "after_previous", breakMinutes: here.breakBefore };
+      entry.changed = true;
+    }
+    entry.block = block;
+  }
+  const out = [];
+  let last = null;
+  for (const entry of perStep) {
+    const joins = last !== null && last.origin === entry.origin && entry.block.start.kind === "after_previous" && entry.block.start.breakMinutes === 0 && sameRule(entry.block.play, out[out.length - 1].play) && entry.block.opening === out[out.length - 1].opening;
+    if (joins) {
+      out[out.length - 1] = __spreadProps(__spreadValues({}, out[out.length - 1]), { untilStep: entry.block.untilStep });
+    } else {
+      out.push(__spreadValues({}, entry.block));
+    }
+    last = entry;
+  }
+  return out;
+}
+
 // src/tournament/lifecycle.ts
 function fail(code, message) {
   return err({ code, message });
@@ -10326,6 +10452,7 @@ function scheduleFor(t, bracket) {
         }
       });
     });
+    blocks = applyRoundTimings(bracket, blocks, t.timetable.rounds);
   } else {
     blocks = [];
     for (const b of t.timetable.blocks) {
@@ -10488,7 +10615,7 @@ function closeByModerator(t, reason, now) {
   if (!over.ok) return over;
   return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { status: "cancelled", finishedAt: now }), now, "cancelled", { reason: "moderator", message: reason.slice(0, 200) }), now));
 }
-function start(t, now, ratingsFor, rng) {
+function start(t, now, ratingsFor, rng, play = true) {
   var _a, _b;
   if (t.status !== "registration" && t.status !== "check_in") return fail(FAILED_PRECONDITION, "The tournament cannot start from here");
   const checkedIn = t.checkInMinutes === null || t.status !== "check_in" ? t.entrants : t.entrants.filter((e) => e.checkedInAt !== void 0);
@@ -10539,7 +10666,7 @@ function start(t, now, ratingsFor, rng) {
     clock: newTimetable(now, schedule)
   });
   next = withEvent(next, now, "started", { players: seeded.value.length });
-  return ok(touch(advanceRunning(next, now), now));
+  return ok(touch(play ? advanceRunning(next, now) : next, now));
 }
 function tickOnce(t, now) {
   if (!t.bracket || !t.schedule || !t.clock) return t;
@@ -13522,6 +13649,23 @@ function simulate(t, upTo, rng) {
   }
   return bracket;
 }
+var OPEN_SPOT_PREFIX = "open-spot-";
+function provisionalOf(t, viewerId, now, ratingsFor) {
+  var _a;
+  if (t.bracket || t.status !== "draft" && t.status !== "registration" && t.status !== "check_in") return null;
+  let seed = 7;
+  for (let i = 0; i < t.id.length; i++) seed = seed * 31 + t.id.charCodeAt(i) >>> 0;
+  const players = t.status === "check_in" ? t.entrants.filter((e) => e.checkedInAt !== void 0) : t.entrants;
+  const open = [];
+  for (let n = players.length + 1; n <= t.maxPlayers; n++) open.push({ userId: `${OPEN_SPOT_PREFIX}${n}`, name: "Open spot", joinedAt: now, checkedInAt: now });
+  const ratings = (ids, board) => ratingsFor(ids.filter((id) => id.indexOf(OPEN_SPOT_PREFIX) !== 0), board);
+  const drawn = __spreadProps(__spreadValues({}, t), { entrants: players.concat(open), status: t.status === "check_in" ? "check_in" : "registration" });
+  const started = start(drawn, now, ratings, seededRng(seed), false);
+  if (!started.ok || !started.value.bracket) return null;
+  const shown = __spreadProps(__spreadValues({}, started.value), { clock: void 0, lobbies: void 0 });
+  const view = tournamentView(shown, viewerId, now);
+  return { bracket: view.bracket, standings: view.standings, schedule: (_a = started.value.schedule) != null ? _a : null };
+}
 function previewTournament(settings, players, step, now) {
   if (!Number.isInteger(players) || players < MIN_ENTRANTS || players > MAX_ENTRANTS) return err(`players must be ${MIN_ENTRANTS}-${MAX_ENTRANTS}`);
   if (!Number.isInteger(step) || step < 0) return err("step must be 0 or more");
@@ -13547,7 +13691,7 @@ function previewTournament(settings, players, step, now) {
   const steps = roundSteps(t.bracket).length;
   const played = Math.min(step, steps);
   const bracket = simulate(t, played, seededRng(1e3 + players));
-  const shown = __spreadProps(__spreadValues({}, t), { bracket, clock: void 0, schedule: void 0, lobbies: void 0 });
+  const shown = __spreadProps(__spreadValues({}, t), { bracket, clock: void 0, lobbies: void 0 });
   return ok({ tournament: tournamentView(shown, ORGANISER.id, now), steps, step: played });
 }
 
@@ -13664,7 +13808,12 @@ function rpcTournamentGet(ctx, logger, nk, payload) {
   const viaCode = typeof input.code === "string" && input.code.toUpperCase() === t.inviteCode;
   if (t.visibility === "private" && !member && !viaCode) throw runtimeError(NOT_FOUND, "No such tournament");
   if (t.status === "draft" && !isManager(t, userId)) throw runtimeError(NOT_FOUND, "No such tournament");
-  return respond(t, userId, real);
+  if (input.provisional !== true || t.bracket) return respond(t, userId, real);
+  const now = nowFor(t, real);
+  const view = tournamentView(t, userId, now);
+  const drawn = provisionalOf(t, userId, now, ratingsLookup(nk, now));
+  if (!drawn) return JSON.stringify({ tournament: view });
+  return JSON.stringify({ tournament: __spreadProps(__spreadValues({}, view), { bracket: drawn.bracket, standings: drawn.standings, schedule: drawn.schedule, provisional: true }) });
 }
 function rpcTournamentMine(ctx, logger, nk, payload) {
   requireEnabled(nk);
