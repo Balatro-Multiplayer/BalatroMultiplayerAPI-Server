@@ -236,6 +236,8 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
   // when a play recorded them, that snapshot is the truth the shop events are
   // applied to rather than the reconstruction from shop events alone.
   let snapshotJokers: ResolvedCard[] | null = null
+  // The jokers the run's last line recorded (final_jokers): exact, so it wins.
+  let loggedFinalJokers: ResolvedCard[] | null = null
   let snapshotAdjusted = false
   const vouchers: ResolvedCard[] = []
   let seed: string | null = null
@@ -391,6 +393,10 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
 
       case 'deck_snapshot':
         finalDeck = parseDeckTokens(a[0])
+        break
+
+      case 'final_jokers':
+        loggedFinalJokers = parseJokerTokens(a[0])
         break
 
       case 'leave_shop':
@@ -617,13 +623,18 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
     rounds: rounds
       .filter((r) => r.entry !== 'setup' || r.events.length > 0)
       .map(({ lastScore: _ignored, ...round }) => round),
-    finalJokers: snapshotJokers ?? jokers.map((j) => j.card),
+    finalJokers:
+      loggedFinalJokers ?? snapshotJokers ?? jokers.map((j) => j.card),
     finalDeck,
     vouchers,
     livesLost,
     rerolls,
     itemizedPurchases,
-    reconstructed: snapshotJokers ? snapshotAdjusted : sawBlind,
+    reconstructed: loggedFinalJokers
+      ? false
+      : snapshotJokers
+        ? snapshotAdjusted
+        : sawBlind,
   }
 }
 

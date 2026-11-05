@@ -291,6 +291,23 @@ describe('final jokers', () => {
     expect(log.players[0]?.reconstructed).toBe(true)
   })
 
+  test('prefer the final_jokers line the run recorded', () => {
+    const log = buildGameLog([
+      player('a', [
+        [10, 'select_blind', 0],
+        [11, 'play', [[1], [[-1, 'pc', 'Hearts', 'King']], ['j_joker']]],
+        [12, 'final_jokers', [['j_ankh|negative', 'j_joker|eternal']]],
+      ]),
+    ])
+    const p = log.players[0]
+    expect(
+      p?.finalJokers.map((j) =>
+        j.type === 'other_card' ? `${j.ident}:${j.tags.join()}` : ''
+      )
+    ).toEqual(['j_ankh:ed:negative', 'j_joker:st:eternal'])
+    expect(p?.reconstructed).toBe(false)
+  })
+
   test('read stickers from a snapshot token', () => {
     const log = buildGameLog([
       player('a', [
