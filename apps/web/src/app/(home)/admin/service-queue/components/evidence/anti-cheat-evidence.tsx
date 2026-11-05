@@ -6,6 +6,7 @@ import type {
   AntiCheatEvidence as Evidence,
   IntegrityEventRow,
 } from '../../lib/types'
+import { ItemLink } from '../item-link'
 import { CheckBadge, Empty, Facts, RunSummary, Section } from './shared'
 
 export function IntegrityEventList({
@@ -90,12 +91,12 @@ export function AntiCheatEvidence({
                   {formatTime(f.finalizedAt)}
                 </span>{' '}
                 <Badge variant='outline'>{f.flagReason}</Badge>{' '}
-                <a
+                <ItemLink
                   className='text-bal-blue hover:underline'
-                  href={`/matches/${f.runId}`}
+                  to={{ match: f.runId }}
                 >
                   replay
-                </a>
+                </ItemLink>
               </li>
             ))}
           </ul>

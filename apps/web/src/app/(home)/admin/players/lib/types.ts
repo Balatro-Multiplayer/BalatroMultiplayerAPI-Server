@@ -120,3 +120,13 @@ export interface PlayerIdentity {
   }[]
   linkedAccounts: { playerId: string; name: string | null }[]
 }
+
+// One row of GET /webadmin/staff-log?player=<id> (the staff log's own shape).
+export interface PlayerLogEntry {
+  id: number
+  staffName: string | null
+  action: string
+  itemId: number | null
+  reason: string
+  at: string
+}

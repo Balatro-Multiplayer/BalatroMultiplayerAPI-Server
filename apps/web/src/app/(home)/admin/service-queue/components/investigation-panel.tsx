@@ -19,10 +19,12 @@ import {
   playerNamesOf,
   TYPE_LABELS,
 } from '../lib/format'
+import { takeKeepClaim } from '../lib/claim-keep'
 import type { ItemDetail } from '../lib/types'
 import { ItemEvidence } from './evidence/item-evidence'
 import { Empty } from './evidence/shared'
 import { HistoryTimeline } from './history-timeline'
+import { ItemProvider } from './item-link'
 import { QueueDecisionBar } from './queue-decision-bar'
 import { SubjectCard } from './subject-card'
 
@@ -52,12 +54,16 @@ function useClaim(itemId: number, isOpen: boolean) {
     const renew = setInterval(() => void claim(), CLAIM_RENEW_MS)
     // Only our own claim is released; someone else's is left alone.
     const release = () => void releaseItem(itemId).catch(() => {})
+    // A player or match link keeps the claim: staff come back to this item.
+    const releaseUnlessKept = () => {
+      if (!takeKeepClaim(itemId)) release()
+    }
     // Closing the tab or navigating away skips React cleanup.
     window.addEventListener('pagehide', release)
     return () => {
       clearInterval(renew)
       window.removeEventListener('pagehide', release)
-      release()
+      releaseUnlessKept()
     }
   }, [itemId, isOpen, claim])
 
@@ -177,45 +183,47 @@ export function InvestigationPanel({
     )
 
   return (
-    <div
-      className='flex min-h-0 flex-1 flex-col'
-      data-testid='investigation-panel'
-    >
-      <div className='min-h-0 flex-1 space-y-4 overflow-y-auto p-4'>
-        <Header detail={detail} />
-        <ClaimBanner
-          outcome={outcome}
-          isAdmin={detail.role === 'admin'}
-          onTakeOver={() => void takeOver()}
-          now={now}
-        />
-        <div>
-          <Button
-            size='sm'
-            variant='ghost'
-            onClick={() => setShowHistory((s) => !s)}
-          >
-            {showHistory ? 'Hide history' : 'History'}
-          </Button>
-          {showHistory && <HistoryTimeline itemId={itemId} />}
-        </div>
-        {detail.subject && (
-          <SubjectCard
-            card={detail.subject}
+    <ItemProvider value={itemId}>
+      <div
+        className='flex min-h-0 flex-1 flex-col'
+        data-testid='investigation-panel'
+      >
+        <div className='min-h-0 flex-1 space-y-4 overflow-y-auto p-4'>
+          <Header detail={detail} />
+          <ClaimBanner
+            outcome={outcome}
+            isAdmin={detail.role === 'admin'}
+            onTakeOver={() => void takeOver()}
             now={now}
-            onOpenItem={onOpenItem}
-            onShowAllItems={onShowAllItems}
           />
-        )}
-        <ItemEvidence detail={detail} names={names} />
+          <div>
+            <Button
+              size='sm'
+              variant='ghost'
+              onClick={() => setShowHistory((s) => !s)}
+            >
+              {showHistory ? 'Hide history' : 'History'}
+            </Button>
+            {showHistory && <HistoryTimeline itemId={itemId} />}
+          </div>
+          {detail.subject && (
+            <SubjectCard
+              card={detail.subject}
+              now={now}
+              onOpenItem={onOpenItem}
+              onShowAllItems={onShowAllItems}
+            />
+          )}
+          <ItemEvidence detail={detail} names={names} />
+        </div>
+        <QueueDecisionBar
+          detail={detail}
+          names={names}
+          heldByOther={outcome?.kind === 'held'}
+          onSent={onClosed}
+          onSkip={onSkip}
+        />
       </div>
-      <QueueDecisionBar
-        detail={detail}
-        names={names}
-        heldByOther={outcome?.kind === 'held'}
-        onSent={onClosed}
-        onSkip={onSkip}
-      />
-    </div>
+    </ItemProvider>
   )
 }
