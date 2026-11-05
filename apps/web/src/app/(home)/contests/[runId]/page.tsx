@@ -17,6 +17,8 @@ type ContestPage =
   | {
       submitted: false
       contest: {
+        // 'in_game' | 'website'
+        kind: string
         createdAt: string
         reason: string | null
         detail: string | null
@@ -194,13 +196,19 @@ export default function ContestPageView() {
                   )}
                 </div>
                 <p className='text-xs text-muted-foreground'>
-                  Withdraw counts as a forfeit for you. Your opponent's result stands.
+                  {contest.kind === 'website'
+                    ? 'Withdraw removes your Contest. The match result does not change.'
+                    : "Withdraw counts as a forfeit for you. Your opponent's result stands."}
                 </p>
                 {notOver && <p className='text-sm text-destructive'>{notOver}</p>}
               </>
             )}
             {contest.state === 'withdrawn' && (
-              <p className='text-sm text-muted-foreground'>You withdrew this Contest. The match counts as a forfeit.</p>
+              <p className='text-sm text-muted-foreground'>
+                {contest.kind === 'website'
+                  ? 'You withdrew this Contest. The match result did not change.'
+                  : 'You withdrew this Contest. The match counts as a forfeit.'}
+              </p>
             )}
             {contest.state === 'decided' && (
               <p className='text-sm text-muted-foreground'>Staff have already decided this match.</p>

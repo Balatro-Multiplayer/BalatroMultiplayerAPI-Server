@@ -19,6 +19,10 @@ export function ContestEvidence({
   evidence: Evidence
   names: Map<string, string>
 }) {
+  // An in-game Contest holds the result unrated; a website-only one leaves it standing.
+  const held =
+    evidence.contests.length === 0 ||
+    evidence.contests.some((c) => c.kind === 'in_game')
   return (
     <div className='space-y-3'>
       <Section title='Contested match'>
@@ -33,16 +37,24 @@ export function ContestEvidence({
           ]}
         />
         <div className='rounded border border-border border-dashed p-2 text-sm'>
-          <div className='mb-1 font-semibold'>Reported before the contest</div>
+          <div className='mb-1 font-semibold'>
+            {held ? 'Reported before the contest' : 'Result standing'}
+          </div>
           {evidence.recorded && evidence.recorded.length > 0 ? (
             <>
               <Placements placements={evidence.recorded} names={names} />
               <div className='mt-1 text-muted-foreground text-xs'>
-                Held: not rated until you decide. Dismiss rates this result.
+                {held
+                  ? 'Held: not rated until you decide. Dismiss rates this result.'
+                  : 'Rated already. Dismiss keeps this result.'}
               </div>
             </>
           ) : (
-            <Empty>Nobody reported a result before the contest.</Empty>
+            <Empty>
+              {held
+                ? 'Nobody reported a result before the contest.'
+                : 'No result is recorded for this match.'}
+            </Empty>
           )}
         </div>
       </Section>

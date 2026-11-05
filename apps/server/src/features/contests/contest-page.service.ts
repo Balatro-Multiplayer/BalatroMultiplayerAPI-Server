@@ -5,7 +5,9 @@
 //
 // Withdrawing an in-game Contest is the contester's forfeit: the result is set
 // with the contester last (forfeit.ts), then the match's queue item closes. It
-// wins over a staff claim, as a withdrawn report does.
+// wins over a staff claim, as a withdrawn report does. Withdrawing a website
+// Contest only removes it: the result stands, nobody is told, and the item
+// closes when no Contest is left.
 import { WITHDRAWN_ACTION } from '../reports/report-page.service.js'
 import type { GameRef } from '../service-queue/dispatcher.js'
 import type { Placement } from '../service-queue/overturn.js'
@@ -23,6 +25,7 @@ export interface ContestPageRow {
 	runId: string
 	kind: string
 	contesterId: string
+	againstId: string | null
 	reason: string | null
 	detail: string | null
 	withdrawnAt: Date | null
@@ -35,7 +38,8 @@ export interface ContestPageDeps<Tx> {
 	markPageOpened(id: number, now: Date): Promise<boolean>
 	setDetail(id: number, reason: ContestReason | null, detail: string): Promise<void>
 	// The match's one queue item; null until the run is stored.
-	findQueueItem(runId: string): Promise<{ id: number; status: string } | null>
+	// `contesterId` is the Contest the item names (its context), when it names one.
+	findQueueItem(runId: string): Promise<{ id: number; status: string; contesterId?: string | null } | null>
 
 	gameOf(runId: string): Promise<GameRef | null>
 	participantsOf(game: GameRef): Promise<string[]>
@@ -48,6 +52,10 @@ export interface ContestPageDeps<Tx> {
 	// Closes the item with the withdrawn action; false when it was no longer open.
 	closeItem(tx: Tx, itemId: number, actor: string, now: Date): Promise<boolean>
 	markWithdrawn(tx: Tx, contestId: number, now: Date): Promise<boolean>
+	// The Contests of the match not withdrawn, oldest first (read in the same transaction).
+	liveContests(tx: Tx, runId: string): Promise<{ contesterId: string; againstId: string | null }[]>
+	// The item named a Contest that is gone: it names a standing one.
+	repointItem(tx: Tx, itemId: number, contest: { contesterId: string; againstId: string | null }): Promise<void>
 	recordWithdrawn(tx: Tx, itemId: number, actor: string): Promise<void>
 	// After the commit: tells the other players. A failure never undoes the withdraw.
 	notifyWithdrawn(runId: string, contesterId: string): Promise<void>
@@ -61,7 +69,7 @@ export type ContestPage =
 	| { submitted: true }
 	| {
 			submitted: false
-			contest: { createdAt: Date; reason: string | null; detail: string | null; state: ContestPageState }
+			contest: { kind: string; createdAt: Date; reason: string | null; detail: string | null; state: ContestPageState }
 	  }
 
 export type ContestPageRefusal =
@@ -85,11 +93,43 @@ export function isContestReason(value: unknown): value is ContestReason {
 	return typeof value === 'string' && (CONTEST_REASONS as readonly string[]).includes(value)
 }
 
+class DecidedWhileWithdrawing extends Error {}
+class WithdrawnTwice extends Error {}
+
 export function createContestPageService<Tx>(deps: ContestPageDeps<Tx>) {
 	async function stateOf(contest: ContestPageRow): Promise<ContestPageState> {
 		if (contest.withdrawnAt) return 'withdrawn'
 		const item = await deps.findQueueItem(contest.runId)
 		return item && item.status !== 'open' ? 'decided' : 'open'
+	}
+
+	// Removes only this Contest. The item closes with the last one, and stays
+	// open for the others while any stands.
+	async function removeContest(
+		contest: ContestPageRow,
+		item: { id: number; contesterId?: string | null },
+		playerId: string,
+	): Promise<ContestPageResult<null>> {
+		const now = deps.now()
+		const actor = `player:${playerId}`
+		try {
+			await deps.transaction(async (tx) => {
+				if (!(await deps.markWithdrawn(tx, contest.id, now))) throw new WithdrawnTwice()
+				const [next] = await deps.liveContests(tx, contest.runId)
+				if (next) {
+					if (item.contesterId === playerId) await deps.repointItem(tx, item.id, next)
+					return
+				}
+				// Staff decided between the read and now: undo the withdraw.
+				if (!(await deps.closeItem(tx, item.id, actor, now))) throw new DecidedWhileWithdrawing()
+				await deps.recordWithdrawn(tx, item.id, actor)
+			})
+		} catch (err) {
+			if (err instanceof DecidedWhileWithdrawing) return fail('decided')
+			if (err instanceof WithdrawnTwice) return fail('already_withdrawn')
+			throw err
+		}
+		return { ok: true, value: null }
 	}
 
 	return {
@@ -99,8 +139,8 @@ export function createContestPageService<Tx>(deps: ContestPageDeps<Tx>) {
 			const contest = await deps.getContest(runId, playerId)
 			if (!contest) return { ok: true, value: { pending: true } }
 			if (!(await deps.markPageOpened(contest.id, deps.now()))) return { ok: true, value: { submitted: true } }
-			const { createdAt, reason, detail } = contest
-			return { ok: true, value: { submitted: false, contest: { createdAt, reason, detail, state: await stateOf(contest) } } }
+			const { kind, createdAt, reason, detail } = contest
+			return { ok: true, value: { submitted: false, contest: { kind, createdAt, reason, detail, state: await stateOf(contest) } } }
 		},
 
 		async save(runId: string, playerId: string, reason: unknown, detail: unknown): Promise<ContestPageResult<null>> {
@@ -121,6 +161,7 @@ export function createContestPageService<Tx>(deps: ContestPageDeps<Tx>) {
 			const item = await deps.findQueueItem(runId)
 			if (!item) return fail('match_running')
 			if (item.status !== 'open') return fail('decided')
+			if (contest.kind === 'website') return removeContest(contest, item, playerId)
 			const game = await deps.gameOf(runId)
 			if (!game) return fail('match_running')
 
@@ -132,15 +173,8 @@ export function createContestPageService<Tx>(deps: ContestPageDeps<Tx>) {
 			const forfeited = await deps.forfeitGame(game, ratedPlacements(placements, flagged, game.ranked))
 			if (!forfeited.ok) return fail('forfeit_failed', forfeited.reason)
 
-			const now = deps.now()
-			const actor = `player:${playerId}`
-			const closed = await deps.transaction(async (tx) => {
-				if (!(await deps.closeItem(tx, item.id, actor, now))) return false
-				if (!(await deps.markWithdrawn(tx, contest.id, now))) throw new Error('contest already withdrawn')
-				await deps.recordWithdrawn(tx, item.id, actor)
-				return true
-			})
-			if (!closed) return fail('decided')
+			const removed = await removeContest(contest, item, playerId)
+			if (!removed.ok) return removed
 			await deps.notifyWithdrawn(runId, playerId)
 			return { ok: true, value: null }
 		},

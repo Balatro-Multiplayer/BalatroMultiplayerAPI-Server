@@ -85,6 +85,13 @@ describe('editMatch', () => {
 		expect(deps.editRun).toHaveBeenCalledWith(expect.objectContaining({ decidesContest: true }))
 	})
 
+	it('sends the Nakama ids of the players whose Contests stand', async () => {
+		const deps = setup(match({ status: 'resolved' }))
+		await editMatch(deps, { runId: 'run-1', matchmade: true, decidesContest: true, contesterIds: [B] }, { kind: 'void' })
+		const body = (deps.editRun as ReturnType<typeof vi.fn>).mock.calls[0][0]
+		expect(body.contesters).toEqual([NB])
+	})
+
 	it('does not send decidesContest for an ordinary edit', async () => {
 		const deps = setup(match({ status: 'resolved' }))
 		await editMatch(deps, { runId: 'run-1', matchmade: true }, { kind: 'void' })

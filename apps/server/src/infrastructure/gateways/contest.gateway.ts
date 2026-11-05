@@ -1,7 +1,8 @@
 import { and, asc, eq, isNull } from 'drizzle-orm'
 import type { DbExecutor } from '../db/executor.js'
 import { db } from '../db/index.js'
-import { contests } from '../db/schema.js'
+import { contests, lobbyRuns, matchmakingMatches } from '../db/schema.js'
+import type { MatchFacts } from '../../features/contests/website-contest.service.js'
 
 export type ContestRecord = typeof contests.$inferSelect
 
@@ -56,4 +57,47 @@ export async function markContestWithdrawn(exec: DbExecutor, id: number, now: Da
 		.where(and(eq(contests.id, id), isNull(contests.withdrawnAt)))
 		.returning({ id: contests.id })
 	return rows.length > 0
+}
+
+// True when this call stored the Contest; false when the player already had one on the match.
+export async function insertWebsiteContest(runId: string, contesterId: string): Promise<boolean> {
+	const rows = await db
+		.insert(contests)
+		.values({ runId, kind: 'website', contesterId, againstId: null })
+		.onConflictDoNothing({ target: [contests.runId, contests.contesterId] })
+		.returning({ id: contests.id })
+	return rows.length > 0
+}
+
+// The Contests of a match that are still standing, oldest first. Run inside the
+// withdraw transaction so it sees the Contest just withdrawn.
+export async function listLiveContestsOfRun(exec: DbExecutor, runId: string): Promise<ContestRecord[]> {
+	return exec
+		.select()
+		.from(contests)
+		.where(and(eq(contests.runId, runId), isNull(contests.withdrawnAt)))
+		.orderBy(asc(contests.createdAt), asc(contests.id))
+}
+
+// What decides whether a match can be contested from the website; null when no such run is stored.
+export async function getMatchFactsOf(runId: string): Promise<MatchFacts | null> {
+	const [run] = await db
+		.select({ lobbyCode: lobbyRuns.lobbyCode, finalizedAt: lobbyRuns.finalizedAt })
+		.from(lobbyRuns)
+		.where(eq(lobbyRuns.id, runId))
+		.limit(1)
+	if (!run) return null
+	const [match] = await db
+		.select({ players: matchmakingMatches.players, gameMode: matchmakingMatches.gameMode, status: matchmakingMatches.status })
+		.from(matchmakingMatches)
+		.where(eq(matchmakingMatches.matchId, runId))
+		.limit(1)
+	return {
+		lobbyCode: run.lobbyCode,
+		endedAt: run.finalizedAt,
+		matchmade: !!match,
+		ranked: !!match && match.gameMode.startsWith('ranked:'),
+		players: Array.isArray(match?.players) ? (match.players as string[]) : [],
+		voided: match?.status === 'voided',
+	}
 }
