@@ -4,6 +4,7 @@ import {
   DecisionBar,
   useDecisionBar,
 } from '@/components/admin/decision-bar/decision-bar'
+import { PresetReasonChips } from '@/components/admin/preset-reasons/preset-reason-chips'
 import { staffSend } from '@/components/admin/decision-bar/delayed-send'
 import { actionTitle } from '@/components/admin/decision-bar/pick'
 import { Button } from '@/components/ui/button'
@@ -318,8 +319,13 @@ export function QueueDecisionBar({
       disabled={actions.length === 0}
       sendBlocked={missing !== null}
       disabledReason='Someone else is handling this item.'
-      // Preset reasons mount here: chips that fill the note.
-      chips={undefined}
+      chips={
+        <PresetReasonChips
+          itemType={itemType}
+          onPick={bar.setNote}
+          disabled={actions.length === 0}
+        />
+      }
       extra={extra}
       trailing={
         <Button

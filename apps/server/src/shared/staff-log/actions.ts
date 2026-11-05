@@ -50,6 +50,7 @@ export const STAFF_ACTIONS = [
 	'blog_unpublish',
 	'blog_delete',
 	'ladder_edit',
+	'preset_reasons_edit',
 	'season_replay_apply',
 	'season_replay_restore',
 ] as const
