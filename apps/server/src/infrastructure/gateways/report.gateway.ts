@@ -1,4 +1,4 @@
-import { eq, max } from 'drizzle-orm'
+import { and, eq, isNull, max } from 'drizzle-orm'
 import type { ReportType } from '../../shared/types/index.js'
 import { EVIDENCE_KEEP_MS } from '../../shared/retention-periods.js'
 import type { ItemContext } from '../../features/service-queue/types.js'
@@ -132,4 +132,25 @@ export async function setReportStatus(
 ): Promise<ReportRecord | null> {
 	const [row] = await exec.update(reports).set({ status }).where(eq(reports.id, id)).returning()
 	return row ?? null
+}
+
+// True for the one call that opened the report's one-time page.
+export async function markReportPageOpened(id: number, now: Date): Promise<boolean> {
+	const rows = await db
+		.update(reports)
+		.set({ pageOpenedAt: now })
+		.where(and(eq(reports.id, id), isNull(reports.pageOpenedAt)))
+		.returning({ id: reports.id })
+	return rows.length > 0
+}
+
+// The service queue's write when the reporter withdraws (inside its
+// transaction); false when the report was already withdrawn.
+export async function markReportWithdrawn(exec: DbExecutor, id: number, now: Date): Promise<boolean> {
+	const rows = await exec
+		.update(reports)
+		.set({ withdrawnAt: now, status: 'resolved' })
+		.where(and(eq(reports.id, id), isNull(reports.withdrawnAt)))
+		.returning({ id: reports.id })
+	return rows.length > 0
 }

@@ -12,7 +12,7 @@ import { expiresAtOf } from './durations.js'
 import { type ChatLabel, type DismissLabel, labelOfAction } from './flagged-chat.js'
 import { type OverturnPlan, type Placement, planContestOverturn, planOverturn, ratedPlacements } from './overturn.js'
 import { type AppliedStep, type Ladder, type LadderStep, type Strike, judgePunishment } from '../strikes/ladder.js'
-import { mayLiftBan, permissionFor } from './permissions.js'
+import { isWithdrawn, mayLiftBan, permissionFor } from './permissions.js'
 import { type QueueRefusal, type QueueResult, refuse } from './refusals.js'
 import { type Target, type TargetSources, pickTarget, targetsOf } from './targets.js'
 import type { WarningSource } from '../../shared/service-queue/items.js'
@@ -37,6 +37,7 @@ export interface QueueItem {
 	status: string
 	claimedBy: string | null
 	claimedUntil: Date | null
+	resolutionAction?: string | null
 	// What the item was raised with (types.ts ItemContext); the queue rows carry it.
 	context?: unknown
 }
@@ -204,6 +205,9 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		const parsed = parseCommand(action, body)
 		if (!parsed.ok) return refuse({ code: 'invalid_body', ...parsed.refusal })
 		const command = parsed.value
+
+		// A withdrawn item takes only a note (and an admin's unban): the player took it back.
+		if (isWithdrawn(item) && action !== 'note' && action !== 'unban') return refuse({ code: 'withdrawn' })
 
 		const permission = permissionFor(action, { itemType, status }, staff.role, presetOf(command))
 		if (!permission.ok) {

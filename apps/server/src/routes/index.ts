@@ -10,6 +10,7 @@ import { createInternalNakamaRouter } from '../features/nakama/internal.route.js
 import r2modmanReleasesRouter from '../features/r2modman-releases/r2modman-releases.route.js'
 import { createReplayLogRouter } from '../features/replay-log/replay-log.route.js'
 import { createReplayLogService } from '../features/replay-log/replay-log.service.js'
+import { WITHDRAWN_ACTION, createReportPageService } from '../features/reports/report-page.service.js'
 import { createReportsRouter } from '../features/reports/reports.route.js'
 import { createStatsRouter } from '../features/stats/stats.route.js'
 import webadminRouter from '../features/webadmin/webadmin.route.js'
@@ -17,9 +18,13 @@ import {
 	anonymizePlayer,
 	deletionFacts,
 } from '../infrastructure/gateways/player-anonymization.gateway.js'
+import type { DbTransaction } from '../infrastructure/db/executor.js'
+import { db } from '../infrastructure/db/index.js'
 import * as playerGateway from '../infrastructure/gateways/player.gateway.js'
+import * as reportGateway from '../infrastructure/gateways/report.gateway.js'
 import * as replayLogGateway from '../infrastructure/gateways/replay-log.gateway.js'
 import { retentionRepository } from '../infrastructure/gateways/retention.gateway.js'
+import * as serviceQueueGateway from '../infrastructure/gateways/service-queue.gateway.js'
 import { statsRepository } from '../infrastructure/gateways/stats.gateway.js'
 import { callNakamaRpc } from '../infrastructure/nakama/admin-client.js'
 import { fetchNakamaMetrics } from '../infrastructure/nakama/metrics-client.js'
@@ -52,7 +57,30 @@ const statsRouter = createStatsRouter({
 const router = Router()
 
 router.use('/api/auth', createAuthRouter(authService))
-router.use('/api/reports', createReportsRouter())
+router.use(
+	'/api/reports',
+	createReportsRouter(
+		createReportPageService<DbTransaction>({
+			getReport: (id) => reportGateway.getReportById(id),
+			markPageOpened: (id, now) => reportGateway.markReportPageOpened(id, now),
+			setAdditionalDetail: async (id, text) => {
+				await reportGateway.setAdditionalDetail(id, text)
+			},
+			async findQueueItem(reportId) {
+				const item = await serviceQueueGateway.findServiceQueueItem('report', String(reportId))
+				return item ? { id: item.id, status: item.status } : null
+			},
+			transaction: (fn) => db.transaction(fn),
+			async closeItem(tx, itemId, actor, now) {
+				return !!(await serviceQueueGateway.markServiceQueueItemResolved(tx, itemId, actor, WITHDRAWN_ACTION, null, now))
+			},
+			markWithdrawn: (tx, id, now) => reportGateway.markReportWithdrawn(tx, id, now),
+			recordWithdrawn: (tx, itemId, actor) =>
+				serviceQueueGateway.recordItemEvent(tx, { itemId, kind: 'withdrawn', actor, action: WITHDRAWN_ACTION }),
+			now: () => new Date(),
+		}),
+	),
+)
 router.use('/api/runs', createReplayLogRouter(replayLogService))
 router.use('/api/stats', statsRouter)
 router.use('/api/launcher', launcherRouter)

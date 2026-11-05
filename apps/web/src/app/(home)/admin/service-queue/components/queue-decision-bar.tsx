@@ -43,6 +43,7 @@ import {
   ladderOfKey,
   recommendedPick,
 } from '../lib/queue-bar'
+import { isWithdrawn, WITHDRAWN_TEXT } from '../lib/withdrawn'
 import type {
   ContestEvidence,
   Duration,
@@ -122,9 +123,16 @@ export function QueueDecisionBar({
   const [message, setMessage] = useState('')
 
   const all = useMemo(() => barActionsOf(detail), [detail])
+  // A withdrawn item takes nothing, not even a note: Send is blocked.
+  const withdrawn = isWithdrawn(detail.item)
   const actions = useMemo(
-    () => (heldByOther ? all.filter((a) => a.key === 'note') : all),
-    [all, heldByOther]
+    () =>
+      withdrawn
+        ? []
+        : heldByOther
+          ? all.filter((a) => a.key === 'note')
+          : all,
+    [all, heldByOther, withdrawn]
   )
 
   // The strikes of whoever the punishment lands on.
@@ -323,7 +331,11 @@ export function QueueDecisionBar({
       sendHint={isNote ? '' : 'then open next item'}
       disabled={actions.length === 0}
       sendBlocked={missing !== null}
-      disabledReason='Someone else is handling this item.'
+      disabledReason={
+        withdrawn
+          ? `${WITHDRAWN_TEXT}.`
+          : 'Someone else is handling this item.'
+      }
       chips={
         <PresetReasonChips
           itemType={itemType}

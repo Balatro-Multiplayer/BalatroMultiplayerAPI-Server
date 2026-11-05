@@ -7,6 +7,7 @@ export type QueueRefusal =
 	| { code: 'invalid_body'; field: string; message: string }
 	| { code: 'not_for_type' }
 	| { code: 'wrong_status'; status: string }
+	| { code: 'withdrawn' }
 	| { code: 'forbidden' }
 	| { code: 'claimed'; claimedBy: string; claimedUntil: Date | null }
 	| { code: 'invalid_target' }
@@ -27,6 +28,7 @@ const STATUS: Readonly<Record<QueueRefusal['code'], number>> = {
 	invalid_body: 400,
 	not_for_type: 400,
 	wrong_status: 409,
+	withdrawn: 409,
 	forbidden: 403,
 	claimed: 409,
 	invalid_target: 400,
@@ -50,6 +52,8 @@ function messageOf(refusal: QueueRefusal): string {
 			return 'That action is not available for this item type'
 		case 'wrong_status':
 			return `The item is ${refusal.status}`
+		case 'withdrawn':
+			return 'Withdrawn by the player'
 		case 'forbidden':
 			return 'Your role may not take this action'
 		case 'claimed':
