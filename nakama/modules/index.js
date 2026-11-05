@@ -358,8 +358,8 @@ var require_DataSet = __commonJS({
         this.patternIdToPhraseContainer.clear();
         const containers = this.containers.splice(0);
         for (const container of containers) {
-          const remove2 = predicate(container);
-          if (!remove2)
+          const remove3 = predicate(container);
+          if (!remove3)
             this.registerContainer(container);
         }
         return this;
@@ -4306,14 +4306,12 @@ var NotifyCode = {
   // {message, itemType, warnedAt}: a moderator's warning (service queue).
   // Persistent, so an offline player sees it at their next login.
   WARNED: 109,
-  // {runId, code, modId, status, place, rating}: the result of a run the
-  // player left before it settled (lobby/late_result.ts). Transient: an
-  // offline player reads it in their match history instead.
-  RESULT_LATE: 110,
-  // {runId, code, modId, status, place, tied, players, rating}: a ranked run settled
-  // (lobby/late_result.ts). Sent to every player of it, leavers included.
-  // Transient: the match history shows the same result.
-  RESULT_RANKED: 111
+  // 110 and 111 (late and ranked results) are retired: those results are
+  // Notifications now (112); don't reuse them.
+  // {id, kind, params, sentAt}: a stored Notification (notification/store.ts).
+  // The live push of one that also waits unread in the store; the client
+  // marks it read once shown.
+  NOTIFICATION: 112
 };
 var CODES = Object.keys(NotifyCode).map((k) => NotifyCode[k]);
 function isNotifyCode(code) {
@@ -8793,6 +8791,91 @@ function reportEvidence(lobby, reporterId, reportedId) {
   };
 }
 
+// src/notification/kinds.ts
+var NotificationKind = {
+  // A pending result ended after the player left.
+  RESULT_LATE: "result_late",
+  // A ranked result, told to every player it rated.
+  RESULT_RANKED: "result_ranked"
+};
+
+// src/notification/store.ts
+var NOTIFICATIONS_COLLECTION = "notifications";
+var NOTIFICATION_TTL_MS = 30 * 24 * 60 * 60 * 1e3;
+var MAX_STORED_NOTIFICATIONS = 100;
+function isExpired2(notification, now) {
+  return now - notification.sentAt >= NOTIFICATION_TTL_MS;
+}
+function isStored(value) {
+  return typeof value.id === "string" && typeof value.kind === "string" && typeof value.sentAt === "number";
+}
+function readAll(nk, userId) {
+  const page = nk.storageList(
+    userId,
+    NOTIFICATIONS_COLLECTION,
+    MAX_STORED_NOTIFICATIONS + 1,
+    ""
+  );
+  const found = [];
+  for (const object of page.objects || []) {
+    if (!isStored(object.value)) continue;
+    found.push({
+      id: object.value.id,
+      kind: object.value.kind,
+      params: object.value.params || {},
+      sentAt: object.value.sentAt
+    });
+  }
+  return found.sort((a, b) => a.sentAt - b.sentAt || (a.id < b.id ? -1 : 1));
+}
+function remove2(nk, userId, ids) {
+  if (ids.length === 0) return;
+  nk.storageDelete(
+    ids.map((id) => ({
+      collection: NOTIFICATIONS_COLLECTION,
+      key: id,
+      userId
+    }))
+  );
+}
+function sendNotification(nk, userId, kind, params, now = Date.now()) {
+  const stored = {
+    id: nk.uuidv4(),
+    kind,
+    params: __spreadValues({}, params),
+    sentAt: now
+  };
+  const waiting = readAll(nk, userId);
+  const dropped = waiting.filter((n) => isExpired2(n, now)).map((n) => n.id);
+  const live = waiting.filter((n) => !isExpired2(n, now));
+  const overflow = live.slice(0, Math.max(0, live.length + 1 - MAX_STORED_NOTIFICATIONS)).map((n) => n.id);
+  remove2(nk, userId, dropped.concat(overflow));
+  nk.storageWrite([
+    {
+      collection: NOTIFICATIONS_COLLECTION,
+      key: stored.id,
+      userId,
+      value: __spreadValues({}, stored),
+      permissionRead: 0,
+      permissionWrite: 0
+    }
+  ]);
+  notify(nk, userId, NotifyCode.NOTIFICATION, kind, __spreadValues({}, stored), false);
+  return stored;
+}
+function listNotifications(nk, userId, now = Date.now()) {
+  const all = readAll(nk, userId);
+  remove2(
+    nk,
+    userId,
+    all.filter((n) => isExpired2(n, now)).map((n) => n.id)
+  );
+  return all.filter((n) => !isExpired2(n, now));
+}
+function markNotificationsRead(nk, userId, ids) {
+  remove2(nk, userId, ids);
+}
+
 // src/lobby/late_result.ts
 function lateResultContent(run, playerId) {
   const placement = run.placements.filter((p) => p.playerId === playerId)[0];
@@ -8807,18 +8890,31 @@ function lateResultContent(run, playerId) {
 }
 function sendLateResults(nk, run, playerIds) {
   for (const playerId of playerIds) {
-    notify(nk, playerId, NotifyCode.RESULT_LATE, "result_late", __spreadValues({}, lateResultContent(run, playerId)), false);
+    sendNotification(
+      nk,
+      playerId,
+      NotificationKind.RESULT_LATE,
+      lateResultContent(run, playerId)
+    );
   }
 }
 function rankedResultContent(run, playerId) {
   const first = run.placements.filter((p) => p.place === 1);
-  return __spreadProps(__spreadValues({}, lateResultContent(run, playerId)), { tied: first.length > 1, players: run.players.length });
+  return __spreadProps(__spreadValues({}, lateResultContent(run, playerId)), {
+    tied: first.length > 1,
+    players: run.players.length
+  });
 }
 function sendRankedResults(nk, run) {
   if (!run.rankedMode) return;
   for (const player of run.players) {
     if (!run.ratings || !run.ratings[player.id]) continue;
-    notify(nk, player.id, NotifyCode.RESULT_RANKED, "result_ranked", __spreadValues({}, rankedResultContent(run, player.id)), false);
+    sendNotification(
+      nk,
+      player.id,
+      NotificationKind.RESULT_RANKED,
+      rankedResultContent(run, player.id)
+    );
   }
 }
 
@@ -9818,9 +9914,9 @@ function afterPartyMatchmakerAdd(ctx, logger, nk, output, input) {
   );
 }
 function beforePartyMatchmakerRemove(ctx, logger, nk, envelope) {
-  const remove2 = field2(envelope, "partyMatchmakerRemove", "party_matchmaker_remove");
-  const partyId = partyIdOf(remove2);
-  const ticket = field2(remove2, "ticket", "ticket");
+  const remove3 = field2(envelope, "partyMatchmakerRemove", "party_matchmaker_remove");
+  const partyId = partyIdOf(remove3);
+  const ticket = field2(remove3, "ticket", "ticket");
   if (!partyId || typeof ticket !== "string") return envelope;
   const found = statusOf(nk, partyId);
   if (!found) return envelope;
@@ -11153,6 +11249,24 @@ function refuseClientAccountDelete(ctx, logger, nk) {
   throw runtimeError(PERMISSION_DENIED, "Delete your account on the website (your profile page)");
 }
 
+// src/notification/rpc.ts
+var MAX_IDS = 100;
+function rpcNotificationsPending(ctx, logger, nk, payload) {
+  const userId = requireUser(ctx);
+  return JSON.stringify({ notifications: listNotifications(nk, userId) });
+}
+function rpcNotificationsRead(ctx, logger, nk, payload) {
+  const userId = requireUser(ctx);
+  const ids = parsePayload(payload).ids;
+  if (!Array.isArray(ids) || ids.length > MAX_IDS || ids.some((id) => typeof id !== "string"))
+    throw runtimeError(
+      INVALID_ARGUMENT,
+      "Missing or invalid ids (array of strings)"
+    );
+  markNotificationsRead(nk, userId, ids);
+  return "{}";
+}
+
 // src/moderation/report.ts
 var REPORT_TYPES = ["cheating", "chat_abuse", "griefing", "inappropriate_username", "other"];
 var MAX_REPORT_MESSAGE = 500;
@@ -11318,6 +11432,8 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("account_standing", rpcAccountStanding);
   initializer.registerRpc("avatar_catalog", rpcAvatarCatalog);
   initializer.registerRpc("mute_set", rpcMuteSet);
+  initializer.registerRpc("notifications_pending", rpcNotificationsPending);
+  initializer.registerRpc("notifications_read", rpcNotificationsRead);
   initializer.registerRpc("discord_link_start", rpcDiscordLinkStart);
   initializer.registerRpc("discord_unlink", rpcDiscordUnlink);
   initializer.registerRpc("chat_enable", rpcChatEnable);

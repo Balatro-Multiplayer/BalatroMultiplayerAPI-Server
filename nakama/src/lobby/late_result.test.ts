@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
+import { NotificationKind } from '../notification/kinds'
+import { listNotifications } from '../notification/store'
 import { NotifyCode } from '../notify'
-import { lateResultContent, rankedResultContent, sendLateResults, sendRankedResults } from './late_result'
+import { fakeNk } from '../testing/fake_nk'
+import {
+	lateResultContent,
+	rankedResultContent,
+	sendLateResults,
+	sendRankedResults,
+} from './late_result'
 import type { RunRecord } from './protocol'
 
 const run = {
@@ -25,7 +33,12 @@ describe('lateResultContent', () => {
 			modId: 'MultiplayerPvP',
 			status: 'partial',
 			place: 2,
-			rating: { delta: -12, newRating: 988, isPlacement: false, gamesPlayed: 9 },
+			rating: {
+				delta: -12,
+				newRating: 988,
+				isPlacement: false,
+				gamesPlayed: 9,
+			},
 		})
 	})
 
@@ -35,17 +48,19 @@ describe('lateResultContent', () => {
 })
 
 describe('sendLateResults', () => {
-	it('sends a transient RESULT_LATE notification to each player owed one', () => {
-		const sent: unknown[][] = []
-		const nk = {
-			notificationSend: (...args: unknown[]) => sent.push(args),
-		} as unknown as nkruntime.Nakama
-		sendLateResults(nk, run, ['a'])
-		expect(sent).toHaveLength(1)
-		expect(sent[0][0]).toBe('a')
-		expect(sent[0][3]).toBe(NotifyCode.RESULT_LATE)
-		expect(sent[0][5]).toBe(false)
-		expect((sent[0][2] as { place: number }).place).toBe(2)
+	it('stores a RESULT_LATE Notification for each player owed one, and pushes it live', () => {
+		const nk = fakeNk()
+		sendLateResults(nk as unknown as nkruntime.Nakama, run, ['a'])
+		const waiting = listNotifications(nk as unknown as nkruntime.Nakama, 'a')
+		expect(waiting).toHaveLength(1)
+		expect(waiting[0].kind).toBe(NotificationKind.RESULT_LATE)
+		expect((waiting[0].params as { place: number }).place).toBe(2)
+		expect(nk.notifications).toHaveLength(1)
+		expect(nk.notifications[0].code).toBe(NotifyCode.NOTIFICATION)
+		expect(nk.notifications[0].persistent).toBe(false)
+		expect(
+			listNotifications(nk as unknown as nkruntime.Nakama, 'b'),
+		).toHaveLength(0)
 	})
 })
 
@@ -60,17 +75,22 @@ describe('ranked results', () => {
 		},
 	} as unknown as RunRecord
 	const collect = (r: RunRecord) => {
-		const sent: unknown[][] = []
-		const nk = { notificationSend: (...a: unknown[]) => sent.push(a) } as unknown as nkruntime.Nakama
-		sendRankedResults(nk, r)
-		return sent
+		const nk = fakeNk()
+		sendRankedResults(nk as unknown as nkruntime.Nakama, r)
+		return nk
 	}
+	const told = (nk: ReturnType<typeof fakeNk>, id: string) =>
+		listNotifications(nk as unknown as nkruntime.Nakama, id)
 
-	it('tells every rated player of a ranked run, with the code RESULT_RANKED', () => {
-		const sent = collect(ranked)
-		expect(sent.map((s) => s[0])).toEqual(['a', 'b'])
-		expect(sent[0][3]).toBe(NotifyCode.RESULT_RANKED)
-		expect(sent[1][5]).toBe(false)
+	it('stores a RESULT_RANKED Notification with the rating change for every rated player', () => {
+		const nk = collect(ranked)
+		expect(told(nk, 'a').map((n) => n.kind)).toEqual([
+			NotificationKind.RESULT_RANKED,
+		])
+		expect(told(nk, 'b')).toHaveLength(1)
+		expect(
+			(told(nk, 'a')[0].params as { rating: { delta: number } }).rating.delta,
+		).toBe(-12)
 	})
 
 	it('carries the number of players', () => {
@@ -78,14 +98,31 @@ describe('ranked results', () => {
 	})
 
 	it('says tied when first place is shared', () => {
-		const drawn = { ...ranked, placements: [{ playerId: 'a', place: 1 }, { playerId: 'b', place: 1 }] } as unknown as RunRecord
+		const drawn = {
+			...ranked,
+			placements: [
+				{ playerId: 'a', place: 1 },
+				{ playerId: 'b', place: 1 },
+			],
+		} as unknown as RunRecord
 		expect(rankedResultContent(drawn, 'a').tied).toBe(true)
 		expect(rankedResultContent(ranked, 'a').tied).toBe(false)
 	})
 
 	it('sends nothing for an unranked run or a player with no rating', () => {
-		expect(collect({ ...ranked, rankedMode: null } as unknown as RunRecord)).toHaveLength(0)
-		const partial = { ...ranked, ratings: { a: { delta: -12, newRating: 988, isPlacement: false, gamesPlayed: 9 } } } as unknown as RunRecord
-		expect(collect(partial).map((s) => s[0])).toEqual(['a'])
+		const unranked = collect({
+			...ranked,
+			rankedMode: null,
+		} as unknown as RunRecord)
+		expect(told(unranked, 'a')).toHaveLength(0)
+		const partial = {
+			...ranked,
+			ratings: {
+				a: { delta: -12, newRating: 988, isPlacement: false, gamesPlayed: 9 },
+			},
+		} as unknown as RunRecord
+		const nk = collect(partial)
+		expect(told(nk, 'a')).toHaveLength(1)
+		expect(told(nk, 'b')).toHaveLength(0)
 	})
 })
