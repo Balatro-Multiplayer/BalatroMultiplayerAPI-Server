@@ -55,9 +55,11 @@ describe('sendLateResults', () => {
 		expect(waiting).toHaveLength(1)
 		expect(waiting[0].kind).toBe(NotificationKind.RESULT_LATE)
 		expect((waiting[0].params as { place: number }).place).toBe(2)
-		expect(nk.notifications).toHaveLength(1)
-		expect(nk.notifications[0].code).toBe(NotifyCode.NOTIFICATION)
-		expect(nk.notifications[0].persistent).toBe(false)
+		expect(nk.notifications.map((n) => n.code)).toEqual([
+			NotifyCode.NOTIFICATION,
+			NotifyCode.RESULT_LATE,
+		])
+		expect(nk.notifications.every((n) => !n.persistent)).toBe(true)
 		expect(
 			listNotifications(nk as unknown as nkruntime.Nakama, 'b'),
 		).toHaveLength(0)
@@ -91,6 +93,16 @@ describe('ranked results', () => {
 		expect(
 			(told(nk, 'a')[0].params as { rating: { delta: number } }).rating.delta,
 		).toBe(-12)
+	})
+
+	it('still sends the transient RESULT_RANKED to every rated player for older clients', () => {
+		const nk = collect(ranked)
+		const old = nk.notifications.filter(
+			(n) => n.code === NotifyCode.RESULT_RANKED,
+		)
+		expect(old.map((n) => n.userId)).toEqual(['a', 'b'])
+		expect(old[0].persistent).toBe(false)
+		expect((old[0].content as { players: number }).players).toBe(2)
 	})
 
 	it('carries the number of players', () => {

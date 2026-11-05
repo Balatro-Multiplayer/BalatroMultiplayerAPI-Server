@@ -4,6 +4,7 @@
 // notification, which the client prints in chat.
 import { NotificationKind } from '../notification/kinds'
 import { sendNotification } from '../notification/store'
+import { NotifyCode, notify } from '../notify'
 import type { RatingResult, RunRecord } from './protocol'
 
 export interface LateResult {
@@ -35,18 +36,23 @@ export function lateResultContent(
 	}
 }
 
-// Stored, so a player who is offline reads it at their next login.
+// Stored, so a player who is offline reads it at their next login. Online
+// players of an older client still get the transient 110.
 export function sendLateResults(
 	nk: nkruntime.Nakama,
 	run: RunRecord,
 	playerIds: string[],
 ) {
 	for (const playerId of playerIds) {
-		sendNotification(
+		const content = lateResultContent(run, playerId)
+		sendNotification(nk, playerId, NotificationKind.RESULT_LATE, content)
+		notify(
 			nk,
 			playerId,
-			NotificationKind.RESULT_LATE,
-			lateResultContent(run, playerId),
+			NotifyCode.RESULT_LATE,
+			'result_late',
+			{ ...content },
+			false,
 		)
 	}
 }
@@ -67,16 +73,20 @@ export function rankedResultContent(
 }
 
 // Stored, so a player who left first reads it (with their rating change) at
-// their next login.
+// their next login. Older clients still get the transient 111.
 export function sendRankedResults(nk: nkruntime.Nakama, run: RunRecord) {
 	if (!run.rankedMode) return
 	for (const player of run.players) {
 		if (!run.ratings || !run.ratings[player.id]) continue
-		sendNotification(
+		const content = rankedResultContent(run, player.id)
+		sendNotification(nk, player.id, NotificationKind.RESULT_RANKED, content)
+		notify(
 			nk,
 			player.id,
-			NotificationKind.RESULT_RANKED,
-			rankedResultContent(run, player.id),
+			NotifyCode.RESULT_RANKED,
+			'result_ranked',
+			{ ...content },
+			false,
 		)
 	}
 }
