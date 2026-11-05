@@ -5,6 +5,7 @@ import { getIntegrityEventsForPlayer } from '../../infrastructure/gateways/launc
 import {
 	listPlayerAppeals,
 	listPlayerChat,
+	listPlayerChatPage,
 	listPlayerNotes,
 	listPlayerQueueItems,
 	namesOf,
@@ -28,6 +29,7 @@ import {
 import { isLadder } from '../strikes/ladder.js'
 import { judgeOnLadder, strikeSummaryOf } from '../strikes/strike.service.js'
 import { parseReason } from '../../shared/staff-log/actions.js'
+import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { redactPlayerFor, requireRole } from '../../shared/utils/staff-role.js'
 
@@ -51,6 +53,44 @@ async function playerOr404(id: string) {
 	if (!player) throw new AppError('Player not found', 404)
 	return player
 }
+
+// The player's whole chat, paged, grouped by lobby. A group carries the match
+// its lobby ran, when it ran one.
+router.get('/players/:id/chat', async (req, res, next) => {
+	try {
+		await requireRole(req, 'moderator')
+		await playerOr404(req.params.id)
+		const page = queryInt(req.query.page, 1, 1, MAX_PAGE)
+		const limit = queryInt(req.query.limit, 100, 1, 200)
+		const flaggedFirst = req.query.flaggedFirst === 'true'
+		const { lines, total } = await listPlayerChatPage(req.params.id, {
+			page,
+			limit,
+			flaggedFirst,
+		})
+		const groups: {
+			key: string
+			lobbyCode: string
+			runId: string | null
+			flagged: boolean
+			lines: typeof lines
+		}[] = []
+		for (const line of lines) {
+			const key = line.lobbyId ?? line.lobbyCode
+			let group = groups[groups.length - 1]
+			if (!group || group.key !== key) {
+				group = { key, lobbyCode: line.lobbyCode, runId: null, flagged: false, lines: [] }
+				groups.push(group)
+			}
+			group.lines.push(line)
+			group.flagged ||= line.flagged
+			group.runId ??= line.runId
+		}
+		res.json({ groups, total, page, limit, pages: Math.ceil(total / limit) })
+	} catch (err) {
+		next(err)
+	}
+})
 
 router.get('/players/:id/page', async (req, res, next) => {
 	try {
