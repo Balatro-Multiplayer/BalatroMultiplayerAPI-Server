@@ -20,6 +20,7 @@ import {
 import { MatchesTab, ReportsTab } from '../components/list-tabs'
 import { type BarStart, PlayerActionBar } from '../components/player-action-bar'
 import { SideColumn } from '../components/side-column'
+import { StaffRoleCard } from '../components/staff-role-card'
 import type { LiftTarget, PlayerAction } from '../lib/player-bar'
 import {
   backToQueueItem,
@@ -213,7 +214,13 @@ function PlayerPageView() {
           </div>
         </section>
         <SideColumn playerId={id} page={data} now={now}>
-          {/* The admin Staff role card mounts here. */}
+          {isAdmin && (
+            <StaffRoleCard
+              key={player.privileges.join(',')}
+              playerId={id}
+              privileges={player.privileges}
+            />
+          )}
         </SideColumn>
       </div>
 
