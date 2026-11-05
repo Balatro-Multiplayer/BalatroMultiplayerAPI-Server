@@ -37,16 +37,27 @@ describe('GET /api/webadmin/staff-log', () => {
 			expect.objectContaining({
 				staff: 'Ann',
 				player: 'Bob',
-				action: 'chat_ban',
+				action: ['chat_ban'],
 				from: new Date('2026-10-01'),
 				to: new Date('2026-10-08'),
 			}),
 		)
 	})
 
+	it('reads a comma list of actions as one filter', async () => {
+		await request(app)
+			.get('/api/webadmin/staff-log')
+			.query({ action: 'queue_ban, chat_ban,' })
+			.set('Authorization', authAs('adm-1', ['admin']))
+		expect(vi.mocked(listStaffLog)).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({ action: ['queue_ban', 'chat_ban'] }),
+		)
+	})
+
 	it('refuses an unknown action and a bad date', async () => {
 		const token = authAs('adm-1', ['admin'])
-		expect((await request(app).get('/api/webadmin/staff-log').query({ action: 'smite' }).set('Authorization', token)).status).toBe(400)
+		expect((await request(app).get('/api/webadmin/staff-log').query({ action: 'chat_ban,smite' }).set('Authorization', token)).status).toBe(400)
 		expect((await request(app).get('/api/webadmin/staff-log').query({ from: 'soon' }).set('Authorization', token)).status).toBe(400)
 	})
 })
