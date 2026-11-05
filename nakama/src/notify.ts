@@ -18,14 +18,17 @@ export const NotifyCode = {
 	// {message, itemType, warnedAt}: a moderator's warning (service queue).
 	// Persistent, so an offline player sees it at their next login.
 	WARNED: 109,
-	// {runId, code, modId, status, place, rating}: the result of a run the
-	// player left before it settled (lobby/late_result.ts). Transient: an
-	// offline player reads it in their match history instead.
+	// {runId, code, modId, status, place, rating}: kept for older clients, which
+	// print it as a chat line. Transient. Current clients ignore it and read the
+	// same result from the stored Notification (112).
 	RESULT_LATE: 110,
-	// {runId, code, modId, status, place, tied, players, rating}: a ranked run settled
-	// (lobby/late_result.ts). Sent to every player of it, leavers included.
-	// Transient: the match history shows the same result.
+	// {runId, code, modId, status, place, tied, players, rating}: kept for older
+	// clients, as RESULT_LATE. Transient.
 	RESULT_RANKED: 111,
+	// {id, kind, params, sentAt}: a stored Notification (notification/store.ts).
+	// The live push of one that also waits unread in the store; the client
+	// marks it read once shown.
+	NOTIFICATION: 112,
 }
 
 const CODES: number[] = Object.keys(NotifyCode).map((k) => (NotifyCode as { [k: string]: number })[k])

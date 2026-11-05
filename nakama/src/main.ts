@@ -80,6 +80,7 @@ import { configureSeason } from './rating/season'
 import { seedAllowedModIdsExtra } from './standing/seed'
 import { refuseClientAccountDelete, rpcAdminAccountDelete, rpcAdminProfileSet } from './player/admin'
 import { rpcSessionInit, rpcTosAccept } from './player/session'
+import { rpcNotificationsPending, rpcNotificationsRead } from './notification/rpc'
 import { rpcMuteSet, rpcProfileSetDisplay, rpcProfileSetJoker, rpcProfileSetMods } from './player/rpc'
 import { rpcReportSubmit } from './moderation/report'
 import { rpcAdminDiscordSet, rpcDiscordLinkStart, rpcDiscordUnlink } from './player/discord'
@@ -153,6 +154,8 @@ function InitModule(
 	initializer.registerRpc('account_standing', rpcAccountStanding)
 	initializer.registerRpc('avatar_catalog', rpcAvatarCatalog)
 	initializer.registerRpc('mute_set', rpcMuteSet)
+	initializer.registerRpc('notifications_pending', rpcNotificationsPending)
+	initializer.registerRpc('notifications_read', rpcNotificationsRead)
 	initializer.registerRpc('discord_link_start', rpcDiscordLinkStart)
 	initializer.registerRpc('discord_unlink', rpcDiscordUnlink)
 	initializer.registerRpc('web_login_link', rpcWebLoginLink)
