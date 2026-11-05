@@ -4306,8 +4306,13 @@ var NotifyCode = {
   // {message, itemType, warnedAt}: a moderator's warning (service queue).
   // Persistent, so an offline player sees it at their next login.
   WARNED: 109,
-  // 110 and 111 (late and ranked results) are retired: those results are
-  // Notifications now (112); don't reuse them.
+  // {runId, code, modId, status, place, rating}: kept for older clients, which
+  // print it as a chat line. Transient. Current clients ignore it and read the
+  // same result from the stored Notification (112).
+  RESULT_LATE: 110,
+  // {runId, code, modId, status, place, tied, players, rating}: kept for older
+  // clients, as RESULT_LATE. Transient.
+  RESULT_RANKED: 111,
   // {id, kind, params, sentAt}: a stored Notification (notification/store.ts).
   // The live push of one that also waits unread in the store; the client
   // marks it read once shown.
@@ -8890,11 +8895,15 @@ function lateResultContent(run, playerId) {
 }
 function sendLateResults(nk, run, playerIds) {
   for (const playerId of playerIds) {
-    sendNotification(
+    const content = lateResultContent(run, playerId);
+    sendNotification(nk, playerId, NotificationKind.RESULT_LATE, content);
+    notify(
       nk,
       playerId,
-      NotificationKind.RESULT_LATE,
-      lateResultContent(run, playerId)
+      NotifyCode.RESULT_LATE,
+      "result_late",
+      __spreadValues({}, content),
+      false
     );
   }
 }
@@ -8909,11 +8918,15 @@ function sendRankedResults(nk, run) {
   if (!run.rankedMode) return;
   for (const player of run.players) {
     if (!run.ratings || !run.ratings[player.id]) continue;
-    sendNotification(
+    const content = rankedResultContent(run, player.id);
+    sendNotification(nk, player.id, NotificationKind.RESULT_RANKED, content);
+    notify(
       nk,
       player.id,
-      NotificationKind.RESULT_RANKED,
-      rankedResultContent(run, player.id)
+      NotifyCode.RESULT_RANKED,
+      "result_ranked",
+      __spreadValues({}, content),
+      false
     );
   }
 }
