@@ -9,7 +9,16 @@ import {
   parseAsStringLiteral,
   useQueryStates,
 } from 'nuqs'
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react'
+import { UndoStrip } from '@/components/admin/decision-bar/decision-bar'
+import { staffSend } from '@/components/admin/decision-bar/delayed-send'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
@@ -67,6 +76,16 @@ function ServiceQueue() {
   const [subjectDraft, setSubjectDraft] = useState(url.subject)
   const [cursor, setCursor] = useState(0)
   const now = useMinuteClock()
+  // The item whose action waits to be sent: it stays open on the server for
+  // 5 s, so the rail marks it and the next item is never it.
+  const waiting = useSyncExternalStore(
+    staffSend.subscribe,
+    staffSend.getSnapshot,
+    () => null
+  )
+  const waitingId = waiting?.tag?.startsWith('queue:')
+    ? Number(waiting.tag.slice('queue:'.length))
+    : null
 
   useEffect(() => {
     if (!pending && !isModerator) router.replace('/')
@@ -126,8 +145,14 @@ function ServiceQueue() {
   // Opens the next item without a reload; with none left, back to the rail.
   const openNext = useCallback(
     (fromId: number) =>
-      void setUrl({ item: nextItemId(list?.items ?? [], fromId) }),
-    [setUrl, list]
+      void setUrl({
+        item: nextItemId(
+          list?.items ?? [],
+          fromId,
+          waitingId === null ? [] : [waitingId]
+        ),
+      }),
+    [setUrl, list, waitingId]
   )
   const showAllItems = useCallback(
     (playerId: string) => {
@@ -186,6 +211,7 @@ function ServiceQueue() {
             list={list}
             isLoading={isLoading}
             selectedId={selected}
+            waitingId={waitingId}
             cursor={cursor}
             setCursor={setCursor}
             now={now}
@@ -207,6 +233,7 @@ function ServiceQueue() {
             </p>
           ) : (
             <>
+              <UndoStrip />
               <div className='border-border border-b p-2 md:hidden'>
                 <Button
                   size='sm'
