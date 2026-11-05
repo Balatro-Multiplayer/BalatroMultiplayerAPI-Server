@@ -8811,7 +8811,11 @@ var NotificationKind = {
   // Staff punished a player the recipient reported.
   REPORT_ACTION: "report_action",
   // A season ended: the player's place and rating on each board they are on.
-  SEASON_END: "season_end"
+  SEASON_END: "season_end",
+  // An appeal was decided.
+  APPEAL_DECIDED: "appeal_decided",
+  // A chat, queue or account ban ended, by time or lifted early.
+  PUNISHMENT_ENDED: "punishment_ended"
 };
 
 // src/notification/store.ts
@@ -11049,6 +11053,61 @@ function rpcAdminSeasonEndNotify(ctx, logger, nk, payload) {
   return JSON.stringify({ notified, skipped });
 }
 
+// src/notification/punishment.ts
+var PUNISHMENT_NOTIFIED_COLLECTION = "punishment_notified";
+var USER_ID_PATTERN6 = /^[0-9a-f-]{36}$/;
+var BAN_KINDS = ["chat", "queue", "account"];
+var TARGETS = [...BAN_KINDS, "warning", "network"];
+var MAX_KEY_LENGTH = 100;
+function parseAppeal(value) {
+  if (typeof value !== "object" || value === null) return void 0;
+  const { accepted, target, result } = value;
+  if (typeof accepted !== "boolean") return void 0;
+  if (typeof target !== "string" || !TARGETS.includes(target)) return void 0;
+  if (!accepted) return { accepted, target, result: null };
+  if (result !== "lifted" && result !== "shortened") return void 0;
+  return { accepted, target, result };
+}
+function parseEnded(value) {
+  if (typeof value !== "object" || value === null) return void 0;
+  const { ban } = value;
+  if (typeof ban !== "string" || !BAN_KINDS.includes(ban)) return void 0;
+  return { ban };
+}
+function rpcAdminPunishmentNotify(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const input = parsePayload(payload);
+  const { userId, kind, key } = input;
+  if (typeof userId !== "string" || !USER_ID_PATTERN6.test(userId))
+    throw runtimeError(INVALID_ARGUMENT, "Invalid userId");
+  if (typeof key !== "string" || key === "" || key.length > MAX_KEY_LENGTH)
+    throw runtimeError(INVALID_ARGUMENT, "Invalid key");
+  if (kind !== NotificationKind.APPEAL_DECIDED && kind !== NotificationKind.PUNISHMENT_ENDED)
+    throw runtimeError(INVALID_ARGUMENT, "Invalid kind");
+  const appeal = kind === NotificationKind.APPEAL_DECIDED ? parseAppeal(input.params) : void 0;
+  const ended = kind === NotificationKind.PUNISHMENT_ENDED ? parseEnded(input.params) : void 0;
+  if (!appeal && !ended) throw runtimeError(INVALID_ARGUMENT, "Invalid params");
+  const recordKey2 = `${kind}:${key}`;
+  const done = nk.storageRead([
+    { collection: PUNISHMENT_NOTIFIED_COLLECTION, key: recordKey2, userId }
+  ]);
+  if (done.length > 0) return JSON.stringify({ sent: false });
+  if (appeal) sendNotification(nk, userId, NotificationKind.APPEAL_DECIDED, appeal);
+  else sendNotification(nk, userId, NotificationKind.PUNISHMENT_ENDED, ended);
+  nk.storageWrite([
+    {
+      collection: PUNISHMENT_NOTIFIED_COLLECTION,
+      key: recordKey2,
+      userId,
+      value: { at: Date.now() },
+      permissionRead: 0,
+      permissionWrite: 0
+    }
+  ]);
+  logger.info("Told %s of %s %s", userId, kind, key);
+  return JSON.stringify({ sent: true });
+}
+
 // src/standing/seed.ts
 var EXTRA_SEED_ENV = "QUEUE_ALLOWED_MOD_IDS_EXTRA";
 function seedAllowedModIdsExtra(nk, logger, env) {
@@ -11695,6 +11754,7 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("admin_ratings_board_export", rpcAdminRatingsBoardExport);
   initializer.registerRpc("admin_ratings_season_clear", rpcAdminRatingsSeasonClear);
   initializer.registerRpc("admin_season_end_notify", rpcAdminSeasonEndNotify);
+  initializer.registerRpc("admin_punishment_notify", rpcAdminPunishmentNotify);
   initializer.registerRpc("admin_run_get", rpcAdminRunGet);
   initializer.registerRpc("admin_run_set_result", rpcAdminRunSetResult);
   initializer.registerRpc("admin_match_edit", rpcAdminMatchEdit);

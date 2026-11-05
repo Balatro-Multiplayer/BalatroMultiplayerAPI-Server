@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, isNull } from 'drizzle-orm'
 import type { AppealDecision, AppealRow, NewAppeal, PunishmentRef } from '../../features/appeals/appeals.service.js'
 import type { DbExecutor } from '../db/executor.js'
 import { db } from '../db/index.js'
@@ -95,4 +95,19 @@ export async function setBanEnd(exec: DbExecutor, id: string, expiresAt: Date): 
 		.where(and(eq(playerBans.id, id), isNull(playerBans.liftedAt)))
 		.returning({ id: playerBans.id })
 	return rows.length > 0
+}
+
+// Decided appeals whose player Nakama has not confirmed telling yet, oldest first.
+export async function listDecidedAppealsToTell(limit = 200): Promise<AppealRow[]> {
+	const rows = await db
+		.select()
+		.from(appeals)
+		.where(and(isNull(appeals.notifiedAt), isNotNull(appeals.decidedAt)))
+		.orderBy(asc(appeals.decidedAt))
+		.limit(limit)
+	return rows.map(toRow)
+}
+
+export async function markAppealNotified(id: string): Promise<void> {
+	await db.update(appeals).set({ notifiedAt: new Date() }).where(and(eq(appeals.id, id), isNull(appeals.notifiedAt)))
 }

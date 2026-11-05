@@ -19,6 +19,10 @@ export const NotificationKind = {
 	REPORT_ACTION: 'report_action',
 	// A season ended: the player's place and rating on each board they are on.
 	SEASON_END: 'season_end',
+	// An appeal was decided.
+	APPEAL_DECIDED: 'appeal_decided',
+	// A chat, queue or account ban ended, by time or lifted early.
+	PUNISHMENT_ENDED: 'punishment_ended',
 } as const
 
 export type NotificationKindName =
@@ -41,6 +45,23 @@ export interface SeasonEnd {
 	boards: SeasonEndBoard[]
 }
 
+export type BanKindName = 'chat' | 'queue' | 'account'
+
+// What an appeal was about: a ban, a warning, or the network ban that blocks
+// the player.
+export type AppealTarget = BanKindName | 'warning' | 'network'
+
+export interface AppealDecided {
+	accepted: boolean
+	target: AppealTarget
+	// What an accepted appeal did to the punishment; null when declined.
+	result: 'lifted' | 'shortened' | null
+}
+
+export interface PunishmentEnded {
+	ban: BanKindName
+}
+
 export interface NotificationParams {
 	result_late: LateResult
 	result_ranked: RankedResult
@@ -53,6 +74,8 @@ export interface NotificationParams {
 	result_changed: { outcome: ResultOutcome }
 	report_action: { [key: string]: never }
 	season_end: SeasonEnd
+	appeal_decided: AppealDecided
+	punishment_ended: PunishmentEnded
 }
 
 export interface StoredNotification {

@@ -498,6 +498,13 @@
       "when": 1794600000000,
       "tag": "0070_report_reporter_told",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1794700000000,
+      "tag": "0071_ban_end_notified",
+      "breakpoints": true
     }
   ]
 }

@@ -397,6 +397,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'status',
 		'outcome',
 		'decided_at',
+		'notified_at',
 		'created_at',
 	],
 	staff_log: ['id', 'staff_role', 'action', 'item_id', 'at'],
@@ -480,6 +481,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'issued_at',
 		'reason',
 		'lifted_at',
+		'end_notified_at',
 	],
 	player_mutes: ['id', 'created_at'],
 	lobby_runs: [

@@ -491,6 +491,8 @@ export const appeals = pgTable(
 		outcome: varchar('outcome', { length: 16 }),
 		decidedBy: text('decided_by'),
 		decidedAt: timestamp('decided_at', { withTimezone: true }),
+		// When Nakama confirmed the player's decision Notification.
+		notifiedAt: timestamp('notified_at', { withTimezone: true }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => [
@@ -768,6 +770,8 @@ export const playerBans = pgTable(
 		reason: text('reason').notNull().default(''),
 		liftedAt: timestamp('lifted_at', { withTimezone: true }), // set when lifted early
 		liftedBy: text('lifted_by'),
+		// When Nakama confirmed the player's "ban ended" Notification.
+		endNotifiedAt: timestamp('end_notified_at', { withTimezone: true }),
 	},
 	(t) => [index('player_bans_player_idx').on(t.playerId)],
 )

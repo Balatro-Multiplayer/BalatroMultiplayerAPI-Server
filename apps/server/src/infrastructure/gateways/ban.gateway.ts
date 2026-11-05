@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import type { DbExecutor } from '../db/executor.js'
 import { db } from '../db/index.js'
 import { playerBans } from '../db/schema.js'
@@ -120,4 +120,37 @@ export async function liftBan(
 export async function getBanById(banId: string): Promise<BanRecord | null> {
 	const [row] = await db.select().from(playerBans).where(eq(playerBans.id, banId)).limit(1)
 	return row ? toRecord(row) : null
+}
+
+export interface EndedBan {
+	id: string
+	playerId: string
+	banType: BanType
+}
+
+// Bans that ended (ran out or were lifted early) whose player has not been
+// told yet, oldest first.
+export async function listEndedBansToTell(limit = 200): Promise<EndedBan[]> {
+	const rows = await db
+		.select({ id: playerBans.id, playerId: playerBans.playerId, banType: playerBans.banType })
+		.from(playerBans)
+		.where(
+			and(
+				isNull(playerBans.endNotifiedAt),
+				or(
+					isNotNull(playerBans.liftedAt),
+					and(isNotNull(playerBans.expiresAt), lte(playerBans.expiresAt, sql`now()`)),
+				),
+			),
+		)
+		.orderBy(asc(playerBans.issuedAt))
+		.limit(limit)
+	return rows as EndedBan[]
+}
+
+export async function markBanEndNotified(banId: string, exec: DbExecutor = db): Promise<void> {
+	await exec
+		.update(playerBans)
+		.set({ endNotifiedAt: new Date() })
+		.where(and(eq(playerBans.id, banId), isNull(playerBans.endNotifiedAt)))
 }
