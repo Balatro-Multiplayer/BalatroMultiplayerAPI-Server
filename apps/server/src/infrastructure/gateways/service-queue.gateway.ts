@@ -146,6 +146,8 @@ export interface ListFilters {
 	claimedBy?: string
 	// Leaves out items someone other than this player holds a live claim on.
 	hideClaimedFrom?: string
+	// Only items of these types; unset lists every type.
+	itemTypes?: readonly ServiceQueueItemType[]
 	// Only items created at least this long ago.
 	olderThanMs?: number
 	sort: QueueSort
@@ -169,7 +171,11 @@ function notClaimedByOthers(playerId: string, now: Date) {
 }
 
 // Open main-lane items other staff hold a live claim on; the rail only counts them.
-export async function countClaimedByOthers(playerId: string, now: Date): Promise<number> {
+export async function countClaimedByOthers(
+	playerId: string,
+	now: Date,
+	itemTypes: readonly ServiceQueueItemType[] = ITEM_TYPES,
+): Promise<number> {
 	const [row] = await db
 		.select({ n: count() })
 		.from(serviceQueueItems)
@@ -177,6 +183,7 @@ export async function countClaimedByOthers(playerId: string, now: Date): Promise
 			and(
 				eq(serviceQueueItems.status, 'open'),
 				notInArray(serviceQueueItems.itemType, [...AUTOMATIC_TYPES]),
+				inArray(serviceQueueItems.itemType, [...itemTypes]),
 				gt(serviceQueueItems.claimedUntil, now),
 				sql`split_part(${serviceQueueItems.claimedBy}, ':', 2) <> ${playerId}`,
 			),
@@ -199,6 +206,7 @@ export async function listServiceQueueItems(opts: ListFilters): Promise<{ items:
 		: undefined
 	const conditions = [
 		opts.itemType ? eq(serviceQueueItems.itemType, opts.itemType) : undefined,
+		opts.itemTypes ? inArray(serviceQueueItems.itemType, [...opts.itemTypes]) : undefined,
 		opts.lane === 'main' ? notInArray(serviceQueueItems.itemType, [...AUTOMATIC_TYPES]) : undefined,
 		opts.lane === 'automatic' ? inArray(serviceQueueItems.itemType, [...AUTOMATIC_TYPES]) : undefined,
 		opts.status !== 'all' ? eq(serviceQueueItems.status, opts.status) : undefined,
@@ -341,11 +349,13 @@ export async function actorNames(actors: readonly (string | null)[]): Promise<Re
 }
 
 // Open items per type, for the tab counts.
-export async function openCountsByType(): Promise<Record<ServiceQueueItemType, number>> {
+export async function openCountsByType(
+	itemTypes: readonly ServiceQueueItemType[] = ITEM_TYPES,
+): Promise<Record<ServiceQueueItemType, number>> {
 	const rows = await db
 		.select({ itemType: serviceQueueItems.itemType, n: count() })
 		.from(serviceQueueItems)
-		.where(eq(serviceQueueItems.status, 'open'))
+		.where(and(eq(serviceQueueItems.status, 'open'), inArray(serviceQueueItems.itemType, [...itemTypes])))
 		.groupBy(serviceQueueItems.itemType)
 	const counts = Object.fromEntries(ITEM_TYPES.map((t) => [t, 0])) as Record<ServiceQueueItemType, number>
 	for (const row of rows ?? []) if (isItemType(row.itemType)) counts[row.itemType] = Number(row.n)

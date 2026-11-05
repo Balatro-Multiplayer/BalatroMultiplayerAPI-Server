@@ -110,7 +110,23 @@ describe('GET /api/webadmin/service-queue', () => {
 		expect(serviceQueueGateway.listServiceQueueItems).toHaveBeenCalledWith(
 			expect.objectContaining({ hideClaimedFrom: 'mod-1' }),
 		)
-		expect(serviceQueueGateway.countClaimedByOthers).toHaveBeenCalledWith('mod-1', expect.any(Date))
+		expect(serviceQueueGateway.countClaimedByOthers).toHaveBeenCalledWith('mod-1', expect.any(Date), expect.any(Array))
+	})
+
+	it('keeps admin-only item types out of a moderator list and counts, not an admin one', async () => {
+		vi.mocked(serviceQueueGateway.listServiceQueueItems).mockResolvedValue({ items: [], total: 0 })
+		const mod = authAs('moderator', 'mod-1')
+		await request(app).get('/api/webadmin/service-queue?status=open').set('Authorization', mod)
+		const modTypes = vi.mocked(serviceQueueGateway.listServiceQueueItems).mock.calls.at(-1)?.[0].itemTypes
+		expect(modTypes).not.toContain('staff_report')
+		expect(modTypes).toContain('report')
+		expect(serviceQueueGateway.openCountsByType).toHaveBeenLastCalledWith(modTypes)
+		expect(serviceQueueGateway.countClaimedByOthers).toHaveBeenLastCalledWith('mod-1', expect.any(Date), modTypes)
+
+		const admin = authAs('admin', 'admin-1')
+		await request(app).get('/api/webadmin/service-queue?status=open').set('Authorization', admin)
+		const adminTypes = vi.mocked(serviceQueueGateway.listServiceQueueItems).mock.calls.at(-1)?.[0].itemTypes
+		expect(adminTypes).toContain('staff_report')
 	})
 
 	it('passes the filters through', async () => {

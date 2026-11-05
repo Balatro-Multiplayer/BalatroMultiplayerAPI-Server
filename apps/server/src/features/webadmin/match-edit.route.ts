@@ -21,7 +21,8 @@ import type {
 // Staff set or void the result of a stored match from its match page. An admin
 // always may; a moderator only while the match has an open queue item they see
 // (otherwise they report it to admins). A void closes every open queue item
-// about the match. Either way only that match's players' ratings move (ADR 0010).
+// about the match. Either way only the ratings of that match's players move,
+// never those of anyone who played after it.
 const router = Router()
 
 export function parsePlacements(value: unknown): EditedPlacement[] | null {
@@ -81,12 +82,15 @@ async function edit(
 		role,
 	}
 	const matchId = String(req.params.matchId)
-	if (!(await mayEditMatch(matchItemsDeps, role, matchId)))
-		throw new AppError(
-			'A moderator can change a match only while it has an open queue item. Report it to admins instead.',
-			403,
-		)
+	// Checked first for a quick refusal, and again in the edit transaction so an
+	// item that closed in between does not leave a moderator editing.
+	const notAllowed = new AppError(
+		'A moderator can change a match only while it has an open queue item. Report it to admins instead.',
+		403,
+	)
+	if (!(await mayEditMatch(matchItemsDeps, role, matchId))) throw notAllowed
 	const outcome = await matchEditorFor(async (tx, match, changes) => {
+		if (!(await mayEditMatch(matchItemsDeps, role, matchId, tx))) throw notAllowed
 		await recordStaffAction(tx, {
 			staff,
 			action: request.kind === 'void' ? 'match_void' : 'match_result',

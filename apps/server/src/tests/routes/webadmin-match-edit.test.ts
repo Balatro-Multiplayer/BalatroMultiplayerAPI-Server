@@ -80,7 +80,7 @@ describe('match edit routes', () => {
 				.send(payload)
 			expect(res.status).toBe(403)
 		}
-		expect(matchStaff.hasOpenItemVisibleTo).toHaveBeenCalledWith('m1', 'moderator')
+		expect(matchStaff.hasOpenItemVisibleTo).toHaveBeenCalledWith('m1', 'moderator', undefined)
 		expect(edit).not.toHaveBeenCalled()
 	})
 
@@ -92,6 +92,23 @@ describe('match edit routes', () => {
 			.send({ reason: 'cheating' })
 		expect(res.status).toBe(200)
 		expect(edit).toHaveBeenCalled()
+	})
+
+	it('checks a moderator again inside the edit transaction', async () => {
+		vi.mocked(matchStaff.hasOpenItemVisibleTo).mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+		vi.mocked(matchEditorFor).mockImplementation(
+			(inTransaction) => (async () => {
+				await inTransaction?.('tx' as any, { resultPlacements: [] } as any, [])
+				return edited
+			}) as any,
+		)
+		const res = await request(app)
+			.post('/api/webadmin/matches/m1/void')
+			.set('Authorization', authAs('mod', ['moderator']))
+			.send({ reason: 'cheating' })
+		expect(res.status).toBe(403)
+		expect(matchStaff.hasOpenItemVisibleTo).toHaveBeenLastCalledWith('m1', 'moderator', 'tx')
+		expect(recordStaffAction).not.toHaveBeenCalled()
 	})
 
 	it('lets an admin edit with no open queue item, without asking', async () => {

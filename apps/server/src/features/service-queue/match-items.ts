@@ -27,8 +27,8 @@ export interface OpenItem {
 }
 
 export interface MatchItemsDeps<Tx> {
-	// Whether the role sees an open item about the run.
-	hasOpenItemFor(runId: string, role: StaffRole): Promise<boolean>
+	// Whether the role sees an open item about the run; with tx, as of that transaction.
+	hasOpenItemFor(runId: string, role: StaffRole, tx?: Tx): Promise<boolean>
 	openItems(tx: Tx, runId: string): Promise<OpenItem[]>
 	markResolved(tx: Tx, itemId: number, actor: string, note: string, now: Date): Promise<boolean>
 	setSourceStatus(tx: Tx, item: OpenItem, status: 'voided' | 'resolved' | 'dismissed' | 'open', note: string): Promise<boolean>
@@ -47,8 +47,9 @@ export async function mayEditMatch<Tx>(
 	deps: MatchItemsDeps<Tx>,
 	role: StaffRole,
 	runId: string,
+	tx?: Tx,
 ): Promise<boolean> {
-	return role === 'admin' || deps.hasOpenItemFor(runId, role)
+	return role === 'admin' || deps.hasOpenItemFor(runId, role, tx)
 }
 
 // A void closes every open item about the match with the action "void" and
