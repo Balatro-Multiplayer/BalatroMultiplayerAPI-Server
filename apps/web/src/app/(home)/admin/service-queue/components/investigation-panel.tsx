@@ -22,6 +22,11 @@ import {
 import { takeKeepClaim } from '../lib/claim-keep'
 import type { ItemDetail } from '../lib/types'
 import { CLAIM_RENEW_MS } from '../lib/use-claim-renewal'
+import {
+  isWithdrawn,
+  OPEN_ITEM_REFRESH_MS,
+  WITHDRAWN_TEXT,
+} from '../lib/withdrawn'
 import { ItemEvidence } from './evidence/item-evidence'
 import { Empty } from './evidence/shared'
 import { HistoryTimeline } from './history-timeline'
@@ -133,6 +138,14 @@ function Header({ detail }: { detail: ItemDetail }) {
         </span>
       </div>
       <h2 className='font-semibold text-lg'>{item.summary}</h2>
+      {isWithdrawn(item) && (
+        <p
+          className='rounded border border-amber-500/50 bg-amber-500/10 px-3 py-2 font-semibold text-sm'
+          data-testid='withdrawn-banner'
+        >
+          {WITHDRAWN_TEXT}. The item is closed with no action.
+        </p>
+      )}
       {item.resolutionNotes && (
         <p className='text-muted-foreground text-sm'>
           Resolution note: {item.resolutionNotes}
@@ -167,6 +180,8 @@ export function InvestigationPanel({
   } = useQuery({
     queryKey: queueKeys.detail(itemId),
     queryFn: () => getItem(itemId),
+    refetchInterval: (query) =>
+      query.state.data?.item.status === 'open' ? OPEN_ITEM_REFRESH_MS : false,
   })
   const { outcome, takeOver } = useClaim(itemId, detail?.item.status === 'open')
   const names = useMemo(
