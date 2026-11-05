@@ -17,6 +17,11 @@ describe('nextItemId', () => {
     expect(nextItemId([{ id: 4, status: 'resolved' }, open(2)], null)).toBe(2)
   })
 
+  test('skips items whose action waits to be sent', () => {
+    expect(nextItemId([open(4), open(2), open(9)], 2, [4])).toBe(9)
+    expect(nextItemId([open(4)], null, [4])).toBeNull()
+  })
+
   test('is null when nothing else is left', () => {
     expect(nextItemId([open(4)], 4)).toBeNull()
     expect(nextItemId([], null)).toBeNull()

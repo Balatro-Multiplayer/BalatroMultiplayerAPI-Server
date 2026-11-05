@@ -76,12 +76,15 @@ function useRowKeys(
 function Row({
   item,
   selected,
+  waiting,
   cursor,
   now,
   onOpen,
 }: {
   item: ListedItem
   selected: boolean
+  // Its action is sent in a few seconds.
+  waiting: boolean
   cursor: boolean
   now: number
   onOpen: () => void
@@ -101,6 +104,7 @@ function Row({
       className={cn(
         'flex w-full items-start gap-2 border-border border-b px-3 py-2 text-left text-sm hover:bg-accent/50',
         selected && 'bg-accent',
+        waiting && 'line-through opacity-50',
         cursor && 'ring-1 ring-ring ring-inset'
       )}
     >
@@ -152,6 +156,7 @@ export function QueueList({
   list,
   isLoading,
   selectedId,
+  waitingId,
   cursor,
   setCursor,
   now,
@@ -166,6 +171,7 @@ export function QueueList({
   list: List | undefined
   isLoading: boolean
   selectedId: number | null
+  waitingId: number | null
   cursor: number
   setCursor: (i: number) => void
   now: number
@@ -255,6 +261,7 @@ export function QueueList({
                   key={item.id}
                   item={item}
                   selected={item.id === selectedId}
+                  waiting={item.id === waitingId}
                   cursor={i === cursor}
                   now={now}
                   onOpen={() => {

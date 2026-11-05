@@ -20,11 +20,10 @@ import {
   TYPE_LABELS,
 } from '../lib/format'
 import type { ItemDetail } from '../lib/types'
-import { ActionBar } from './action-bar'
-import { AppealDecisionBar } from './appeal-decision-bar'
 import { ItemEvidence } from './evidence/item-evidence'
 import { Empty } from './evidence/shared'
 import { HistoryTimeline } from './history-timeline'
+import { QueueDecisionBar } from './queue-decision-bar'
 import { SubjectCard } from './subject-card'
 
 // A claim lasts 15 minutes server-side; renew well before it runs out.
@@ -210,16 +209,11 @@ export function InvestigationPanel({
         )}
         <ItemEvidence detail={detail} names={names} />
       </div>
-      <AppealDecisionBar
-        detail={detail}
-        heldByOther={outcome?.kind === 'held'}
-        onDone={onClosed}
-      />
-      <ActionBar
+      <QueueDecisionBar
         detail={detail}
         names={names}
         heldByOther={outcome?.kind === 'held'}
-        onDone={onClosed}
+        onSent={onClosed}
         onSkip={onSkip}
       />
     </div>
