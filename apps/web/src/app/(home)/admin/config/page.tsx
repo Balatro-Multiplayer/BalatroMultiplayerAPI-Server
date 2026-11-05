@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { PresetReasonsSection } from '@/components/admin/preset-reasons/preset-reasons-section'
 import { LADDER_LABELS, LADDER_STEPS, LADDERS, type Ladder, type LadderStep, STEP_LABELS } from '../players/lib/strikes'
 
 interface ModEntry {
@@ -157,7 +158,7 @@ export default function AdminConfigPage() {
   if (pending || !canView) return null
 
   return (
-    <div className='container max-w-3xl py-8 space-y-6'>
+    <div className='container max-w-4xl py-8 space-y-6'>
       <div className='space-y-1'>
         <h1 className='text-2xl font-bold tracking-tight'>Platform Configuration</h1>
         <p className='text-muted-foreground'>Edits here take effect immediately (no redeploy).</p>
@@ -314,6 +315,8 @@ export default function AdminConfigPage() {
               })}
             </CardContent>
           </Card>
+
+          <PresetReasonsSection />
 
           <Card>
             <CardHeader>

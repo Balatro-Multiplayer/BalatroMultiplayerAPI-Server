@@ -9,6 +9,7 @@ import chatLabelsRouter from './chat-labels.route.js'
 import chatLogsRouter from './chat-logs.route.js'
 import configRouter from './config.route.js'
 import forfeitReconciliationRouter from './forfeit-reconciliation.route.js'
+import presetReasonsRouter from './preset-reasons.route.js'
 import launcherReleasesRouter from './launcher-releases.route.js'
 import lobbiesRouter from './lobbies.route.js'
 import matchConflictsRouter from './match-conflicts.route.js'
@@ -61,6 +62,7 @@ router.use('/launcher-releases', admin)
 router.use(launcherReleasesRouter)
 router.use('/config', admin)
 router.use(configRouter)
+router.use(presetReasonsRouter)
 router.use('/mods', admin)
 router.use(modsRouter)
 router.use(blogRouter)
