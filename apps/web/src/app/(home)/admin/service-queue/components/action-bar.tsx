@@ -128,12 +128,14 @@ function ActionDialog({
   dismissLabel,
   names,
   onClose,
+  onDone,
 }: {
   detail: ItemDetail
   allowed: AllowedAction
   dismissLabel: DismissLabel | null
   names: Map<string, string>
   onClose: () => void
+  onDone: () => void
 }) {
   const qc = useQueryClient()
   const sides = overturnSides(detail)
@@ -179,6 +181,7 @@ function ActionDialog({
     onSuccess: (result) => {
       toast.success(effectsText(result.action, result.effects))
       qc.invalidateQueries({ queryKey: queueKeys.all })
+      onDone()
       onClose()
     },
     onError: (err: Error) =>
@@ -391,16 +394,20 @@ export function ActionBar({
   detail,
   names,
   heldByOther,
+  onDone,
+  onSkip,
 }: {
   detail: ItemDetail
   names: Map<string, string>
   heldByOther: boolean
+  onDone: () => void
+  onSkip: () => void
 }) {
   const [open, setOpen] = useState<Choice | null>(null)
   const actions = choicesOf(detail)
   return (
     <div
-      className='sticky bottom-0 z-10 flex flex-wrap gap-2 border-border border-t bg-background/95 p-3 backdrop-blur'
+      className='flex shrink-0 flex-wrap gap-2 border-border border-t bg-background/95 p-3 backdrop-blur'
       data-testid='action-bar'
     >
       {actions.map(({ allowed: a, dismissLabel }) => (
@@ -424,6 +431,15 @@ export function ActionBar({
             : ACTION_LABELS[a.action]}
         </Button>
       ))}
+      <Button
+        size='sm'
+        variant='secondary'
+        className='ml-auto'
+        data-testid='skip-item'
+        onClick={onSkip}
+      >
+        Skip
+      </Button>
       {open && (
         <ActionDialog
           key={`${detail.item.id}-${open.dismissLabel ?? open.allowed.action}`}
@@ -431,6 +447,7 @@ export function ActionBar({
           allowed={open.allowed}
           dismissLabel={open.dismissLabel}
           names={names}
+          onDone={onDone}
           onClose={() => setOpen(null)}
         />
       )}

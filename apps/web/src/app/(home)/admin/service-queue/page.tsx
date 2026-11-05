@@ -13,6 +13,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
+import { nextItemId } from './lib/focus'
 import { InvestigationPanel } from './components/investigation-panel'
 import { QueueList } from './components/queue-list'
 import {
@@ -26,17 +27,7 @@ import { ITEM_TYPES } from './lib/types'
 // The queue's state lives in the URL, so a link opens the same view.
 const urlState = {
   type: parseAsStringLiteral(ITEM_TYPES),
-  status: parseAsStringLiteral([
-    'open',
-    'resolved',
-    'all',
-  ] as const).withDefault('open'),
-  sort: parseAsStringLiteral(['priority', 'age'] as const).withDefault(
-    'priority'
-  ),
   subject: parseAsString.withDefault(''),
-  mine: parseAsBoolean.withDefault(false),
-  age: parseAsInteger.withDefault(0),
   page: parseAsInteger.withDefault(1),
   automatic: parseAsBoolean.withDefault(false),
   item: parseAsInteger,
@@ -94,11 +85,12 @@ function ServiceQueue() {
       // A player search looks through every item, automatic ones too.
       lane: url.subject.trim() ? null : ('main' as const),
       itemType: url.type,
-      status: url.status,
-      sort: url.sort,
+      status: 'open' as const,
+      sort: 'priority' as const,
       subject: url.subject,
-      claimedByMe: url.mine,
-      olderThanHours: url.age,
+      claimedByMe: false,
+      olderThanHours: 0,
+      hideClaimed: true,
       page: url.page,
     }),
     [url]
@@ -113,12 +105,6 @@ function ServiceQueue() {
       setCursor(0)
       void setUrl({
         ...('itemType' in patch ? { type: patch.itemType } : {}),
-        ...(patch.status ? { status: patch.status } : {}),
-        ...(patch.sort ? { sort: patch.sort } : {}),
-        ...(patch.claimedByMe !== undefined ? { mine: patch.claimedByMe } : {}),
-        ...(patch.olderThanHours !== undefined
-          ? { age: patch.olderThanHours }
-          : {}),
         ...(patch.page !== undefined ? { page: patch.page } : {}),
       })
     },
@@ -137,6 +123,12 @@ function ServiceQueue() {
     (id: number) => void setUrl({ item: id }),
     [setUrl]
   )
+  // Opens the next item without a reload; with none left, back to the rail.
+  const openNext = useCallback(
+    (fromId: number) =>
+      void setUrl({ item: nextItemId(list?.items ?? [], fromId) }),
+    [setUrl, list]
+  )
   const showAllItems = useCallback(
     (playerId: string) => {
       setSubjectDraft(playerId)
@@ -144,7 +136,6 @@ function ServiceQueue() {
       void setUrl({
         subject: playerId,
         type: null,
-        status: 'all',
         automatic: false,
         page: 1,
       })
@@ -152,25 +143,31 @@ function ServiceQueue() {
     [setUrl]
   )
 
+  const totalOpen = list
+    ? Object.values(list.counts).reduce((a, b) => a + b, 0)
+    : 0
+
   if (pending) return <div className='container py-8'>Loading…</div>
   if (!isModerator) return null
 
   const selected = url.item
   return (
-    <div className='container max-w-none px-0 md:px-4 md:py-4'>
-      <div className='grid h-[calc(100dvh-4rem)] grid-cols-1 overflow-hidden border-border md:grid-cols-[minmax(320px,420px)_1fr] md:rounded-lg md:border'>
+    <div className='w-full px-0 md:px-4 md:py-4'>
+      <div className='grid h-[calc(100dvh-4rem)] grid-cols-1 gap-4 overflow-hidden md:grid-cols-[minmax(300px,360px)_1fr]'>
         <div
           className={cn(
-            'flex min-h-0 flex-col border-border md:border-r',
+            'flex min-h-0 flex-col overflow-hidden border-border bg-card/80 md:rounded-lg md:border',
             selected !== null && 'hidden md:flex'
           )}
           data-testid='queue-pane'
         >
-          <div className='border-border border-b px-3 py-2'>
-            <h1 className='font-bold text-xl tracking-tight'>Service Queue</h1>
-            <p className='text-muted-foreground text-xs'>
-              j / k to move, Enter to open. Opening an item claims it for 15
-              minutes.
+          <div className='border-border border-b px-4 py-3'>
+            <h1 className='font-bold text-2xl tracking-tight'>Service Queue</h1>
+            <p
+              className='text-muted-foreground text-sm'
+              data-testid='queue-counts'
+            >
+              {totalOpen} open · {list?.claimedByOthers ?? 0} claimed by others
             </p>
             {isAdmin && (
               <Button
@@ -199,14 +196,14 @@ function ServiceQueue() {
         </div>
         <div
           className={cn(
-            'min-h-0 overflow-y-auto',
-            selected === null && 'hidden md:block'
+            'flex min-h-0 flex-col overflow-hidden border-border bg-card/80 md:rounded-lg md:border',
+            selected === null && 'hidden md:flex'
           )}
           data-testid='panel-pane'
         >
           {selected === null ? (
             <p className='p-6 text-muted-foreground text-sm'>
-              Pick an item from the queue.
+              Pick an item from the list.
             </p>
           ) : (
             <>
@@ -225,6 +222,8 @@ function ServiceQueue() {
                 now={now}
                 onOpenItem={openItem}
                 onShowAllItems={showAllItems}
+                onSkip={() => openNext(selected)}
+                onClosed={() => openNext(selected)}
               />
             </>
           )}
