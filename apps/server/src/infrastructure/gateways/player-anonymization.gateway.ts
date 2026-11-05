@@ -441,7 +441,7 @@ const NO_PLAYER_ID: { readonly [table: string]: readonly string[] } = {
 		'season_best',
 		'updated_at',
 	],
-	seasons: ['id', 'name', 'started_at', 'ends_at', 'ended_at'],
+	seasons: ['id', 'name', 'started_at', 'ends_at', 'ended_at', 'end_notified_at'],
 	// The owner's id, and a copy of one Season board in a JSON column. It is kept
 	// whole so a restore puts the board back as it was.
 	season_replay_backups: ['id', 'season', 'created_by', 'created_at', 'data'],

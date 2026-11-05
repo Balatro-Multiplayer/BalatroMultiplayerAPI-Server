@@ -17,6 +17,8 @@ export const NotificationKind = {
 	RESULT_CHANGED: 'result_changed',
 	// Staff punished a player the recipient reported.
 	REPORT_ACTION: 'report_action',
+	// A season ended: the player's place and rating on each board they are on.
+	SEASON_END: 'season_end',
 } as const
 
 export type NotificationKindName =
@@ -25,6 +27,19 @@ export type NotificationKindName =
 // What a staff decision means for one player. A draw is every player on the
 // same place; a win is the best place without that tie.
 export type ResultOutcome = 'win' | 'draw' | 'loss'
+
+export interface SeasonEndBoard {
+	// The board's display name, for example "PvP Vanilla".
+	name: string
+	place: number
+	rating: number
+}
+
+export interface SeasonEnd {
+	season: number
+	name: string
+	boards: SeasonEndBoard[]
+}
 
 export interface NotificationParams {
 	result_late: LateResult
@@ -37,6 +52,7 @@ export interface NotificationParams {
 	result_voided: { [key: string]: never }
 	result_changed: { outcome: ResultOutcome }
 	report_action: { [key: string]: never }
+	season_end: SeasonEnd
 }
 
 export interface StoredNotification {
