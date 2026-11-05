@@ -1,17 +1,7 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import {
   Table,
@@ -21,338 +11,191 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { apiFetch } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import {
-  type ModPatch,
-  type ModSummary,
-  type ModVersion,
-  parseIdList,
-  type VersionSource,
-} from './ranked-mods-types'
+  type ModFilter,
+  MOD_FILTERS,
+  filterCounts,
+} from '../lib/mods-view'
+import type { ModPatch, ModSummary } from './ranked-mods-types'
 
-// Radix Select items can't have an empty string value -- this sentinel
-// stands in for "not ranked" (rankedVersion: null) on the wire in/out of
-// the dropdown only, never sent to the API itself.
-const NONE_VALUE = '__none__'
-
-const SOURCE_LABEL: Record<VersionSource, string> = {
-  thunderstore: 'Thunderstore',
-  github: 'GitHub',
-}
-
-// The pinned download under the version picker: where it comes from, a link
-// to the exact archive that was hashed, and the sync's health flag.
-function PinDetails({ mod }: { mod: ModSummary }) {
-  if (!mod.rankedVersion) return null
-  if (!mod.rankedDownloadUrl) {
-    return (
-      <p className='mt-1 text-muted-foreground text-xs'>
-        Resolving on next sync…
-      </p>
-    )
+function VersionCell({ mod }: { mod: ModSummary }) {
+  if (!mod.rankedVersion) {
+    return <Badge variant='outline'>not pinned</Badge>
   }
   return (
-    <p className='mt-1 flex items-center gap-1.5 text-muted-foreground text-xs'>
-      {mod.rankedSource && SOURCE_LABEL[mod.rankedSource]}
-      <a
-        href={mod.rankedDownloadUrl}
-        className='underline underline-offset-2'
-        target='_blank'
-        rel='noreferrer'
-      >
-        download
-      </a>
-      {mod.rankedDownloadStatus === 'unavailable' && (
-        <Badge variant='destructive'>Unavailable — re-pin</Badge>
-      )}
-    </p>
-  )
-}
-
-// What the pinned mod reports as in a client's mod list -- the entries it
-// adds to matchmaking's allowed mods. Read from the pin's files; an admin can
-// correct them (a re-pin reads them again).
-function SmodsIds({
-  mod,
-  editable,
-  onSave,
-}: {
-  mod: ModSummary
-  editable: boolean
-  onSave: (smodsIds: string[]) => void
-}) {
-  const [draft, setDraft] = useState<string | null>(null)
-  if (!mod.rankedVersion) return null
-  if (draft !== null) {
-    return (
-      <form
-        className='mt-1 flex items-center gap-1'
-        onSubmit={(e) => {
-          e.preventDefault()
-          onSave(parseIdList(draft))
-          setDraft(null)
-        }}
-      >
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder='ModId, OtherId'
-          className='h-7 w-44 font-mono text-xs'
-          autoFocus
-        />
-        <Button size='sm' type='submit' className='h-7'>
-          Save
-        </Button>
-        <Button
-          size='sm'
-          variant='ghost'
-          type='button'
-          className='h-7'
-          onClick={() => setDraft(null)}
-        >
-          Cancel
-        </Button>
-      </form>
-    )
-  }
-  return (
-    <p className='mt-1 flex flex-wrap items-center gap-1 text-muted-foreground text-xs'>
-      SMODS ids:
-      {mod.smodsIds.length > 0 ? (
-        mod.smodsIds.map((id) => (
-          <Badge key={id} variant='outline' className='font-mono'>
-            {id}
-          </Badge>
-        ))
+    <div className='text-xs'>
+      <p className='font-mono'>{mod.rankedVersion}</p>
+      {mod.rankedDownloadStatus === 'unavailable' ? (
+        <p className='text-destructive'>Unavailable, pin again</p>
       ) : (
-        <Badge variant='destructive'>none read</Badge>
+        <p className='text-muted-foreground'>
+          {mod.rankedSource === 'github' ? 'GitHub' : 'Thunderstore'}
+          {mod.rankedDownloadUrl ? ', ok' : ', resolving'}
+        </p>
       )}
-      {editable && (
-        <button
-          type='button'
-          className='underline underline-offset-2'
-          onClick={() => setDraft(mod.smodsIds.join(', '))}
-        >
-          edit
-        </button>
-      )}
-    </p>
-  )
-}
-
-// Options are fetched lazily (only once this row's dropdown is actually
-// opened) via GET /webadmin/mods/:id/versions, which returns the mod's merged
-// version list -- Thunderstore versions first, then GitHub-only ones -- so
-// any of them can be pinned. Avoids fetching every mod's versions up front
-// for a table where most rows will never be touched.
-function RankedVersionSelect({
-  mod,
-  disabled,
-  onChange,
-}: {
-  mod: ModSummary
-  disabled: boolean
-  onChange: (version: string | null) => void
-}) {
-  const [open, setOpen] = useState(false)
-
-  const { data: versions, isLoading } = useQuery<ModVersion[]>({
-    queryKey: ['mod-versions', mod.id],
-    queryFn: () =>
-      apiFetch(`/webadmin/mods/${encodeURIComponent(mod.id)}/versions`),
-    enabled: open,
-  })
-
-  // Before the dropdown has ever been opened (or while its fetch is in
-  // flight), fall back to just the currently-selected version (if any) so
-  // the trigger has a matching SelectItem to render a label from instead of
-  // going blank.
-  const options: Pick<ModVersion, 'version' | 'source' | 'aliases'>[] =
-    versions ??
-    (mod.rankedVersion
-      ? [
-          {
-            version: mod.rankedVersion,
-            source: mod.rankedSource ?? 'thunderstore',
-            aliases: [],
-          },
-        ]
-      : [])
-
-  return (
-    <Select
-      value={mod.rankedVersion ?? NONE_VALUE}
-      disabled={disabled}
-      onOpenChange={setOpen}
-      onValueChange={(value) => onChange(value === NONE_VALUE ? null : value)}
-    >
-      <SelectTrigger size='sm' className='h-8 w-44 font-mono text-xs'>
-        <SelectValue placeholder='None' />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={NONE_VALUE}>None</SelectItem>
-        {isLoading && !versions && (
-          <div className='px-2 py-1.5 text-muted-foreground text-xs'>
-            Loading versions…
-          </div>
-        )}
-        {options.map((v) => (
-          <SelectItem key={v.version} value={v.version}>
-            <span className='font-mono'>{v.version}</span>
-            <span className='text-muted-foreground text-xs'>
-              {SOURCE_LABEL[v.source]}
-              {v.aliases.length > 0 && ` · also ${v.aliases.join(', ')}`}
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    </div>
   )
 }
 
 export function ModsTable({
+  allMods,
   mods,
+  filter,
+  search,
+  selectedId,
   isAdmin,
   pendingModId,
+  onFilter,
+  onSearch,
+  onSelect,
   onUpdate,
-  onEdit,
-  onDelete,
-  onPinCommit,
 }: {
+  allMods: ModSummary[]
   mods: ModSummary[]
+  filter: ModFilter
+  search: string
+  selectedId: string | null
   isAdmin: boolean
   pendingModId: string | null
+  onFilter: (filter: ModFilter) => void
+  onSearch: (search: string) => void
+  onSelect: (mod: ModSummary) => void
   onUpdate: (mod: ModSummary, patch: ModPatch) => void
-  onEdit: (mod: ModSummary) => void
-  onDelete: (mod: ModSummary) => void
-  onPinCommit: (mod: ModSummary) => void
 }) {
+  const counts = filterCounts(allMods)
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Mod</TableHead>
-          <TableHead>Author</TableHead>
-          <TableHead>Ranked version</TableHead>
-          <TableHead>Featured</TableHead>
-          <TableHead>Hidden</TableHead>
-          <TableHead>Track GitHub</TableHead>
-          {isAdmin && <TableHead />}
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {mods.map((mod) => {
-          const disabled = !isAdmin || pendingModId === mod.id
-          return (
-            <TableRow key={mod.id}>
-              <TableCell>
-                <p className='font-medium'>
-                  {mod.title}
-                  {mod.isCustom && (
-                    <Badge variant='secondary' className='ml-2'>
-                      Custom · {mod.sourceType}
-                    </Badge>
-                  )}
-                </p>
-                <p className='font-mono text-muted-foreground text-xs'>
-                  {mod.id}
-                  {mod.thunderstoreFullName &&
-                    mod.thunderstoreFullName !== mod.id &&
-                    ` · ${mod.thunderstoreFullName}`}
-                </p>
-              </TableCell>
-              <TableCell>{mod.author}</TableCell>
-              <TableCell>
-                <RankedVersionSelect
-                  mod={mod}
-                  disabled={disabled}
-                  onChange={(version) =>
-                    onUpdate(mod, { rankedVersion: version })
-                  }
-                />
-                <PinDetails mod={mod} />
-                <SmodsIds
-                  mod={mod}
-                  editable={!disabled}
-                  onSave={(smodsIds) => onUpdate(mod, { smodsIds })}
-                />
-              </TableCell>
-              <TableCell>
-                <Switch
-                  checked={mod.featured}
-                  disabled={disabled}
-                  onCheckedChange={(featured) => onUpdate(mod, { featured })}
-                />
-              </TableCell>
-              <TableCell>
-                <Switch
-                  checked={mod.hidden}
-                  disabled={disabled}
-                  onCheckedChange={(hidden) => onUpdate(mod, { hidden })}
-                />
-              </TableCell>
-              <TableCell>
-                <Switch
-                  checked={mod.trackGithub}
-                  disabled={disabled || mod.isCustom}
-                  title={
-                    mod.isCustom
-                      ? 'Custom mods always list their GitHub versions'
-                      : 'Also list GitHub releases/tags as versions (next sync)'
-                  }
-                  onCheckedChange={(trackGithub) =>
-                    onUpdate(mod, { trackGithub })
-                  }
-                />
-              </TableCell>
-              {isAdmin && (
-                <TableCell className='whitespace-nowrap text-right'>
-                  <Button
-                    size='sm'
-                    variant='ghost'
-                    disabled={pendingModId === mod.id}
-                    onClick={() => onPinCommit(mod)}
-                  >
-                    Pin commit
-                  </Button>
-                  {mod.isCustom && (
-                    <>
-                      <Button
-                        size='sm'
-                        variant='ghost'
-                        disabled={pendingModId === mod.id}
-                        onClick={() => onEdit(mod)}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        size='sm'
-                        variant='ghost'
-                        className='text-destructive'
-                        disabled={pendingModId === mod.id}
-                        onClick={() => onDelete(mod)}
-                      >
-                        Delete
-                      </Button>
-                    </>
-                  )}
-                </TableCell>
-              )}
-            </TableRow>
-          )
-        })}
-        {mods.length === 0 && (
+    <div className='space-y-3'>
+      <div className='flex flex-wrap items-center gap-2'>
+        {MOD_FILTERS.map(({ key, label }) => (
+          <button
+            key={key}
+            type='button'
+            onClick={() => onFilter(key)}
+            className={cn(
+              'rounded-full border px-3 py-1 text-sm',
+              filter === key
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-border text-muted-foreground hover:text-foreground'
+            )}
+          >
+            {label} <b>{counts[key]}</b>
+          </button>
+        ))}
+        <Input
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          placeholder='Search mods'
+          className='ml-auto h-9 w-56'
+        />
+      </div>
+      <Table>
+        <TableHeader>
           <TableRow>
-            <TableCell
-              colSpan={7}
-              className='text-center text-muted-foreground'
-            >
-              No mods synced yet — MOD_INDEX_SYNC_ENABLED may not be set, or the
-              hourly sync hasn't run.
-            </TableCell>
+            <TableHead>Mod</TableHead>
+            <TableHead>Pinned version</TableHead>
+            <TableHead>SMODS ids</TableHead>
+            <TableHead>Featured</TableHead>
+            <TableHead>Hidden</TableHead>
+            <TableHead>Track GitHub</TableHead>
           </TableRow>
-        )}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {mods.map((mod) => {
+            const disabled = !isAdmin || pendingModId === mod.id
+            return (
+              <TableRow
+                key={mod.id}
+                data-state={mod.id === selectedId ? 'selected' : undefined}
+                className={cn(
+                  'cursor-pointer',
+                  mod.id === selectedId && 'bg-destructive/10'
+                )}
+                onClick={() => onSelect(mod)}
+              >
+                <TableCell>
+                  <p className='font-medium'>{mod.title}</p>
+                  <p className='text-muted-foreground text-xs'>
+                    {mod.author}
+                    {mod.isCustom && (
+                      <Badge variant='secondary' className='ml-2'>
+                        custom
+                      </Badge>
+                    )}
+                  </p>
+                </TableCell>
+                <TableCell>
+                  <VersionCell mod={mod} />
+                </TableCell>
+                <TableCell>
+                  {mod.rankedVersion ? (
+                    mod.smodsIds.length > 0 ? (
+                      <div className='flex flex-wrap gap-1'>
+                        {mod.smodsIds.map((id) => (
+                          <Badge
+                            key={id}
+                            variant='outline'
+                            className='font-mono'
+                          >
+                            {id}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className='text-muted-foreground text-xs'>
+                        none read
+                      </span>
+                    )
+                  ) : null}
+                </TableCell>
+                {/* biome-ignore lint/a11y/useKeyWithClickEvents: keeps a switch click from selecting the row */}
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  <Switch
+                    checked={mod.featured}
+                    disabled={disabled}
+                    onCheckedChange={(featured) => onUpdate(mod, { featured })}
+                  />
+                </TableCell>
+                {/* biome-ignore lint/a11y/useKeyWithClickEvents: keeps a switch click from selecting the row */}
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  <Switch
+                    checked={mod.hidden}
+                    disabled={disabled}
+                    onCheckedChange={(hidden) => onUpdate(mod, { hidden })}
+                  />
+                </TableCell>
+                {/* biome-ignore lint/a11y/useKeyWithClickEvents: keeps a switch click from selecting the row */}
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  <Switch
+                    checked={mod.trackGithub}
+                    disabled={disabled || mod.isCustom}
+                    title={
+                      mod.isCustom
+                        ? 'Custom mods always list their GitHub versions'
+                        : 'Also list GitHub releases/tags as versions (next sync)'
+                    }
+                    onCheckedChange={(trackGithub) =>
+                      onUpdate(mod, { trackGithub })
+                    }
+                  />
+                </TableCell>
+              </TableRow>
+            )
+          })}
+          {mods.length === 0 && (
+            <TableRow>
+              <TableCell
+                colSpan={6}
+                className='text-center text-muted-foreground'
+              >
+                {allMods.length === 0
+                  ? "No mods synced yet. MOD_INDEX_SYNC_ENABLED may not be set, or the hourly sync hasn't run."
+                  : 'No mods match.'}
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
   )
 }

@@ -4,18 +4,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { ConfirmCard } from '@/components/admin/confirm-card'
 import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
 import { ApiError, apiFetch, apiFetchWithReason } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { DeleteModDialog } from './components/delete-mod-dialog'
-import { DeleteProfileDialog } from './components/delete-profile-dialog'
+import { ModDetailCard } from './components/mod-detail-card'
 import { ModFormDialog } from './components/mod-form-dialog'
 import { ModsTable } from './components/mods-table'
 import { PinCommitDialog } from './components/pin-commit-dialog'
@@ -35,6 +28,12 @@ import {
   type ModSummary,
   type ProfileForm,
 } from './components/ranked-mods-types'
+import {
+  type ModFilter,
+  filterMods,
+  modDeleteImpact,
+  profileDeleteImpact,
+} from './lib/mods-view'
 
 // The ranked mod catalog -- synced hourly straight from Thunderstore (see
 // BalatroMultiplayerServer's features/mods/mods-sync.service.ts), plus
@@ -108,6 +107,9 @@ export default function RankedModsPage() {
   const [form, setForm] = useState<ModForm>(emptyModForm)
   const [initialForm, setInitialForm] = useState<ModForm>(emptyModForm)
   const [deleteTarget, setDeleteTarget] = useState<ModSummary | null>(null)
+  const [filter, setFilter] = useState<ModFilter>('pinned')
+  const [search, setSearch] = useState('')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [pinCommitTarget, setPinCommitTarget] = useState<ModSummary | null>(
     null
   )
@@ -153,13 +155,17 @@ export default function RankedModsPage() {
   })
 
   const deleteModMut = useMutation({
-    mutationFn: (mod: ModSummary) =>
-      apiFetchWithReason(`/webadmin/mods/${encodeURIComponent(mod.id)}`, {
-        method: 'DELETE',
-      }),
+    mutationFn: ({ mod, note }: { mod: ModSummary; note: string }) =>
+      apiFetchWithReason(
+        `/webadmin/mods/${encodeURIComponent(mod.id)}`,
+        { method: 'DELETE' },
+        note
+      ),
     onSuccess: () => {
       setDeleteTarget(null)
       qc.invalidateQueries({ queryKey: ['ranked-mods'] })
+      // Deleting a mod removes its entries from every profile.
+      invalidateProfiles()
     },
     onError: onErr,
   })
@@ -269,10 +275,12 @@ export default function RankedModsPage() {
   })
 
   const deleteProfileMut = useMutation({
-    mutationFn: (profile: ModProfile) =>
-      apiFetchWithReason(`/webadmin/mods/profiles/${encodeURIComponent(profile.id)}`, {
-        method: 'DELETE',
-      }),
+    mutationFn: ({ profile, note }: { profile: ModProfile; note: string }) =>
+      apiFetchWithReason(
+        `/webadmin/mods/profiles/${encodeURIComponent(profile.id)}`,
+        { method: 'DELETE' },
+        note
+      ),
     onSuccess: () => {
       setDeleteProfileTarget(null)
       invalidateProfiles()
@@ -312,6 +320,93 @@ export default function RankedModsPage() {
 
   if (pending || !canView) return null
 
+  const visibleMods = filterMods(mods ?? [], filter, search)
+  const selected =
+    visibleMods.find((m) => m.id === selectedId) ?? visibleMods[0]
+  const modBusy = pendingModId === selected?.id || deleteModMut.isPending
+
+  let confirmCard = null
+  if (deleteTarget) {
+    const impact = modDeleteImpact(deleteTarget, profiles ?? [])
+    confirmCard = (
+      <ConfirmCard
+        key={`mod-${deleteTarget.id}`}
+        title={`Delete ${deleteTarget.title}?`}
+        rows={[
+          {
+            label: 'Pinned mod',
+            value: impact.pinnedVersion ? (
+              <>
+                <s className='text-muted-foreground'>{impact.pinnedVersion}</s>{' '}
+                to gone, with its versions
+              </>
+            ) : (
+              'Not pinned. Its versions are deleted.'
+            ),
+          },
+          {
+            label: 'Allowed mods',
+            value:
+              impact.allowedIds.length > 0
+                ? `${impact.allowedIds.join(', ')} leaves the list. Ranked players with it are refused.`
+                : 'No change',
+          },
+          {
+            label: 'Profiles',
+            value:
+              impact.profiles.length > 0
+                ? `Removed from ${impact.profiles.length}: ${impact.profiles.map((p) => p.slug).join(', ')}`
+                : 'No change',
+          },
+        ]}
+        placeholder='Why delete this mod?'
+        confirmLabel='Delete mod'
+        pending={deleteModMut.isPending}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={(note) => deleteModMut.mutate({ mod: deleteTarget, note })}
+      />
+    )
+  } else if (deleteProfileTarget) {
+    const impact = profileDeleteImpact(deleteProfileTarget, mods ?? [])
+    confirmCard = (
+      <ConfirmCard
+        key={`profile-${deleteProfileTarget.id}`}
+        title={`Delete profile ${deleteProfileTarget.name}?`}
+        rows={[
+          {
+            label: 'Profile',
+            value: (
+              <>
+                <s className='text-muted-foreground'>
+                  {deleteProfileTarget.slug}
+                </s>{' '}
+                to gone. The launcher stops offering it.
+              </>
+            ),
+          },
+          {
+            label: 'Mods in it',
+            value:
+              impact.modTitles.length > 0
+                ? impact.modTitles.join(', ')
+                : 'None',
+          },
+          {
+            label: 'Allowed mods',
+            value: 'No change. The mods stay in the catalog.',
+          },
+        ]}
+        placeholder='Why delete this profile?'
+        confirmLabel='Delete profile'
+        pending={deleteProfileMut.isPending}
+        onCancel={() => setDeleteProfileTarget(null)}
+        onConfirm={(note) =>
+          deleteProfileMut.mutate({ profile: deleteProfileTarget, note })
+        }
+      />
+    )
+  }
+
   const entriesProfile =
     profiles?.find((p) => p.id === entriesProfileId) ?? null
 
@@ -319,111 +414,135 @@ export default function RankedModsPage() {
     mods?.filter((m) => m.rankedDownloadStatus === 'unavailable') ?? []
 
   return (
-    <div className='container max-w-4xl space-y-6 py-8'>
-      <div className='space-y-1'>
-        <h1 className='font-bold text-2xl tracking-tight'>Ranked Mods</h1>
-        <p className='text-muted-foreground'>
-          Mod catalog synced hourly from Thunderstore, plus custom mods added
-          here. Ranked pins are verified by the launcher against a hash taken at
-          pin time.
-        </p>
+    <div className='container max-w-[110rem] space-y-6 py-8'>
+      <div className='text-muted-foreground text-sm'>
+        Staff / Ops / <span className='text-primary'>Ranked Mods</span>
       </div>
-
-      {unavailablePins.length > 0 && (
-        <p className='rounded-md border border-destructive/50 px-4 py-3 text-destructive text-sm'>
-          {unavailablePins.length === 1
-            ? '1 ranked pin can no longer be downloaded'
-            : `${unavailablePins.length} ranked pins can no longer be downloaded`}{' '}
-          ({unavailablePins.map((m) => m.title).join(', ')}). Players can't
-          launch Ranked with those mods until an admin re-pins them.
-        </p>
-      )}
-
-      <Card>
-        <CardHeader className='flex flex-row items-center justify-between'>
-          <div>
-            <CardTitle>Mod catalog</CardTitle>
-            <CardDescription>
-              Ranked version pins, featured and hidden are set here directly.
-              Only custom mods can be edited or deleted.
-            </CardDescription>
-          </div>
-          {isAdmin && (
-            <div className='flex gap-2'>
-              <Button size='sm' variant='outline' onClick={openCreate}>
-                New custom mod
-              </Button>
-              <Button
-                size='sm'
-                variant='outline'
-                onClick={() => backfillMut.mutate()}
-                disabled={backfillMut.isPending}
-                title='Read the SMODS ids of pins that have none yet'
-              >
-                {backfillMut.isPending ? 'Reading…' : 'Read SMODS ids'}
-              </Button>
-              <Button
-                size='sm'
-                onClick={() => syncMut.mutate()}
-                disabled={syncMut.isPending}
-              >
-                {syncMut.isPending ? 'Syncing…' : 'Sync now'}
-              </Button>
-            </div>
-          )}
-        </CardHeader>
-        <CardContent>
-          {modsLoading || !mods ? (
-            <p className='text-muted-foreground text-sm'>Loading…</p>
-          ) : (
-            <ModsTable
-              mods={mods}
-              isAdmin={isAdmin}
-              pendingModId={pendingModId}
-              onUpdate={(mod, patch) =>
-                updateModMut.mutate({ modId: mod.id, patch })
-              }
-              onEdit={openEdit}
-              onDelete={setDeleteTarget}
-              onPinCommit={setPinCommitTarget}
-            />
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className='flex flex-row items-center justify-between'>
-          <div>
-            <CardTitle>Mod profiles</CardTitle>
-            <CardDescription>
-              Named mod lists the launcher offers as presets. Changes reach
-              the launcher at once.
-            </CardDescription>
-          </div>
-          {isAdmin && (
+      <div className='flex flex-wrap items-end justify-between gap-4'>
+        <div className='flex flex-wrap items-baseline gap-x-4'>
+          <h1 className='font-pixel text-4xl'>Ranked Mods</h1>
+          <p className='max-w-xl text-muted-foreground text-sm'>
+            Catalog synced hourly from Thunderstore, plus custom mods. A pinned
+            mod is fixed at one version and checked against a hash taken at pin
+            time.
+          </p>
+        </div>
+        {isAdmin && (
+          <div className='flex gap-2'>
+            <Button size='sm' variant='outline' onClick={openCreate}>
+              New custom mod
+            </Button>
             <Button
               size='sm'
               variant='outline'
-              onClick={() => openProfileEdit(null)}
+              onClick={() => backfillMut.mutate()}
+              disabled={backfillMut.isPending}
+              title='Read the SMODS ids of pins that have none yet'
             >
-              New profile
+              {backfillMut.isPending ? 'Reading…' : 'Read SMODS ids'}
             </Button>
-          )}
-        </CardHeader>
-        <CardContent>
-          {profilesLoading || !profiles ? (
-            <p className='text-muted-foreground text-sm'>Loading…</p>
-          ) : (
-            <ProfilesTable
-              profiles={profiles}
-              isAdmin={isAdmin}
-              onManageEntries={(p) => setEntriesProfileId(p.id)}
-              onEdit={openProfileEdit}
-              onDelete={setDeleteProfileTarget}
-            />
-          )}
-        </CardContent>
-      </Card>
+            <Button
+              size='sm'
+              onClick={() => syncMut.mutate()}
+              disabled={syncMut.isPending}
+            >
+              {syncMut.isPending ? 'Syncing…' : 'Sync now'}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {unavailablePins.length > 0 && (
+        <p className='rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-destructive text-sm'>
+          <b>
+            {unavailablePins.length === 1
+              ? '1 pinned mod can no longer be downloaded'
+              : `${unavailablePins.length} pinned mods can no longer be downloaded`}
+          </b>{' '}
+          ({unavailablePins.map((m) => m.title).join(', ')}). Players cannot
+          launch Ranked with {unavailablePins.length === 1 ? 'it' : 'them'}{' '}
+          until an admin pins again.
+        </p>
+      )}
+
+      <div className='grid gap-6 lg:grid-cols-[minmax(0,1fr)_28rem]'>
+        <div className='space-y-6'>
+          <section className='rounded-xl border border-border bg-card p-4'>
+            {modsLoading || !mods ? (
+              <p className='text-muted-foreground text-sm'>Loading…</p>
+            ) : (
+              <ModsTable
+                allMods={mods}
+                mods={visibleMods}
+                filter={filter}
+                search={search}
+                selectedId={selected?.id ?? null}
+                isAdmin={isAdmin}
+                pendingModId={pendingModId}
+                onFilter={setFilter}
+                onSearch={setSearch}
+                onSelect={(m) => setSelectedId(m.id)}
+                onUpdate={(mod, patch) =>
+                  updateModMut.mutate({ modId: mod.id, patch })
+                }
+              />
+            )}
+          </section>
+
+          <section className='space-y-3 rounded-xl border border-border bg-card p-4'>
+            <div className='flex items-center justify-between gap-2'>
+              <div>
+                <h2 className='font-pixel text-lg'>Mod profiles</h2>
+                <p className='text-muted-foreground text-sm'>
+                  Named mod lists the launcher offers as presets. Changes reach
+                  the launcher at once.
+                </p>
+              </div>
+              {isAdmin && (
+                <Button
+                  size='sm'
+                  variant='outline'
+                  onClick={() => openProfileEdit(null)}
+                >
+                  New profile
+                </Button>
+              )}
+            </div>
+            {profilesLoading || !profiles ? (
+              <p className='text-muted-foreground text-sm'>Loading…</p>
+            ) : (
+              <ProfilesTable
+                profiles={profiles}
+                isAdmin={isAdmin}
+                onManageEntries={(p) => setEntriesProfileId(p.id)}
+                onEdit={openProfileEdit}
+                onDelete={(p) => {
+                  setDeleteTarget(null)
+                  setDeleteProfileTarget(p)
+                }}
+              />
+            )}
+          </section>
+        </div>
+
+        <div className='space-y-6'>
+          <ModDetailCard
+            mod={selected}
+            isAdmin={isAdmin}
+            busy={modBusy}
+            onUpdate={(mod, patch) =>
+              updateModMut.mutate({ modId: mod.id, patch })
+            }
+            onPinCommit={setPinCommitTarget}
+            onEdit={openEdit}
+            onDelete={(m) => {
+              setDeleteProfileTarget(null)
+              setDeleteTarget(m)
+            }}
+          />
+          {confirmCard}
+        </div>
+      </div>
 
       <ProfileFormDialog
         open={profileDialog !== null}
@@ -455,14 +574,6 @@ export default function RankedModsPage() {
         }
         onClose={() => setEntriesProfileId(null)}
       />
-      <DeleteProfileDialog
-        target={deleteProfileTarget}
-        isPending={deleteProfileMut.isPending}
-        onConfirm={() =>
-          deleteProfileTarget && deleteProfileMut.mutate(deleteProfileTarget)
-        }
-        onClose={() => setDeleteProfileTarget(null)}
-      />
       <ModFormDialog
         open={dialog !== null}
         mode={dialog?.mode ?? 'create'}
@@ -488,12 +599,6 @@ export default function RankedModsPage() {
           )
         }
         onClose={() => setPinCommitTarget(null)}
-      />
-      <DeleteModDialog
-        target={deleteTarget}
-        isPending={deleteModMut.isPending}
-        onConfirm={() => deleteTarget && deleteModMut.mutate(deleteTarget)}
-        onClose={() => setDeleteTarget(null)}
       />
     </div>
   )
