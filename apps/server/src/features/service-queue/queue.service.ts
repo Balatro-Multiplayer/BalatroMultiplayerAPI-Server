@@ -33,7 +33,7 @@ import { callNakamaRpc } from '../../infrastructure/nakama/admin-client.js'
 import { banInNakama, liftBanInNakama, notifyWarnedInNakama } from '../../infrastructure/nakama/moderation-sync.js'
 import { matchEditorFor } from '../ratings/match-edit.deps.js'
 import type { MatchEditSummary } from '../ratings/match-edit.service.js'
-import { dismissAutomaticItems } from './automatic.js'
+import { dismissAutomaticItems, dismissListedAutomaticItems as dismissListedItems } from './automatic.js'
 import { decideClaim, decideRelease } from './claim.js'
 import { type DispatcherDeps, type GameRef, type QueueItem, createDispatcher } from './dispatcher.js'
 import type { Placement } from './overturn.js'
@@ -275,6 +275,23 @@ export const dismissAutomaticItemsOf = (playerId: string, staff: { playerId: str
 			},
 		},
 		playerId,
+		staff,
+		reason,
+	)
+
+// Dismisses the listed automatic items with one note, each through the normal action path.
+export const dismissListedAutomaticItems = (itemIds: readonly number[], staff: { playerId: string; role: StaffRole }, reason: string) =>
+	dismissListedItems(
+		{
+			async itemTypeOf(itemId) {
+				return (await getServiceQueueItemById(itemId))?.itemType ?? null
+			},
+			async run(itemId, action, who, body) {
+				const result = await serviceQueueDispatcher.run(itemId, action, who, body)
+				return result.ok ? { ok: true } : { ok: false, code: result.refusal.code }
+			},
+		},
+		itemIds,
 		staff,
 		reason,
 	)

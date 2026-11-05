@@ -88,18 +88,6 @@ export interface ListedItem extends QueueItem {
   subjectOpenItems: number
 }
 
-export interface AutomaticGroup {
-  playerId: string
-  playerName: string | null
-  openItems: number
-  latestItem: {
-    id: number
-    itemType: ItemType
-    summary: string
-    createdAt: string
-  }
-}
-
 export interface QueueList {
   items: ListedItem[]
   total: number

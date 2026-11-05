@@ -27,7 +27,7 @@ import {
   TYPE_TABS,
 } from '../lib/format'
 import type { ItemType, QueueList as List, ListedItem } from '../lib/types'
-import { AutomaticList } from './automatic-list'
+import { DismissShown } from './dismiss-shown'
 
 const TYPE_ICONS: Record<ItemType, LucideIcon> = {
   report: FlagIcon,
@@ -234,69 +234,67 @@ export function QueueList({
         </Button>
       </div>
 
-      {automaticTab ? (
-        <AutomaticList now={now} onOpen={onOpen} />
-      ) : (
-        <>
-          <div className='border-border border-b p-2'>
-            <Input
-              className='h-8'
-              placeholder='Find a player by name or id'
-              value={filters.subject}
-              onChange={(e) => setFilters({ subject: e.target.value, page: 1 })}
+      <div className='border-border border-b p-2'>
+        <Input
+          className='h-8'
+          placeholder='Find a player by name or id'
+          value={filters.subject}
+          onChange={(e) => setFilters({ subject: e.target.value, page: 1 })}
+        />
+      </div>
+
+      {automaticTab && (
+        <DismissShown itemIds={items.map((i) => i.id)} />
+      )}
+
+      <div
+        className='min-h-0 flex-1 overflow-y-auto'
+        data-testid='queue-rows'
+      >
+        {isLoading ? (
+          <p className='p-3 text-muted-foreground text-sm'>Loading…</p>
+        ) : items.length === 0 ? (
+          <p className='p-3 text-muted-foreground text-sm'>Nothing here.</p>
+        ) : (
+          items.map((item, i) => (
+            <Row
+              key={item.id}
+              item={item}
+              selected={item.id === selectedId}
+              waiting={item.id === waitingId}
+              cursor={i === cursor}
+              now={now}
+              onOpen={() => {
+                setCursor(i)
+                onOpen(item.id)
+              }}
             />
-          </div>
+          ))
+        )}
+      </div>
 
-          <div
-            className='min-h-0 flex-1 overflow-y-auto'
-            data-testid='queue-rows'
+      {list && list.pages > 1 && (
+        <div className='flex items-center justify-between gap-2 border-border border-t p-2 text-sm'>
+          <Button
+            size='sm'
+            variant='outline'
+            disabled={filters.page <= 1}
+            onClick={() => setFilters({ page: filters.page - 1 })}
           >
-            {isLoading ? (
-              <p className='p-3 text-muted-foreground text-sm'>Loading…</p>
-            ) : items.length === 0 ? (
-              <p className='p-3 text-muted-foreground text-sm'>Nothing here.</p>
-            ) : (
-              items.map((item, i) => (
-                <Row
-                  key={item.id}
-                  item={item}
-                  selected={item.id === selectedId}
-                  waiting={item.id === waitingId}
-                  cursor={i === cursor}
-                  now={now}
-                  onOpen={() => {
-                    setCursor(i)
-                    onOpen(item.id)
-                  }}
-                />
-              ))
-            )}
-          </div>
-
-          {list && list.pages > 1 && (
-            <div className='flex items-center justify-between gap-2 border-border border-t p-2 text-sm'>
-              <Button
-                size='sm'
-                variant='outline'
-                disabled={filters.page <= 1}
-                onClick={() => setFilters({ page: filters.page - 1 })}
-              >
-                Previous
-              </Button>
-              <span className='text-muted-foreground'>
-                Page {list.page} of {list.pages} · {list.total} items
-              </span>
-              <Button
-                size='sm'
-                variant='outline'
-                disabled={filters.page >= list.pages}
-                onClick={() => setFilters({ page: filters.page + 1 })}
-              >
-                Next
-              </Button>
-            </div>
-          )}
-        </>
+            Previous
+          </Button>
+          <span className='text-muted-foreground'>
+            Page {list.page} of {list.pages} · {list.total} items
+          </span>
+          <Button
+            size='sm'
+            variant='outline'
+            disabled={filters.page >= list.pages}
+            onClick={() => setFilters({ page: filters.page + 1 })}
+          >
+            Next
+          </Button>
+        </div>
       )}
     </div>
   )
