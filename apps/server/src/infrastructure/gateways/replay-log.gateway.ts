@@ -72,6 +72,20 @@ export async function getRunIdsForMatchIds(
 	return map
 }
 
+// The run a lobby is playing now: its newest active run, if any. Codes are
+// reused, so only an active run counts.
+export async function getActiveRunIdForLobbyCode(
+	lobbyCode: string,
+): Promise<string | null> {
+	const [row] = await db
+		.select({ id: lobbyRuns.id })
+		.from(lobbyRuns)
+		.where(and(eq(lobbyRuns.lobbyCode, lobbyCode), eq(lobbyRuns.status, 'active')))
+		.orderBy(desc(lobbyRuns.startedAt))
+		.limit(1)
+	return row?.id ?? null
+}
+
 export async function getRunWithLogs(
 	runId: string,
 ): Promise<RunWithLogs | undefined> {

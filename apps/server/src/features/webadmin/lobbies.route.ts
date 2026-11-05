@@ -5,6 +5,8 @@ import {
 	kickFromNakamaLobby,
 	listNakamaLobbies,
 } from '../../infrastructure/nakama/moderation-sync.js'
+import { findPlayerIdsByNakamaUserIds } from '../../infrastructure/gateways/player.gateway.js'
+import { getActiveRunIdForLobbyCode } from '../../infrastructure/gateways/replay-log.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
 import { logStaffAction, requireReason } from './staff-action.js'
@@ -29,6 +31,8 @@ router.get('/lobbies', async (req, res, next) => {
 				type: lobby.type,
 				hostId: null,
 				hostName: null,
+				started: lobby.started,
+				mode: lobby.mode,
 				playerCount: lobby.size,
 				maxPlayers: lobby.max,
 				createdAt: null,
@@ -48,6 +52,10 @@ router.get('/lobbies/:code', async (req, res, next) => {
 	try {
 		const nakama = await getNakamaLobby(req.params.code)
 		if (nakama) {
+			const [playerIds, runId] = await Promise.all([
+				findPlayerIdsByNakamaUserIds(nakama.players.map((p) => p.id)),
+				nakama.started ? getActiveRunIdForLobbyCode(nakama.code) : null,
+			])
 			res.json({
 				lobby: {
 					source: 'nakama',
@@ -61,8 +69,14 @@ router.get('/lobbies/:code', async (req, res, next) => {
 					createdAt: new Date(nakama.createdAt).toISOString(),
 					isReported: false,
 					started: nakama.started,
+					runId,
 				},
-				players: nakama.players,
+				// playerId is the site player (for the player page and for kick
+				// logs); null when the Nakama user has no player row.
+				players: nakama.players.map((p) => ({
+					...p,
+					playerId: playerIds.get(p.id) ?? null,
+				})),
 			})
 			return
 		}
