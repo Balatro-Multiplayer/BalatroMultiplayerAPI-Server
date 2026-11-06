@@ -14377,6 +14377,83 @@ function rpcAdminTournamentClose(ctx, logger, nk, payload) {
   return JSON.stringify({ id: saved.id, status: saved.status });
 }
 
+// src/tournament/admin.ts
+var ADMIN_LIST_LIMIT = 500;
+var ACTIVE = ["draft", "registration", "check_in", "running"];
+var OVER = ["finished", "cancelled"];
+function rpcAdminTournamentList(ctx, logger, nk, payload) {
+  var _a, _b;
+  requireServer(ctx);
+  const input = parsePayload(payload);
+  const status = (_a = input.status) != null ? _a : "active";
+  if (status !== "active" && status !== "over" && status !== "all") throw runtimeError(INVALID_ARGUMENT, "status must be active, over or all");
+  if (input.search !== void 0 && typeof input.search !== "string") throw runtimeError(INVALID_ARGUMENT, "search must be a string");
+  const search = ((_b = input.search) != null ? _b : "").trim().toLowerCase();
+  const byCode = search.length > 0 ? tournamentIdForCode(nk, search) : null;
+  const statuses = status === "active" ? ACTIVE : status === "over" ? OVER : ACTIVE.concat(OVER);
+  const matches = (e) => !search || e.id === byCode || e.name.toLowerCase().indexOf(search) !== -1 || e.organiserName.toLowerCase().indexOf(search) !== -1 || e.id.indexOf(search) !== -1;
+  const entries = scanIndex(nk, (e) => statuses.indexOf(e.status) !== -1 && matches(e), ADMIN_LIST_LIMIT);
+  entries.sort((a, b) => {
+    var _a2, _b2;
+    const aOver = OVER.indexOf(a.status) !== -1;
+    const bOver = OVER.indexOf(b.status) !== -1;
+    if (aOver !== bOver) return aOver ? 1 : -1;
+    return aOver ? ((_a2 = b.finishedAt) != null ? _a2 : 0) - ((_b2 = a.finishedAt) != null ? _b2 : 0) : a.startsAt - b.startsAt;
+  });
+  return JSON.stringify({ tournaments: entries });
+}
+function closedBy(t) {
+  if (t.status !== "cancelled") return null;
+  for (let i = t.events.length - 1; i >= 0; i--) {
+    const e = t.events[i];
+    if (e.kind === "cancelled") {
+      return { reason: typeof e.reason === "string" ? e.reason : "unknown", message: typeof e.message === "string" ? e.message : null, at: e.at };
+    }
+  }
+  return null;
+}
+function rpcAdminTournamentGet(ctx, logger, nk, payload) {
+  var _a, _b, _c, _d;
+  requireServer(ctx);
+  const input = parsePayload(payload);
+  const id = input.id;
+  if (typeof id !== "string" || !TOURNAMENT_ID_PATTERN.test(id)) throw runtimeError(INVALID_ARGUMENT, "id is not valid");
+  const read2 = readTournament(nk, id);
+  if (!read2) throw runtimeError(NOT_FOUND, "No such tournament");
+  const t = read2.t;
+  const names = (_a = t.coOrganiserNames) != null ? _a : {};
+  const dropped = t.dropped;
+  return JSON.stringify({
+    tournament: {
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      notice: (_b = t.notice) != null ? _b : "",
+      status: t.status,
+      visibility: t.visibility,
+      official: t.official === true,
+      requireRanked: t.requireRanked === true,
+      inviteCode: t.inviteCode,
+      format: t.format,
+      maxPlayers: t.maxPlayers,
+      gameMode: t.rounds.defaults.gameMode,
+      ruleset: t.rounds.defaults.ruleset,
+      organiser: { id: t.organiserId, name: t.organiserName },
+      coOrganisers: t.coOrganiserIds.map((userId) => {
+        var _a2;
+        return { id: userId, name: (_a2 = names[userId]) != null ? _a2 : "" };
+      }),
+      entrants: t.entrants.map((e) => ({ id: e.userId, name: e.name, checkedIn: e.checkedInAt !== void 0, dropped: dropped.indexOf(e.userId) !== -1 })),
+      waitlist: t.waitlist.map((e) => ({ id: e.userId, name: e.name })),
+      createdAt: t.createdAt,
+      startsAt: t.startsAt,
+      startedAt: (_c = t.startedAt) != null ? _c : null,
+      finishedAt: (_d = t.finishedAt) != null ? _d : null,
+      closed: closedBy(t)
+    }
+  });
+}
+
 // src/tournament/dev.ts
 function requireDev(ctx, nk) {
   if (!settingsOf(ctx).testingRpcs) throw runtimeError(PERMISSION_DENIED, "Testing RPCs are off on this server");
@@ -14633,6 +14710,8 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("tournament_resume", rpcTournamentResume);
   initializer.registerRpc("tournament_round_start", rpcTournamentRoundStart);
   initializer.registerRpc("admin_tournament_close", rpcAdminTournamentClose);
+  initializer.registerRpc("admin_tournament_list", rpcAdminTournamentList);
+  initializer.registerRpc("admin_tournament_get", rpcAdminTournamentGet);
   initializer.registerRpc("tournament_dev_fill", rpcTournamentDevFill);
   initializer.registerRpc("tournament_dev_time", rpcTournamentDevTime);
   ensureClock(nk);

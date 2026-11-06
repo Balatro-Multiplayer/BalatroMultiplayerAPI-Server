@@ -122,6 +122,7 @@ import {
 	rpcTournamentStart,
 	rpcTournamentUpdate,
 } from './tournament/rpc'
+import { rpcAdminTournamentGet, rpcAdminTournamentList } from './tournament/admin'
 import { rpcTournamentDevFill, rpcTournamentDevTime } from './tournament/dev'
 import { ensureClock } from './tournament/clock'
 import {
@@ -284,6 +285,8 @@ function InitModule(
 	initializer.registerRpc('tournament_resume', rpcTournamentResume)
 	initializer.registerRpc('tournament_round_start', rpcTournamentRoundStart)
 	initializer.registerRpc('admin_tournament_close', rpcAdminTournamentClose)
+	initializer.registerRpc('admin_tournament_list', rpcAdminTournamentList)
+	initializer.registerRpc('admin_tournament_get', rpcAdminTournamentGet)
 	initializer.registerRpc('tournament_dev_fill', rpcTournamentDevFill)
 	initializer.registerRpc('tournament_dev_time', rpcTournamentDevTime)
 	// Starting a match may not be allowed this early; any tournament RPC
