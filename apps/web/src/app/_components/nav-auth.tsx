@@ -49,6 +49,9 @@ export function NavAuth() {
                 <Link href='/admin/lobbies'>Lobbies</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
+                <Link href='/admin/tournaments'>Tournaments</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
                 <Link href='/admin/logs'>Chat Logs</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>

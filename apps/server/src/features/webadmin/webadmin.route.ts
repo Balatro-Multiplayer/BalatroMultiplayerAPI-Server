@@ -18,6 +18,7 @@ import reportsRouter from './reports.route.js'
 import seasonReplayRouter from './season-replay.route.js'
 import seasonsRouter from './seasons.route.js'
 import serviceQueueRouter from './service-queue.route.js'
+import tournamentsRouter from './tournaments.route.js'
 
 const router = Router()
 
@@ -56,5 +57,6 @@ router.use(archivesRouter)
 router.use(serviceQueueRouter)
 router.use(achievementsRouter)
 router.use(seasonReplayRouter)
+router.use(tournamentsRouter)
 
 export default router

@@ -191,6 +191,13 @@ function MobileAdminSection({ onClose }: { onClose: () => void }) {
           Lobbies
         </MobileMenuLink>
         <MobileMenuLink
+          href='/admin/tournaments'
+          icon={<Trophy className='size-4' />}
+          onClick={onClose}
+        >
+          Tournaments
+        </MobileMenuLink>
+        <MobileMenuLink
           href='/admin/logs'
           icon={<MessageSquare className='size-4' />}
           onClick={onClose}
