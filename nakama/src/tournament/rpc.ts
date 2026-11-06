@@ -32,6 +32,7 @@ import {
 	removePlayer,
 	joinAsCoOrganiser,
 	setCoOrganiserCode,
+	setNotice,
 	setCoOrganisers,
 	setManualSeeding,
 	setRegistrationClosed,
@@ -39,7 +40,7 @@ import {
 	start,
 	updateSettings,
 } from './lifecycle'
-import { OFFICIAL_PRIVILEGE, TOURNAMENT_MOD_ID, type Input, type Tournament, isFakeEntrant, isManager, nowFor, roleOf } from './model'
+import { OFFICIAL_PRIVILEGE, ORGANISER_MESSAGE_MAX, TOURNAMENT_MOD_ID, type Input, type Tournament, isFakeEntrant, isManager, nowFor, roleOf } from './model'
 export { nowFor }
 import {
 	type IndexEntry,
@@ -57,6 +58,10 @@ import {
 } from './storage'
 import { previewTournament, provisionalOf } from './preview'
 import { tournamentView } from './view'
+import { messageTargets } from './organiser_message'
+import { lookupCode } from '../lobby/codes'
+import { obscenityMatches } from '../chat/filter'
+import { NotifyCode, notify } from '../notify'
 import { checkLobbies, commit } from './effects'
 import { type ResultInput, clearResult, extend, readyUp, setPaused, setResult, startNextRound } from './matches'
 
@@ -390,6 +395,61 @@ export function rpcTournamentCoOrganisersSet(ctx: nkruntime.Context, logger: nkr
 		}
 		return setCoOrganisers(t, userId, ids as string[], now)
 	})
+}
+
+// {id, text} -> the notice board on the tournament screen; '' clears it.
+// Organisers and co-organisers.
+export function rpcTournamentNoticeSet(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) =>
+		setNotice(t, userId, typeof input.text === 'string' ? input.text : '', now),
+	)
+}
+
+// {id, text, matchId?} -> {sent}: an organiser's message into the chat of
+// one match's lobby, or of every live match lobby, plus a banner for its
+// players. Organisers and co-organisers; the word filter applies.
+export function rpcTournamentMessage(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	requireEnabled(nk)
+	const userId = requireUser(ctx)
+	const input = parsePayload(payload)
+	const id = tournamentIdOf(input)
+	const text = typeof input.text === 'string' ? input.text.trim() : ''
+	if (!text) throw runtimeError(INVALID_ARGUMENT, 'The message is empty')
+	if (text.length > ORGANISER_MESSAGE_MAX) throw runtimeError(INVALID_ARGUMENT, `The message can be at most ${ORGANISER_MESSAGE_MAX} characters`)
+	if (obscenityMatches(text).length > 0) throw runtimeError(INVALID_ARGUMENT, 'Message blocked by the word filter')
+	const stored = readTournament(nk, id)
+	if (!stored) throw runtimeError(NOT_FOUND, 'No such tournament')
+	const t = stored.t
+	if (!isManager(t, userId)) throw runtimeError(PERMISSION_DENIED, 'Only the organisers can do that')
+	const matchId = typeof input.matchId === 'string' && input.matchId ? input.matchId : null
+	const targets = messageTargets(t, matchId)
+	if (targets.length === 0) throw runtimeError(FAILED_PRECONDITION, matchId ? 'That match has no lobby open' : 'No match lobby is open')
+	const name = displayNameFor(nk, ctx, userId)
+	let sent = 0
+	for (const target of targets) {
+		try {
+			const live = lookupCode(nk, target.code)
+			if (live) {
+				nk.matchSignal(live.matchId, JSON.stringify({ type: 'organiser_post', name, text }))
+				sent++
+			}
+		} catch (e) {
+			logger.warn('Tournament %s: message to lobby %s failed: %s', id, target.code, String(e))
+		}
+		// The banner reaches them wherever they are (chat may be closed).
+		for (const player of target.players) {
+			notify(nk, player, NotifyCode.TOURNAMENT_UPDATED, `${t.name}: message from the organiser`, {
+				tournamentId: id,
+				name: t.name,
+				kind: 'organiser_message',
+				matchId: target.matchId,
+				from: name,
+				text,
+			})
+		}
+	}
+	logger.info('Tournament %s: organiser message to %d lobbies', id, sent)
+	return JSON.stringify({ sent })
 }
 
 // {id} -> a new co-organiser code (the organiser shares it); the old one

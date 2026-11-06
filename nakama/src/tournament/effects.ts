@@ -206,7 +206,7 @@ const MATCH_UPDATES = [
 	'match_reset',
 	'lobby_closed',
 ]
-const EVERYONE_UPDATES = ['check_in_opened', 'started', 'tournament_finished', 'cancelled', 'paused', 'resumed', 'round_started_early', 'settings_changed']
+const EVERYONE_UPDATES = ['check_in_opened', 'started', 'tournament_finished', 'cancelled', 'paused', 'resumed', 'round_started_early', 'settings_changed', 'notice_set']
 const MANAGER_UPDATES = ['unplayed', 'result_disputed']
 
 function sendNotifications(nk: nkruntime.Nakama, before: Tournament, after: Tournament) {

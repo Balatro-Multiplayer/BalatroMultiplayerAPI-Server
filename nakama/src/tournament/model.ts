@@ -97,6 +97,9 @@ export interface Tournament {
 	// The code that makes whoever enters it a co-organiser (the organiser
 	// shares it; a new one replaces it). Kept in tournament_coorg_codes.
 	coOrganiserCode?: string
+	// The notice board on the tournament screen: set and cleared by the
+	// organisers; absent when empty.
+	notice?: string
 	visibility: 'public' | 'private'
 	// Run by the game's own organisers: highlighted in the client. Only players
 	// with the OFFICIAL_PRIVILEGE may create or set it (rpc.ts checks).
@@ -172,6 +175,9 @@ export const OFFICIAL_PRIVILEGE = 'tournament_official'
 
 export const NAME_MAX = 48
 export const DESCRIPTION_MAX = 500
+// The notice board, and an organiser's message into the match lobbies.
+export const NOTICE_MAX = 300
+export const ORGANISER_MESSAGE_MAX = 200
 export const CO_ORGANISERS_MAX = 5
 export const EVENTS_KEPT = 200
 const KEY_PATTERN = /^[A-Za-z0-9_:.-]{1,64}$/

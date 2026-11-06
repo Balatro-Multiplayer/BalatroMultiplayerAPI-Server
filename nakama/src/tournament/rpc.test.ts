@@ -20,6 +20,7 @@ import {
 	rpcTournamentList,
 	rpcTournamentMine,
 	rpcTournamentOpen,
+	rpcTournamentSeedingSet,
 	rpcTournamentPause,
 	rpcTournamentResume,
 	rpcTournamentStart,
@@ -170,6 +171,9 @@ describe('a tournament from creation to start', () => {
 		expect(call(rpcTournamentStart, ORG, { id }).tournament.summary.status).toBe('running')
 		const left = call(rpcTournamentLeave, P(1), { id }).tournament
 		expect(left.entrants.find((e: { id: string }) => e.id === P(1)).dropped).toBe(true)
+		// They are told they dropped out, not that they were knocked out.
+		expect(left.you).toMatchObject({ eliminated: true, dropped: true })
+		expect(call(rpcTournamentGet, P(2), { id }).tournament.you).toMatchObject({ eliminated: false, dropped: false })
 		expect(call(rpcTournamentCancel, ORG, { id }).tournament.summary.status).toBe('cancelled')
 		// Done: nothing left for the clock.
 		expect(nk.objects.has(`${TOURNAMENT_DUE}/00000000-0000-0000-0000-000000000000/${id}`)).toBe(false)
@@ -392,5 +396,17 @@ describe('official tournaments', () => {
 	it("can't be switched on without the rights", () => {
 		const id = created().summary.id
 		expect(fails(rpcTournamentUpdate, ORG, { id, official: true }).message).toMatch(/official rights/)
+	})
+})
+
+describe('manual seeding', () => {
+	it("gives the organisers the saved order (their editor starts from it), not the players", () => {
+		const id = created({ seeding: { kind: 'manual' } }).summary.id
+		call(rpcTournamentOpen, ORG, { id })
+		for (const n of [1, 2, 3]) call(rpcTournamentJoin, P(n), { id })
+		expect(call(rpcTournamentGet, ORG, { id }).tournament.seeding.order).toBeNull()
+		call(rpcTournamentSeedingSet, ORG, { id, order: [P(3), P(1), P(2)] })
+		expect(call(rpcTournamentGet, ORG, { id }).tournament.seeding.order).toEqual([P(3), P(1), P(2)])
+		expect(call(rpcTournamentGet, P(1), { id }).tournament.seeding.order).toBeUndefined()
 	})
 })

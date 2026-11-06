@@ -52,7 +52,7 @@ import { applyRatings } from '../rating/apply'
 import { logBounds } from '../rating/metrics'
 import { currentSeason } from '../rating/season'
 import { enqueue } from '../mirror/outbox'
-import { chatCheck, chatPost, reportEvidence } from './chat'
+import { chatCheck, chatPost, organiserPost, reportEvidence } from './chat'
 import {
 	SPECTATOR_ROLE,
 	addSpectator,
@@ -864,6 +864,10 @@ export function lobbyMatchSignal(
 			state,
 			chatPost(state.lobby, signal.userId, signal.text, Date.now()),
 		)
+		return { state: next || state, data: 'ok' }
+	}
+	if (signal.type === 'organiser_post') {
+		const next = apply(ctx, logger, nk, dispatcher, state, organiserPost(state.lobby, signal.name, signal.text, Date.now()))
 		return { state: next || state, data: 'ok' }
 	}
 	if (signal.type === 'player_info') {

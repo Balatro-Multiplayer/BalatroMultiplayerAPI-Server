@@ -12,6 +12,8 @@ import {
 	rpcTournamentCreate,
 	rpcTournamentGet,
 	rpcTournamentJoin,
+	rpcTournamentMessage,
+	rpcTournamentNoticeSet,
 	rpcTournamentOpen,
 	rpcTournamentReady,
 	rpcTournamentResultSet,
@@ -249,5 +251,46 @@ describe('bots and moderators', () => {
 		const out = JSON.parse(rpcAdminTournamentClose(serverCtx(DEV), fakeLogger, NK(), JSON.stringify({ id, reason: 'Rule break' })))
 		expect(out).toEqual({ id, status: 'cancelled' })
 		expect(sent(NotifyCode.TOURNAMENT_UPDATED, P(1)).map((n) => n.content.kind)).toContain('cancelled')
+	})
+})
+
+describe('organiser messages and the notice board', () => {
+	function fails(rpc: Rpc, userId: string, body: object) {
+		try {
+			call(rpc, userId, body)
+		} catch (e) {
+			return e as { message: string }
+		}
+		throw new Error('expected a failure')
+	}
+
+	it('posts a message into an open match lobby and bans its players', () => {
+		const id = startedWith([P(1), P(2)])
+		expect(fails(rpcTournamentMessage, ORG, { id, text: 'hi' }).message).toMatch(/No match lobby is open/)
+		call(rpcTournamentReady, P(1), { id })
+		call(rpcTournamentReady, P(2), { id })
+		expect(fails(rpcTournamentMessage, P(1), { id, text: 'hi' }).message).toMatch(/Only the organisers/)
+		expect(fails(rpcTournamentMessage, ORG, { id, text: '   ' }).message).toMatch(/empty/)
+		expect(fails(rpcTournamentMessage, ORG, { id, text: 'x'.repeat(201) }).message).toMatch(/at most 200/)
+		expect(call(rpcTournamentMessage, ORG, { id, matchId: 'W1-1', text: ' Round 2 starts at 9! ' })).toEqual({ sent: 1 })
+		const post = signals.map((x) => JSON.parse(x.data)).find((d) => d.type === 'organiser_post')
+		expect(post).toMatchObject({ type: 'organiser_post', text: 'Round 2 starts at 9!' })
+		for (const p of [P(1), P(2)]) {
+			const banner = sent(NotifyCode.TOURNAMENT_UPDATED, p).filter((n) => n.content.kind === 'organiser_message')
+			expect(banner).toHaveLength(1)
+			expect(banner[0].content).toMatchObject({ tournamentId: id, matchId: 'W1-1', text: 'Round 2 starts at 9!' })
+		}
+		expect(fails(rpcTournamentMessage, ORG, { id, matchId: 'W9-9', text: 'hi' }).message).toMatch(/no lobby open/)
+	})
+
+	it('sets and clears the notice board; only organisers may', () => {
+		const id = startedWith([P(1), P(2)])
+		expect(fails(rpcTournamentNoticeSet, P(1), { id, text: 'hey' }).message).toMatch(/Only the organisers/)
+		expect(fails(rpcTournamentNoticeSet, ORG, { id, text: 'x'.repeat(301) }).message).toMatch(/at most 300/)
+		expect(call(rpcTournamentNoticeSet, ORG, { id, text: '  Finals on stream!  ' }).tournament.notice).toBe('Finals on stream!')
+		expect(call(rpcTournamentGet, P(1), { id }).tournament.notice).toBe('Finals on stream!')
+		// Everyone's screen refreshes.
+		expect(sent(NotifyCode.TOURNAMENT_UPDATED, P(2)).some((n) => n.content.kind === 'notice_set')).toBe(true)
+		expect(call(rpcTournamentNoticeSet, ORG, { id, text: '' }).tournament.notice).toBeNull()
 	})
 })

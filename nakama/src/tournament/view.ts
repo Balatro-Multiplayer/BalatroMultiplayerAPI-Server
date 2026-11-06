@@ -73,7 +73,7 @@ export function tournamentView(t: Tournament, viewerId: string, now: number) {
 	let bracket = null
 	let standings = null
 	let places = null
-	let you: { nextMatchId: string | null; eliminated: boolean } | null = null
+	let you: { nextMatchId: string | null; eliminated: boolean; dropped: boolean } | null = null
 	if (t.bracket) {
 		const resolved = resolveBracket(t.bracket, t.dropped)
 		const clock = t.clock ? t.clock.matches : {}
@@ -122,7 +122,9 @@ export function tournamentView(t: Tournament, viewerId: string, now: number) {
 			// elimination knocks anyone out.
 			const elimination = t.format === 'single_elim' || t.format === 'double_elim'
 			const out = elimination && t.status === 'running' && places.some((p) => p.id === viewerId)
-			you = { nextMatchId: next ? next.def.id : null, eliminated: out || t.dropped.indexOf(viewerId) !== -1 }
+			const dropped = t.dropped.indexOf(viewerId) !== -1
+			// dropped: they left (DROP OUT or removed), not knocked out.
+			you = { nextMatchId: next ? next.def.id : null, eliminated: out || dropped, dropped }
 		}
 	}
 
@@ -134,12 +136,14 @@ export function tournamentView(t: Tournament, viewerId: string, now: number) {
 		description: t.description,
 		organiserId: t.organiserId,
 		coOrganiserIds: t.coOrganiserIds,
+		notice: t.notice ?? null,
 		coOrganisers: t.coOrganiserIds.map((id) => ({ id, name: (t.coOrganiserNames && t.coOrganiserNames[id]) || '?' })),
 		// Only the organiser shares it.
 		coOrganiserCode: t.organiserId === viewerId ? t.coOrganiserCode ?? null : undefined,
 		inviteCode: manager ? t.inviteCode : undefined,
 		formatOptions: t.formatOptions,
-		seeding: { kind: t.seeding.kind, board: t.seeding.board ?? `ranked:${t.rounds.defaults.ruleset}` },
+		// The saved manual order goes to the organisers (their seeding editor).
+		seeding: { kind: t.seeding.kind, board: t.seeding.board ?? `ranked:${t.rounds.defaults.ruleset}`, order: isManager(t, viewerId) ? t.seeding.order ?? null : undefined },
 		rounds: t.rounds,
 		timetable: t.timetable,
 		schedule: t.schedule ?? null,

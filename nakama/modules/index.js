@@ -8696,6 +8696,24 @@ function chatPost(lobby, userId, text, now) {
     ]
   };
 }
+var ORGANISER_SENDER = "tournament_organiser";
+function organiserPost(lobby, name, text, now) {
+  if (lobby.closed) return { lobby, out: [] };
+  const displayName = "[Organiser] " + name;
+  const line = { senderId: ORGANISER_SENDER, text, displayName, at: now };
+  const chat = (lobby.chat || []).concat([line]).slice(-CHAT_TAIL);
+  return {
+    lobby: __spreadProps(__spreadValues({}, lobby), { chat }),
+    out: [
+      {
+        kind: "send",
+        op: ServerOp.CHAT,
+        payload: { senderId: ORGANISER_SENDER, displayName, message: text },
+        to: lobby.players.map((p) => p.id)
+      }
+    ]
+  };
+}
 function reportEvidence(lobby, reporterId, reportedId) {
   if (!findPlayer(lobby, reporterId) || lobby.closed) return { ok: false, reason: "not_in_lobby" };
   if (reporterId === reportedId) return { ok: false, reason: "self" };
@@ -8834,6 +8852,7 @@ function resolveMatch(def, bracket, dropped, byId) {
     const gate = byId[def.onlyIf.matchId];
     if (!gate || !gate.outcome) return base;
     if (gate.outcome.winnerSide !== def.onlyIf.winner) return __spreadProps(__spreadValues({}, base), { status: "void" });
+    if (gate.outcome.reason === "dropped") return __spreadProps(__spreadValues({}, base), { status: "void" });
   }
   const players = [slotPlayer(def.slots[0], bracket.seeds, byId), slotPlayer(def.slots[1], bracket.seeds, byId)];
   base.players = players;
@@ -10032,6 +10051,8 @@ var POOL_COCKTAILS_MAX = 8;
 var OFFICIAL_PRIVILEGE = "tournament_official";
 var NAME_MAX = 48;
 var DESCRIPTION_MAX = 500;
+var NOTICE_MAX = 300;
+var ORGANISER_MESSAGE_MAX = 200;
 var CO_ORGANISERS_MAX = 5;
 var EVENTS_KEPT = 200;
 var KEY_PATTERN = /^[A-Za-z0-9_:.-]{1,64}$/;
@@ -10645,6 +10666,17 @@ function setCoOrganisers(t, userId, ids, now) {
   for (const id of unique) if (t.coOrganiserNames && t.coOrganiserNames[id]) names[id] = t.coOrganiserNames[id];
   return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { coOrganiserIds: unique, coOrganiserNames: names }), now, "co_organisers_set"), now));
 }
+function setNotice(t, userId, text, now) {
+  const allowed = managerOnly(t, userId);
+  if (!allowed.ok) return allowed;
+  const over = notOver(t);
+  if (!over.ok) return over;
+  const notice = text.trim();
+  if (notice.length > NOTICE_MAX) return fail(INVALID_ARGUMENT, `The notice can be at most ${NOTICE_MAX} characters`);
+  const next = __spreadProps(__spreadValues({}, t), { notice: notice || void 0 });
+  if (!notice) delete next.notice;
+  return ok(touch(withEvent(next, now, "notice_set", { by: userId }), now));
+}
 function setCoOrganiserCode(t, userId, code, now) {
   const allowed = organiserOnly(t, userId);
   if (!allowed.ok) return allowed;
@@ -11122,7 +11154,7 @@ function lobbyOf(t, matchId) {
   return { code: lobby.code, game: lobby.game, status: lobby.status };
 }
 function tournamentView(t, viewerId, now) {
-  var _a, _b, _c, _d, _e, _f, _g;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
   const role = roleOf(t, viewerId);
   const names = nameMap(t);
   const ref = (p) => {
@@ -11181,7 +11213,8 @@ function tournamentView(t, viewerId, now) {
       const next = (_b = mine.find((m) => m.status === "ready" || m.status === "in_progress")) != null ? _b : mine.find((m) => m.status === "waiting");
       const elimination = t.format === "single_elim" || t.format === "double_elim";
       const out = elimination && t.status === "running" && places.some((p) => p.id === viewerId);
-      you = { nextMatchId: next ? next.def.id : null, eliminated: out || t.dropped.indexOf(viewerId) !== -1 };
+      const dropped = t.dropped.indexOf(viewerId) !== -1;
+      you = { nextMatchId: next ? next.def.id : null, eliminated: out || dropped, dropped };
     }
   }
   const manager = isManager(t, viewerId);
@@ -11192,15 +11225,17 @@ function tournamentView(t, viewerId, now) {
     description: t.description,
     organiserId: t.organiserId,
     coOrganiserIds: t.coOrganiserIds,
+    notice: (_c = t.notice) != null ? _c : null,
     coOrganisers: t.coOrganiserIds.map((id) => ({ id, name: t.coOrganiserNames && t.coOrganiserNames[id] || "?" })),
     // Only the organiser shares it.
-    coOrganiserCode: t.organiserId === viewerId ? (_c = t.coOrganiserCode) != null ? _c : null : void 0,
+    coOrganiserCode: t.organiserId === viewerId ? (_d = t.coOrganiserCode) != null ? _d : null : void 0,
     inviteCode: manager ? t.inviteCode : void 0,
     formatOptions: t.formatOptions,
-    seeding: { kind: t.seeding.kind, board: (_d = t.seeding.board) != null ? _d : `ranked:${t.rounds.defaults.ruleset}` },
+    // The saved manual order goes to the organisers (their seeding editor).
+    seeding: { kind: t.seeding.kind, board: (_e = t.seeding.board) != null ? _e : `ranked:${t.rounds.defaults.ruleset}`, order: isManager(t, viewerId) ? (_f = t.seeding.order) != null ? _f : null : void 0 },
     rounds: t.rounds,
     timetable: t.timetable,
-    schedule: (_e = t.schedule) != null ? _e : null,
+    schedule: (_g = t.schedule) != null ? _g : null,
     blocks: t.clock ? t.clock.blocks : null,
     paused: t.clock ? t.clock.pausedSince !== void 0 : false,
     entrants: t.entrants.map((e) => {
@@ -11220,8 +11255,8 @@ function tournamentView(t, viewerId, now) {
     placements: places,
     you,
     events: t.events.slice(-EVENTS_SHOWN),
-    startedAt: (_f = t.startedAt) != null ? _f : null,
-    finishedAt: (_g = t.finishedAt) != null ? _g : null
+    startedAt: (_h = t.startedAt) != null ? _h : null,
+    finishedAt: (_i = t.finishedAt) != null ? _i : null
   };
 }
 
@@ -11566,7 +11601,7 @@ var MATCH_UPDATES = [
   "match_reset",
   "lobby_closed"
 ];
-var EVERYONE_UPDATES = ["check_in_opened", "started", "tournament_finished", "cancelled", "paused", "resumed", "round_started_early", "settings_changed"];
+var EVERYONE_UPDATES = ["check_in_opened", "started", "tournament_finished", "cancelled", "paused", "resumed", "round_started_early", "settings_changed", "notice_set"];
 var MANAGER_UPDATES = ["unplayed", "result_disputed"];
 function sendNotifications(nk, before, after) {
   var _a;
@@ -12205,6 +12240,10 @@ function lobbyMatchSignal(ctx, logger, nk, dispatcher, tickNumber, state, data) 
       state,
       chatPost(state.lobby, signal2.userId, signal2.text, Date.now())
     );
+    return { state: next || state, data: "ok" };
+  }
+  if (signal2.type === "organiser_post") {
+    const next = apply(ctx, logger, nk, dispatcher, state, organiserPost(state.lobby, signal2.name, signal2.text, Date.now()));
     return { state: next || state, data: "ok" };
   }
   if (signal2.type === "player_info") {
@@ -13790,6 +13829,22 @@ function previewTournament(settings, players, step, now) {
   return ok({ tournament: tournamentView(shown, ORGANISER.id, now), steps, step: played });
 }
 
+// src/tournament/organiser_message.ts
+function messageTargets(t, matchId) {
+  if (!t.bracket || !t.lobbies) return [];
+  const resolved = resolveBracket(t.bracket, t.dropped);
+  const out = [];
+  for (const id of Object.keys(t.lobbies)) {
+    if (matchId !== null && id !== matchId) continue;
+    const lobby = t.lobbies[id];
+    if (lobby.status !== "open" && lobby.status !== "disputed") continue;
+    const m = resolved.matches.find((x) => x.def.id === id);
+    const players = m ? m.players.filter((p) => typeof p === "string" && !isFakeEntrant(p)) : [];
+    out.push({ matchId: id, code: lobby.code, players });
+  }
+  return out;
+}
+
 // src/tournament/rpc.ts
 var TOURNAMENT_ID_PATTERN = /^[0-9a-f-]{36}$/;
 var LIST_LIMIT = 100;
@@ -14046,6 +14101,57 @@ function rpcTournamentCoOrganisersSet(ctx, logger, nk, payload) {
     }
     return setCoOrganisers(t, userId, ids, now);
   });
+}
+function rpcTournamentNoticeSet(ctx, logger, nk, payload) {
+  return changeTournament(
+    nk,
+    logger,
+    ctx,
+    payload,
+    (t, userId, now, input) => setNotice(t, userId, typeof input.text === "string" ? input.text : "", now)
+  );
+}
+function rpcTournamentMessage(ctx, logger, nk, payload) {
+  requireEnabled(nk);
+  const userId = requireUser(ctx);
+  const input = parsePayload(payload);
+  const id = tournamentIdOf(input);
+  const text = typeof input.text === "string" ? input.text.trim() : "";
+  if (!text) throw runtimeError(INVALID_ARGUMENT, "The message is empty");
+  if (text.length > ORGANISER_MESSAGE_MAX) throw runtimeError(INVALID_ARGUMENT, `The message can be at most ${ORGANISER_MESSAGE_MAX} characters`);
+  if (obscenityMatches(text).length > 0) throw runtimeError(INVALID_ARGUMENT, "Message blocked by the word filter");
+  const stored = readTournament(nk, id);
+  if (!stored) throw runtimeError(NOT_FOUND, "No such tournament");
+  const t = stored.t;
+  if (!isManager(t, userId)) throw runtimeError(PERMISSION_DENIED, "Only the organisers can do that");
+  const matchId = typeof input.matchId === "string" && input.matchId ? input.matchId : null;
+  const targets = messageTargets(t, matchId);
+  if (targets.length === 0) throw runtimeError(FAILED_PRECONDITION, matchId ? "That match has no lobby open" : "No match lobby is open");
+  const name = displayNameFor(nk, ctx, userId);
+  let sent = 0;
+  for (const target of targets) {
+    try {
+      const live = lookupCode(nk, target.code);
+      if (live) {
+        nk.matchSignal(live.matchId, JSON.stringify({ type: "organiser_post", name, text }));
+        sent++;
+      }
+    } catch (e) {
+      logger.warn("Tournament %s: message to lobby %s failed: %s", id, target.code, String(e));
+    }
+    for (const player of target.players) {
+      notify(nk, player, NotifyCode.TOURNAMENT_UPDATED, `${t.name}: message from the organiser`, {
+        tournamentId: id,
+        name: t.name,
+        kind: "organiser_message",
+        matchId: target.matchId,
+        from: name,
+        text
+      });
+    }
+  }
+  logger.info("Tournament %s: organiser message to %d lobbies", id, sent);
+  return JSON.stringify({ sent });
 }
 function rpcTournamentCoOrganiserCode(ctx, logger, nk, payload) {
   requireEnabled(nk);
@@ -14393,6 +14499,8 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("tournament_co_organisers_set", rpcTournamentCoOrganisersSet);
   initializer.registerRpc("tournament_co_organiser_code", rpcTournamentCoOrganiserCode);
   initializer.registerRpc("tournament_co_organiser_join", rpcTournamentCoOrganiserJoin);
+  initializer.registerRpc("tournament_notice_set", rpcTournamentNoticeSet);
+  initializer.registerRpc("tournament_message", rpcTournamentMessage);
   initializer.registerRpc("tournament_seeding_set", rpcTournamentSeedingSet);
   initializer.registerRpc("tournament_start", rpcTournamentStart);
   initializer.registerRpc("tournament_cancel", rpcTournamentCancel);

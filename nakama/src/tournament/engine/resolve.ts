@@ -89,6 +89,8 @@ function resolveMatch(def: MatchDef, bracket: Bracket, dropped: Set<EntrantId>, 
 		const gate = byId[def.onlyIf.matchId]
 		if (!gate || !gate.outcome) return base
 		if (gate.outcome.winnerSide !== def.onlyIf.winner) return { ...base, status: 'void' }
+		// Won because the other player dropped out: they can't play a reset.
+		if (gate.outcome.reason === 'dropped') return { ...base, status: 'void' }
 	}
 	const players: [Player, Player] = [slotPlayer(def.slots[0], bracket.seeds, byId), slotPlayer(def.slots[1], bracket.seeds, byId)]
 	base.players = players

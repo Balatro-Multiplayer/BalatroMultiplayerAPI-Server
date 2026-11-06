@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createBracket, isFinished, finalPlacements } from './bracket'
+import { createBracket, isFinished, finalPlacements, recordGame } from './bracket'
 import { bracketSize, seedOrder } from './elimination'
 import { resolveBracket } from './resolve'
 import { favourite, playOut, players, randomWinner, seededRng } from './test_helpers'
@@ -120,6 +120,23 @@ describe('double elimination', () => {
 		expect(r.byId.GF2.status).toBe('done')
 		expect(r.byId.GF2.outcome?.winner).toBe('p4')
 		expect(finalPlacements(b)[0]).toEqual({ id: 'p4', place: 1 })
+	})
+
+	it('skips the reset when the winners-bracket player dropped out of the first grand final', () => {
+		// Favourites win everything up to the grand final; then p1 (unbeaten) drops out.
+		let b = build('double_elim', 4)
+		for (;;) {
+			const ready = resolveBracket(b).matches.find((m) => m.status === 'ready' || m.status === 'in_progress')
+			if (!ready || ready.def.id === 'GF1') break
+			const next = recordGame(b, ready.def.id, favourite(ready, b))
+			if (!next.ok) throw new Error(next.error.message)
+			b = next.value
+		}
+		const r = resolveBracket(b, ['p1'])
+		expect(r.byId.GF1.outcome).toMatchObject({ winner: 'p2', reason: 'dropped' })
+		expect(r.byId.GF2.status).toBe('void')
+		expect(isFinished(b, ['p1'])).toBe(true)
+		expect(finalPlacements(b, ['p1'])[0]).toEqual({ id: 'p2', place: 1 })
 	})
 
 	it('ends after the first grand final when the reset is off', () => {

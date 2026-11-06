@@ -57,6 +57,29 @@ export function chatPost(lobby: Lobby, userId: string, text: string, now: number
 	}
 }
 
+// The sender id of a tournament organiser's line (they aren't seated).
+export const ORGANISER_SENDER = 'tournament_organiser'
+
+// A tournament organiser's message: to everyone seated, shown as from
+// "[Organiser] <name>", and kept as context like any line.
+export function organiserPost(lobby: Lobby, name: string, text: string, now: number): Step {
+	if (lobby.closed) return { lobby, out: [] }
+	const displayName = '[Organiser] ' + name
+	const line: ChatLine = { senderId: ORGANISER_SENDER, text, displayName, at: now }
+	const chat = (lobby.chat || []).concat([line]).slice(-CHAT_TAIL)
+	return {
+		lobby: { ...lobby, chat },
+		out: [
+			{
+				kind: 'send',
+				op: ServerOp.CHAT,
+				payload: { senderId: ORGANISER_SENDER, displayName, message: text },
+				to: lobby.players.map((p) => p.id),
+			},
+		],
+	}
+}
+
 // What a report filed from this lobby carries: where it was filed, the game it
 // is about (the running one, else the last one) and the chat tail.
 export interface ReportEvidence {

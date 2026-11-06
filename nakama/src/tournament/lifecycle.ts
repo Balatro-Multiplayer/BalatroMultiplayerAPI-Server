@@ -20,6 +20,7 @@ import { applyRoundTimings } from './round_timing'
 import {
 	CO_ORGANISERS_MAX,
 	type Entrant,
+	NOTICE_MAX,
 	type Input,
 	TOURNAMENT_MOD_ID,
 	type Tournament,
@@ -288,6 +289,19 @@ export function setCoOrganisers(t: Tournament, userId: string, ids: string[], no
 	const names: { [id: string]: string } = {}
 	for (const id of unique) if (t.coOrganiserNames && t.coOrganiserNames[id]) names[id] = t.coOrganiserNames[id]
 	return ok(touch(withEvent({ ...t, coOrganiserIds: unique, coOrganiserNames: names }, now, 'co_organisers_set'), now))
+}
+
+// The notice board: an organiser or co-organiser sets it; '' clears it.
+export function setNotice(t: Tournament, userId: string, text: string, now: number): Change {
+	const allowed = managerOnly(t, userId)
+	if (!allowed.ok) return allowed
+	const over = notOver(t)
+	if (!over.ok) return over
+	const notice = text.trim()
+	if (notice.length > NOTICE_MAX) return fail(INVALID_ARGUMENT, `The notice can be at most ${NOTICE_MAX} characters`)
+	const next: Tournament = { ...t, notice: notice || undefined }
+	if (!notice) delete next.notice
+	return ok(touch(withEvent(next, now, 'notice_set', { by: userId }), now))
 }
 
 // The organiser's new co-organiser code (rpc.ts reserves it).

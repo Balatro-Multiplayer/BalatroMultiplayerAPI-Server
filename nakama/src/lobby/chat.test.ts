@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CHAT_BURST, chatCheck, chatPost, reportEvidence } from './chat'
+import { CHAT_BURST, ORGANISER_SENDER, chatCheck, chatPost, organiserPost, reportEvidence } from './chat'
 import { ServerOp } from './protocol'
 import { join, newLobby } from './state'
 
@@ -77,5 +77,20 @@ describe('reportEvidence', () => {
 		expect(reportEvidence(lobbyOf('a', 'b'), 'x', 'b')).toEqual({ ok: false, reason: 'not_in_lobby' })
 		expect(reportEvidence(lobbyOf('a', 'b'), 'a', 'x')).toEqual({ ok: false, reason: 'unknown_player' })
 		expect(reportEvidence(lobbyOf('a', 'b'), 'a', 'a')).toEqual({ ok: false, reason: 'self' })
+	})
+})
+
+describe('organiserPost', () => {
+	it("sends a tournament organiser's line to everyone seated, marked as theirs", () => {
+		const step = organiserPost(lobbyOf('a', 'b'), 'Lex', 'Finals next', 5)
+		expect(step.out).toEqual([
+			{
+				kind: 'send',
+				op: ServerOp.CHAT,
+				payload: { senderId: ORGANISER_SENDER, displayName: '[Organiser] Lex', message: 'Finals next' },
+				to: ['a', 'b'],
+			},
+		])
+		expect(step.lobby.chat?.slice(-1)[0]).toMatchObject({ senderId: ORGANISER_SENDER, text: 'Finals next' })
 	})
 })
