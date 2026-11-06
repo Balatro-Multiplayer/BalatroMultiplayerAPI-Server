@@ -285,7 +285,31 @@ export function setCoOrganisers(t: Tournament, userId: string, ids: string[], no
 	if (!allowed.ok) return allowed
 	const unique = ids.filter((id, i) => ids.indexOf(id) === i && id !== t.organiserId)
 	if (unique.length > CO_ORGANISERS_MAX) return fail(INVALID_ARGUMENT, `At most ${CO_ORGANISERS_MAX} co-organisers`)
-	return ok(touch(withEvent({ ...t, coOrganiserIds: unique }, now, 'co_organisers_set'), now))
+	const names: { [id: string]: string } = {}
+	for (const id of unique) if (t.coOrganiserNames && t.coOrganiserNames[id]) names[id] = t.coOrganiserNames[id]
+	return ok(touch(withEvent({ ...t, coOrganiserIds: unique, coOrganiserNames: names }, now, 'co_organisers_set'), now))
+}
+
+// The organiser's new co-organiser code (rpc.ts reserves it).
+export function setCoOrganiserCode(t: Tournament, userId: string, code: string, now: number): Change {
+	const allowed = organiserOnly(t, userId)
+	if (!allowed.ok) return allowed
+	const over = notOver(t)
+	if (!over.ok) return over
+	return ok(touch({ ...t, coOrganiserCode: code }, now))
+}
+
+// Someone entered the co-organiser code: they help run it from now on.
+export function joinAsCoOrganiser(t: Tournament, user: { id: string; name: string }, code: string, now: number): Change {
+	const over = notOver(t)
+	if (!over.ok) return over
+	if (!t.coOrganiserCode || t.coOrganiserCode !== code.toUpperCase()) return fail(NOT_FOUND, 'That code is no longer valid')
+	if (t.organiserId === user.id) return fail(FAILED_PRECONDITION, 'You already run this tournament')
+	if (t.coOrganiserIds.indexOf(user.id) !== -1) return ok(t)
+	if (t.coOrganiserIds.length >= CO_ORGANISERS_MAX) return fail(FAILED_PRECONDITION, `It already has ${CO_ORGANISERS_MAX} co-organisers`)
+	const names = { ...(t.coOrganiserNames ?? {}), [user.id]: user.name }
+	const next = { ...t, coOrganiserIds: t.coOrganiserIds.concat([user.id]), coOrganiserNames: names }
+	return ok(touch(withEvent(next, now, 'co_organiser_joined', { userId: user.id }), now))
 }
 
 export function setManualSeeding(t: Tournament, userId: string, order: string[], now: number): Change {

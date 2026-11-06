@@ -92,6 +92,11 @@ export interface Tournament {
 	organiserId: string
 	organiserName: string
 	coOrganiserIds: string[]
+	// Their names (from when they joined with the code).
+	coOrganiserNames?: { [userId: string]: string }
+	// The code that makes whoever enters it a co-organiser (the organiser
+	// shares it; a new one replaces it). Kept in tournament_coorg_codes.
+	coOrganiserCode?: string
 	visibility: 'public' | 'private'
 	// Run by the game's own organisers: highlighted in the client. Only players
 	// with the OFFICIAL_PRIVILEGE may create or set it (rpc.ts checks).
@@ -352,7 +357,8 @@ export function validSettings(input: Input, now: number, partial: boolean): Resu
 		out.format = input.format as Format
 	}
 	if (has('formatOptions')) {
-		const fo = input.formatOptions
+		// [] is an empty object from a Lua client (its JSON can't tell them apart).
+		const fo = Array.isArray(input.formatOptions) && input.formatOptions.length === 0 ? {} : input.formatOptions
 		if (!isInputObject(fo)) return err('formatOptions must be an object')
 		const options: Tournament['formatOptions'] = {}
 		if (fo.grandFinalReset !== undefined) {
@@ -380,7 +386,8 @@ export function validSettings(input: Input, now: number, partial: boolean): Resu
 		out.startsAt = input.startsAt
 	}
 	if (has('checkInMinutes') || !partial) {
-		const c = input.checkInMinutes ?? null
+		// null or false: no check-in (a Lua client can't send null).
+		const c = input.checkInMinutes === false ? null : (input.checkInMinutes ?? null)
 		if (c !== null && (!int(c) || c < 10 || c > 60)) return err('checkInMinutes must be 10-60, or null for no check-in')
 		out.checkInMinutes = c as number | null
 	}

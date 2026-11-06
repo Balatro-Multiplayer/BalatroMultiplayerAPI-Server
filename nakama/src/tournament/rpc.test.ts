@@ -9,6 +9,9 @@ import { rpcTournamentDevFill, rpcTournamentDevTime } from './dev'
 import {
 	catchUpTournament,
 	rpcTournamentCancel,
+	rpcTournamentCoOrganiserCode,
+	rpcTournamentCoOrganiserJoin,
+	rpcTournamentCoOrganisersSet,
 	rpcTournamentCheckIn,
 	rpcTournamentCreate,
 	rpcTournamentGet,
@@ -192,6 +195,32 @@ describe('a tournament from creation to start', () => {
 	})
 })
 
+describe('co-organisers join with a code', () => {
+	it('the organiser shares a code; whoever enters it helps run it', () => {
+		const id = created().summary.id
+		expect(fails(rpcTournamentCoOrganiserCode, P(1), { id }).message).toMatch(/Only the organiser/)
+		const code = call(rpcTournamentCoOrganiserCode, ORG, { id }).tournament.coOrganiserCode
+		expect(code).toMatch(/^[A-Z2-9]{6}$/)
+		const joined = call(rpcTournamentCoOrganiserJoin, P(1), { code: code.toLowerCase() }).tournament
+		expect(joined.role).toBe('co_organiser')
+		// Only the organiser sees the code.
+		expect(joined.coOrganiserCode).toBeUndefined()
+		const seen = call(rpcTournamentGet, ORG, { id }).tournament
+		expect(seen.coOrganisers.map((c: { id: string }) => c.id)).toEqual([P(1)])
+		expect(seen.coOrganisers[0].name).not.toBe('?')
+		expect(call(rpcTournamentMine, P(1)).tournaments[0].role).toBe('co_organiser')
+		// A new code: the old one no longer works.
+		const fresh = call(rpcTournamentCoOrganiserCode, ORG, { id }).tournament.coOrganiserCode
+		expect(fresh).not.toBe(code)
+		expect(fails(rpcTournamentCoOrganiserJoin, P(2), { code }).message).toMatch(/not valid/)
+		call(rpcTournamentCoOrganiserJoin, P(2), { code: fresh })
+		// The organiser removes one.
+		const after = call(rpcTournamentCoOrganisersSet, ORG, { id, userIds: [P(2)] }).tournament
+		expect(after.coOrganisers.map((c: { id: string }) => c.id)).toEqual([P(2)])
+		expect(fails(rpcTournamentCoOrganiserJoin, ORG, { code: fresh }).message).toMatch(/already run/)
+	})
+})
+
 describe('tournaments that need a ranked profile', () => {
 	const verify = (userId: string, verified: boolean) =>
 		nk.storageWrite([{ collection: 'integrity', key: 'status', userId, value: { verified, expiresAt: null }, permissionRead: 0, permissionWrite: 0 }])
@@ -323,7 +352,8 @@ describe('dev helpers', () => {
 		expect(t.entrants.length).toBe(15)
 		expect(t.summary.status).toBe('finished')
 		expect(t.placements.length).toBe(15)
-		expect(t.serverNow).toBe(T0 + 60 * MIN)
+		// Times moved closer instead of the clock running ahead: one clock for clients.
+		expect(t.serverNow).toBe(T0)
 	})
 
 	it('starts with everyone when the whole check-in window was skipped (e.g. server down)', () => {

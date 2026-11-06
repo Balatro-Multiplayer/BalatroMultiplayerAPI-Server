@@ -19,6 +19,8 @@ import type { Result } from '../shared/result'
 export const TOURNAMENTS = 'tournaments'
 export const TOURNAMENT_INDEX = 'tournament_index'
 export const TOURNAMENT_CODES = 'tournament_codes'
+// Co-organiser code -> tournament id.
+export const TOURNAMENT_COORG_CODES = 'tournament_coorg_codes'
 export const TOURNAMENT_DUE = 'tournament_due'
 export const TOURNAMENT_MINE = 'tournament_mine'
 const MINE_KEY = 'list'
@@ -159,19 +161,36 @@ export function mutate(
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const INVITE_CODE_LENGTH = 6
 
-// Reserves a fresh invite code for tournament `id`.
-export function reserveInviteCode(nk: nkruntime.Nakama, id: string, random: () => number = Math.random): string {
+function reserveCodeIn(nk: nkruntime.Nakama, collection: string, id: string, random: () => number): string {
 	for (let attempt = 0; attempt < 10; attempt++) {
 		let code = ''
 		for (let i = 0; i < INVITE_CODE_LENGTH; i++) code += CODE_ALPHABET[Math.floor(random() * CODE_ALPHABET.length)]
 		try {
-			nk.storageWrite([{ collection: TOURNAMENT_CODES, key: code, userId: SYSTEM_USER_ID, value: { id }, version: '*', permissionRead: 0, permissionWrite: 0 }])
+			nk.storageWrite([{ collection, key: code, userId: SYSTEM_USER_ID, value: { id }, version: '*', permissionRead: 0, permissionWrite: 0 }])
 			return code
 		} catch (e) {
 			// Taken: try another.
 		}
 	}
-	throw runtimeError(ALREADY_EXISTS, 'Could not reserve an invite code')
+	throw runtimeError(ALREADY_EXISTS, 'Could not reserve a code')
+}
+
+// Reserves a fresh invite code for tournament `id`.
+export function reserveInviteCode(nk: nkruntime.Nakama, id: string, random: () => number = Math.random): string {
+	return reserveCodeIn(nk, TOURNAMENT_CODES, id, random)
+}
+
+// A fresh co-organiser code for tournament `id`; the old one stops working.
+export function reserveCoOrganiserCode(nk: nkruntime.Nakama, id: string, old: string | undefined, random: () => number = Math.random): string {
+	if (old) nk.storageDelete([{ collection: TOURNAMENT_COORG_CODES, key: old, userId: SYSTEM_USER_ID }])
+	return reserveCodeIn(nk, TOURNAMENT_COORG_CODES, id, random)
+}
+
+export function tournamentIdForCoOrganiserCode(nk: nkruntime.Nakama, code: string): string | null {
+	const objects = nk.storageRead([{ collection: TOURNAMENT_COORG_CODES, key: code.toUpperCase(), userId: SYSTEM_USER_ID }])
+	if (objects.length === 0) return null
+	const id = (objects[0].value as { id?: unknown }).id
+	return typeof id === 'string' ? id : null
 }
 
 export function tournamentIdForCode(nk: nkruntime.Nakama, code: string): string | null {

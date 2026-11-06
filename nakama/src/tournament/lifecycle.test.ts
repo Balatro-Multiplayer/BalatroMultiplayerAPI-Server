@@ -131,6 +131,13 @@ describe('create and open', () => {
 		expect(createTournament('t1', ORG, deck({ kind: 'draft', decks: ['b_red'], stakes: [0], banOrder: 'random' }), 'C', NOW).ok).toBe(false)
 	})
 
+	it('takes "no check-in" and empty format options the way a Lua client sends them', () => {
+		const t = value(createTournament('t1', ORG, settings({ format: 'round_robin', formatOptions: { groupSize: 4 } }), 'C', NOW))
+		const off = value(updateSettings(t, 'org', { checkInMinutes: false, formatOptions: [] }, NOW))
+		expect(off.checkInMinutes).toBeNull()
+		expect(off.formatOptions).toEqual({})
+	})
+
 	it('only the organiser opens registration', () => {
 		const t = value(createTournament('t1', ORG, settings(), 'C', NOW))
 		expect(openRegistration(t, 'someone', NOW).ok).toBe(false)

@@ -3,13 +3,15 @@
 // (settingsOf(ctx).testingRpcs).
 //   tournament_dev_fill {id, count, checkIn?}  adds fake entrants ("Bot 1",
 //                                              ...) with random ratings
-//   tournament_dev_time {id, minutes}          runs this tournament's clock
-//                                              ahead, then catches it up
+//   tournament_dev_time {id, minutes}          brings this tournament's times
+//                                              (start, deadlines, ...) that
+//                                              many minutes closer, then
+//                                              catches it up
 import { FAILED_PRECONDITION, INVALID_ARGUMENT, PERMISSION_DENIED, runtimeError } from '../errors'
 import { parsePayload, requireUser } from '../rpc'
 import { settingsOf } from '../server_kind'
 import { ensureClock } from './clock'
-import { type Entrant, FAKE_ENTRANT_PREFIX, addEvent } from './model'
+import { type Entrant, FAKE_ENTRANT_PREFIX, type Tournament, addEvent } from './model'
 import { catchUpTournament, nowFor, tournamentIdOf, tournamentsEnabled } from './rpc'
 import { readTournament } from './storage'
 import { commit } from './effects'
@@ -55,17 +57,43 @@ export function rpcTournamentDevFill(ctx: nkruntime.Context, logger: nkruntime.L
 	return JSON.stringify({ tournament: tournamentView(saved, userId, nowFor(saved, real)) })
 }
 
+// Epoch-ms timestamps (2001 to 5138); nothing else stored gets this big.
+const EPOCH_MS_MIN = 1e12
+const EPOCH_MS_MAX = 1e14
+
+function shiftTimes(value: unknown, by: number): unknown {
+	if (typeof value === 'number') return value >= EPOCH_MS_MIN && value < EPOCH_MS_MAX ? value - by : value
+	if (Array.isArray(value)) return value.map((v) => shiftTimes(v, by))
+	if (value && typeof value === 'object') {
+		const out: { [key: string]: unknown } = {}
+		for (const key of Object.keys(value)) out[key] = shiftTimes((value as { [key: string]: unknown })[key], by)
+		return out
+	}
+	return value
+}
+
+// Moves every time in the tournament `ms` earlier (as if that long had
+// passed), folding in a clock offset left by the old dev_time. The
+// tournament's now stays real time, so clients see one consistent clock.
+export function skipAhead(t: Tournament, ms: number): Tournament {
+	const by = ms + (t.devClockOffsetMs ?? 0)
+	const shifted = shiftTimes({ ...t, devClockOffsetMs: undefined }, by) as Tournament
+	delete shifted.devClockOffsetMs
+	return shifted
+}
+
 export function rpcTournamentDevTime(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
 	const userId = requireDev(ctx, nk)
 	const input = parsePayload(payload)
 	const id = tournamentIdOf(input)
 	const minutes = input.minutes
-	if (typeof minutes !== 'number' || !(minutes > 0) || minutes > 60 * 24 * 60) throw runtimeError(INVALID_ARGUMENT, 'minutes must be positive')
+	// 0 only folds in an old clock offset.
+	if (typeof minutes !== 'number' || !(minutes >= 0) || minutes > 60 * 24 * 60) throw runtimeError(INVALID_ARGUMENT, 'minutes must be 0 or more')
 	if (!readTournament(nk, id)) throw runtimeError(INVALID_ARGUMENT, 'No such tournament')
 	const real = Date.now()
 	ensureClock(nk)
-	commit(nk, logger, id, (t) => ({ ok: true, value: { ...t, devClockOffsetMs: (t.devClockOffsetMs ?? 0) + minutes * 60 * 1000 } }))
+	commit(nk, logger, id, (t) => ({ ok: true, value: skipAhead(t, minutes * 60 * 1000) }))
 	const saved = catchUpTournament(nk, logger, id, real)
-	logger.info('Tournament %s: dev clock +%d min', id, minutes)
+	logger.info('Tournament %s: dev skip %d min', id, minutes)
 	return JSON.stringify({ tournament: tournamentView(saved, userId, nowFor(saved, real)) })
 }

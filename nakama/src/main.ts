@@ -96,6 +96,8 @@ import {
 	rpcTournamentCancel,
 	rpcTournamentCheckIn,
 	rpcTournamentCoOrganisersSet,
+	rpcTournamentCoOrganiserCode,
+	rpcTournamentCoOrganiserJoin,
 	rpcTournamentCreate,
 	rpcTournamentGet,
 	rpcTournamentPreview,
@@ -265,6 +267,8 @@ function InitModule(
 	initializer.registerRpc('tournament_promote', rpcTournamentPromote)
 	initializer.registerRpc('tournament_remove_player', rpcTournamentRemovePlayer)
 	initializer.registerRpc('tournament_co_organisers_set', rpcTournamentCoOrganisersSet)
+	initializer.registerRpc('tournament_co_organiser_code', rpcTournamentCoOrganiserCode)
+	initializer.registerRpc('tournament_co_organiser_join', rpcTournamentCoOrganiserJoin)
 	initializer.registerRpc('tournament_seeding_set', rpcTournamentSeedingSet)
 	initializer.registerRpc('tournament_start', rpcTournamentStart)
 	initializer.registerRpc('tournament_cancel', rpcTournamentCancel)

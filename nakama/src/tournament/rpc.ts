@@ -30,6 +30,8 @@ import {
 	openRegistration,
 	promote,
 	removePlayer,
+	joinAsCoOrganiser,
+	setCoOrganiserCode,
 	setCoOrganisers,
 	setManualSeeding,
 	setRegistrationClosed,
@@ -46,7 +48,9 @@ import {
 	readIndexEntries,
 	readMineIds,
 	readTournament,
+	reserveCoOrganiserCode,
 	reserveInviteCode,
+	tournamentIdForCoOrganiserCode,
 	scanIndex,
 	spendTournamentCreate,
 	tournamentIdForCode,
@@ -386,6 +390,35 @@ export function rpcTournamentCoOrganisersSet(ctx: nkruntime.Context, logger: nkr
 		}
 		return setCoOrganisers(t, userId, ids as string[], now)
 	})
+}
+
+// {id} -> a new co-organiser code (the organiser shares it); the old one
+// stops working.
+export function rpcTournamentCoOrganiserCode(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	requireEnabled(nk)
+	const userId = requireUser(ctx)
+	const id = tournamentIdOf(parsePayload(payload))
+	const stored = readTournament(nk, id)
+	if (!stored) throw runtimeError(NOT_FOUND, 'No such tournament')
+	if (stored.t.organiserId !== userId) throw runtimeError(PERMISSION_DENIED, 'Only the organiser can do that')
+	const code = reserveCoOrganiserCode(nk, id, stored.t.coOrganiserCode)
+	return changeTournament(nk, logger, ctx, payload, (t, uid, now) => setCoOrganiserCode(t, uid, code, now))
+}
+
+// {code} -> the caller becomes a co-organiser of that tournament.
+export function rpcTournamentCoOrganiserJoin(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	requireEnabled(nk)
+	const userId = requireUser(ctx)
+	const input = parsePayload(payload)
+	const code = typeof input.code === 'string' ? input.code.trim().toUpperCase() : ''
+	const id = code ? tournamentIdForCoOrganiserCode(nk, code) : null
+	if (!id) throw runtimeError(NOT_FOUND, 'That code is not valid')
+	const name = displayNameFor(nk, ctx, userId)
+	const real = Date.now()
+	ensureClock(nk)
+	catchUpTournament(nk, logger, id, real)
+	const saved = commit(nk, logger, id, (t) => joinAsCoOrganiser(t, { id: userId, name }, code, nowFor(t, real)))
+	return respond(saved, userId, real, nk, ctx)
 }
 
 // {id, order: string[]} -> manual seeding.

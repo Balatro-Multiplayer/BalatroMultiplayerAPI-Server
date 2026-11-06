@@ -10198,7 +10198,7 @@ function validSettings(input, now, partial) {
     out.format = input.format;
   }
   if (has("formatOptions")) {
-    const fo = input.formatOptions;
+    const fo = Array.isArray(input.formatOptions) && input.formatOptions.length === 0 ? {} : input.formatOptions;
     if (!isInputObject(fo)) return err("formatOptions must be an object");
     const options = {};
     if (fo.grandFinalReset !== void 0) {
@@ -10226,7 +10226,7 @@ function validSettings(input, now, partial) {
     out.startsAt = input.startsAt;
   }
   if (has("checkInMinutes") || !partial) {
-    const c = (_d = input.checkInMinutes) != null ? _d : null;
+    const c = input.checkInMinutes === false ? null : (_d = input.checkInMinutes) != null ? _d : null;
     if (c !== null && (!int(c) || c < 10 || c > 60)) return err("checkInMinutes must be 10-60, or null for no check-in");
     out.checkInMinutes = c;
   }
@@ -10641,7 +10641,28 @@ function setCoOrganisers(t, userId, ids, now) {
   if (!allowed.ok) return allowed;
   const unique = ids.filter((id, i) => ids.indexOf(id) === i && id !== t.organiserId);
   if (unique.length > CO_ORGANISERS_MAX) return fail(INVALID_ARGUMENT, `At most ${CO_ORGANISERS_MAX} co-organisers`);
-  return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { coOrganiserIds: unique }), now, "co_organisers_set"), now));
+  const names = {};
+  for (const id of unique) if (t.coOrganiserNames && t.coOrganiserNames[id]) names[id] = t.coOrganiserNames[id];
+  return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { coOrganiserIds: unique, coOrganiserNames: names }), now, "co_organisers_set"), now));
+}
+function setCoOrganiserCode(t, userId, code, now) {
+  const allowed = organiserOnly(t, userId);
+  if (!allowed.ok) return allowed;
+  const over = notOver(t);
+  if (!over.ok) return over;
+  return ok(touch(__spreadProps(__spreadValues({}, t), { coOrganiserCode: code }), now));
+}
+function joinAsCoOrganiser(t, user, code, now) {
+  var _a;
+  const over = notOver(t);
+  if (!over.ok) return over;
+  if (!t.coOrganiserCode || t.coOrganiserCode !== code.toUpperCase()) return fail(NOT_FOUND, "That code is no longer valid");
+  if (t.organiserId === user.id) return fail(FAILED_PRECONDITION, "You already run this tournament");
+  if (t.coOrganiserIds.indexOf(user.id) !== -1) return ok(t);
+  if (t.coOrganiserIds.length >= CO_ORGANISERS_MAX) return fail(FAILED_PRECONDITION, `It already has ${CO_ORGANISERS_MAX} co-organisers`);
+  const names = __spreadProps(__spreadValues({}, (_a = t.coOrganiserNames) != null ? _a : {}), { [user.id]: user.name });
+  const next = __spreadProps(__spreadValues({}, t), { coOrganiserIds: t.coOrganiserIds.concat([user.id]), coOrganiserNames: names });
+  return ok(touch(withEvent(next, now, "co_organiser_joined", { userId: user.id }), now));
 }
 function setManualSeeding(t, userId, order, now) {
   const allowed = organiserOnly(t, userId);
@@ -11101,7 +11122,7 @@ function lobbyOf(t, matchId) {
   return { code: lobby.code, game: lobby.game, status: lobby.status };
 }
 function tournamentView(t, viewerId, now) {
-  var _a, _b, _c, _d, _e, _f;
+  var _a, _b, _c, _d, _e, _f, _g;
   const role = roleOf(t, viewerId);
   const names = nameMap(t);
   const ref = (p) => {
@@ -11171,12 +11192,15 @@ function tournamentView(t, viewerId, now) {
     description: t.description,
     organiserId: t.organiserId,
     coOrganiserIds: t.coOrganiserIds,
+    coOrganisers: t.coOrganiserIds.map((id) => ({ id, name: t.coOrganiserNames && t.coOrganiserNames[id] || "?" })),
+    // Only the organiser shares it.
+    coOrganiserCode: t.organiserId === viewerId ? (_c = t.coOrganiserCode) != null ? _c : null : void 0,
     inviteCode: manager ? t.inviteCode : void 0,
     formatOptions: t.formatOptions,
-    seeding: { kind: t.seeding.kind, board: (_c = t.seeding.board) != null ? _c : `ranked:${t.rounds.defaults.ruleset}` },
+    seeding: { kind: t.seeding.kind, board: (_d = t.seeding.board) != null ? _d : `ranked:${t.rounds.defaults.ruleset}` },
     rounds: t.rounds,
     timetable: t.timetable,
-    schedule: (_d = t.schedule) != null ? _d : null,
+    schedule: (_e = t.schedule) != null ? _e : null,
     blocks: t.clock ? t.clock.blocks : null,
     paused: t.clock ? t.clock.pausedSince !== void 0 : false,
     entrants: t.entrants.map((e) => {
@@ -11196,8 +11220,8 @@ function tournamentView(t, viewerId, now) {
     placements: places,
     you,
     events: t.events.slice(-EVENTS_SHOWN),
-    startedAt: (_e = t.startedAt) != null ? _e : null,
-    finishedAt: (_f = t.finishedAt) != null ? _f : null
+    startedAt: (_f = t.startedAt) != null ? _f : null,
+    finishedAt: (_g = t.finishedAt) != null ? _g : null
   };
 }
 
@@ -11205,6 +11229,7 @@ function tournamentView(t, viewerId, now) {
 var TOURNAMENTS = "tournaments";
 var TOURNAMENT_INDEX = "tournament_index";
 var TOURNAMENT_CODES = "tournament_codes";
+var TOURNAMENT_COORG_CODES = "tournament_coorg_codes";
 var TOURNAMENT_DUE = "tournament_due";
 var TOURNAMENT_MINE = "tournament_mine";
 var MINE_KEY = "list";
@@ -11314,17 +11339,30 @@ function mutate(nk, id, change) {
 }
 var CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 var INVITE_CODE_LENGTH = 6;
-function reserveInviteCode(nk, id, random = Math.random) {
+function reserveCodeIn(nk, collection, id, random) {
   for (let attempt = 0; attempt < 10; attempt++) {
     let code = "";
     for (let i = 0; i < INVITE_CODE_LENGTH; i++) code += CODE_ALPHABET[Math.floor(random() * CODE_ALPHABET.length)];
     try {
-      nk.storageWrite([{ collection: TOURNAMENT_CODES, key: code, userId: SYSTEM_USER_ID, value: { id }, version: "*", permissionRead: 0, permissionWrite: 0 }]);
+      nk.storageWrite([{ collection, key: code, userId: SYSTEM_USER_ID, value: { id }, version: "*", permissionRead: 0, permissionWrite: 0 }]);
       return code;
     } catch (e) {
     }
   }
-  throw runtimeError(ALREADY_EXISTS, "Could not reserve an invite code");
+  throw runtimeError(ALREADY_EXISTS, "Could not reserve a code");
+}
+function reserveInviteCode(nk, id, random = Math.random) {
+  return reserveCodeIn(nk, TOURNAMENT_CODES, id, random);
+}
+function reserveCoOrganiserCode(nk, id, old, random = Math.random) {
+  if (old) nk.storageDelete([{ collection: TOURNAMENT_COORG_CODES, key: old, userId: SYSTEM_USER_ID }]);
+  return reserveCodeIn(nk, TOURNAMENT_COORG_CODES, id, random);
+}
+function tournamentIdForCoOrganiserCode(nk, code) {
+  const objects = nk.storageRead([{ collection: TOURNAMENT_COORG_CODES, key: code.toUpperCase(), userId: SYSTEM_USER_ID }]);
+  if (objects.length === 0) return null;
+  const id = objects[0].value.id;
+  return typeof id === "string" ? id : null;
 }
 function tournamentIdForCode(nk, code) {
   const objects = nk.storageRead([{ collection: TOURNAMENT_CODES, key: code.toUpperCase(), userId: SYSTEM_USER_ID }]);
@@ -14009,6 +14047,30 @@ function rpcTournamentCoOrganisersSet(ctx, logger, nk, payload) {
     return setCoOrganisers(t, userId, ids, now);
   });
 }
+function rpcTournamentCoOrganiserCode(ctx, logger, nk, payload) {
+  requireEnabled(nk);
+  const userId = requireUser(ctx);
+  const id = tournamentIdOf(parsePayload(payload));
+  const stored = readTournament(nk, id);
+  if (!stored) throw runtimeError(NOT_FOUND, "No such tournament");
+  if (stored.t.organiserId !== userId) throw runtimeError(PERMISSION_DENIED, "Only the organiser can do that");
+  const code = reserveCoOrganiserCode(nk, id, stored.t.coOrganiserCode);
+  return changeTournament(nk, logger, ctx, payload, (t, uid, now) => setCoOrganiserCode(t, uid, code, now));
+}
+function rpcTournamentCoOrganiserJoin(ctx, logger, nk, payload) {
+  requireEnabled(nk);
+  const userId = requireUser(ctx);
+  const input = parsePayload(payload);
+  const code = typeof input.code === "string" ? input.code.trim().toUpperCase() : "";
+  const id = code ? tournamentIdForCoOrganiserCode(nk, code) : null;
+  if (!id) throw runtimeError(NOT_FOUND, "That code is not valid");
+  const name = displayNameFor(nk, ctx, userId);
+  const real = Date.now();
+  ensureClock(nk);
+  catchUpTournament(nk, logger, id, real);
+  const saved = commit(nk, logger, id, (t) => joinAsCoOrganiser(t, { id: userId, name }, code, nowFor(t, real)));
+  return respond(saved, userId, real, nk, ctx);
+}
 function rpcTournamentSeedingSet(ctx, logger, nk, payload) {
   return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
     const order = input.order;
@@ -14127,21 +14189,37 @@ function rpcTournamentDevFill(ctx, logger, nk, payload) {
   });
   return JSON.stringify({ tournament: tournamentView(saved, userId, nowFor(saved, real)) });
 }
+var EPOCH_MS_MIN = 1e12;
+var EPOCH_MS_MAX = 1e14;
+function shiftTimes(value, by) {
+  if (typeof value === "number") return value >= EPOCH_MS_MIN && value < EPOCH_MS_MAX ? value - by : value;
+  if (Array.isArray(value)) return value.map((v) => shiftTimes(v, by));
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const key of Object.keys(value)) out[key] = shiftTimes(value[key], by);
+    return out;
+  }
+  return value;
+}
+function skipAhead(t, ms) {
+  var _a;
+  const by = ms + ((_a = t.devClockOffsetMs) != null ? _a : 0);
+  const shifted = shiftTimes(__spreadProps(__spreadValues({}, t), { devClockOffsetMs: void 0 }), by);
+  delete shifted.devClockOffsetMs;
+  return shifted;
+}
 function rpcTournamentDevTime(ctx, logger, nk, payload) {
   const userId = requireDev(ctx, nk);
   const input = parsePayload(payload);
   const id = tournamentIdOf(input);
   const minutes = input.minutes;
-  if (typeof minutes !== "number" || !(minutes > 0) || minutes > 60 * 24 * 60) throw runtimeError(INVALID_ARGUMENT, "minutes must be positive");
+  if (typeof minutes !== "number" || !(minutes >= 0) || minutes > 60 * 24 * 60) throw runtimeError(INVALID_ARGUMENT, "minutes must be 0 or more");
   if (!readTournament(nk, id)) throw runtimeError(INVALID_ARGUMENT, "No such tournament");
   const real = Date.now();
   ensureClock(nk);
-  commit(nk, logger, id, (t) => {
-    var _a;
-    return { ok: true, value: __spreadProps(__spreadValues({}, t), { devClockOffsetMs: ((_a = t.devClockOffsetMs) != null ? _a : 0) + minutes * 60 * 1e3 }) };
-  });
+  commit(nk, logger, id, (t) => ({ ok: true, value: skipAhead(t, minutes * 60 * 1e3) }));
   const saved = catchUpTournament(nk, logger, id, real);
-  logger.info("Tournament %s: dev clock +%d min", id, minutes);
+  logger.info("Tournament %s: dev skip %d min", id, minutes);
   return JSON.stringify({ tournament: tournamentView(saved, userId, nowFor(saved, real)) });
 }
 
@@ -14313,6 +14391,8 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("tournament_promote", rpcTournamentPromote);
   initializer.registerRpc("tournament_remove_player", rpcTournamentRemovePlayer);
   initializer.registerRpc("tournament_co_organisers_set", rpcTournamentCoOrganisersSet);
+  initializer.registerRpc("tournament_co_organiser_code", rpcTournamentCoOrganiserCode);
+  initializer.registerRpc("tournament_co_organiser_join", rpcTournamentCoOrganiserJoin);
   initializer.registerRpc("tournament_seeding_set", rpcTournamentSeedingSet);
   initializer.registerRpc("tournament_start", rpcTournamentStart);
   initializer.registerRpc("tournament_cancel", rpcTournamentCancel);

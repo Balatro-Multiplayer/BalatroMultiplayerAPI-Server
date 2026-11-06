@@ -134,6 +134,9 @@ export function tournamentView(t: Tournament, viewerId: string, now: number) {
 		description: t.description,
 		organiserId: t.organiserId,
 		coOrganiserIds: t.coOrganiserIds,
+		coOrganisers: t.coOrganiserIds.map((id) => ({ id, name: (t.coOrganiserNames && t.coOrganiserNames[id]) || '?' })),
+		// Only the organiser shares it.
+		coOrganiserCode: t.organiserId === viewerId ? t.coOrganiserCode ?? null : undefined,
 		inviteCode: manager ? t.inviteCode : undefined,
 		formatOptions: t.formatOptions,
 		seeding: { kind: t.seeding.kind, board: t.seeding.board ?? `ranked:${t.rounds.defaults.ruleset}` },
