@@ -20,6 +20,10 @@ export interface CatalogObject {
   key: string
   name: string
   soul?: boolean
+  soulPos?: { x: number; y: number } // floating layer, separate from the base cell
+  soulAtlasFile?: string // defaults to the category atlas
+  soulTarget?: 'shared' // The Soul uses G.shared_soul, not a center soul_pos
+  soulShader?: string // e.g. Hologram's special floating-layer shader
   pos?: { x: number; y: number } // cell in the vanilla atlas
   // Odd-shaped objects (half/square joker, cut-outs) ship a 1-bit alpha
   // silhouette (base64 PNG, no data-URL prefix) plus the tight footprint box,
@@ -120,6 +124,7 @@ export interface ObjectEdit {
   baseFrames?: string[] // raw GIF frames pre-edge (reversibility for animations)
   render?: RenderSettings
   soul?: string
+  hideSoul?: boolean // explicit transparent overlay; absence preserves vanilla
   fps?: number // animation rate when sprites.length > 1 (uploaded GIF)
   shader?: string // default shader/edition applied in-game (see SHADER_OPTIONS)
 }
@@ -152,8 +157,16 @@ export interface ProjectOptions {
   icon?: string // PNG data URL for the mod-list icon
 }
 
+export interface PlayingCardSkin {
+  id: string // stable key, independent of its editable display name/order
+  name: string
+  low?: string // complete PNG sheet; either contrast variant may be omitted
+  high?: string
+}
+
 export interface ProjectState {
-  schema: 3
+  schema: 4
+  deckSkins: PlayingCardSkin[]
   options: ProjectOptions
   objects: Record<string, ObjectEdit> // key = `${categoryId}/${objectKey}`
   sheets: Record<string, SheetEdit> // key = sheetId
@@ -162,7 +175,8 @@ export interface ProjectState {
 
 export function emptyProject(): ProjectState {
   return {
-    schema: 3,
+    schema: 4,
+    deckSkins: [],
     options: { displayName: 'My Reskin', author: '', version: '1.0.0' },
     objects: {},
     sheets: {},

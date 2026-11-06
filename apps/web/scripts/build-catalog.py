@@ -226,8 +226,11 @@ def encode_png_rgba(w, h, px):
     )
 
 
-def parse_pos(body):
-    m = re.search(r"pos\s*=\s*\{\s*x\s*=\s*(\d+)\s*,\s*y\s*=\s*(\d+)", body)
+def parse_pos(body, field="pos"):
+    m = re.search(
+        r"\b" + re.escape(field) + r"\s*=\s*\{\s*x\s*=\s*(\d+)\s*,\s*y\s*=\s*(\d+)",
+        body,
+    )
     return {"x": int(m.group(1)), "y": int(m.group(2))} if m else None
 
 
@@ -378,7 +381,7 @@ def field_str(body, name):
 
 
 def parse_centers(g):
-    """P_CENTERS split by set/prefix into per-object categories."""
+    """P_CENTERS split into editor categories; the base card joins enhancements."""
     body = table_body(g, "P_CENTERS")
     if body is None:
         sys.exit("could not locate P_CENTERS")
@@ -390,9 +393,13 @@ def parse_centers(g):
         "e_": "Edition",
         "p_": "Booster",
     }
+    shared_soul_pos = next(
+        (parse_pos(eb) for key, eb in entries(body) if key == "soul"), None
+    )
     objs = []
     for key, eb in entries(body):
-        s = field_str(eb, "set")
+        # Editor grouping only: c_base keeps its own runtime key and set.
+        s = "Enhanced" if key == "c_base" else field_str(eb, "set")
         if not s:
             # consumables (c_) always carry set; otherwise infer from prefix
             for pre, val in prefix_set.items():
@@ -405,8 +412,11 @@ def parse_centers(g):
             {
                 "key": key,
                 "set": s,
-                "name": field_str(eb, "name") or key,
-                "soul": "soul_pos" in eb,
+                "name": "Default Card Background" if key == "c_base" else field_str(eb, "name") or key,
+                "soul": bool(parse_pos(eb, "soul_pos")) or key == "c_soul",
+                "soulPos": shared_soul_pos if key == "c_soul" else parse_pos(eb, "soul_pos"),
+                **({"soulShader": "hologram"} if key == "j_hologram" else {}),
+                **({"soulAtlasFile": "Enhancers.png", "soulTarget": "shared"} if key == "c_soul" else {}),
                 "pos": parse_pos(eb),
             }
         )
@@ -489,6 +499,10 @@ def main():
             entry["pos"] = o["pos"]
         if o["soul"]:
             entry["soul"] = True
+            entry["soulPos"] = o["soulPos"]
+        for field in ("soulShader", "soulAtlasFile", "soulTarget"):
+            if o.get(field):
+                entry[field] = o[field]
         mk = masks.get((s, o["key"]))
         if mk:
             entry["mask"], entry["maskBox"] = mk

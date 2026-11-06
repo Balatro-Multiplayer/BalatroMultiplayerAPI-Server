@@ -1,4 +1,5 @@
-// Remembering the user's Balatro.exe between visits.
+// Remembering the user's Balatro game archive between visits.
+// Keep the legacy database/store names so existing .exe imports still work.
 //
 // A file <input> only hands us a File for the current page load — there is no
 // path we could persist, and cookies/localStorage are far too small for the exe
@@ -113,7 +114,9 @@ export async function forgetExe(): Promise<void> {
 }
 
 /** Remember a handle (Option A) — Chromium only. */
-export async function rememberHandle(handle: FileSystemFileHandle): Promise<void> {
+export async function rememberHandle(
+  handle: FileSystemFileHandle
+): Promise<void> {
   await idbPut({ kind: 'handle', name: handle.name, handle })
 }
 
@@ -135,7 +138,10 @@ export async function pickExeHandle(): Promise<FileSystemFileHandle | null> {
       types: [
         {
           description: 'Balatro',
-          accept: { 'application/vnd.microsoft.portable-executable': ['.exe'] },
+          accept: {
+            'application/vnd.microsoft.portable-executable': ['.exe'],
+            'application/zip': ['.love', '.zip'],
+          },
         },
       ],
     })
