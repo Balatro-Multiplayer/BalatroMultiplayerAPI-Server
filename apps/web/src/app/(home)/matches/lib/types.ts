@@ -84,11 +84,40 @@ export interface StaffActionRow {
   at: string
 }
 
+export type ConnectionKind =
+  | 'joined'
+  | 'rejoined'
+  | 'left'
+  | 'disconnected'
+  | 'kicked'
+  | 'timed_out'
+  | 'catch_up_limit'
+
+export interface ConnectionEvent {
+  playerId: string
+  displayName: string | null
+  kind: ConnectionKind
+  /** Epoch milliseconds. */
+  at: number
+  /** A kick: the player who did it, or 'server'. */
+  by: string | null
+  byName: string | null
+  reason: string | null
+}
+
+export interface RunConnections {
+  events: ConnectionEvent[]
+  /** The highest log event the server held for each player at the end. */
+  logHeld: { playerId: string; displayName: string | null; held: number }[]
+}
+
 export interface MatchStaffResponse {
   match: { gameMode: string; modId: string; status: string } | null
   result: StaffResultRow[] | null
   queueItems: StaffQueueItem[]
   staffActions: StaffActionRow[]
+  /** Null for a match stored before joins and leaves were kept. */
+  connections: RunConnections | null
   viewer: { role: 'moderator' | 'admin' }
 }
 

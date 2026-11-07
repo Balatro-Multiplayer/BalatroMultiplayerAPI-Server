@@ -23,6 +23,7 @@ import type { GameLog } from '../lib/game-log/types'
 import {
   actionText,
   backToQueueItem,
+  connectionText,
   matchTitle,
   playerPageHref,
   queueItemHref,
@@ -36,6 +37,7 @@ import type {
   MatchChatResponse,
   MatchStaffResponse,
   PlayerLogRow,
+  RunConnections,
   RunReplayResponse,
 } from '../lib/types'
 import {
@@ -97,6 +99,9 @@ export function StaffMatchView({
     chat: chat.data ? chat.data.lines.length : null,
     rounds: gameLog.players[0]?.rounds.length ?? 0,
     logs: data.logs.length,
+    connections: staff.data?.connections
+      ? staff.data.connections.events.length
+      : null,
   })
   const now = Date.now()
 
@@ -206,6 +211,14 @@ export function StaffMatchView({
                 />
               ))}
             {tab === 'logs' && <LogsTab logs={data.logs} />}
+            {tab === 'connections' && (
+              <ConnectionsTab
+                connections={staff.data?.connections}
+                loading={staff.isLoading}
+                failed={staff.isError}
+                startedAt={data.run.startedAt}
+              />
+            )}
           </CardContent>
         </Card>
 
@@ -448,5 +461,86 @@ function LogsTab({ logs }: { logs: readonly PlayerLogRow[] }) {
         ))}
       </TableBody>
     </Table>
+  )
+}
+
+function ConnectionsTab({
+  connections,
+  loading,
+  failed,
+  startedAt,
+}: {
+  connections: RunConnections | null | undefined
+  loading: boolean
+  failed: boolean
+  startedAt: string
+}) {
+  if (loading) return <p className='text-muted-foreground text-sm'>Loading…</p>
+  if (failed)
+    return (
+      <p className='text-destructive text-sm'>Could not load the connections.</p>
+    )
+  if (!connections)
+    return (
+      <p className='text-muted-foreground text-sm'>
+        This match was stored before joins and leaves were kept.
+      </p>
+    )
+  const start = new Date(startedAt).getTime()
+  return (
+    <div className='space-y-6'>
+      {connections.events.length === 0 ? (
+        <p className='text-muted-foreground text-sm'>
+          Nobody joined, left or dropped during this match.
+        </p>
+      ) : (
+        <div className='space-y-1.5 text-sm'>
+          {connections.events.map((e) => (
+            <div
+              key={`${e.playerId}-${e.at}-${e.kind}`}
+              className='flex items-start gap-3'
+            >
+              <span className='w-16 shrink-0 font-mono text-muted-foreground text-xs'>
+                {formatElapsedMs(e.at - start)}
+              </span>
+              <span className='min-w-0 flex-1'>
+                <Link
+                  href={playerPageHref(e.playerId)}
+                  className='font-medium text-bal-blue hover:underline'
+                >
+                  {e.displayName ?? e.playerId.slice(0, 8)}
+                </Link>
+                : {connectionText(e)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {connections.logHeld.length > 0 && (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Player</TableHead>
+              <TableHead>Log events held at the end</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {connections.logHeld.map((row) => (
+              <TableRow key={row.playerId}>
+                <TableCell>
+                  <Link
+                    href={playerPageHref(row.playerId)}
+                    className='text-bal-blue hover:underline'
+                  >
+                    {row.displayName ?? row.playerId.slice(0, 8)}
+                  </Link>
+                </TableCell>
+                <TableCell className='font-mono'>{row.held}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </div>
   )
 }

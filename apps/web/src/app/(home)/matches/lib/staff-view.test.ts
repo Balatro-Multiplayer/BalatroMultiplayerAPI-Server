@@ -3,6 +3,7 @@ import {
   actionText,
   backToQueueItem,
   claimText,
+  connectionText,
   matchTitle,
   queueItemStatusText,
   ratingChangeText,
@@ -10,19 +11,20 @@ import {
 } from './staff-view'
 
 describe('staffTabs', () => {
-  test('lists Timeline, Chat, Rounds and Logs in that order', () => {
-    const tabs = staffTabs({ chat: 14, rounds: 9, logs: 1 })
+  test('lists Timeline, Chat, Rounds, Logs and Connections in that order', () => {
+    const tabs = staffTabs({ chat: 14, rounds: 9, logs: 1, connections: 3 })
     expect(tabs.map((t) => t.label)).toEqual([
       'Timeline',
       'Chat',
       'Rounds',
       'Logs',
+      'Connections',
     ])
-    expect(tabs.map((t) => t.count)).toEqual([null, 14, 9, 1])
+    expect(tabs.map((t) => t.count)).toEqual([null, 14, 9, 1, 3])
   })
 
   test('has no chat count until the chat is loaded', () => {
-    expect(staffTabs({ chat: null, rounds: 0, logs: 2 })[1]?.count).toBeNull()
+    expect(staffTabs({ chat: null, rounds: 0, logs: 2, connections: null })[1]?.count).toBeNull()
   })
 })
 
@@ -91,5 +93,30 @@ describe('claims and actions', () => {
   test('words an action kind', () => {
     expect(actionText('match_result')).toBe('Set result')
     expect(actionText('lift_warning')).toBe('Lift warning')
+  })
+})
+
+describe('connectionText', () => {
+  const plain = { by: null, byName: null, reason: null }
+  test('names a leave, a disconnect and a rejoin', () => {
+    expect(connectionText({ kind: 'left', ...plain })).toBe('Left')
+    expect(connectionText({ kind: 'disconnected', ...plain })).toBe(
+      'Disconnected'
+    )
+    expect(connectionText({ kind: 'rejoined', ...plain })).toBe('Rejoined')
+  })
+
+  test('says who kicked and why', () => {
+    expect(
+      connectionText({ kind: 'kicked', by: 'p1', byName: 'SWIM', reason: null })
+    ).toBe('Kicked by SWIM')
+    expect(
+      connectionText({
+        kind: 'kicked',
+        by: 'server',
+        byName: null,
+        reason: 'banned',
+      })
+    ).toBe('Kicked by the server: banned')
   })
 })
