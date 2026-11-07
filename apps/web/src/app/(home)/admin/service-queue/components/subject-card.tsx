@@ -57,9 +57,12 @@ export function SubjectCard({
       }
     >
       <div className='flex flex-wrap items-center gap-2'>
-        <span className='font-semibold text-lg'>
+        <a
+          href={`/admin/players/${player.id}`}
+          className='font-semibold text-bal-blue text-lg hover:underline'
+        >
           {player.name ?? 'Unknown player'}
-        </span>
+        </a>
         {player.deleted && <Badge variant='destructive'>deleted</Badge>}
         {player.privileges.map((p) => (
           <Badge key={p} variant='secondary'>

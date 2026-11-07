@@ -15,7 +15,12 @@ import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import { InvestigationPanel } from './components/investigation-panel'
 import { QueueList } from './components/queue-list'
-import { type ListFilters, listQueue, queueKeys } from './lib/api'
+import {
+  downloadChatLabels,
+  type ListFilters,
+  listQueue,
+  queueKeys,
+} from './lib/api'
 import { ITEM_TYPES } from './lib/types'
 
 // The queue's state lives in the URL, so a link opens the same view.
@@ -33,6 +38,7 @@ const urlState = {
   mine: parseAsBoolean.withDefault(false),
   age: parseAsInteger.withDefault(0),
   page: parseAsInteger.withDefault(1),
+  automatic: parseAsBoolean.withDefault(false),
   item: parseAsInteger,
 }
 
@@ -64,7 +70,7 @@ export default function ServiceQueuePage() {
 }
 
 function ServiceQueue() {
-  const { isModerator, pending } = useAuth()
+  const { isAdmin, isModerator, pending } = useAuth()
   const router = useRouter()
   const [url, setUrl] = useQueryStates(urlState, { history: 'replace' })
   const [subjectDraft, setSubjectDraft] = useState(url.subject)
@@ -85,6 +91,8 @@ function ServiceQueue() {
 
   const filters: ListFilters = useMemo(
     () => ({
+      // A player search looks through every item, automatic ones too.
+      lane: url.subject.trim() ? null : ('main' as const),
       itemType: url.type,
       status: url.status,
       sort: url.sort,
@@ -133,7 +141,13 @@ function ServiceQueue() {
     (playerId: string) => {
       setSubjectDraft(playerId)
       setCursor(0)
-      void setUrl({ subject: playerId, type: null, status: 'all', page: 1 })
+      void setUrl({
+        subject: playerId,
+        type: null,
+        status: 'all',
+        automatic: false,
+        page: 1,
+      })
     },
     [setUrl]
   )
@@ -158,6 +172,16 @@ function ServiceQueue() {
               j / k to move, Enter to open. Opening an item claims it for 15
               minutes.
             </p>
+            {isAdmin && (
+              <Button
+                size='sm'
+                variant='outline'
+                className='mt-2'
+                onClick={() => void downloadChatLabels()}
+              >
+                Download chat labels
+              </Button>
+            )}
           </div>
           <QueueList
             filters={{ ...filters, subject: subjectDraft }}
@@ -169,6 +193,8 @@ function ServiceQueue() {
             setCursor={setCursor}
             now={now}
             onOpen={openItem}
+            automaticTab={url.automatic}
+            setAutomaticTab={(on) => void setUrl({ automatic: on })}
           />
         </div>
         <div

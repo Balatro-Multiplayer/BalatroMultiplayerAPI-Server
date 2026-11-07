@@ -12,7 +12,9 @@ import {
 	matchmakingRatings,
 } from '../db/schema.js'
 import { hasOpenForfeitReconciliationFlag, insertForfeitReconciliationFlag } from './forfeit-reconciliation.gateway.js'
-import { enqueueServiceQueueItem } from './service-queue.gateway.js'
+import { summaryOf } from '../../features/service-queue/flagged-chat.js'
+import { addToFlaggedChatItem } from './flagged-chat.gateway.js'
+import { enqueueServiceQueueItem, rescoreAfterChange } from './service-queue.gateway.js'
 
 // Writes what the Nakama mirror pulled (features/nakama/mirror.service.ts).
 // Every write is an upsert keyed by the run id or the outbox key, so storing
@@ -86,7 +88,7 @@ export async function storeMirroredRun(rows: RunRows): Promise<void> {
 	})
 	// After the commit: the queue item points at rows that now exist. One
 	// item per flagged player (sourceId = 'runId:playerId', the run log's key).
-	for (const flag of rows.flagged) {
+	for (const flag of rows.raiseAntiCheatItems ? rows.flagged : []) {
 		await enqueueServiceQueueItem({
 			itemType: 'anti_cheat',
 			sourceId: antiCheatSourceId(rows.lobbyRun.id, flag.playerId),
@@ -138,14 +140,24 @@ export async function storeMirroredChat(rows: ChatRows): Promise<void> {
 		.from(flaggedMessages)
 		.where(eq(flaggedMessages.mirrorKey, flagged.mirrorKey))
 	if (!row) return
-	const { matches } = flagged
+	// One item for each player in each lobby instance. A line from a lobby that
+	// has no instance id (older lines) keeps its own item.
+	const lobbyId = rows.chat.lobbyId
+	if (lobbyId) {
+		const made = await addToFlaggedChatItem({
+			flaggedMessageId: row.id,
+			playerId: flagged.playerId,
+			lobbyId,
+			lobbyKind: rows.lobbyKind ?? undefined,
+		})
+		if (made) await rescoreAfterChange(made).catch((err) => console.error('[service-queue] Rescoring failed:', err))
+		return
+	}
 	await enqueueServiceQueueItem({
 		itemType: 'flagged_chat',
 		sourceId: String(row.id),
 		subjectPlayerId: flagged.playerId,
-		summary: Array.isArray(matches)
-			? `Flagged chat — ${matches.length} match${matches.length === 1 ? '' : 'es'}`
-			: `Flagged chat — remote moderation (band: ${(matches as { band?: string }).band ?? 'unknown'})`,
-		context: rows.lobbyKind ? { lobbyKind: rows.lobbyKind } : {},
+		summary: summaryOf(1),
+		context: { ...(rows.lobbyKind ? { lobbyKind: rows.lobbyKind } : {}), flaggedMessageIds: [row.id] },
 	})
 }

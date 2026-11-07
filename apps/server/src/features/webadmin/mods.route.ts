@@ -3,6 +3,7 @@ import {
 	type ModProfileVersionMode,
 	modProfileVersionModeEnum,
 } from '../../infrastructure/db/schema.js'
+import { loadConfigFromDb } from '../../infrastructure/gateways/config.gateway.js'
 import {
 	type ModProfileFields,
 	type PinCommitResult,
@@ -26,9 +27,9 @@ import {
 	updateCustomMod,
 	updateProfile,
 } from '../../infrastructure/gateways/mods.gateway.js'
-import { loadConfigFromDb } from '../../infrastructure/gateways/config.gateway.js'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { AppError } from '../../shared/utils/errors.js'
+import { requireAdmin } from '../../shared/utils/require-admin.js'
 import {
 	type ResolvedSource,
 	type SourceInput,
@@ -37,6 +38,7 @@ import {
 import { parseSmodsIdsOverride } from '../mods/mod-smods-ids.js'
 import { syncModRegistry } from '../mods/mods-sync.service.js'
 import { backfillSmodsIds } from '../mods/smods-ids-backfill.service.js'
+import { logStaffAction, requireReason } from './staff-action.js'
 
 // Ranked mod catalog admin surface: sync Thunderstore-sourced mods on demand,
 // manage the admin-owned fields -- the ranked pin (see schema.ts's own doc
@@ -47,17 +49,9 @@ import { backfillSmodsIds } from '../mods/smods-ids-backfill.service.js'
 // the gateway's custom-mod writes are scoped to isCustom rows in SQL, so
 // that holds even if a route check is missed.
 //
-// Mutations are admin-only (not moderator), matching config.route.ts's
-// precedent: this has the same self-inflicted-blast-radius shape as platform
-// config. Reads stay at the router-level webAdmin gate (admin OR moderator).
+// The whole router is admin-only (webadmin.route.ts); each mutation also
+// calls the shared requireAdmin.
 const router = Router()
-
-async function requireAdmin(req: import('express').Request) {
-	const actingPlayer = await findPlayerById(req.player!.playerId)
-	if (!actingPlayer?.privileges.includes('admin')) {
-		throw new AppError('Only admins can edit the ranked mod catalog', 403)
-	}
-}
 
 // Mirrors the public GET /api/mods (see features/mods/mods.route.ts), plus
 // hidden mods so they can be un-hidden.
@@ -117,11 +111,17 @@ function throwSaveProfileError(
 router.post('/mods/profiles', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const result = await createProfile({
 			...readProfileFields(req.body as Record<string, unknown>),
 			createdBy: req.player!.playerId,
 		})
 		if (!result.ok) throwSaveProfileError(result)
+		await logStaffAction(req, {
+			action: 'mod_profile_create',
+			reason,
+			detail: { profileId: result.profile.id, slug: result.profile.slug },
+		})
 		res.status(201).json(result.profile)
 	} catch (err) {
 		next(err)
@@ -131,11 +131,15 @@ router.post('/mods/profiles', async (req, res, next) => {
 router.put('/mods/profiles/:id', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
-		const result = await updateProfile(
-			req.params.id,
-			readProfileFields(req.body as Record<string, unknown>),
-		)
+		const reason = requireReason(req)
+		const fields = readProfileFields(req.body as Record<string, unknown>)
+		const result = await updateProfile(req.params.id, fields)
 		if (!result.ok) throwSaveProfileError(result)
+		await logStaffAction(req, {
+			action: 'mod_profile_update',
+			reason,
+			detail: { profileId: req.params.id, new: fields },
+		})
 		res.json(result.profile)
 	} catch (err) {
 		next(err)
@@ -145,8 +149,14 @@ router.put('/mods/profiles/:id', async (req, res, next) => {
 router.delete('/mods/profiles/:id', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		if (!(await deleteProfile(req.params.id)))
 			throw new AppError('Profile not found', 404)
+		await logStaffAction(req, {
+			action: 'mod_profile_delete',
+			reason,
+			detail: { profileId: req.params.id },
+		})
 		res.json({ ok: true })
 	} catch (err) {
 		next(err)
@@ -158,6 +168,7 @@ router.delete('/mods/profiles/:id', async (req, res, next) => {
 router.put('/mods/profiles/:id/entries/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const { versionMode, pinnedVersion, allowed } = req.body as {
 			versionMode?: unknown
 			pinnedVersion?: unknown
@@ -195,6 +206,17 @@ router.put('/mods/profiles/:id/entries/:modId', async (req, res, next) => {
 					throw new AppError("That version is not one of this mod's versions", 400)
 			}
 		}
+		await logStaffAction(req, {
+			action: 'mod_profile_entry_set',
+			reason,
+			detail: {
+				profileId: req.params.id,
+				modId: req.params.modId,
+				versionMode,
+				pinnedVersion: versionMode === 'exact' ? pinnedVersion : null,
+				allowed: allowed ?? true,
+			},
+		})
 		res.json(result.entry)
 	} catch (err) {
 		next(err)
@@ -204,8 +226,14 @@ router.put('/mods/profiles/:id/entries/:modId', async (req, res, next) => {
 router.delete('/mods/profiles/:id/entries/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		if (!(await removeProfileEntry(req.params.id, req.params.modId)))
 			throw new AppError('That mod is not in this profile', 404)
+		await logStaffAction(req, {
+			action: 'mod_profile_entry_remove',
+			reason,
+			detail: { profileId: req.params.id, modId: req.params.modId },
+		})
 		res.json({ ok: true })
 	} catch (err) {
 		next(err)
@@ -218,8 +246,10 @@ router.delete('/mods/profiles/:id/entries/:modId', async (req, res, next) => {
 router.post('/mods/smods-ids/backfill', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const summary = await backfillSmodsIds()
 		const config = await loadConfigFromDb()
+		await logStaffAction(req, { action: 'smods_ids_backfill', reason, detail: summary })
 		res.json({ ok: true, ...summary, queueAllowedModIds: config.queueAllowedModIds })
 	} catch (err) {
 		next(err)
@@ -234,7 +264,9 @@ router.post('/mods/smods-ids/backfill', async (req, res, next) => {
 router.post('/mods/sync', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const summary = await syncModRegistry()
+		await logStaffAction(req, { action: 'mods_sync', reason, detail: summary })
 		res.json({ ok: true, ...summary })
 	} catch (err) {
 		next(err)
@@ -298,6 +330,7 @@ function throwPinError(result: Exclude<PinCommitResult, { ok: true }>): never {
 router.put('/mods/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const body = req.body as {
 			rankedVersion?: unknown
 			rankedCommit?: unknown
@@ -350,6 +383,23 @@ router.put('/mods/:modId', async (req, res, next) => {
 		if (trackGithub !== undefined) {
 			await setTrackGithub(mod.id, trackGithub)
 		}
+		const changedFlags = {
+			...(featured !== undefined && { featured }),
+			...(hidden !== undefined && { hidden }),
+			...(trackGithub !== undefined && { trackGithub }),
+		}
+		if (Object.keys(changedFlags).length > 0) {
+			const old = mod as unknown as Record<string, unknown>
+			await logStaffAction(req, {
+				action: 'config_change',
+				reason,
+				detail: {
+					modId: mod.id,
+					old: Object.fromEntries(Object.keys(changedFlags).map((k) => [k, old[k] ?? null])),
+					new: changedFlags,
+				},
+			})
+		}
 
 		if ('rankedVersion' in body || rankedCommit !== undefined) {
 			const result =
@@ -367,6 +417,22 @@ router.put('/mods/:modId', async (req, res, next) => {
 		}
 		if ('rankedVersion' in body || rankedCommit !== undefined || smodsIds !== undefined) {
 			await loadConfigFromDb()
+			// A commit pin sets the version itself, so read it back.
+			const newVersion =
+				'rankedVersion' in body
+					? rankedVersion
+					: rankedCommit !== undefined
+						? ((await findModByIdOrFullName(mod.id))?.rankedVersion ?? null)
+						: (mod.rankedVersion ?? null)
+			await logStaffAction(req, {
+				action: 'mod_pin',
+				reason,
+				detail: {
+					modId: mod.id,
+					old: { rankedVersion: mod.rankedVersion ?? null },
+					new: { rankedVersion: newVersion, ...(rankedCommit !== undefined && { rankedCommit: rankedCommit.trim() }), ...(smodsIds !== undefined && { smodsIds }) },
+				},
+			})
 		}
 		res.json({ ok: true })
 	} catch (err) {
@@ -452,6 +518,7 @@ function readCustomModFields(body: Record<string, unknown>) {
 router.post('/mods', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const body = req.body as Record<string, unknown>
 		const { id, title, author } = body
 		if (typeof id !== 'string' || !id) throw new AppError('id is required', 400)
@@ -476,6 +543,11 @@ router.post('/mods', async (req, res, next) => {
 			}),
 		})
 		if (!mod) throw new AppError(`A mod with id '${id}' already exists`, 409)
+		await logStaffAction(req, {
+			action: 'custom_mod_create',
+			reason,
+			detail: { modId: id, title, author },
+		})
 		res.status(201).json(mod)
 	} catch (err) {
 		next(err)
@@ -489,10 +561,12 @@ router.post('/mods', async (req, res, next) => {
 router.put('/mods/:modId/custom', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const body = req.body as Record<string, unknown>
 		const resolved = await resolveSourceInputField(body)
+		const fields = readCustomModFields(body)
 		const mod = await updateCustomMod(req.params.modId, {
-			...readCustomModFields(body),
+			...fields,
 			...(resolved && {
 				latestDownloadUrl: resolved.latestDownloadUrl,
 				latestVersion: resolved.latestVersion,
@@ -500,6 +574,14 @@ router.put('/mods/:modId/custom', async (req, res, next) => {
 			}),
 		})
 		if (!mod) throw new AppError('Custom mod not found', 404)
+		await logStaffAction(req, {
+			action: 'custom_mod_update',
+			reason,
+			detail: {
+				modId: req.params.modId,
+				new: Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)),
+			},
+		})
 		res.json(mod)
 	} catch (err) {
 		next(err)
@@ -511,6 +593,7 @@ router.put('/mods/:modId/custom', async (req, res, next) => {
 router.delete('/mods/:modId', async (req, res, next) => {
 	try {
 		await requireAdmin(req)
+		const reason = requireReason(req)
 		const mod = await findModByIdOrFullName(req.params.modId)
 		if (!mod) throw new AppError('Mod not found', 404)
 		if (!mod.isCustom) {
@@ -520,6 +603,11 @@ router.delete('/mods/:modId', async (req, res, next) => {
 			)
 		}
 		await deleteCustomMod(mod.id)
+		await logStaffAction(req, {
+			action: 'custom_mod_delete',
+			reason,
+			detail: { modId: mod.id },
+		})
 		res.json({ ok: true })
 	} catch (err) {
 		next(err)

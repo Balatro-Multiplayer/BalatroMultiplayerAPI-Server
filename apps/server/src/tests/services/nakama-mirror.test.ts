@@ -151,6 +151,14 @@ describe('runRowsOf: flags and disputes', () => {
 		expect(runRowsOf(run(), ids).match?.resultPlacements[0]).not.toHaveProperty('rated')
 	})
 
+	it('makes no anti-cheat item when every player of the match is flagged, and one when a single player is', () => {
+		const both = runRowsOf(run({ flags: { na: 'hash_mismatch', nb: 'hash_mismatch' } }), ids)
+		expect(both.flagged).toHaveLength(2)
+		expect(both.raiseAntiCheatItems).toBe(false)
+		const one = runRowsOf(run({ flags: { nb: 'hash_mismatch' } }), ids)
+		expect(one.raiseAntiCheatItems).toBe(true)
+	})
+
 	it('takes the run\'s own flags over its log checks', () => {
 		const rows = runRowsOf(run({ flags: { na: 'elapsed_time_gate' } }), ids)
 		expect(rows.logs.map((l) => l.flagReason)).toEqual(['elapsed_time_gate', null])
@@ -249,6 +257,24 @@ describe('chatRowsOf', () => {
 		expect(rows.chat.expiresAt).toEqual(new Date(T0 + 180 * DAY))
 		expect(rows.flaggedMessage?.expiresAt).toEqual(new Date(T0 + 180 * DAY))
 		expect(rows.flaggedMessage).toMatchObject({ matches: { source: 'remote', band: 'high' }, mirrorKey: 'k-chat' })
+	})
+
+	it('stores the guard score with the verdict, and still files the flag with band only', () => {
+		const verdict = { source: 'remote', band: 'review', guardSafety: 'Controversial', guardScore: 0.5, guardContextUsed: true }
+		const rows = chatRowsOf({ ...line(true), line: { ...line(true).line, verdict } }, 'pg-a', null)
+		expect(rows.chat.moderationVerdict).toEqual(verdict)
+		expect(rows.flaggedMessage?.matches).toEqual({ source: 'remote', band: 'review' })
+	})
+
+	it('stores the guard score of a line that was not flagged', () => {
+		const verdict = { source: 'remote', band: 'clean', guardSafety: 'Safe', guardScore: 0.01, guardContextUsed: false }
+		const rows = chatRowsOf({ ...line(false), line: { ...line(false).line, verdict } }, 'pg-a', 'hash')
+		expect(rows.chat).toMatchObject({ flagged: false, moderationVerdict: verdict })
+		expect(rows.flaggedMessage).toBeNull()
+	})
+
+	it('stores no verdict for an older line that has none', () => {
+		expect(chatRowsOf(line(false), 'pg-a', 'hash').chat.moderationVerdict).toBeNull()
 	})
 
 	it('keeps what the local word filter matched as the API wrote it', () => {

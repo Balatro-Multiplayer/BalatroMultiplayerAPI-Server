@@ -1,7 +1,7 @@
 // Reads everything an item's detail page shows: the subject card, and the
 // evidence for its type (evidence/build.ts shapes it). Every Nakama read is
 // best effort -- a missing piece is null, never an error for the page.
-import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, lte, ne, or, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, lte, ne, notInArray, or, sql } from 'drizzle-orm'
 import { db } from '../../../infrastructure/db/index.js'
 import {
 	chatLogs,
@@ -19,14 +19,16 @@ import {
 	reports,
 	serviceQueueItems,
 } from '../../../infrastructure/db/schema.js'
+import { appealHistory, findPunishmentRef, getAppealById } from '../../../infrastructure/gateways/appeal.gateway.js'
+import { loadFlaggedMembers, lobbyConversation } from '../../../infrastructure/gateways/flagged-chat.gateway.js'
 import { listWarnings } from '../../../infrastructure/gateways/warning.gateway.js'
 import { callNakamaRpc } from '../../../infrastructure/nakama/admin-client.js'
-import type { ServiceQueueItemRecord } from '../../../infrastructure/gateways/service-queue.gateway.js'
+import { type ServiceQueueItemRecord, actorNames } from '../../../infrastructure/gateways/service-queue.gateway.js'
 import { numericSourceId, parseAntiCheatSourceId, parseIntegritySourceId } from '../../../shared/service-queue/source-ids.js'
+import { guardReadingOf } from '../flagged-chat.js'
 import { contextOf } from '../types.js'
 import {
 	type ChatLine,
-	chatWindow,
 	conflictSides,
 	explainFlag,
 	flagVerdictOf,
@@ -41,7 +43,6 @@ import {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const DAY_MS = 24 * 60 * 60 * 1000
-const CHAT_RADIUS = 10
 
 // ---------------------------------------------------------------------------
 // Shared reads
@@ -280,81 +281,68 @@ async function reportEvidence(item: ServiceQueueItemRecord) {
 	}
 }
 
+// A flagged chat item: the whole lobby conversation, the player's flagged
+// messages marked with their bands and guard scores, and the player's other
+// flags of the last 30 days.
 async function flaggedChatEvidence(item: ServiceQueueItemRecord, now: Date) {
-	const id = numericSourceId(item.sourceId)
-	const [flag] = id === null ? [] : await db.select().from(flaggedMessages).where(eq(flaggedMessages.id, id)).limit(1)
-	if (!flag) return null
-	const [line] = flag.mirrorKey
-		? await db.select().from(chatLogs).where(eq(chatLogs.mirrorKey, flag.mirrorKey)).limit(1)
-		: []
-	const context = line ? await chatAround(line) : []
-	const [otherFlags, mute] = await Promise.all([
+	const members = await loadFlaggedMembers(item)
+	const first = members[0]
+	if (!first) return null
+	const playerId = item.subjectPlayerId ?? first.playerId
+	const flaggedByLine = new Map(members.flatMap((m) => (m.line ? [[m.line.id, m.flaggedMessageId] as const] : [])))
+	const conversation = await lobbyConversation(members)
+	const [otherFlags, mute, names] = await Promise.all([
 		db
 			.select({ id: flaggedMessages.id, message: flaggedMessages.message, matches: flaggedMessages.matches, flaggedAt: flaggedMessages.flaggedAt })
 			.from(flaggedMessages)
 			.where(
 				and(
-					eq(flaggedMessages.playerId, flag.playerId),
-					ne(flaggedMessages.id, flag.id),
+					eq(flaggedMessages.playerId, playerId),
+					notInArray(flaggedMessages.id, members.map((m) => m.flaggedMessageId)),
 					gte(flaggedMessages.flaggedAt, new Date(now.getTime() - 30 * DAY_MS)),
 				),
 			)
 			.orderBy(desc(flaggedMessages.flaggedAt))
 			.limit(50),
-		UUID.test(flag.playerId)
+		UUID.test(playerId)
 			? db
 					.select({ id: playerBans.id, expiresAt: playerBans.expiresAt, liftedAt: playerBans.liftedAt })
 					.from(playerBans)
-					.where(and(eq(playerBans.playerId, flag.playerId), eq(playerBans.banType, 'chat')))
+					.where(and(eq(playerBans.playerId, playerId), eq(playerBans.banType, 'chat')))
 			: [],
+		miniCards([...new Set(conversation.map((l) => l.playerId))]),
 	])
-	const names = await miniCards([...new Set(context.map((l) => l.playerId))])
+	const lobby = first.line
 	return {
-		message: flag,
-		verdict: flagVerdictOf(flag.matches),
-		moderationVerdict: line?.moderationVerdict ?? null,
-		source: line ? { lobbyCode: line.lobbyCode, lobbyId: line.lobbyId, sentAt: line.sentAt, chatLogId: line.id } : null,
-		context: markChat(
-			context.map((l) => ({
+		playerId,
+		messages: members.map((m) => {
+			const guard = guardReadingOf(m.line?.moderationVerdict)
+			return {
+				id: m.flaggedMessageId,
+				message: m.message,
+				flaggedAt: m.flaggedAt,
+				sentAt: m.line?.sentAt ?? m.flaggedAt,
+				verdict: flagVerdictOf(m.matches),
+				guardScore: guard.score,
+				band: guard.band,
+				contextUsed: guard.contextUsed,
+			}
+		}),
+		source: lobby ? { lobbyCode: lobby.lobbyCode, lobbyId: lobby.lobbyId } : null,
+		conversation: markChat(
+			conversation.map((l) => ({
 				playerId: l.playerId,
 				displayName: names.get(l.playerId)?.name ?? null,
 				message: l.message,
 				sentAt: l.sentAt,
 				flagged: l.flagged,
+				flaggedMessageId: flaggedByLine.get(l.id) ?? null,
 			})),
-			flag.playerId,
-		).map((l, i) => ({ ...l, isFlaggedLine: context[i]?.id === line?.id })),
+			playerId,
+		),
 		otherFlags: otherFlags.map((f) => ({ ...f, verdict: flagVerdictOf(f.matches) })),
 		alreadyMuted: splitBans(mute, now).active.length > 0,
 	}
-}
-
-// The lines around a chat line: the same lobby instance when known, else the
-// same code within an hour either side.
-async function chatAround(line: typeof chatLogs.$inferSelect) {
-	const scope = line.lobbyId
-		? eq(chatLogs.lobbyId, line.lobbyId)
-		: and(
-				eq(chatLogs.lobbyCode, line.lobbyCode),
-				gte(chatLogs.sentAt, new Date(line.sentAt.getTime() - 60 * 60 * 1000)),
-				lte(chatLogs.sentAt, new Date(line.sentAt.getTime() + 60 * 60 * 1000)),
-			)
-	const [before, after] = await Promise.all([
-		db
-			.select()
-			.from(chatLogs)
-			.where(and(scope, or(sql`${chatLogs.sentAt} < ${line.sentAt}`, and(eq(chatLogs.sentAt, line.sentAt), sql`${chatLogs.id} < ${line.id}`))))
-			.orderBy(desc(chatLogs.sentAt), desc(chatLogs.id))
-			.limit(CHAT_RADIUS),
-		db
-			.select()
-			.from(chatLogs)
-			.where(and(scope, or(sql`${chatLogs.sentAt} > ${line.sentAt}`, and(eq(chatLogs.sentAt, line.sentAt), sql`${chatLogs.id} > ${line.id}`))))
-			.orderBy(asc(chatLogs.sentAt), asc(chatLogs.id))
-			.limit(CHAT_RADIUS),
-	])
-	const lines = [...before.reverse(), line, ...after]
-	return chatWindow(lines, before.length, CHAT_RADIUS)
 }
 
 async function matchConflictEvidence(item: ServiceQueueItemRecord) {
@@ -600,6 +588,47 @@ async function integrityEvidence(item: ServiceQueueItemRecord) {
 	}
 }
 
+// An appeal: what the player wrote, the punishment it is about (none for a
+// network ban, whose ban ids and networks staff never see here), and the
+// appeals they made before for the same target.
+async function appealEvidence(item: ServiceQueueItemRecord) {
+	const appeal = await getAppealById(item.sourceId)
+	if (!appeal) return null
+	const punishment = appeal.punishmentId ? await findPunishmentRef(appeal.punishmentId) : null
+	const earlier = (await appealHistory(appeal.playerId, appeal.punishmentId)).filter((a) => a.id !== appeal.id)
+	const names = punishment ? await actorNames([punishment.issuedBy]) : {}
+	return {
+		appeal: {
+			id: appeal.id,
+			message: appeal.message,
+			status: appeal.status,
+			createdAt: appeal.createdAt,
+			decisionReason: appeal.decisionReason,
+			decidedAt: appeal.decidedAt,
+			outcome: appeal.outcome,
+		},
+		target: appeal.targetKind,
+		punishment: punishment
+			? {
+					id: punishment.id,
+					type: punishment.banType ?? 'warning',
+					reason: punishment.reason,
+					issuedBy: punishment.issuedBy,
+					issuedByName: names[punishment.issuedBy] ?? null,
+					expiresAt: punishment.expiresAt,
+					liftedAt: punishment.liftedAt,
+				}
+			: null,
+		earlier: earlier.map((a) => ({
+			status: a.status,
+			message: a.message,
+			decisionReason: a.decisionReason,
+			createdAt: a.createdAt,
+			decidedAt: a.decidedAt,
+		})),
+	}
+}
+
 export async function evidenceOf(item: ServiceQueueItemRecord, now: Date): Promise<unknown> {
 	switch (item.itemType) {
 		case 'report':
@@ -616,6 +645,8 @@ export async function evidenceOf(item: ServiceQueueItemRecord, now: Date): Promi
 			return antiCheatEvidence(item)
 		case 'integrity':
 			return integrityEvidence(item)
+		case 'appeal':
+			return appealEvidence(item)
 		default:
 			return null
 	}

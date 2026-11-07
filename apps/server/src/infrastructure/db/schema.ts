@@ -156,6 +156,9 @@ export const serverConfig = pgTable('server_config', {
 	achievementsEnabled: boolean('achievements_enabled')
 		.notNull()
 		.default(true),
+	// The strike ladders' steps (features/strikes/ladder.ts). Null: the defaults.
+	chatLadderSteps: jsonb('chat_ladder_steps'),
+	playLadderSteps: jsonb('play_ladder_steps'),
 	updatedAt: timestamp('updated_at', { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -324,10 +327,9 @@ export const forfeitReconciliationFlags = pgTable(
 // (reports, match_result_conflicts, forfeit_reconciliation_flags): reports.status
 // has a real independent reader today (the player-scoped GET /api/reports/:id
 // status page) so it must stay accurate -- resolving one of those 3 types
-// writes BOTH the source table's own status column (via the existing
-// resolveReport/resolveMatchConflict/dismissForfeitReconciliationFlag/
-// voidForfeitReconciliationFlag gateway functions, unchanged) and this row's
-// status, in one transaction. For the 2 gap types (flagged_chat, anti_cheat)
+// writes BOTH the source table's own status column (via the queue's
+// setReportStatus/setMatchConflictStatus/setForfeitFlagStatus writes) and this
+// row's status, in one transaction. For the 2 gap types (flagged_chat, anti_cheat)
 // -- confirmed via grep to have zero other readers of any status-like
 // concept -- this table alone is authoritative; no status column was added
 // to flagged_messages or match_run_logs for this.
@@ -452,8 +454,57 @@ export const playerWarnings = pgTable(
 		issuedAt: timestamp('issued_at', { withTimezone: true })
 			.notNull()
 			.defaultNow(),
+		// Set when staff lift the warning (a granted appeal); a lifted warning no longer counts as a strike.
+		liftedAt: timestamp('lifted_at', { withTimezone: true }),
+		liftedBy: text('lifted_by'),
 	},
 	(t) => [index('player_warnings_player_idx').on(t.playerId)],
+)
+
+// A player's appeal of one punishment, or of the network ban that blocks them.
+// Each one is also a service queue item (itemType 'appeal', sourceId = this id).
+// A punishment is a player_bans or player_warnings row, told apart by id alone.
+export const appeals = pgTable(
+	'appeals',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		playerId: uuid('player_id')
+			.notNull()
+			.references(() => players.id),
+		// 'punishment' | 'network_ban'
+		targetKind: varchar('target_kind', { length: 16 }).notNull(),
+		punishmentId: uuid('punishment_id'),
+		// The network bans that covered the player's address when they appealed.
+		networkBanIds: jsonb('network_ban_ids').notNull().default(sql`'[]'::jsonb`),
+		message: text('message').notNull(),
+		// 'open' | 'denied' | 'granted'
+		status: varchar('status', { length: 16 }).notNull().default('open'),
+		decisionReason: text('decision_reason'),
+		// 'lifted' | 'shortened' on a granted appeal
+		outcome: varchar('outcome', { length: 16 }),
+		decidedBy: text('decided_by'),
+		decidedAt: timestamp('decided_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [
+		index('appeals_player_idx').on(t.playerId, t.createdAt),
+		index('appeals_punishment_idx').on(t.punishmentId),
+	],
+)
+
+// A staff note on a player (the player page). Staff read it; the player never does.
+export const playerNotes = pgTable(
+	'player_notes',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		playerId: uuid('player_id')
+			.notNull()
+			.references(() => players.id),
+		authorId: uuid('author_id').notNull(),
+		note: text('note').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [index('player_notes_player_idx').on(t.playerId, t.createdAt)],
 )
 
 // Unused since the move to Nakama (which holds disconnect grace itself); kept
@@ -1010,4 +1061,74 @@ export const launcherIntegrityEvents = pgTable(
 			.defaultNow(),
 	},
 	(t) => [index('launcher_integrity_events_player_idx').on(t.playerId)],
+)
+
+// The staff log: one row per staff action with who, when, whom and the reason
+// (shared/staff-log/actions.ts). Rows from before the log hold an empty reason.
+export const staffLog = pgTable(
+	'staff_log',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		staffPlayerId: uuid('staff_player_id').notNull(),
+		staffRole: varchar('staff_role', { length: 16 }).notNull(),
+		action: varchar('action', { length: 32 }).notNull(),
+		targetPlayerId: uuid('target_player_id'),
+		// The queue item the action was taken on. No foreign key: the log outlives the item.
+		itemId: integer('item_id'),
+		reason: text('reason').notNull(),
+		detail: jsonb('detail'),
+		at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [
+		index('staff_log_at_idx').on(t.at),
+		index('staff_log_staff_idx').on(t.staffPlayerId, t.at),
+		index('staff_log_target_idx').on(t.targetPlayerId, t.at),
+	],
+)
+
+// One training label for one flagged chat message, saved when staff decide
+// the flagged chat item that holds it. No player id: it is training data.
+export const chatReviewLabels = pgTable(
+	'chat_review_labels',
+	{
+		id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+		// The queue item that was decided and the flagged message in it; one label
+		// for each pair, so a reopened and decided item replaces its labels.
+		itemId: integer('item_id').notNull(),
+		flaggedMessageId: integer('flagged_message_id').notNull(),
+		message: text('message').notNull(),
+		// The lines said before the message in its lobby, oldest first.
+		context: jsonb('context').notNull().default(sql`'[]'::jsonb`),
+		// The guard's score and the moderation band; null when the guard did not judge it.
+		score: doublePrecision('score'),
+		band: varchar('band', { length: 64 }),
+		// 'not_harmful' | 'harmful_no_action' | 'harmful' (features/service-queue/flagged-chat.ts).
+		label: varchar('label', { length: 32 }).notNull(),
+		decidedAt: timestamp('decided_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [uniqueIndex('chat_review_labels_item_message_idx').on(t.itemId, t.flaggedMessageId)],
+)
+
+// One punishment counted on a strike ladder (features/strikes/ladder.ts). The
+// strike counts for 3 months from issuedAt, and stops counting at once when its
+// punishment is lifted (a warning is lifted only by a granted appeal). It keeps the recommended step and,
+// when staff picked another, the reason they gave.
+export const playerStrikes = pgTable(
+	'player_strikes',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		playerId: uuid('player_id')
+			.notNull()
+			.references(() => players.id),
+		ladder: varchar('ladder', { length: 8 }).notNull(),
+		banId: uuid('ban_id').references(() => playerBans.id),
+		warningId: uuid('warning_id').references(() => playerWarnings.id),
+		recommendedStep: varchar('recommended_step', { length: 16 }).notNull(),
+		appliedStep: varchar('applied_step', { length: 16 }).notNull(),
+		deviationReason: text('deviation_reason'),
+		issuedAt: timestamp('issued_at', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [index('player_strikes_player_idx').on(t.playerId, t.ladder)],
 )

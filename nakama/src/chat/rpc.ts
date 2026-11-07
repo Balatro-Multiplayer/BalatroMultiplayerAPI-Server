@@ -17,6 +17,7 @@ import { playerView, profileFor, updateProfile, type Profile } from '../player/p
 import { parsePayload, requireUser } from '../rpc'
 import { type LobbySignal, lobbyIdOf } from '../lobby/protocol'
 import {
+	type GuardResult,
 	MAX_MESSAGE_LENGTH,
 	REVIEW_BAND,
 	callModeration,
@@ -109,7 +110,8 @@ export function rpcChatSend(
 		lobbyKind: lobbyKindOfLabel(match ? match.label : null),
 	}
 
-	let flag: ChatVerdict | null = null
+	let flagged = false
+	let verdict: ChatVerdict | null = null
 	if (!isAllowlisted(message, config.chatAllowlist)) {
 		if (settingsOf(ctx).moderationRemote) {
 			const outcome = decideModerationOutcome(
@@ -124,17 +126,24 @@ export function rpcChatSend(
 				if (outcome.reason === 'moderated') {
 					// The service keeps no message content, so this is the only
 					// record of what was blocked.
-					logChat(nk, logger, lobby, userId, message, { source: 'remote', band: outcome.band || 'unknown' })
+					logChat(nk, logger, lobby, userId, message, true, {
+						source: 'remote',
+						band: outcome.band || 'unknown',
+						...guardFields(outcome.guard),
+					})
 					throw runtimeError(PERMISSION_DENIED, 'Message blocked by moderation')
 				}
 				throw runtimeError(UNAVAILABLE, 'Chat is unavailable right now')
 			}
-			// Published, and flagged so a moderator sees it.
-			if (outcome.review) flag = { source: 'remote', band: REVIEW_BAND }
+			// Published. A review message is flagged so a moderator sees it. Any
+			// message the guard judged keeps its score.
+			flagged = outcome.review
+			if (outcome.review) verdict = { source: 'remote', band: REVIEW_BAND, ...guardFields(outcome.guard) }
+			else if (outcome.guard) verdict = { source: 'remote', band: outcome.band || 'unknown', ...guardFields(outcome.guard) }
 		} else {
 			const matches = obscenityMatches(message)
 			if (matches.length > 0) {
-				logChat(nk, logger, lobby, userId, message, { source: 'local', matches })
+				logChat(nk, logger, lobby, userId, message, true, { source: 'local', matches })
 				throw runtimeError(PERMISSION_DENIED, 'Message blocked by moderation')
 			}
 		}
@@ -144,8 +153,12 @@ export function rpcChatSend(
 		current.matchId,
 		JSON.stringify({ type: 'chat_post', userId, text: message } as LobbySignal),
 	)
-	logChat(nk, logger, lobby, userId, message, flag)
+	logChat(nk, logger, lobby, userId, message, flagged, verdict)
 	return JSON.stringify({ text: message })
+}
+
+function guardFields(guard: GuardResult | undefined) {
+	return guard ? { guardSafety: guard.safety, guardScore: guard.score, guardContextUsed: guard.contextUsed } : {}
 }
 
 // Queues a chat line for the API's chat log (mirror/outbox.ts). A flagged line
@@ -156,13 +169,14 @@ function logChat(
 	lobby: Pick<ChatLogLine, 'lobbyCode' | 'lobbyId' | 'lobbyKind'>,
 	userId: string,
 	message: string,
-	flag: ChatVerdict | null,
+	flagged: boolean,
+	verdict: ChatVerdict | null,
 ) {
 	try {
 		enqueue(nk, {
 			kind: 'chat',
 			at: Date.now(),
-			line: { ...lobby, userId, message, flagged: flag !== null, verdict: flag },
+			line: { ...lobby, userId, message, flagged, verdict },
 		})
 	} catch (e) {
 		logger.error('Could not queue a chat line for the API: %v', e)

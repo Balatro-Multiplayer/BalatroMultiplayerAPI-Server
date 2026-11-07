@@ -489,11 +489,33 @@ describe('createModerationService', () => {
 	})
 
 	describe('verdict-only shape', () => {
-		it('behaves byte-identically for a clean message', async () => {
+		it('returns the guard score, safety level and context use for a message the guard judged', async () => {
+			const s = createModerationService({ guard: threatGuard() })
+			const r = await s.moderate(req('i will hurt you'))
+			expect(r).toMatchObject({ guardSafety: 'Unsafe', guardScore: 0.9, guardContextUsed: false })
+		})
+
+		it('returns no guard fields when the guard did not judge', async () => {
+			const s = createModerationService({ guard: safeGuard() })
+			const r = await s.moderate(req('k1ll y0urs3lf'))
+			expect(r.band).toBe('blocklist')
+			expect(r).not.toHaveProperty('guardScore')
+			expect(r).not.toHaveProperty('guardSafety')
+			expect(r).not.toHaveProperty('guardContextUsed')
+		})
+
+		it('answers a clean message with its band and the guard result', async () => {
 			const clock = () => 1000
 			const s = createModerationService({ guard: safeGuard(), clock })
 			const r = await s.moderate(req('hello there'))
-			expect(r).toEqual({ verdict: 'allow', band: 'clean', latency_ms: 0 })
+			expect(r).toEqual({
+				verdict: 'allow',
+				band: 'clean',
+				guardSafety: 'Safe',
+				guardScore: 0.1,
+				guardContextUsed: false,
+				latency_ms: 0,
+			})
 		})
 	})
 

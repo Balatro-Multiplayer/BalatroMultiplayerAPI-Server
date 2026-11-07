@@ -123,16 +123,6 @@ export async function setAdditionalDetail(
 	return row ?? null
 }
 
-/** Marks a report resolved (one-way, no notes). */
-export async function resolveReport(id: number): Promise<ReportRecord | null> {
-	const [row] = await db
-		.update(reports)
-		.set({ status: 'resolved' })
-		.where(eq(reports.id, id))
-		.returning()
-	return row ?? null
-}
-
 // The service queue's write (inside its transaction): the report follows its
 // queue item (reopen sets it open again).
 export async function setReportStatus(

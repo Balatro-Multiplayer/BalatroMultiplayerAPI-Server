@@ -2,6 +2,7 @@ import request from 'supertest'
 import { describe, expect, it, vi } from 'vitest'
 import { signJwt } from '../../features/auth/jwt.js'
 import * as modsSyncService from '../../features/mods/mods-sync.service.js'
+import { recordStaffAction } from '../../infrastructure/gateways/staff-log.gateway.js'
 import * as playerGateway from '../../infrastructure/gateways/player.gateway.js'
 import { createSession } from '../../state/index.js'
 import { createTestApp } from './app.js'
@@ -50,6 +51,7 @@ describe('POST /api/webadmin/mods/sync', () => {
 		const res = await request(app)
 			.post('/api/webadmin/mods/sync')
 			.set('Authorization', token)
+			.send({ reason: 'catalog is stale' })
 
 		expect(res.status).toBe(200)
 		expect(res.body).toEqual({
@@ -59,6 +61,19 @@ describe('POST /api/webadmin/mods/sync', () => {
 			skipped: 2,
 		})
 		expect(modsSyncService.syncModRegistry).toHaveBeenCalledTimes(1)
+		expect(recordStaffAction).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ action: 'mods_sync', reason: 'catalog is stale' }),
+		)
+	})
+
+	it('refuses a sync with no reason', async () => {
+		vi.mocked(modsSyncService.syncModRegistry).mockClear()
+		const res = await request(app)
+			.post('/api/webadmin/mods/sync')
+			.set('Authorization', authAsAdmin('admin-sync-3', 'Admin3'))
+		expect(res.status).toBe(400)
+		expect(modsSyncService.syncModRegistry).not.toHaveBeenCalled()
 	})
 
 	it('propagates a sync failure as a 500 rather than swallowing it', async () => {
@@ -70,6 +85,7 @@ describe('POST /api/webadmin/mods/sync', () => {
 		const res = await request(app)
 			.post('/api/webadmin/mods/sync')
 			.set('Authorization', token)
+			.send({ reason: 'retry' })
 
 		expect(res.status).toBe(500)
 	})

@@ -1,21 +1,17 @@
-import { env } from '../../env.js'
+import type { Request } from 'express'
 import { findPlayerById } from '../../infrastructure/gateways/player.gateway.js'
 import { AppError } from './errors.js'
+import { isOwnerId } from './staff-role.js'
 
-// The owner is the admin whose player id is OWNER_PLAYER_ID. With no id set
-// nobody is the owner.
-export function isOwner(playerId: string, privileges: readonly string[]): boolean {
-	return (
-		env.OWNER_PLAYER_ID !== '' &&
-		playerId === env.OWNER_PLAYER_ID &&
-		privileges.includes('admin')
-	)
+// The owner is the player in OWNER_PLAYER_ID, always an admin.
+export function isOwner(playerId: string): boolean {
+	return isOwnerId(playerId)
 }
 
-export async function requireOwner(req: import('express').Request): Promise<void> {
+export async function requireOwner(req: Request): Promise<void> {
 	const playerId = req.player!.playerId
 	const player = await findPlayerById(playerId)
-	if (!isOwner(playerId, player?.privileges ?? [])) {
+	if (!player || !isOwner(playerId)) {
 		throw new AppError('Owner privileges required', 403)
 	}
 }

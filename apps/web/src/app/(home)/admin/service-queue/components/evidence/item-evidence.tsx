@@ -1,6 +1,7 @@
 'use client'
 
 import type { ItemDetail, TypedEvidence } from '../../lib/types'
+import { AppealEvidence } from './appeal-evidence'
 import { ContestEvidence } from './contest-evidence'
 import { AntiCheatEvidence } from './anti-cheat-evidence'
 import { FlaggedChatEvidence } from './flagged-chat-evidence'
@@ -42,5 +43,7 @@ export function ItemEvidence({
       return <AntiCheatEvidence evidence={t.evidence} names={names} />
     case 'integrity':
       return <IntegrityEvidence evidence={t.evidence} />
+    case 'appeal':
+      return <AppealEvidence evidence={t.evidence} />
   }
 }

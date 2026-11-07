@@ -47,7 +47,7 @@ describe('GET /api/webadmin/config', () => {
 			queueAllowedModIds: ['MultiplayerPvP'],
 		})
 
-		const token = authAsModerator('mod-cfg-1', 'Mod')
+		const token = authAsAdmin('mod-cfg-1', 'Mod')
 		const res = await request(app).get('/api/webadmin/config').set('Authorization', token)
 
 		expect(res.status).toBe(200)
@@ -77,7 +77,7 @@ describe('the Notice version', () => {
 		const res = await request(app)
 			.patch('/api/webadmin/config/tos-version')
 			.set('Authorization', token)
-			.send({ tosVersion: 5 })
+			.send({ reason: 'test', tosVersion: 5 })
 
 		expect(res.status).toBe(404)
 	})
@@ -89,7 +89,7 @@ describe('PATCH /api/webadmin/config/feature-flags', () => {
 		const res = await request(app)
 			.patch('/api/webadmin/config/feature-flags')
 			.set('Authorization', token)
-			.send({ rankedEnabled: false })
+			.send({ reason: 'test', rankedEnabled: false })
 
 		expect(res.status).toBe(403)
 	})
@@ -99,7 +99,7 @@ describe('PATCH /api/webadmin/config/feature-flags', () => {
 		const res = await request(app)
 			.patch('/api/webadmin/config/feature-flags')
 			.set('Authorization', token)
-			.send({ chatEnabled: 'yes' })
+			.send({ reason: 'test', chatEnabled: 'yes' })
 
 		expect(res.status).toBe(400)
 	})
@@ -109,7 +109,7 @@ describe('PATCH /api/webadmin/config/feature-flags', () => {
 		const res = await request(app)
 			.patch('/api/webadmin/config/feature-flags')
 			.set('Authorization', token)
-			.send({})
+			.send({ reason: 'test' })
 
 		expect(res.status).toBe(400)
 	})
@@ -132,7 +132,7 @@ describe('PATCH /api/webadmin/config/feature-flags', () => {
 		const res = await request(app)
 			.patch('/api/webadmin/config/feature-flags')
 			.set('Authorization', token)
-			.send({ rankedEnabled: false })
+			.send({ reason: 'test', rankedEnabled: false })
 
 		expect(res.status).toBe(200)
 		expect(res.body.rankedEnabled).toBe(false)
@@ -161,7 +161,7 @@ describe('PATCH /api/webadmin/config/feature-flags', () => {
 		const res = await request(app)
 			.patch('/api/webadmin/config/feature-flags')
 			.set('Authorization', token)
-			.send({ achievementsEnabled: true })
+			.send({ reason: 'test', achievementsEnabled: true })
 
 		expect(res.status).toBe(200)
 		expect(res.body.achievementsEnabled).toBe(true)
@@ -176,7 +176,7 @@ describe('PUT /api/webadmin/config/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/config/mods/MultiplayerPvP')
 			.set('Authorization', token)
-			.send({ displayName: 'PvP', version: '1.0.0', downloadUrl: 'https://example.com' })
+			.send({ reason: 'test', displayName: 'PvP', version: '1.0.0', downloadUrl: 'https://example.com' })
 
 		expect(res.status).toBe(403)
 	})
@@ -186,7 +186,7 @@ describe('PUT /api/webadmin/config/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/config/mods/MultiplayerPvP')
 			.set('Authorization', token)
-			.send({ displayName: 'PvP', version: '1.0.0' })
+			.send({ reason: 'test', displayName: 'PvP', version: '1.0.0' })
 
 		expect(res.status).toBe(400)
 	})
@@ -206,7 +206,7 @@ describe('PUT /api/webadmin/config/mods/:modId', () => {
 		const res = await request(app)
 			.put('/api/webadmin/config/mods/MultiplayerPvP')
 			.set('Authorization', token)
-			.send({ displayName: 'PvP', version: '2.0.0', downloadUrl: 'https://example.com' })
+			.send({ reason: 'test', displayName: 'PvP', version: '2.0.0', downloadUrl: 'https://example.com' })
 
 		expect(res.status).toBe(200)
 		expect(res.body.mods).toEqual([
@@ -221,7 +221,7 @@ describe('POST/DELETE /api/webadmin/config/chat-allowlist', () => {
 		const res = await request(app)
 			.post('/api/webadmin/config/chat-allowlist')
 			.set('Authorization', token)
-			.send({ message: 'gg' })
+			.send({ reason: 'test', message: 'gg' })
 
 		expect(res.status).toBe(403)
 	})
@@ -241,7 +241,7 @@ describe('POST/DELETE /api/webadmin/config/chat-allowlist', () => {
 		const res = await request(app)
 			.post('/api/webadmin/config/chat-allowlist')
 			.set('Authorization', token)
-			.send({ message: 'gg' })
+			.send({ reason: 'test', message: 'gg' })
 
 		expect(res.status).toBe(200)
 		expect(res.body.chatAllowlist).toEqual(['gg'])
@@ -251,7 +251,7 @@ describe('POST/DELETE /api/webadmin/config/chat-allowlist', () => {
 		const token = authAsModerator('mod-cfg-5', 'Mod5')
 		const res = await request(app)
 			.delete('/api/webadmin/config/chat-allowlist/gg')
-			.set('Authorization', token)
+			.set('Authorization', token).send({ reason: 'test' })
 
 		expect(res.status).toBe(403)
 	})
@@ -264,7 +264,7 @@ describe('POST/DELETE /api/webadmin/config/chat-allowlist', () => {
 		const res = await request(app)
 			.patch('/api/webadmin/config/feature-flags')
 			.set('Authorization', token)
-			.send({ queueModsEnforced: false })
+			.send({ reason: 'test', queueModsEnforced: false })
 
 		expect(res.status).toBe(400)
 		expect(update).not.toHaveBeenCalled()

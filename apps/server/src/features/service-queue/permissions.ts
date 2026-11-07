@@ -6,6 +6,7 @@ import { expiresAtOf } from './durations.js'
 import {
 	type ActionKey,
 	BAN_DURATIONS,
+	ITEM_TYPES,
 	CHAT_MUTE_DURATIONS,
 	type Duration,
 	type ItemStatus,
@@ -40,8 +41,13 @@ const ALL: readonly ItemType[] = [
 export const ACTION_RULES: Readonly<Record<ActionKey, ActionRule>> = {
 	dismiss: { itemTypes: ALL, status: 'open', minRole: 'moderator' },
 	// A contest is settled by its outcome (dismiss, void, overturn, a punishment),
-	// never by a bare resolve.
-	resolve: { itemTypes: ALL.filter((t) => t !== 'contest'), status: 'open', minRole: 'moderator' },
+	// never by a bare resolve. Flagged chat is settled by a dismiss or a
+	// punishment, which are the decisions that label its messages.
+	resolve: {
+		itemTypes: ALL.filter((t) => t !== 'contest' && t !== 'flagged_chat'),
+		status: 'open',
+		minRole: 'moderator',
+	},
 	warn: {
 		itemTypes: ['report', 'flagged_chat', 'match_conflict', 'contest', 'anti_cheat', 'integrity'],
 		status: 'open',
@@ -52,7 +58,12 @@ export const ACTION_RULES: Readonly<Record<ActionKey, ActionRule>> = {
 		itemTypes: ['report', 'flagged_chat', 'contest'],
 		status: 'open',
 		minRole: 'moderator',
-		presets: { '24h': 'moderator', '7d': 'moderator', '30d': 'moderator', permanent: 'admin' },
+		presets: {
+			'24h': 'moderator',
+			'7d': 'moderator',
+			'30d': 'moderator',
+			permanent: 'moderator',
+		},
 		targeted: true,
 		destructive: true,
 	},
@@ -60,7 +71,12 @@ export const ACTION_RULES: Readonly<Record<ActionKey, ActionRule>> = {
 		itemTypes: ['report', 'match_conflict', 'contest', 'anti_cheat', 'integrity'],
 		status: 'open',
 		minRole: 'moderator',
-		presets: { '7d': 'moderator', '30d': 'admin', permanent: 'admin' },
+		presets: {
+			'24h': 'moderator',
+			'7d': 'moderator',
+			'30d': 'moderator',
+			permanent: 'moderator',
+		},
 		targeted: true,
 		destructive: true,
 	},
@@ -73,14 +89,24 @@ export const ACTION_RULES: Readonly<Record<ActionKey, ActionRule>> = {
 		destructive: true,
 	},
 	void: {
-		itemTypes: ['match_conflict', 'forfeit_reconciliation', 'contest', 'anti_cheat'],
+		itemTypes: [
+			'match_conflict',
+			'forfeit_reconciliation',
+			'contest',
+			'anti_cheat',
+		],
 		status: 'open',
-		minRole: 'admin',
+		minRole: 'moderator',
 		destructive: true,
 	},
-	overturn: { itemTypes: ['match_conflict', 'contest'], status: 'open', minRole: 'admin', destructive: true },
+	overturn: {
+		itemTypes: ['match_conflict', 'contest'],
+		status: 'open',
+		minRole: 'moderator',
+		destructive: true,
+	},
 	reopen: { itemTypes: ALL, status: 'resolved', minRole: 'moderator' },
-	unban: { itemTypes: ALL, status: 'any', minRole: 'moderator', destructive: true },
+	unban: { itemTypes: ALL, status: 'any', minRole: 'admin', destructive: true },
 	note: { itemTypes: ALL, status: 'any', minRole: 'moderator' },
 }
 
@@ -151,11 +177,26 @@ export function allowedActionsFor(
 	return allowed
 }
 
+// The item types a role sees in the queue: those it may act on in some
+// status, plus appeals, which the appeal route decides outside the action
+// table. The staff log shows a moderator only entries on items of these types.
+export function itemTypesVisibleTo(role: StaffRole): ItemType[] {
+	return ITEM_TYPES.filter(
+		(itemType) =>
+			itemType === 'appeal' ||
+			(['open', 'resolved'] as const).some((status) =>
+				(Object.keys(ACTION_RULES) as ActionKey[]).some((action) =>
+					permissionFor(action, { itemType, status }, role).ok,
+				),
+			),
+	)
+}
+
 export type BanKind = 'chat' | 'queue' | 'account'
 
-// Lifting a ban: moderators lift chat and queue bans, admins any.
-export function mayLiftBan(role: StaffRole, banType: BanKind): boolean {
-	return banType === 'account' ? role === 'admin' : true
+// Lifting a punishment is for admins, of any kind.
+export function mayLiftBan(role: StaffRole, _banType: BanKind): boolean {
+	return role === 'admin'
 }
 
 // The queue action whose presets govern a ban of each kind.
@@ -168,22 +209,27 @@ const BAN_ACTION: Readonly<Record<BanKind, ActionKey>> = {
 // A client computes expiresAt a moment before the request lands.
 const DIRECT_BAN_SLACK_MS = 60 * 1000
 
-// A ban issued outside the queue (the players page: any expiry) held to the
-// same table: the role must meet the ban's action, and the expiry may run no
-// longer than the longest preset that role may pick (permanent only when the
-// role may pick 'permanent'). Moderators: chat bans up to 30 days, queue bans
-// up to 7; admins: everything.
-export function mayIssueBan(role: StaffRole, banType: BanKind, expiresAt: Date | null, now: Date): boolean {
+// A ban issued outside the queue (the players page) held to the same table:
+// the role must meet the ban's action, and a role below admin picks one of the
+// presets the action offers it (a custom length is an admin's).
+export function mayIssueBan(
+	role: StaffRole,
+	banType: BanKind,
+	expiresAt: Date | null,
+	now: Date,
+): boolean {
+	if (role === 'admin') return true
 	const rule = ACTION_RULES[BAN_ACTION[banType]]
 	if (!roleMeets(role, rule.minRole)) return false
-	const presets = (Object.keys(rule.presets ?? {}) as Duration[]).filter((p) => {
-		const least = rule.presets?.[p]
-		return least !== undefined && roleMeets(role, least)
-	})
-	if (expiresAt === null) return presets.includes('permanent')
-	const longest = Math.max(
-		...presets.map((p) => expiresAtOf(p, now)?.getTime() ?? Number.POSITIVE_INFINITY),
-		Number.NEGATIVE_INFINITY,
+	const presets = (Object.keys(rule.presets ?? {}) as Duration[]).filter(
+		(p) => {
+			const least = rule.presets?.[p]
+			return least !== undefined && roleMeets(role, least)
+		},
 	)
-	return expiresAt.getTime() <= longest + DIRECT_BAN_SLACK_MS
+	return presets.some((p) => {
+		const end = expiresAtOf(p, now)
+		if (expiresAt === null || end === null) return expiresAt === end
+		return Math.abs(expiresAt.getTime() - end.getTime()) <= DIRECT_BAN_SLACK_MS
+	})
 }

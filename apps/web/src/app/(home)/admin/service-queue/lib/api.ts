@@ -1,9 +1,10 @@
 // The service queue's routes (apps/server webadmin/service-queue.route.ts),
 // and the query keys their caches live under.
-import { ApiError, apiFetch } from '@/lib/api'
+import { ApiError, apiFetch, apiFetchBlob } from '@/lib/api'
 import type {
   ActionBody,
   ActionResult,
+  AutomaticGroup,
   Claim,
   ItemDetail,
   ItemEvents,
@@ -17,6 +18,7 @@ import type {
 const BASE = '/webadmin/service-queue'
 
 export interface ListFilters {
+  lane: 'main' | null
   itemType: ItemType | null
   status: StatusFilter
   sort: QueueSort
@@ -29,6 +31,7 @@ export interface ListFilters {
 export const queueKeys = {
   all: ['service-queue'] as const,
   list: (filters: ListFilters) => ['service-queue', 'list', filters] as const,
+  automatic: ['service-queue', 'automatic'] as const,
   detail: (id: number) => ['service-queue', 'item', id] as const,
   events: (id: number) => ['service-queue', 'events', id] as const,
 }
@@ -42,6 +45,7 @@ export function listQueue(filters: ListFilters): Promise<QueueList> {
     status: filters.status,
     sort: filters.sort,
   })
+  if (filters.lane) params.set('lane', filters.lane)
   if (filters.itemType) params.set('itemType', filters.itemType)
   if (filters.subject.trim()) params.set('subject', filters.subject.trim())
   if (filters.claimedByMe) params.set('claimedByMe', '1')
@@ -49,6 +53,23 @@ export function listQueue(filters: ListFilters): Promise<QueueList> {
     params.set('olderThanHours', String(filters.olderThanHours))
   return apiFetch(`${BASE}?${params}`)
 }
+
+export const listAutomatic = (): Promise<{ groups: AutomaticGroup[] }> =>
+  apiFetch(`${BASE}/automatic`)
+
+export interface BulkDismissResult {
+  dismissed: number
+  failed: { itemId: number; code: string }[]
+}
+
+export const dismissAutomatic = (
+  playerId: string,
+  reason: string
+): Promise<BulkDismissResult> =>
+  apiFetch(`${BASE}/automatic/${encodeURIComponent(playerId)}/dismiss`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
 
 export const getItem = (id: number): Promise<ItemDetail> =>
   apiFetch(`${BASE}/${id}`)
@@ -126,3 +147,34 @@ export async function downloadReplay(runId: string): Promise<void> {
     URL.revokeObjectURL(url)
   }
 }
+
+// Every saved chat training label as a CSV download (admins only;
+// authenticated, so fetched rather than linked).
+export async function downloadChatLabels(): Promise<void> {
+  const blob = await apiFetchBlob('/webadmin/chat-labels/export')
+  const url = URL.createObjectURL(blob)
+  try {
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'chat-labels.csv'
+    a.click()
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+export interface AppealDecisionBody {
+  decision: 'deny' | 'grant'
+  reason: string
+  outcome?: 'lift' | 'shorten'
+  duration?: '24h' | '7d' | '30d'
+}
+
+export const decideAppeal = (
+  id: number,
+  body: AppealDecisionBody
+): Promise<{ appeal: { status: string } }> =>
+  apiFetch(`${BASE}/${id}/appeal`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })

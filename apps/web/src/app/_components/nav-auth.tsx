@@ -40,10 +40,18 @@ export function NavAuth() {
                 Admin
               </DropdownMenuLabel>
               <DropdownMenuItem asChild>
-                <Link href='/admin/users'>Users &amp; Bans</Link>
+                <Link href='/admin/players'>Players</Link>
               </DropdownMenuItem>
+              {isAdmin && (
+                <DropdownMenuItem asChild>
+                  <Link href='/admin/users'>Staff Roles</Link>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem asChild>
                 <Link href='/admin/service-queue'>Service Queue</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href='/admin/staff-log'>Staff Log</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href='/admin/lobbies'>Lobbies</Link>
@@ -54,21 +62,27 @@ export function NavAuth() {
               <DropdownMenuItem asChild>
                 <Link href='/admin/seasons'>Seasons</Link>
               </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href='/admin/releases'>BET Releases</Link>
-              </DropdownMenuItem>
+              {isAdmin && (
+                <DropdownMenuItem asChild>
+                  <Link href='/admin/releases'>BET Releases</Link>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem asChild>
                 <Link href='/admin/blog'>Blog</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href='/admin/games'>Match History</Link>
               </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href='/admin/config'>Configuration</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href='/admin/ranked-mods'>Ranked Mods</Link>
-              </DropdownMenuItem>
+              {isAdmin && (
+                <DropdownMenuItem asChild>
+                  <Link href='/admin/config'>Configuration</Link>
+                </DropdownMenuItem>
+              )}
+              {isAdmin && (
+                <DropdownMenuItem asChild>
+                  <Link href='/admin/ranked-mods'>Ranked Mods</Link>
+                </DropdownMenuItem>
+              )}
             </>
           )}
           <DropdownMenuSeparator />

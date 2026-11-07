@@ -102,7 +102,6 @@ export const nakamaIntegrityService = createNakamaIntegrityService({
 			})
 			return result.ok && result.value.ranked ? result.value.ranked : null
 		},
-		countFailuresSince: launcherIntegrityGateway.countEventsSince,
 		enqueue: enqueueServiceQueueItem,
 		now: () => new Date(),
 	}),

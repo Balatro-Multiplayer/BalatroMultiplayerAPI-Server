@@ -1,13 +1,6 @@
 import { Router } from 'express'
-import {
-	dismissForfeitReconciliationFlag,
-	getForfeitReconciliationFlag,
-	listForfeitReconciliationFlags,
-	voidForfeitReconciliationFlag,
-} from '../../infrastructure/gateways/forfeit-reconciliation.gateway.js'
+import { listForfeitReconciliationFlags } from '../../infrastructure/gateways/forfeit-reconciliation.gateway.js'
 import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
-import { requireAdmin } from '../../shared/utils/require-admin.js'
-import { dispatchLegacy } from '../service-queue/legacy.js'
 
 const router = Router()
 
@@ -17,74 +10,6 @@ router.get('/forfeit-reconciliation', async (req, res, next) => {
 		const limit = queryInt(req.query.limit, 50, 1, 100)
 		const { flags, total } = await listForfeitReconciliationFlags(page, limit)
 		res.json({ flags, total, page, limit, pages: Math.ceil(total / limit) })
-	} catch (err) {
-		next(err)
-	}
-})
-
-router.patch('/forfeit-reconciliation/:id/void', async (req, res, next) => {
-	try {
-		const id = Number(req.params.id)
-		if (!Number.isInteger(id)) {
-			res.status(400).json({ error: 'Invalid flag id' })
-			return
-		}
-
-		const { resolutionNotes } = req.body as { resolutionNotes?: unknown }
-		if (resolutionNotes !== undefined && typeof resolutionNotes !== 'string') {
-			res.status(400).json({ error: 'resolutionNotes must be a string' })
-			return
-		}
-
-		const dispatched = await dispatchLegacy(req, 'forfeit_reconciliation', id, 'void')
-		if (dispatched.kind === 'refused') {
-			res.status(dispatched.status).json(dispatched.body)
-			return
-		}
-		// Voiding re-rates a ranked match: admin-only, as in the queue.
-		if (dispatched.kind === 'no_item') await requireAdmin(req)
-		const updated =
-			dispatched.kind === 'done'
-				? await getForfeitReconciliationFlag(id)
-				: await voidForfeitReconciliationFlag(id, resolutionNotes)
-		if (!updated) {
-			res.status(404).json({ error: 'Flag not found' })
-			return
-		}
-		res.json({ flag: updated })
-	} catch (err) {
-		next(err)
-	}
-})
-
-router.patch('/forfeit-reconciliation/:id/dismiss', async (req, res, next) => {
-	try {
-		const id = Number(req.params.id)
-		if (!Number.isInteger(id)) {
-			res.status(400).json({ error: 'Invalid flag id' })
-			return
-		}
-
-		const { resolutionNotes } = req.body as { resolutionNotes?: unknown }
-		if (resolutionNotes !== undefined && typeof resolutionNotes !== 'string') {
-			res.status(400).json({ error: 'resolutionNotes must be a string' })
-			return
-		}
-
-		const dispatched = await dispatchLegacy(req, 'forfeit_reconciliation', id, 'dismiss')
-		if (dispatched.kind === 'refused') {
-			res.status(dispatched.status).json(dispatched.body)
-			return
-		}
-		const updated =
-			dispatched.kind === 'done'
-				? await getForfeitReconciliationFlag(id)
-				: await dismissForfeitReconciliationFlag(id, resolutionNotes)
-		if (!updated) {
-			res.status(404).json({ error: 'Flag not found' })
-			return
-		}
-		res.json({ flag: updated })
 	} catch (err) {
 		next(err)
 	}

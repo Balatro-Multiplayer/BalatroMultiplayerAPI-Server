@@ -88,7 +88,7 @@ describe('launcher-github-releases.service', () => {
 		it('matches all three platforms by exact filename, strips the sha256: digest prefix, and derives version from the tag', async () => {
 			mockFetch((url) => {
 				expect(url).toContain(
-					'/repos/Balatro-Multiplayer/new-launcher/releases/tags/v0.2.0',
+					'/repos/Balatro-Multiplayer/BET-launcher/releases/tags/v0.2.0',
 				)
 				return jsonResponse(200, {
 					tag_name: 'v0.2.0',
@@ -254,7 +254,7 @@ describe('launcher-github-releases.service', () => {
 		it('maps the GitHub releases list response', async () => {
 			mockFetch((url) => {
 				expect(url).toContain(
-					'/repos/Balatro-Multiplayer/new-launcher/releases?per_page=20',
+					'/repos/Balatro-Multiplayer/BET-launcher/releases?per_page=20',
 				)
 				return jsonResponse(200, [
 					{

@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { apiFetch } from '@/lib/api'
+import { apiFetch, apiFetchWithReason } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { CloseLobbyDialog } from './components/close-lobby-dialog'
 import { KickPlayerDialog } from './components/kick-player-dialog'
@@ -88,7 +88,7 @@ export default function AdminLobbiesPage() {
 
   const kickMutation = useMutation({
     mutationFn: (vars: { code: string; playerId: string }) =>
-      apiFetch(`/webadmin/lobbies/${vars.code}/kick/${vars.playerId}`, {
+      apiFetchWithReason(`/webadmin/lobbies/${vars.code}/kick/${vars.playerId}`, {
         method: 'POST',
       }),
     onSuccess: () => {
@@ -99,7 +99,7 @@ export default function AdminLobbiesPage() {
 
   const closeMutation = useMutation({
     mutationFn: (code: string) =>
-      apiFetch(`/webadmin/lobbies/${code}/close`, { method: 'POST' }),
+      apiFetchWithReason(`/webadmin/lobbies/${code}/close`, { method: 'POST' }),
     onSuccess: () => {
       refresh()
       setCloseTarget(null)

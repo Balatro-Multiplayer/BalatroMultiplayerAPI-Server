@@ -15,7 +15,7 @@ and the guard lane shedding its own backlog.
 
 ```
 POST /moderate  {playerId, lobbyCode, message}
-             ->  {verdict: "allow" | "reject", band, latency_ms, reason?}
+             ->  {verdict: "allow" | "reject", band, latency_ms, reason?, guardSafety?, guardScore?, guardContextUsed?}
 GET  /health ->  {status: "ok" | "loading", model_loaded, enforcement,
                  auth, model, model_load_error, build, lists, guard}
 ```

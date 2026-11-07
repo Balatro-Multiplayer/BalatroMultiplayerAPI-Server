@@ -60,14 +60,14 @@ export const env = {
 	DISCORD_CLIENT_SECRET: optional('DISCORD_CLIENT_SECRET', ''),
 	DISCORD_REDIRECT_URI: optional(
 		'DISCORD_REDIRECT_URI',
-		'https://new.balatromp.com/api/auth/discord/callback',
+		'https://balatromp.com/api/auth/discord/callback',
 	),
 
 	PLAYER_ID_SALT: required('PLAYER_ID_SALT'),
 
 	ADMIN_SECRET: required('ADMIN_SECRET'),
 
-	WEB_BASE_URL: optional('WEB_BASE_URL', 'https://new.balatromp.com'),
+	WEB_BASE_URL: optional('WEB_BASE_URL', 'https://balatromp.com'),
 
 	// When true, only players holding the 'tester' privilege may create lobbies or
 	// queue for matches. Everyone else is rejected. Off by default.

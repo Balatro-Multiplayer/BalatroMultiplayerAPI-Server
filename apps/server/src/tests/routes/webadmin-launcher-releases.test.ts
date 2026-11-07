@@ -65,7 +65,7 @@ describe('GET /api/webadmin/launcher-releases/github-releases', () => {
 			},
 		])
 
-		const token = authAsModerator('mod-view', 'Mod')
+		const token = authAsAdmin('mod-view', 'Mod')
 		const res = await request(app)
 			.get('/api/webadmin/launcher-releases/github-releases')
 			.set('Authorization', token)
@@ -96,7 +96,7 @@ describe('POST /api/webadmin/launcher-releases/from-github', () => {
 		const res = await request(app)
 			.post('/api/webadmin/launcher-releases/from-github')
 			.set('Authorization', token)
-			.send({ tag: 'v1.0.0' })
+			.send({ reason: 'test', tag: 'v1.0.0' })
 
 		expect(res.status).toBe(403)
 		expect(launcherReleasesGateway.upsertRelease).not.toHaveBeenCalled()
@@ -107,7 +107,7 @@ describe('POST /api/webadmin/launcher-releases/from-github', () => {
 		const res = await request(app)
 			.post('/api/webadmin/launcher-releases/from-github')
 			.set('Authorization', token)
-			.send({})
+			.send({ reason: 'test' })
 
 		expect(res.status).toBe(400)
 	})
@@ -118,7 +118,7 @@ describe('POST /api/webadmin/launcher-releases/from-github', () => {
 		const res = await request(app)
 			.post('/api/webadmin/launcher-releases/from-github')
 			.set('Authorization', token)
-			.send({ tag: 'v9.9.9' })
+			.send({ reason: 'test', tag: 'v9.9.9' })
 
 		expect(res.status).toBe(404)
 	})
@@ -133,7 +133,7 @@ describe('POST /api/webadmin/launcher-releases/from-github', () => {
 		const res = await request(app)
 			.post('/api/webadmin/launcher-releases/from-github')
 			.set('Authorization', token)
-			.send({ tag: 'v1.0.0' })
+			.send({ reason: 'test', tag: 'v1.0.0' })
 
 		expect(res.status).toBe(400)
 	})
@@ -183,7 +183,7 @@ describe('POST /api/webadmin/launcher-releases/from-github', () => {
 		const res = await request(app)
 			.post('/api/webadmin/launcher-releases/from-github')
 			.set('Authorization', token)
-			.send({ tag: 'v1.0.0' })
+			.send({ reason: 'test', tag: 'v1.0.0' })
 
 		expect(res.status).toBe(201)
 		expect(launcherReleasesGateway.upsertRelease).toHaveBeenCalledWith(
@@ -215,7 +215,7 @@ describe('DELETE /api/webadmin/launcher-releases/:id', () => {
 		const token = authAsModerator('mod-2', 'Mod')
 		const res = await request(app)
 			.delete('/api/webadmin/launcher-releases/1')
-			.set('Authorization', token)
+			.set('Authorization', token).send({ reason: 'test' })
 
 		expect(res.status).toBe(403)
 		expect(launcherReleasesGateway.deleteRelease).not.toHaveBeenCalled()
@@ -226,7 +226,7 @@ describe('DELETE /api/webadmin/launcher-releases/:id', () => {
 		const token = authAsAdmin('admin-6', 'Admin')
 		const res = await request(app)
 			.delete('/api/webadmin/launcher-releases/999')
-			.set('Authorization', token)
+			.set('Authorization', token).send({ reason: 'test' })
 
 		expect(res.status).toBe(404)
 	})
@@ -243,7 +243,7 @@ describe('DELETE /api/webadmin/launcher-releases/:id', () => {
 		const token = authAsAdmin('admin-7', 'Admin')
 		const res = await request(app)
 			.delete('/api/webadmin/launcher-releases/3')
-			.set('Authorization', token)
+			.set('Authorization', token).send({ reason: 'test' })
 
 		expect(res.status).toBe(200)
 	})
@@ -254,7 +254,7 @@ describe('DELETE /api/webadmin/launcher-releases/:id/:platform', () => {
 		const token = authAsAdmin('admin-8', 'Admin')
 		const res = await request(app)
 			.delete('/api/webadmin/launcher-releases/1/xbox')
-			.set('Authorization', token)
+			.set('Authorization', token).send({ reason: 'test' })
 
 		expect(res.status).toBe(400)
 	})
@@ -264,7 +264,7 @@ describe('DELETE /api/webadmin/launcher-releases/:id/:platform', () => {
 		const token = authAsAdmin('admin-9', 'Admin')
 		const res = await request(app)
 			.delete('/api/webadmin/launcher-releases/1/windows')
-			.set('Authorization', token)
+			.set('Authorization', token).send({ reason: 'test' })
 
 		expect(res.status).toBe(404)
 	})
@@ -283,7 +283,7 @@ describe('DELETE /api/webadmin/launcher-releases/:id/:platform', () => {
 		const token = authAsAdmin('admin-10', 'Admin')
 		const res = await request(app)
 			.delete('/api/webadmin/launcher-releases/1/linux')
-			.set('Authorization', token)
+			.set('Authorization', token).send({ reason: 'test' })
 
 		expect(res.status).toBe(200)
 	})

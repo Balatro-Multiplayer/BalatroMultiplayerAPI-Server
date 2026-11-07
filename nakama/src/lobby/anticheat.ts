@@ -2,7 +2,10 @@
 // hash check, more scored hands than the game's real length allows (the
 // API's evaluateAntiCheat, with MIN_MS_PER_HAND from anti-cheat.config.ts),
 // or, in a ranked game, a log that is missing, cut off or has no hash: its
-// season best claim can't be checked (rating/metrics.ts logBounds).
+// season best claim can't be checked (rating/metrics.ts logBounds). That last
+// flag is only for a player who reported a result in a game that was played
+// out: a restarted or abandoned game, or a player with no result, has no
+// claim to check.
 // A flagged player is still rated, and the run goes to the moderators' service
 // queue through the mirror. Pure.
 import type { LogEvent } from '../shared/replay/events'
@@ -25,11 +28,12 @@ export function runFlags(
 	checks: { [userId: string]: LogCheck },
 ): { [userId: string]: FlagReason } {
 	const flags: { [userId: string]: FlagReason } = {}
+	const played = run.status !== 'restarted' && run.status !== 'abandoned'
 	const elapsedMs = run.endedAt - run.startedAt
 	for (const player of run.players) {
 		if (checks[player.id] === 'mismatch') flags[player.id] = 'hash_mismatch'
 		else if (handCount(events[player.id]) * MIN_MS_PER_HAND > elapsedMs) flags[player.id] = 'elapsed_time_gate'
-		else if (run.rankedMode && checks[player.id] === 'unavailable') flags[player.id] = 'unverified_log'
+		else if (run.rankedMode && played && player.id in (run.reports ?? {}) && checks[player.id] === 'unavailable') flags[player.id] = 'unverified_log'
 	}
 	return flags
 }

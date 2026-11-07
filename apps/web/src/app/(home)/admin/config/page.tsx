@@ -4,13 +4,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { ApiError, apiFetch } from '@/lib/api'
+import { ApiError, apiFetch, apiFetchWithReason } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { LADDER_LABELS, LADDER_STEPS, LADDERS, type Ladder, type LadderStep, STEP_LABELS } from '../players/lib/strikes'
 
 interface ModEntry {
   modId: string
@@ -33,6 +34,7 @@ interface ConfigResponse {
   achievementsEnabled: boolean
   // The SMODS ids of every ranked-pinned mod (Ranked Mods page).
   queueAllowedModIds: string[]
+  strikeLadders: Record<Ladder, LadderStep[]>
 }
 
 type FeatureFlag =
@@ -57,11 +59,12 @@ const FEATURE_FLAGS: { key: FeatureFlag; label: string; description: string }[] 
 ]
 
 export default function AdminConfigPage() {
-  const { isAdmin, isModerator, pending } = useAuth()
+  const { isAdmin, pending } = useAuth()
   const router = useRouter()
   const qc = useQueryClient()
 
-  const canView = isAdmin || isModerator
+  // An admin page: the server sends moderators nothing from it.
+  const canView = isAdmin
 
   useEffect(() => {
     if (!pending && !canView) router.replace('/')
@@ -79,9 +82,27 @@ export default function AdminConfigPage() {
 
   const flagsMut = useMutation({
     mutationFn: (patch: Partial<Pick<ConfigResponse, FeatureFlag>>) =>
-      apiFetch('/webadmin/config/feature-flags', { method: 'PATCH', body: JSON.stringify(patch) }),
+      apiFetchWithReason('/webadmin/config/feature-flags', { method: 'PATCH', body: JSON.stringify(patch) }),
     onSuccess: () => {
       toast.success('Feature flag updated')
+      invalidate()
+    },
+    onError: onErr,
+  })
+
+  // One draft per ladder: the steps in order, and the reason for the edit.
+  const [ladderDrafts, setLadderDrafts] = useState<Partial<Record<Ladder, LadderStep[]>>>({})
+  const [ladderReason, setLadderReason] = useState('')
+  const saveLadderMut = useMutation({
+    mutationFn: ({ ladder, steps }: { ladder: Ladder; steps: LadderStep[] }) =>
+      apiFetch(`/webadmin/config/strike-ladders/${ladder}`, {
+        method: 'PUT',
+        body: JSON.stringify({ steps, reason: ladderReason }),
+      }),
+    onSuccess: (_result, { ladder }) => {
+      toast.success('Strike ladder saved')
+      setLadderDrafts((d) => ({ ...d, [ladder]: undefined }))
+      setLadderReason('')
       invalidate()
     },
     onError: onErr,
@@ -90,7 +111,7 @@ export default function AdminConfigPage() {
   const [modForm, setModForm] = useState({ modId: '', displayName: '', version: '', downloadUrl: '' })
   const upsertModMut = useMutation({
     mutationFn: (mod: ModEntry) =>
-      apiFetch(`/webadmin/config/mods/${encodeURIComponent(mod.modId)}`, {
+      apiFetchWithReason(`/webadmin/config/mods/${encodeURIComponent(mod.modId)}`, {
         method: 'PUT',
         body: JSON.stringify({ displayName: mod.displayName, version: mod.version, downloadUrl: mod.downloadUrl }),
       }),
@@ -103,7 +124,7 @@ export default function AdminConfigPage() {
   })
 
   const deleteModMut = useMutation({
-    mutationFn: (modId: string) => apiFetch(`/webadmin/config/mods/${encodeURIComponent(modId)}`, { method: 'DELETE' }),
+    mutationFn: (modId: string) => apiFetchWithReason(`/webadmin/config/mods/${encodeURIComponent(modId)}`, { method: 'DELETE' }),
     onSuccess: () => {
       toast.success('Mod entry removed')
       invalidate()
@@ -114,7 +135,7 @@ export default function AdminConfigPage() {
   const [allowlistMessage, setAllowlistMessage] = useState('')
   const addAllowlistMut = useMutation({
     mutationFn: (message: string) =>
-      apiFetch('/webadmin/config/chat-allowlist', { method: 'POST', body: JSON.stringify({ message }) }),
+      apiFetchWithReason('/webadmin/config/chat-allowlist', { method: 'POST', body: JSON.stringify({ message }) }),
     onSuccess: () => {
       toast.success('Added to chat allowlist')
       setAllowlistMessage('')
@@ -125,7 +146,7 @@ export default function AdminConfigPage() {
 
   const removeAllowlistMut = useMutation({
     mutationFn: (message: string) =>
-      apiFetch(`/webadmin/config/chat-allowlist/${encodeURIComponent(message)}`, { method: 'DELETE' }),
+      apiFetchWithReason(`/webadmin/config/chat-allowlist/${encodeURIComponent(message)}`, { method: 'DELETE' }),
     onSuccess: () => {
       toast.success('Removed from chat allowlist')
       invalidate()
@@ -233,6 +254,64 @@ export default function AdminConfigPage() {
                   </Button>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Strike Ladders</CardTitle>
+              <CardDescription>
+                The next step on a ladder is the recommended punishment. The last step must be permanent. Each edit goes in the staff log.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              {LADDERS.map((ladder) => {
+                const steps = ladderDrafts[ladder] ?? data.strikeLadders[ladder]
+                const edit = (next: LadderStep[]) => setLadderDrafts((d) => ({ ...d, [ladder]: next }))
+                return (
+                  <div key={ladder} className='space-y-2' data-testid={`ladder-${ladder}`}>
+                    <Label>{LADDER_LABELS[ladder]}</Label>
+                    <div className='flex flex-wrap items-center gap-2'>
+                      {steps.map((step, i) => (
+                        <span key={`${step}-${i}`} className='inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-sm'>
+                          {i + 1}. {STEP_LABELS[step]}
+                          <button
+                            type='button'
+                            className='text-muted-foreground hover:text-destructive'
+                            onClick={() => edit(steps.filter((_, j) => j !== i))}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                      {LADDER_STEPS.map((step) => (
+                        <Button key={step} size='sm' variant='outline' onClick={() => edit([...steps, step])}>
+                          + {STEP_LABELS[step]}
+                        </Button>
+                      ))}
+                    </div>
+                    {ladderDrafts[ladder] && (
+                      <div className='flex gap-2'>
+                        <Input
+                          placeholder='Reason for the change (staff log)'
+                          value={ladderReason}
+                          onChange={(e) => setLadderReason(e.target.value)}
+                          className='max-w-sm'
+                        />
+                        <Button
+                          disabled={saveLadderMut.isPending || !ladderReason.trim()}
+                          onClick={() => saveLadderMut.mutate({ ladder, steps })}
+                        >
+                          Save
+                        </Button>
+                        <Button variant='ghost' onClick={() => setLadderDrafts((d) => ({ ...d, [ladder]: undefined }))}>
+                          Reset
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </CardContent>
           </Card>
 

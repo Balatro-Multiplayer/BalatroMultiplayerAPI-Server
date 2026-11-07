@@ -1,3 +1,4 @@
+import type { Ladder } from '../../players/lib/strikes'
 // The service queue's API shapes, as apps/server's webadmin/service-queue
 // route sends them (Q-api.md). Closed unions mirror the server's
 // features/service-queue/types.ts.
@@ -10,6 +11,7 @@ export const ITEM_TYPES = [
   'contest',
   'anti_cheat',
   'integrity',
+  'appeal',
 ] as const
 export type ItemType = (typeof ITEM_TYPES)[number]
 export const isItemType = (value: unknown): value is ItemType =>
@@ -84,6 +86,18 @@ export interface ListedItem extends QueueItem {
   claim: Claim | null
   subjectName: string | null
   subjectOpenItems: number
+}
+
+export interface AutomaticGroup {
+  playerId: string
+  playerName: string | null
+  openItems: number
+  latestItem: {
+    id: number
+    itemType: ItemType
+    summary: string
+    createdAt: string
+  }
 }
 
 export interface QueueList {
@@ -298,26 +312,36 @@ export interface ReportEvidence {
   }[]
 }
 
+// The 2 dismiss buttons of a flagged chat item (the server's flagged-chat.ts).
+export type DismissLabel = 'not_harmful' | 'harmful_no_action'
+
 export type ChatVerdict =
   | { source: 'local'; matches: string[] }
   | { source: 'remote'; band: string }
 
-export interface FlaggedChatEvidence {
-  message: {
-    id: number
-    playerId: string
-    message: string
-    matches: unknown
-    flaggedAt: string
-  }
+export interface FlaggedChatMessage {
+  id: number
+  message: string
+  flaggedAt: string
+  sentAt: string
   verdict: ChatVerdict
-  source: {
-    lobbyCode: string | null
-    lobbyId: string | null
-    sentAt: string
-    chatLogId: number
-  } | null
-  context: ChatLine[]
+  // The guard's score and the moderation band; null for a message the guard
+  // did not judge (older lines, the word list).
+  guardScore: number | null
+  band: string | null
+  contextUsed: boolean | null
+}
+
+export interface ConversationLine extends ChatLine {
+  // The flagged message this line is, when it is one of the player's flagged ones.
+  flaggedMessageId: number | null
+}
+
+export interface FlaggedChatEvidence {
+  playerId: string
+  messages: FlaggedChatMessage[]
+  source: { lobbyCode: string | null; lobbyId: string | null } | null
+  conversation: ConversationLine[]
   otherFlags: {
     id: number
     message: string
@@ -490,6 +514,41 @@ export type TypedEvidence =
   | { itemType: 'contest'; evidence: ContestEvidence | null }
   | { itemType: 'anti_cheat'; evidence: AntiCheatEvidence | null }
   | { itemType: 'integrity'; evidence: IntegrityEvidence | null }
+  | { itemType: 'appeal'; evidence: AppealEvidence | null }
+
+export interface AppealEvidence {
+  appeal: {
+    id: string
+    message: string
+    status: 'open' | 'denied' | 'granted'
+    createdAt: string
+    decisionReason: string | null
+    decidedAt: string | null
+    outcome: 'lift' | 'shorten' | null
+  }
+  target: 'ban' | 'warning' | 'network'
+  punishment: {
+    id: string
+    type: string
+    reason: string | null
+    issuedBy: string
+    issuedByName: string | null
+    expiresAt: string | null
+    liftedAt: string | null
+  } | null
+  earlier: {
+    status: 'open' | 'denied' | 'granted'
+    message: string
+    decisionReason: string | null
+    createdAt: string
+    decidedAt: string | null
+  }[]
+}
+
+export interface AppealDecisions {
+  deny: boolean
+  grant: boolean
+}
 
 export interface ItemDetail {
   item: QueueItem
@@ -499,6 +558,7 @@ export interface ItemDetail {
   role: StaffRole
   claim: Claim | null
   targets: Target[]
+  appealDecisions?: AppealDecisions
 }
 
 export interface ItemEvent {
@@ -535,17 +595,37 @@ export interface ActionResult {
 
 // What an action sends, per action (the server's command.ts).
 export type ActionBody =
-  | { action: 'dismiss' | 'resolve' | 'void' | 'reopen'; note?: string }
-  | { action: 'warn'; message: string; targetPlayerId?: string; note?: string }
+  | {
+      action: 'resolve' | 'void' | 'reopen'
+      reason: string
+      note?: string
+    }
+  | {
+      action: 'dismiss'
+      reason: string
+      note?: string
+      dismissLabel?: DismissLabel
+    }
+  | {
+      action: 'warn'
+      reason: string
+      message: string
+      targetPlayerId?: string
+      note?: string
+      ladder?: Ladder
+      deviationReason?: string
+    }
   | {
       action: 'chat_mute' | 'queue_ban' | 'account_ban'
       duration: Duration
-      reason?: string
+      reason: string
       targetPlayerId?: string
       note?: string
+      ladder?: Ladder
+      deviationReason?: string
     }
-  | { action: 'overturn'; toReportOf: string; note?: string }
-  | { action: 'unban'; banId: string; note?: string }
+  | { action: 'overturn'; reason: string; toReportOf: string; note?: string }
+  | { action: 'unban'; reason: string; banId: string; note?: string }
   | { action: 'note'; note: string }
 
 export type RefusalCode =

@@ -2,7 +2,7 @@
 # with the legacy TCP relay, the Discord bot and the launcher/mod APIs.
 #
 # - The host's own nginx already owns 80/443, so this stack's nginx listens
-#   on loopback only; the host nginx terminates TLS for new.balatromp.com /
+#   on loopback only; the host nginx terminates TLS for balatromp.com /
 #   nakama.balatromp.com and forwards here.
 # - The 5 moderation replicas are capped so that, together, they can never
 #   take more than 8 of the 12 vCPUs away from the relay.
