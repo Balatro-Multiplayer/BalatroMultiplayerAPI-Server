@@ -160,7 +160,7 @@ function MobileAccountSection({ onClose }: { onClose: () => void }) {
   )
 }
 
-function MobileAdminSection({ onClose }: { onClose: () => void }) {
+function MobileAdminSection({ onClose, isAdmin }: { onClose: () => void; isAdmin: boolean }) {
   return (
     <>
       <Separator />
@@ -169,13 +169,15 @@ function MobileAdminSection({ onClose }: { onClose: () => void }) {
           <Shield className='mr-1 inline size-3' />
           Admin
         </p>
-        <MobileMenuLink
-          href='/admin/users'
-          icon={<Shield className='size-4' />}
-          onClick={onClose}
-        >
-          Users &amp; Bans
-        </MobileMenuLink>
+        {isAdmin && (
+          <MobileMenuLink
+            href='/admin/users'
+            icon={<Shield className='size-4' />}
+            onClick={onClose}
+          >
+            Staff Roles
+          </MobileMenuLink>
+        )}
         <MobileMenuLink
           href='/admin/service-queue'
           icon={<ListChecks className='size-4' />}
@@ -280,7 +282,7 @@ export function MobileMenu({ className }: { className?: string }) {
         <div className='min-h-0 flex-1 overflow-y-auto'>
           <MobileNavLinks onClose={close} />
           {isLoggedIn && player && <MobileAccountSection onClose={close} />}
-          {(isAdmin || isModerator) && <MobileAdminSection onClose={close} />}
+          {(isAdmin || isModerator) && <MobileAdminSection onClose={close} isAdmin={isAdmin} />}
         </div>
 
         <div className='border-t px-3 py-3'>

@@ -1,7 +1,7 @@
 'use client'
 
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,9 +22,14 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { apiFetch } from '@/lib/api'
+import { LadderPick } from '../../players/components/ladder-pick'
+import type { StrikeSummary } from '../../players/lib/strikes'
 import {
   type ActionForm,
+  appliedStepOf,
   bodyOf,
+  defaultLadder,
   emptyForm,
   WARNING_MAX,
 } from '../lib/action-form'
@@ -33,6 +38,7 @@ import {
   ACTION_CONSEQUENCES,
   CONTEST_DISMISS_CONSEQUENCE,
   ACTION_LABELS,
+  DISMISS_LABEL_TEXT,
   DURATION_LABELS,
   effectsText,
   formatTime,
@@ -46,6 +52,7 @@ import type {
   AllowedAction,
   BanRow,
   ContestEvidence,
+  DismissLabel,
   ItemDetail,
   MatchConflictEvidence,
 } from '../lib/types'
@@ -67,6 +74,27 @@ const liftableBans = (detail: ItemDetail): BanRow[] =>
 // unban needs a ban to lift; every other allowed action is shown as given.
 const isUsable = (allowed: AllowedAction, detail: ItemDetail) =>
   allowed.action !== 'unban' || liftableBans(detail).length > 0
+
+// A button of the bar: an allowed action, and for a flagged chat item's
+// dismiss, which of the 2 dismiss buttons it is.
+interface Choice {
+  allowed: AllowedAction
+  dismissLabel: DismissLabel | null
+}
+
+// The buttons the server allows. A flagged chat item has 2 dismiss buttons in
+// place of one.
+function choicesOf(detail: ItemDetail): Choice[] {
+  return detail.allowedActions
+    .filter((a) => isUsable(a, detail))
+    .flatMap((allowed): Choice[] =>
+      allowed.action === 'dismiss' && detail.item.itemType === 'flagged_chat'
+        ? (['not_harmful', 'harmful_no_action'] as const).map(
+            (dismissLabel) => ({ allowed, dismissLabel })
+          )
+        : [{ allowed, dismissLabel: null }]
+    )
+}
 
 function Templates({
   templates,
@@ -97,11 +125,13 @@ function Templates({
 function ActionDialog({
   detail,
   allowed,
+  dismissLabel,
   names,
   onClose,
 }: {
   detail: ItemDetail
   allowed: AllowedAction
+  dismissLabel: DismissLabel | null
   names: Map<string, string>
   onClose: () => void
 }) {
@@ -113,11 +143,33 @@ function ActionDialog({
       targetPlayerId: detail.targets[0]?.playerId ?? null,
       toReportOf: sides[0]?.playerId ?? null,
       banId: bans[0]?.id ?? null,
+      dismissLabel,
+      ladder: defaultLadder(allowed.action, detail.item.itemType),
     })
   )
   const set = (patch: Partial<ActionForm>) =>
     setForm((f) => ({ ...f, ...patch }))
-  const check = bodyOf(allowed, form)
+  // The strikes of whoever the punishment lands on, for the recommended step.
+  const onLadder =
+    allowed.action === 'warn' ||
+    allowed.action === 'chat_mute' ||
+    allowed.action === 'queue_ban'
+  const strikes = useQuery<{ strikes: StrikeSummary }>({
+    queryKey: ['admin-player-strikes', form.targetPlayerId],
+    queryFn: () => apiFetch(`/webadmin/players/${form.targetPlayerId}/strikes`),
+    enabled: onLadder && !!form.targetPlayerId,
+  })
+  const recommended = strikes.data?.strikes[form.ladder].recommended ?? null
+  // Preselect the recommended length; staff can pick another.
+  useEffect(() => {
+    if (
+      recommended &&
+      recommended !== 'warning' &&
+      allowed.presets?.includes(recommended)
+    )
+      setForm((f) => ({ ...f, duration: recommended }))
+  }, [recommended, allowed.presets])
+  const check = bodyOf(allowed, form, recommended)
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -133,7 +185,9 @@ function ActionDialog({
       toast.error(refusalText(refusalCodeOf(err), err.message)),
   })
 
-  const label = ACTION_LABELS[allowed.action]
+  const label = dismissLabel
+    ? DISMISS_LABEL_TEXT[dismissLabel].button
+    : ACTION_LABELS[allowed.action]
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent data-testid={`action-dialog-${allowed.action}`}>
@@ -142,9 +196,12 @@ function ActionDialog({
             {allowed.destructive ? `${label}: are you sure?` : label}
           </DialogTitle>
           <DialogDescription>
-            {detail.item.itemType === 'contest' && allowed.action === 'dismiss'
-              ? CONTEST_DISMISS_CONSEQUENCE
-              : ACTION_CONSEQUENCES[allowed.action]}
+            {dismissLabel
+              ? DISMISS_LABEL_TEXT[dismissLabel].consequence
+              : detail.item.itemType === 'contest' &&
+                  allowed.action === 'dismiss'
+                ? CONTEST_DISMISS_CONSEQUENCE
+                : ACTION_CONSEQUENCES[allowed.action]}
           </DialogDescription>
         </DialogHeader>
 
@@ -208,19 +265,6 @@ function ActionDialog({
             </div>
           )}
 
-          {(allowed.action === 'chat_mute' ||
-            allowed.action === 'queue_ban' ||
-            allowed.action === 'account_ban') && (
-            <div className='space-y-1'>
-              <Label htmlFor='sq-reason'>Reason (stored on the ban)</Label>
-              <Input
-                id='sq-reason'
-                value={form.reason}
-                onChange={(e) => set({ reason: e.target.value })}
-              />
-            </div>
-          )}
-
           {allowed.action === 'overturn' && (
             <div className='space-y-1'>
               <Label>
@@ -267,6 +311,32 @@ function ActionDialog({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          )}
+
+          {onLadder && (
+            <LadderPick
+              ladder={form.ladder}
+              onLadderChange={(ladder) => set({ ladder })}
+              recommended={recommended}
+              chosen={appliedStepOf(allowed, form) ?? 'warning'}
+              deviationReason={form.deviationReason}
+              onDeviationReasonChange={(deviationReason) =>
+                set({ deviationReason })
+              }
+            />
+          )}
+
+          {allowed.action !== 'note' && (
+            <div className='space-y-1'>
+              <Label htmlFor='sq-reason'>
+                Reason (required, kept in the staff log)
+              </Label>
+              <Input
+                id='sq-reason'
+                value={form.reason}
+                onChange={(e) => set({ reason: e.target.value })}
+              />
             </div>
           )}
 
@@ -326,18 +396,19 @@ export function ActionBar({
   names: Map<string, string>
   heldByOther: boolean
 }) {
-  const [open, setOpen] = useState<AllowedAction | null>(null)
-  const actions = detail.allowedActions.filter((a) => isUsable(a, detail))
+  const [open, setOpen] = useState<Choice | null>(null)
+  const actions = choicesOf(detail)
   return (
     <div
       className='sticky bottom-0 z-10 flex flex-wrap gap-2 border-border border-t bg-background/95 p-3 backdrop-blur'
       data-testid='action-bar'
     >
-      {actions.map((a) => (
+      {actions.map(({ allowed: a, dismissLabel }) => (
         <Button
-          key={a.action}
+          key={dismissLabel ?? a.action}
           size='sm'
           data-action={a.action}
+          data-dismiss-label={dismissLabel ?? undefined}
           variant={
             a.destructive
               ? 'destructive'
@@ -346,16 +417,19 @@ export function ActionBar({
                 : 'outline'
           }
           disabled={heldByOther && a.action !== 'note'}
-          onClick={() => setOpen(a)}
+          onClick={() => setOpen({ allowed: a, dismissLabel })}
         >
-          {ACTION_LABELS[a.action]}
+          {dismissLabel
+            ? DISMISS_LABEL_TEXT[dismissLabel].button
+            : ACTION_LABELS[a.action]}
         </Button>
       ))}
       {open && (
         <ActionDialog
-          key={`${detail.item.id}-${open.action}`}
+          key={`${detail.item.id}-${open.dismissLabel ?? open.allowed.action}`}
           detail={detail}
-          allowed={open}
+          allowed={open.allowed}
+          dismissLabel={open.dismissLabel}
           names={names}
           onClose={() => setOpen(null)}
         />

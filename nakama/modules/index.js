@@ -4573,12 +4573,14 @@ function handCount(events) {
   return events.filter((event2) => event2.opcode === HAND_OPCODE).length;
 }
 function runFlags(run, events, checks) {
+  var _a;
   const flags = {};
+  const played = run.status !== "restarted" && run.status !== "abandoned";
   const elapsedMs = run.endedAt - run.startedAt;
   for (const player of run.players) {
     if (checks[player.id] === "mismatch") flags[player.id] = "hash_mismatch";
     else if (handCount(events[player.id]) * MIN_MS_PER_HAND > elapsedMs) flags[player.id] = "elapsed_time_gate";
-    else if (run.rankedMode && checks[player.id] === "unavailable") flags[player.id] = "unverified_log";
+    else if (run.rankedMode && played && player.id in ((_a = run.reports) != null ? _a : {}) && checks[player.id] === "unavailable") flags[player.id] = "unverified_log";
   }
   return flags;
 }
@@ -5430,6 +5432,9 @@ function recordNetworkLogin(nk, userId, hash, now) {
 }
 function isNetworkBanned(nk, hash) {
   return readIndex(nk, hash).length > 0;
+}
+function networkBanIdsOn(nk, hash) {
+  return readIndex(nk, hash);
 }
 function banNetworks(nk, settings, userId, ban, now) {
   if (!settings.networkBans || ban.expiresAt !== null) return false;
@@ -8570,27 +8575,27 @@ function relayAction(lobby, senderId, data, ctx) {
   const cid = stringField(data, "cid").slice(0, MAX_CID_LENGTH);
   const key = stringField(data, "action");
   const to = stringField(data, "to");
-  const refuse2 = (reason) => ({
+  const refuse3 = (reason) => ({
     lobby,
     out: [reject(senderId, { cid, action: key, reason })],
     refused: { key, reason }
   });
   if (!findPlayer(lobby, senderId)) return { lobby, out: [], refused: { key, reason: "no_seat" } };
-  if (!ACTION_KEY_PATTERN.test(key)) return refuse2("bad_action");
+  if (!ACTION_KEY_PATTERN.test(key)) return refuse3("bad_action");
   const params = data.params === void 0 ? null : data.params;
   if (JSON.stringify(params).length > MAX_PARAMS_BYTES)
-    return refuse2("too_large");
+    return refuse3("too_large");
   const budgeted = spend(lobby, senderId, key, ctx.now, spendCost(key, params));
-  if (!budgeted) return refuse2("rate_limited");
+  if (!budgeted) return refuse3("rate_limited");
   const authoritative = authoritativeAction(key);
   if (to === SERVER_TARGET) {
-    if (!authoritative) return refuse2("not_authoritative");
+    if (!authoritative) return refuse3("not_authoritative");
     const result = authoritative.reduce(
       budgeted,
       __spreadProps(__spreadValues({}, ctx), { from: senderId }),
       params
     );
-    if ("reject" in result) return refuse2(result.reject);
+    if ("reject" in result) return refuse3(result.reject);
     const next = __spreadProps(__spreadValues({}, budgeted), { game: result.game });
     const out = [];
     const audience = result.to || "all";
@@ -8624,7 +8629,7 @@ function relayAction(lobby, senderId, data, ctx) {
     const settled = settle(next, ctx.now);
     return { lobby: settled.lobby, out: out.concat(settled.out) };
   }
-  if (authoritative) return refuse2("authoritative_only");
+  if (authoritative) return refuse3("authoritative_only");
   const dropped = senderRefusal(budgeted, senderId, key, params);
   if (dropped)
     return {
@@ -8638,7 +8643,7 @@ function relayAction(lobby, senderId, data, ctx) {
   } else if (findPlayer(budgeted, to)) {
     targets = [to];
   } else {
-    return refuse2("unknown_target");
+    return refuse3("unknown_target");
   }
   const envelope = {
     cid,
@@ -12455,13 +12460,21 @@ function verdictOf(value) {
   const record = value;
   return record.verdict === "allow" || record.verdict === "reject" ? record : null;
 }
+function guardOf(body) {
+  if (typeof body.guardScore !== "number" || typeof body.guardSafety !== "string" || typeof body.guardContextUsed !== "boolean")
+    return {};
+  return { guard: { safety: body.guardSafety, score: body.guardScore, contextUsed: body.guardContextUsed } };
+}
 function decideModerationOutcome(attempt) {
   const body = attempt && attempt.status === 200 ? verdictOf(attempt.body) : null;
   if (!body) return { allowed: false, reason: "unavailable" };
-  if (body.verdict === "allow") return { allowed: true, review: body.band === REVIEW_BAND };
+  if (body.verdict === "allow") return __spreadValues(__spreadValues({
+    allowed: true,
+    review: body.band === REVIEW_BAND
+  }, typeof body.band === "string" ? { band: body.band } : {}), guardOf(body));
   const band = typeof body.band === "string" ? body.band : void 0;
   if (band === "guard_unavailable") return { allowed: false, reason: "unavailable" };
-  return { allowed: false, reason: "moderated", band };
+  return __spreadValues({ allowed: false, reason: "moderated", band }, guardOf(body));
 }
 var DEFAULT_TIMEOUT_MS = 3e3;
 var MODERATION_SERVICE_URL = "http://moderation-lb:8001";
@@ -12599,7 +12612,8 @@ function rpcChatSend(ctx, logger, nk, payload) {
     lobbyId: lobbyIdOf(current.matchId),
     lobbyKind: lobbyKindOfLabel(match ? match.label : null)
   };
-  let flag2 = null;
+  let flagged = false;
+  let verdict = null;
   if (!isAllowlisted(message, config.chatAllowlist)) {
     if (settingsOf(ctx).moderationRemote) {
       const outcome = decideModerationOutcome(
@@ -12612,16 +12626,21 @@ function rpcChatSend(ctx, logger, nk, payload) {
       );
       if (!outcome.allowed) {
         if (outcome.reason === "moderated") {
-          logChat(nk, logger, lobby, userId, message, { source: "remote", band: outcome.band || "unknown" });
+          logChat(nk, logger, lobby, userId, message, true, __spreadValues({
+            source: "remote",
+            band: outcome.band || "unknown"
+          }, guardFields(outcome.guard)));
           throw runtimeError(PERMISSION_DENIED, "Message blocked by moderation");
         }
         throw runtimeError(UNAVAILABLE, "Chat is unavailable right now");
       }
-      if (outcome.review) flag2 = { source: "remote", band: REVIEW_BAND };
+      flagged = outcome.review;
+      if (outcome.review) verdict = __spreadValues({ source: "remote", band: REVIEW_BAND }, guardFields(outcome.guard));
+      else if (outcome.guard) verdict = __spreadValues({ source: "remote", band: outcome.band || "unknown" }, guardFields(outcome.guard));
     } else {
       const matches = obscenityMatches(message);
       if (matches.length > 0) {
-        logChat(nk, logger, lobby, userId, message, { source: "local", matches });
+        logChat(nk, logger, lobby, userId, message, true, { source: "local", matches });
         throw runtimeError(PERMISSION_DENIED, "Message blocked by moderation");
       }
     }
@@ -12630,15 +12649,18 @@ function rpcChatSend(ctx, logger, nk, payload) {
     current.matchId,
     JSON.stringify({ type: "chat_post", userId, text: message })
   );
-  logChat(nk, logger, lobby, userId, message, flag2);
+  logChat(nk, logger, lobby, userId, message, flagged, verdict);
   return JSON.stringify({ text: message });
 }
-function logChat(nk, logger, lobby, userId, message, flag2) {
+function guardFields(guard) {
+  return guard ? { guardSafety: guard.safety, guardScore: guard.score, guardContextUsed: guard.contextUsed } : {};
+}
+function logChat(nk, logger, lobby, userId, message, flagged, verdict) {
   try {
     enqueue(nk, {
       kind: "chat",
       at: Date.now(),
-      line: __spreadProps(__spreadValues({}, lobby), { userId, message, flagged: flag2 !== null, verdict: flag2 })
+      line: __spreadProps(__spreadValues({}, lobby), { userId, message, flagged, verdict })
     });
   } catch (e) {
     logger.error("Could not queue a chat line for the API: %v", e);
@@ -13022,6 +13044,35 @@ function rpcAdminRunsExpired(ctx, logger, nk, payload) {
   return JSON.stringify(expiredRuns(nk, Date.now() - days * DAY_MS, EXPIRED_MAX, cursor));
 }
 
+// src/rating/board_sync.ts
+function syncLeaderboardEntry(nk, logger, board, metadata, userId, name, record) {
+  try {
+    nk.leaderboardCreate(board, true, "desc", "set", null, metadata);
+    if (record && record.gamesPlayed >= PLACEMENT_GAMES) {
+      nk.leaderboardRecordWrite(
+        board,
+        userId,
+        name,
+        record.rating,
+        record.wins,
+        {
+          losses: record.losses,
+          gamesPlayed: record.gamesPlayed,
+          seasonBest: record.seasonBest
+        },
+        "set"
+      );
+    } else {
+      try {
+        nk.leaderboardRecordDelete(board, userId);
+      } catch (err2) {
+      }
+    }
+  } catch (e) {
+    logger.warn("Leaderboard update on %s for %s failed: %v", board, userId, e);
+  }
+}
+
 // src/rating/admin.ts
 var USER_ID_PATTERN4 = /^[0-9a-f-]{36}$/;
 var MODE_PATTERN2 = /^[A-Za-z0-9_:.-]{1,64}$/;
@@ -13089,24 +13140,318 @@ function rpcAdminRatingsSet(ctx, logger, nk, payload) {
   if (cleared.length > 0) {
     nk.storageDelete(cleared.map((e) => ({ collection: RATINGS_COLLECTION, key, userId: e.userId })));
   }
-  nk.leaderboardCreate(key, true, "desc", "set", null, { modId: request.modId, mode: request.mode });
-  for (const e of request.entries) {
-    const record = e.record;
-    if (record && record.gamesPlayed >= PLACEMENT_GAMES) {
-      nk.leaderboardRecordWrite(key, e.userId, e.name, record.rating, record.wins, {
-        losses: record.losses,
-        gamesPlayed: record.gamesPlayed,
-        seasonBest: record.seasonBest
-      }, "set");
-    } else {
-      try {
-        nk.leaderboardRecordDelete(key, e.userId);
-      } catch (err2) {
-      }
-    }
-  }
+  for (const e of request.entries)
+    syncLeaderboardEntry(nk, logger, key, { modId: request.modId, mode: request.mode }, e.userId, e.name, e.record);
   logger.info("Ratings on %s set by the API: %d written, %d cleared", key, written.length, cleared.length);
   return JSON.stringify({ written: written.length, cleared: cleared.length });
+}
+
+// src/rating/match_edit.ts
+var refuse2 = (refusal) => ({
+  ok: false,
+  refusal
+});
+function winners(placements) {
+  if (placements.length === 0) return /* @__PURE__ */ new Set();
+  const best = Math.min(...placements.map((p) => p.place));
+  return new Set(
+    placements.filter((p) => p.place === best).map((p) => p.playerId)
+  );
+}
+function planMatchEdit(run, current, edit) {
+  var _b, _c, _d, _e;
+  if (edit.placements === null && run.voided)
+    return refuse2({ kind: "unchanged" });
+  if (edit.placements !== null && run.voided) return refuse2({ kind: "voided" });
+  const rated = run.rankedMode !== void 0 && edit.season !== null;
+  const hadRatings = hasRatings(run);
+  let next = run;
+  let places = {};
+  if (edit.placements !== null) {
+    const overturn = overturnRun(run, edit.placements, edit.now);
+    if (overturn.ok) {
+      next = overturn.run;
+      places = overturn.places;
+    } else if (overturn.refusal.kind === "unchanged" && !hadRatings && rated && run.placements.length >= 2) {
+    } else {
+      return refuse2(
+        overturn.refusal.kind === "unchanged" ? { kind: "unchanged" } : { kind: "players_differ" }
+      );
+    }
+  }
+  const empty = {
+    ok: true,
+    places,
+    myRunRatings: {},
+    changes: {},
+    records: {}
+  };
+  if (edit.placements === null) {
+    const _a = run, { ratings: _taken } = _a, rest = __objRest(_a, ["ratings"]);
+    next = __spreadProps(__spreadValues({}, rest), { voided: { at: edit.now } });
+    if (!rated || !hadRatings)
+      return __spreadProps(__spreadValues({}, empty), { run: next, myRunRatings: nulls(run) });
+  } else if (!rated || !hadRatings && (run.status === "abandoned" || run.status === "restarted" || next.placements.length < 2)) {
+    return __spreadProps(__spreadValues({}, empty), { run: next });
+  }
+  const ids = run.players.map((p) => p.id);
+  const oldWon = winners(run.placements);
+  const newWon = winners(next.placements);
+  const befores = {};
+  const oldDeltas = {};
+  for (const id of ids) {
+    const record = current[id];
+    const old = (_b = run.ratings) == null ? void 0 : _b[id];
+    if (hadRatings) {
+      if (!old || old.delta === null || old.newRating === null)
+        return refuse2({ kind: "old_change_unknown", playerId: id });
+      befores[id] = {
+        rating: old.newRating - old.delta,
+        gamesPlayed: old.gamesPlayed - 1
+      };
+      oldDeltas[id] = old.delta;
+      if (!record) return refuse2({ kind: "record_missing", playerId: id });
+    } else {
+      const base = record != null ? record : newRating();
+      befores[id] = { rating: base.rating, gamesPlayed: base.gamesPlayed };
+      oldDeltas[id] = null;
+    }
+  }
+  let newDeltas = null;
+  if (edit.placements !== null) {
+    const entries = next.placements.map((p) => ({
+      playerId: p.playerId,
+      place: p.place,
+      performance: p.performance
+    }));
+    const ratings2 = new Map(ids.map((id) => [id, befores[id]]));
+    newDeltas = computeRatingDeltas(detectRatingMode(entries), entries, ratings2);
+  }
+  const changes = {};
+  const records = {};
+  const ratings = {};
+  for (const id of ids) {
+    const before = befores[id];
+    const stored = (_c = current[id]) != null ? _c : newRating();
+    const oldDelta = oldDeltas[id];
+    const wasWon = hadRatings && oldWon.has(id);
+    let change;
+    if (newDeltas === null) {
+      change = {
+        oldDelta,
+        newDelta: null,
+        rating: -oldDelta,
+        wins: wasWon ? -1 : 0,
+        losses: wasWon ? 0 : -1,
+        gamesPlayed: -1
+      };
+    } else {
+      const after = Math.max(
+        RATING_FLOOR,
+        before.rating + ((_d = newDeltas.get(id)) != null ? _d : 0)
+      );
+      const newDelta = after - before.rating;
+      const won = newWon.has(id);
+      const gamesPlayed = before.gamesPlayed + 1;
+      const placing = gamesPlayed < PLACEMENT_GAMES;
+      change = {
+        oldDelta,
+        newDelta,
+        rating: newDelta - (oldDelta != null ? oldDelta : 0),
+        wins: (won ? 1 : 0) - (wasWon ? 1 : 0),
+        losses: (won ? 0 : 1) - (hadRatings && !wasWon ? 1 : 0),
+        gamesPlayed: hadRatings ? 0 : 1
+      };
+      const old = (_e = run.ratings) == null ? void 0 : _e[id];
+      ratings[id] = hadRatings ? __spreadProps(__spreadValues({}, old), { delta: newDelta, newRating: after }) : {
+        delta: placing ? null : newDelta,
+        newRating: placing ? null : after,
+        isPlacement: placing,
+        justPlaced: !placing && before.gamesPlayed < PLACEMENT_GAMES,
+        gamesPlayed
+      };
+    }
+    const record = __spreadProps(__spreadValues({}, stored), {
+      rating: Math.max(RATING_FLOOR, stored.rating + change.rating),
+      wins: stored.wins + change.wins,
+      losses: stored.losses + change.losses,
+      gamesPlayed: stored.gamesPlayed + change.gamesPlayed,
+      lastMatchAt: change.gamesPlayed > 0 ? Math.max(stored.lastMatchAt, run.endedAt) : stored.lastMatchAt
+    });
+    if (record.wins < 0 || record.losses < 0 || record.gamesPlayed < 0)
+      return refuse2({ kind: "record_too_small", playerId: id });
+    changes[id] = change;
+    records[id] = record;
+  }
+  if (newDeltas === null)
+    return __spreadProps(__spreadValues({}, empty), {
+      run: __spreadProps(__spreadValues({}, next), { ratingChanges: changes }),
+      myRunRatings: nulls(run),
+      changes,
+      records
+    });
+  return __spreadProps(__spreadValues({}, empty), {
+    run: __spreadProps(__spreadValues({}, next), { ratings, ratingChanges: changes }),
+    myRunRatings: ratings,
+    changes,
+    records
+  });
+}
+function hasRatings(run) {
+  return run.ratings !== void 0 && Object.keys(run.ratings).length > 0;
+}
+function nulls(run) {
+  const out = {};
+  for (const p of run.players) out[p.id] = null;
+  return out;
+}
+var WRITE_ATTEMPTS4 = 3;
+var REFUSAL_TEXT = {
+  players_differ: "placements must place exactly the run's players",
+  unchanged: "That is already the recorded result",
+  voided: "The game is voided",
+  old_change_unknown: "a player's rating change in this game was not stored (placement games)",
+  record_missing: "a player's rating record is missing",
+  record_too_small: "a player's rating record cannot hold the change"
+};
+function rpcAdminMatchEdit(ctx, logger, nk, payload) {
+  var _a, _b, _c;
+  requireServer(ctx);
+  const input = parsePayload(payload);
+  const voiding = input.void === true;
+  const placements = voiding ? null : parseResultPlacements(input.placements);
+  if (!voiding && !placements)
+    throw runtimeError(
+      INVALID_ARGUMENT,
+      "placements must be a list of {playerId, place}"
+    );
+  const season = input.season;
+  if (season !== void 0 && (typeof season !== "number" || !Number.isInteger(season) || season < 1))
+    throw runtimeError(INVALID_ARGUMENT, "season must be a positive integer");
+  for (let attempt = 0; attempt < WRITE_ATTEMPTS4; attempt++) {
+    const run = readRun(nk, input.runId);
+    const ids = run.players.map((p) => p.id);
+    const board = run.rankedMode !== void 0 && typeof season === "number" ? boardId(run.modId, run.rankedMode, season) : null;
+    const stored = {};
+    const versions = {};
+    if (board) {
+      const base = hasRatings(run) ? null : loadRatings(
+        nk,
+        run.modId,
+        run.rankedMode,
+        ids,
+        run.endedAt,
+        season
+      );
+      for (const object of nk.storageRead(
+        ids.map((id) => ({
+          collection: RATINGS_COLLECTION,
+          key: board,
+          userId: id
+        }))
+      )) {
+        stored[object.userId] = object.value;
+        versions[object.userId] = object.version;
+      }
+      if (base) {
+        for (const id of ids)
+          if (base.current[id]) stored[id] = base.current[id];
+      }
+    }
+    const plan = planMatchEdit(run, stored, {
+      placements,
+      season: typeof season === "number" ? season : null,
+      now: Date.now()
+    });
+    if (!plan.ok) {
+      if (plan.refusal.kind === "unchanged")
+        return JSON.stringify({
+          run,
+          changes: (_a = run.ratingChanges) != null ? _a : {},
+          applied: false
+        });
+      throw runtimeError(INVALID_ARGUMENT, REFUSAL_TEXT[plan.refusal.kind]);
+    }
+    const key = myRunKey(run);
+    const pointers = nk.storageRead(
+      ids.map((id) => ({ collection: MY_RUNS_COLLECTION, key, userId: id }))
+    );
+    const writes = [
+      {
+        collection: RUNS_COLLECTION,
+        key: run.runId,
+        userId: SYSTEM_USER_ID,
+        value: plan.run,
+        permissionRead: 2,
+        permissionWrite: 0
+      }
+    ];
+    for (const pointer of pointers) {
+      const value = __spreadValues({}, pointer.value);
+      if (plan.places[pointer.userId] !== void 0)
+        value.place = plan.places[pointer.userId];
+      if (pointer.userId in plan.myRunRatings)
+        value.rating = plan.myRunRatings[pointer.userId];
+      writes.push({
+        collection: MY_RUNS_COLLECTION,
+        key,
+        userId: pointer.userId,
+        value,
+        permissionRead: 1,
+        permissionWrite: 0
+      });
+    }
+    for (const id of Object.keys(plan.records)) {
+      writes.push({
+        collection: RATINGS_COLLECTION,
+        key: board,
+        userId: id,
+        value: plan.records[id],
+        permissionRead: 2,
+        permissionWrite: 0,
+        version: versions[id] || "*"
+      });
+    }
+    try {
+      nk.storageWrite(writes);
+    } catch (e) {
+      logger.warn(
+        "Match edit for run %s conflicted (attempt %d): %v",
+        run.runId,
+        attempt + 1,
+        e
+      );
+      continue;
+    }
+    if (board) {
+      for (const id of Object.keys(plan.records)) {
+        const name = (_c = (_b = run.players.find((p) => p.id === id)) == null ? void 0 : _b.displayName) != null ? _c : "";
+        syncLeaderboardEntry(
+          nk,
+          logger,
+          board,
+          { modId: run.modId, mode: run.rankedMode },
+          id,
+          name,
+          plan.records[id]
+        );
+      }
+    }
+    logger.info(
+      "Run %s %s by staff",
+      run.runId,
+      voiding ? "voided" : "result set"
+    );
+    return JSON.stringify({
+      run: plan.run,
+      changes: plan.changes,
+      applied: true
+    });
+  }
+  throw runtimeError(
+    INVALID_ARGUMENT,
+    "The ratings changed while editing; try again"
+  );
 }
 
 // src/rating/replay.ts
@@ -13831,6 +14176,27 @@ function rpcAdminNetworkBans(ctx, logger, nk, payload) {
   requireServer(ctx);
   const userId = requireUserId2(nk, parsePayload(payload));
   return JSON.stringify({ networkBans: networkBansFor(nk, userId) });
+}
+function rpcAdminPlayerNetworks(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const userId = requireUserId2(nk, parsePayload(payload));
+  const hashes = readIpHashes(nk, userId);
+  const networks = Object.keys(hashes).map((hash) => ({
+    hash,
+    lastSeen: hashes[hash]
+  }));
+  return JSON.stringify({ networks });
+}
+function rpcAdminNetworkCheck(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const ip = parsePayload(payload).ip;
+  if (typeof ip !== "string" || !ip)
+    throw runtimeError(INVALID_ARGUMENT, "ip is required");
+  const salt = ctx.env.IP_HASH_SALT;
+  if (!settingsOf(ctx).networkBans || !salt) return JSON.stringify({ banned: false, banIds: [] });
+  const hash = networkHash((input) => nk.sha256Hash(input), salt, ip);
+  const banIds = hash === null ? [] : networkBanIdsOn(nk, hash);
+  return JSON.stringify({ banned: banIds.length > 0, banIds });
 }
 function rpcAdminNetworkBanLift(ctx, logger, nk, payload) {
   requireServer(ctx);
@@ -14643,6 +15009,8 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("admin_ban_index_forget", rpcAdminBanIndexForget);
   initializer.registerRpc("admin_network_bans", rpcAdminNetworkBans);
   initializer.registerRpc("admin_network_ban_lift", rpcAdminNetworkBanLift);
+  initializer.registerRpc("admin_network_check", rpcAdminNetworkCheck);
+  initializer.registerRpc("admin_player_networks", rpcAdminPlayerNetworks);
   initializer.registerRpc("admin_ip_hashes_purge", rpcAdminIpHashesPurge);
   initializer.registerRpc("admin_lobby_list", rpcAdminLobbyList);
   initializer.registerRpc("admin_lobby_get", rpcAdminLobbyGet);
@@ -14671,6 +15039,7 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("admin_ratings_season_clear", rpcAdminRatingsSeasonClear);
   initializer.registerRpc("admin_run_get", rpcAdminRunGet);
   initializer.registerRpc("admin_run_set_result", rpcAdminRunSetResult);
+  initializer.registerRpc("admin_match_edit", rpcAdminMatchEdit);
   logger.info("BMP lobby module loaded");
   initializer.registerMatch("bmp_tournament_clock", {
     matchInit: tournamentClockInit,

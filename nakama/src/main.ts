@@ -66,6 +66,7 @@ import { rpcLeaderboardGet, rpcRatingGet } from './rating/rpc'
 import { rpcAdminCheckpointsSweep } from './lobby/checkpoint_sweep'
 import { rpcAdminRunsExpired, rpcAdminRunsPurgeNamed } from './lobby/retention'
 import { rpcAdminRatingsSet } from './rating/admin'
+import { rpcAdminMatchEdit } from './rating/match_edit'
 import { rpcAdminRatingsReplayFold, rpcAdminRatingsReplayList } from './rating/replay'
 import {
 	rpcAdminRatingsBoardExport,
@@ -90,7 +91,13 @@ import {
 } from './integrity'
 import { checkServerKind } from './server_kind'
 import { requireIpHashSalt } from './moderation/network'
-import { rpcAdminIpHashesPurge, rpcAdminNetworkBanLift, rpcAdminNetworkBans } from './moderation/network_admin'
+import {
+	rpcAdminIpHashesPurge,
+	rpcAdminNetworkBanLift,
+	rpcAdminNetworkBans,
+	rpcAdminNetworkCheck,
+	rpcAdminPlayerNetworks,
+} from './moderation/network_admin'
 import {
 	rpcAdminTournamentClose,
 	rpcTournamentCancel,
@@ -216,6 +223,8 @@ function InitModule(
 	initializer.registerRpc('admin_ban_index_forget', rpcAdminBanIndexForget)
 	initializer.registerRpc('admin_network_bans', rpcAdminNetworkBans)
 	initializer.registerRpc('admin_network_ban_lift', rpcAdminNetworkBanLift)
+	initializer.registerRpc('admin_network_check', rpcAdminNetworkCheck)
+	initializer.registerRpc('admin_player_networks', rpcAdminPlayerNetworks)
 	initializer.registerRpc('admin_ip_hashes_purge', rpcAdminIpHashesPurge)
 	initializer.registerRpc('admin_lobby_list', rpcAdminLobbyList)
 	initializer.registerRpc('admin_lobby_get', rpcAdminLobbyGet)
@@ -244,6 +253,7 @@ function InitModule(
 	initializer.registerRpc('admin_ratings_season_clear', rpcAdminRatingsSeasonClear)
 	initializer.registerRpc('admin_run_get', rpcAdminRunGet)
 	initializer.registerRpc('admin_run_set_result', rpcAdminRunSetResult)
+	initializer.registerRpc('admin_match_edit', rpcAdminMatchEdit)
 	logger.info('BMP lobby module loaded')
 
 	// In-client tournaments (tournament/), behind the tournamentsEnabled switch.

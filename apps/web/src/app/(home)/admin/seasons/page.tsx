@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { ApiError, apiFetch } from '@/lib/api'
+import { ApiError, apiFetch, apiFetchWithReason } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { SeasonReplayPanel } from './components/season-replay-panel'
@@ -50,7 +50,7 @@ export default function AdminSeasonsPage() {
 
   const createMut = useMutation({
     mutationFn: (body: { name: string; endsAt: string | null }) =>
-      apiFetch('/webadmin/seasons', { method: 'POST', body: JSON.stringify(body) }),
+      apiFetchWithReason('/webadmin/seasons', { method: 'POST', body: JSON.stringify(body) }),
     onSuccess: () => {
       setOpen(false)
       setName('')
@@ -63,7 +63,7 @@ export default function AdminSeasonsPage() {
 
   const activateMut = useMutation({
     mutationFn: (id: number) =>
-      apiFetch(`/webadmin/seasons/${id}/activate`, { method: 'POST' }),
+      apiFetchWithReason(`/webadmin/seasons/${id}/activate`, { method: 'POST' }),
     onSuccess: () => {
       toast.success('Season activated')
       invalidate()
@@ -73,7 +73,7 @@ export default function AdminSeasonsPage() {
 
   const endMut = useMutation({
     mutationFn: (id: number) =>
-      apiFetch(`/webadmin/seasons/${id}/end`, { method: 'POST' }),
+      apiFetchWithReason(`/webadmin/seasons/${id}/end`, { method: 'POST' }),
     onSuccess: () => {
       toast.success('Season ended')
       invalidate()

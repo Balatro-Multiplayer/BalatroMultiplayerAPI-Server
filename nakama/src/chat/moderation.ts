@@ -9,9 +9,17 @@ export type ModerationBlockReason = 'moderated' | 'unavailable'
 // was unsure, or (in shadow mode) would have blocked it.
 export const REVIEW_BAND = 'review'
 
+// What the guard said about a message it judged. Absent for a message the
+// guard did not judge (preset, blocklist, threat).
+export interface GuardResult {
+	safety: string
+	score: number
+	contextUsed: boolean
+}
+
 export type ModerationOutcome =
-	| { allowed: true; review: boolean }
-	| { allowed: false; reason: ModerationBlockReason; band?: string }
+	| { allowed: true; review: boolean; band?: string; guard?: GuardResult }
+	| { allowed: false; reason: ModerationBlockReason; band?: string; guard?: GuardResult }
 
 // The relay's cap on a message.
 export const MAX_MESSAGE_LENGTH = 500
@@ -22,6 +30,16 @@ function verdictOf(value: unknown): { [key: string]: unknown } | null {
 	return record.verdict === 'allow' || record.verdict === 'reject' ? record : null
 }
 
+function guardOf(body: { [key: string]: unknown }): { guard?: GuardResult } {
+	if (
+		typeof body.guardScore !== 'number' ||
+		typeof body.guardSafety !== 'string' ||
+		typeof body.guardContextUsed !== 'boolean'
+	)
+		return {}
+	return { guard: { safety: body.guardSafety, score: body.guardScore, contextUsed: body.guardContextUsed } }
+}
+
 // Anything but a clean 200 with a known verdict fails closed as 'unavailable':
 // never allow on uncertainty, including HTTP 429 (the service shedding load).
 export function decideModerationOutcome(attempt: ModerationAttempt): ModerationOutcome {
@@ -29,12 +47,17 @@ export function decideModerationOutcome(attempt: ModerationAttempt): ModerationO
 	if (!body) return { allowed: false, reason: 'unavailable' }
 
 	// A message is published as typed or blocked, never rewritten.
-	if (body.verdict === 'allow') return { allowed: true, review: body.band === REVIEW_BAND }
+	if (body.verdict === 'allow') return {
+			allowed: true,
+			review: body.band === REVIEW_BAND,
+			...(typeof body.band === 'string' ? { band: body.band } : {}),
+			...guardOf(body),
+		}
 
 	const band = typeof body.band === 'string' ? body.band : undefined
 	// The service's own model being down is not the player's fault.
 	if (band === 'guard_unavailable') return { allowed: false, reason: 'unavailable' }
-	return { allowed: false, reason: 'moderated', band }
+	return { allowed: false, reason: 'moderated', band, ...guardOf(body) }
 }
 
 export interface ModerationRequest {

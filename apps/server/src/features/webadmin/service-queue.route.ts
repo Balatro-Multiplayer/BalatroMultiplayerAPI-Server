@@ -7,17 +7,21 @@ import {
 	actorNames,
 	getServiceQueueItemById,
 	isServiceQueueItemType,
+	listAutomaticGroups,
 	listItemEvents,
 	listServiceQueueItems,
 	openCountsByType,
 	recordItemEvent,
 	viewedSince,
 } from '../../infrastructure/gateways/service-queue.gateway.js'
+import { decisionsFor } from '../appeals/appeal-rules.js'
+import { appealService } from '../appeals/appeals.deps.js'
 import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
 import { activeClaimant } from '../service-queue/claim.js'
 import { evidenceOf, subjectCard } from '../service-queue/evidence/assemble.js'
+import type { QueueLane } from '../service-queue/lanes.js'
 import { allowedActionsFor } from '../service-queue/permissions.js'
-import { claim, release, serviceQueueDispatcher } from '../service-queue/queue.service.js'
+import { claim, dismissAutomaticItemsOf, release, serviceQueueDispatcher } from '../service-queue/queue.service.js'
 import { type QueueRefusal, httpOf } from '../service-queue/refusals.js'
 import { staffOf } from '../service-queue/staff.js'
 import { targetsOf } from '../service-queue/targets.js'
@@ -83,6 +87,8 @@ router.get('/service-queue', async (req, res, next) => {
 		const itemType = isServiceQueueItemType(req.query.itemType) ? req.query.itemType : undefined
 		// Unfiltered (the old default) is every status.
 		const status = STATUS_FILTERS.find((s) => s === req.query.status) ?? 'all'
+		const lane: QueueLane | undefined =
+			req.query.lane === 'main' || req.query.lane === 'automatic' ? req.query.lane : undefined
 		const sort: QueueSort = req.query.sort === 'age' ? 'age' : 'priority'
 		const subject =
 			typeof req.query.subject === 'string' && req.query.subject.trim() ? req.query.subject.trim() : undefined
@@ -95,6 +101,7 @@ router.get('/service-queue', async (req, res, next) => {
 				page,
 				limit,
 				itemType,
+				lane,
 				status,
 				subject,
 				claimedBy: claimedByMe ? req.player!.playerId : undefined,
@@ -113,6 +120,32 @@ router.get('/service-queue', async (req, res, next) => {
 			pages: Math.ceil(total / limit),
 			counts,
 		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+// The Automatic tab: one row per player with open anti-cheat or integrity items.
+router.get('/service-queue/automatic', async (_req, res, next) => {
+	try {
+		res.json({ groups: await listAutomaticGroups() })
+	} catch (err) {
+		next(err)
+	}
+})
+
+// Dismisses all of one player's open automatic items with one reason.
+router.post('/service-queue/automatic/:playerId/dismiss', async (req, res, next) => {
+	try {
+		const staff = await staffOf(req)
+		if (!staff) return sendRefusal(res, { code: 'forbidden' })
+		const reason = typeof req.body?.reason === 'string' ? req.body.reason : ''
+		const result = await dismissAutomaticItemsOf(req.params.playerId, staff, reason)
+		if (!result.ok) return res.status(400).json({ error: 'A reason is required', code: result.error })
+		console.log(
+			`[webadmin] ${staff.role}:${staff.playerId} dismissed ${result.dismissed} automatic items of ${req.params.playerId}`,
+		)
+		res.json(result)
 	} catch (err) {
 		next(err)
 	}
@@ -142,6 +175,11 @@ router.get('/service-queue/:id', async (req, res, next) => {
 				staff.role,
 			),
 			role: staff.role,
+			// What this staff member may decide on an appeal (the appeal's own buttons).
+			appealDecisions:
+				item.itemType === 'appeal'
+					? decisionsFor(staff, (evidence as { punishment?: { issuedBy?: string } | null } | null)?.punishment?.issuedBy ?? null)
+					: undefined,
 			claim: await namedClaimOf(item, now),
 			targets: targetsFor(item, evidence),
 		})
@@ -192,36 +230,49 @@ router.delete('/service-queue/:id/claim', async (req, res, next) => {
 	}
 })
 
-// POST is the action route; PATCH is kept for the old web client.
-for (const method of ['post', 'patch'] as const) {
-	router[method]('/service-queue/:id/actions/:action', async (req, res, next) => {
-		try {
-			const id = itemIdOf(req.params.id)
-			if (id === null) return sendRefusal(res, { code: 'not_found' })
-			const staff = await staffOf(req)
-			if (!staff) return sendRefusal(res, { code: 'forbidden' })
-			const result = await serviceQueueDispatcher.run(
-				id,
-				req.params.action,
-				staff,
-				(req.body ?? {}) as Record<string, unknown>,
-			)
-			if (!result.ok) return sendNamedRefusal(res, result.refusal)
-			const { item, action, effects } = result.value
-			console.log(`[webadmin] ${staff.role}:${staff.playerId} ran service-queue action '${action}' on item ${id}`)
-			res.json({
-				item,
-				action,
-				effects,
-				allowedActions: allowedActionsFor(
-					{ itemType: item.itemType as ItemType, status: item.status as ItemStatus },
-					staff.role,
-				),
-			})
-		} catch (err) {
-			next(err)
-		}
-	})
-}
+// Decides an appeal: deny, or grant by lifting or shortening (appeals.service.ts).
+router.post('/service-queue/:id/appeal', async (req, res, next) => {
+	try {
+		const id = itemIdOf(req.params.id)
+		if (id === null) return sendRefusal(res, { code: 'not_found' })
+		const staff = await staffOf(req)
+		if (!staff) return sendRefusal(res, { code: 'forbidden' })
+		const result = await appealService.decide(id, staff, (req.body ?? {}) as Record<string, unknown>)
+		if (!result.ok) return sendNamedRefusal(res, result.refusal)
+		console.log(`[webadmin] ${staff.role}:${staff.playerId} decided appeal item ${id}: ${result.value.appeal.status}`)
+		res.json({ appeal: result.value.appeal })
+	} catch (err) {
+		next(err)
+	}
+})
+
+router.post('/service-queue/:id/actions/:action', async (req, res, next) => {
+	try {
+		const id = itemIdOf(req.params.id)
+		if (id === null) return sendRefusal(res, { code: 'not_found' })
+		const staff = await staffOf(req)
+		if (!staff) return sendRefusal(res, { code: 'forbidden' })
+		const result = await serviceQueueDispatcher.run(
+			id,
+			req.params.action,
+			staff,
+			(req.body ?? {}) as Record<string, unknown>,
+		)
+		if (!result.ok) return sendNamedRefusal(res, result.refusal)
+		const { item, action, effects } = result.value
+		console.log(`[webadmin] ${staff.role}:${staff.playerId} ran service-queue action '${action}' on item ${id}`)
+		res.json({
+			item,
+			action,
+			effects,
+			allowedActions: allowedActionsFor(
+				{ itemType: item.itemType as ItemType, status: item.status as ItemStatus },
+				staff.role,
+			),
+		})
+	} catch (err) {
+		next(err)
+	}
+})
 
 export default router

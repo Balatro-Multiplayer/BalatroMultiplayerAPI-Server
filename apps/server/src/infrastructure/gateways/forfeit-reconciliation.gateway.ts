@@ -62,40 +62,6 @@ export async function listForfeitReconciliationFlags(
 	return { flags: rows, total }
 }
 
-/** Dismiss a flag without touching the match -- the moderator decided the
- * forfeit was correct after all (e.g. the reconnect was to a different,
- * later match, or genuinely too late to matter). */
-export async function dismissForfeitReconciliationFlag(
-	id: number,
-	resolutionNotes: string | undefined,
-): Promise<ForfeitReconciliationFlag | null> {
-	const [row] = await db
-		.update(forfeitReconciliationFlags)
-		.set({ status: 'dismissed', resolutionNotes: resolutionNotes ?? null })
-		.where(eq(forfeitReconciliationFlags.id, id))
-		.returning()
-	return row ?? null
-}
-
-/** Void the flagged match (see void-match.ts) and mark the flag resolved. */
-export async function voidForfeitReconciliationFlag(
-	id: number,
-	resolutionNotes: string | undefined,
-): Promise<ForfeitReconciliationFlag | null> {
-	const [flag] = await db.select().from(forfeitReconciliationFlags).where(eq(forfeitReconciliationFlags.id, id))
-	if (!flag) return null
-
-	const outcome = await voidMatch(flag.matchId)
-	if (outcome.kind === 'failed') throw new Error(outcome.reason)
-
-	const [row] = await db
-		.update(forfeitReconciliationFlags)
-		.set({ status: 'voided', resolutionNotes: resolutionNotes ?? null })
-		.where(eq(forfeitReconciliationFlags.id, id))
-		.returning()
-	return row ?? null
-}
-
 export type ForfeitFlagStatus = 'open' | 'voided' | 'dismissed'
 
 export async function getForfeitReconciliationFlag(id: number): Promise<ForfeitReconciliationFlag | null> {

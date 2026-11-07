@@ -27,11 +27,12 @@
  *   tsx --env-file=.env src/infrastructure/db/void-match.ts <matchId>
  */
 
-import { and, asc, eq, gt, gte, isNull, lte, or } from 'drizzle-orm'
+import { and, asc, eq, gte } from 'drizzle-orm'
 import { seasonBestOut } from '../../features/ratings/season-best.js'
 import type { PlacementEntry } from '../../shared/types/index.js'
 import {
 	applyRatingTransaction,
+	getSeasonAt,
 	listScopeRatings,
 } from '../gateways/rating.gateway.js'
 import { callNakamaRpc } from '../nakama/admin-client.js'
@@ -40,7 +41,6 @@ import {
 	leaderboardCache,
 	matchmakingMatches,
 	matchmakingRatings,
-	seasons,
 } from './schema.js'
 
 // admin_ratings_set's per-call limit.
@@ -181,23 +181,6 @@ export async function setMatchResult(
 	return { kind: 'set', rerated: true }
 }
 
-// The season *active when this match resolved*, not necessarily today's
-// current season -- a void of an old match must not touch the live board.
-async function seasonOf(at: Date) {
-	const [season] = await db
-		.select()
-		.from(seasons)
-		.where(
-			and(
-				lte(seasons.startedAt, at),
-				or(isNull(seasons.endedAt), gt(seasons.endedAt, at)),
-			),
-		)
-		.orderBy(asc(seasons.startedAt))
-		.limit(1)
-	return season ?? null
-}
-
 // Rebuilds a ranked match's (modId, gameMode, season) scope from scratch:
 // wipe its ratings and leaderboard, replay every resolved match in it in
 // order, and push the result over Nakama's board.
@@ -209,7 +192,7 @@ export async function rebuildScope(
 			ok: false,
 			reason: `match ${match.matchId} has no resultReportedAt -- cannot resolve its season`,
 		}
-	const season = await seasonOf(match.resultReportedAt)
+	const season = await getSeasonAt(match.resultReportedAt)
 	if (!season)
 		return {
 			ok: false,

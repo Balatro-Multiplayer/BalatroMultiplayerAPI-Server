@@ -3,6 +3,7 @@
 import {
   AlertTriangleIcon,
   FlagIcon,
+  GavelIcon,
   type LucideIcon,
   MessageSquareWarningIcon,
   ScaleIcon,
@@ -26,6 +27,7 @@ import {
 import { cn } from '@/lib/utils'
 import type { ListFilters } from '../lib/api'
 import {
+  AUTOMATIC_TYPES,
   ageText,
   minutesLeft,
   type PriorityBand,
@@ -40,6 +42,7 @@ import type {
   QueueSort,
   StatusFilter,
 } from '../lib/types'
+import { AutomaticList } from './automatic-list'
 
 const TYPE_ICONS: Record<ItemType, LucideIcon> = {
   report: FlagIcon,
@@ -49,6 +52,7 @@ const TYPE_ICONS: Record<ItemType, LucideIcon> = {
   contest: SwordsIcon,
   anti_cheat: ShieldAlertIcon,
   integrity: AlertTriangleIcon,
+  appeal: GavelIcon,
 }
 
 const PRIORITY_DOT: Record<PriorityBand, string> = {
@@ -174,7 +178,11 @@ export function QueueList({
   setCursor,
   now,
   onOpen,
+  automaticTab,
+  setAutomaticTab,
 }: {
+  automaticTab: boolean
+  setAutomaticTab: (on: boolean) => void
   filters: ListFilters
   setFilters: (patch: Partial<ListFilters>) => void
   list: List | undefined
@@ -187,8 +195,11 @@ export function QueueList({
 }) {
   const items = list?.items ?? []
   useRowKeys(items, cursor, setCursor, onOpen)
+  const automaticOpen = list
+    ? AUTOMATIC_TYPES.reduce((n, type) => n + list.counts[type], 0)
+    : 0
   const totalOpen = list
-    ? Object.values(list.counts).reduce((a, b) => a + b, 0)
+    ? Object.values(list.counts).reduce((a, b) => a + b, 0) - automaticOpen
     : 0
 
   return (
@@ -199,7 +210,7 @@ export function QueueList({
       >
         {TYPE_TABS.map((tab) => {
           const count = tab.type ? list?.counts[tab.type] : totalOpen
-          const active = filters.itemType === tab.type
+          const active = !automaticTab && filters.itemType === tab.type
           return (
             <Button
               key={tab.label}
@@ -208,7 +219,10 @@ export function QueueList({
               data-tab={tab.type ?? 'all'}
               size='sm'
               variant={active ? 'default' : 'ghost'}
-              onClick={() => setFilters({ itemType: tab.type, page: 1 })}
+              onClick={() => {
+                setAutomaticTab(false)
+                setFilters({ itemType: tab.type, page: 1 })
+              }}
             >
               {tab.label}
               {count !== undefined && (
@@ -219,114 +233,140 @@ export function QueueList({
             </Button>
           )
         })}
+        <Button
+          role='tab'
+          aria-selected={automaticTab}
+          data-tab='automatic'
+          size='sm'
+          variant={automaticTab ? 'default' : 'ghost'}
+          onClick={() => setAutomaticTab(true)}
+        >
+          Automatic
+          {list && (
+            <Badge variant={automaticTab ? 'secondary' : 'outline'}>
+              {automaticOpen}
+            </Badge>
+          )}
+        </Button>
       </div>
 
-      <div className='flex flex-wrap items-center gap-2 border-border border-b p-2'>
-        <Select
-          value={filters.status}
-          onValueChange={(v) =>
-            setFilters({ status: v as StatusFilter, page: 1 })
-          }
-        >
-          <SelectTrigger className='w-28' size='sm' aria-label='Status'>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='open'>Open</SelectItem>
-            <SelectItem value='resolved'>Resolved</SelectItem>
-            <SelectItem value='all'>All</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select
-          value={filters.sort}
-          onValueChange={(v) => setFilters({ sort: v as QueueSort, page: 1 })}
-        >
-          <SelectTrigger className='w-28' size='sm' aria-label='Sort'>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='priority'>Priority</SelectItem>
-            <SelectItem value='age'>Newest</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select
-          value={String(filters.olderThanHours)}
-          onValueChange={(v) =>
-            setFilters({ olderThanHours: Number(v), page: 1 })
-          }
-        >
-          <SelectTrigger className='w-36' size='sm' aria-label='Age'>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {AGE_FILTERS.map((a) => (
-              <SelectItem key={a.hours} value={String(a.hours)}>
-                {a.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Input
-          className='h-8 w-40 flex-1'
-          placeholder='Subject name or id'
-          value={filters.subject}
-          onChange={(e) => setFilters({ subject: e.target.value, page: 1 })}
-        />
-        <Label className='flex items-center gap-1 text-xs'>
-          <Checkbox
-            checked={filters.claimedByMe}
-            onCheckedChange={(c) =>
-              setFilters({ claimedByMe: c === true, page: 1 })
-            }
-          />
-          Claimed by me
-        </Label>
-      </div>
-
-      <div className='min-h-0 flex-1 overflow-y-auto' data-testid='queue-rows'>
-        {isLoading ? (
-          <p className='p-3 text-muted-foreground text-sm'>Loading…</p>
-        ) : items.length === 0 ? (
-          <p className='p-3 text-muted-foreground text-sm'>Nothing here.</p>
-        ) : (
-          items.map((item, i) => (
-            <Row
-              key={item.id}
-              item={item}
-              selected={item.id === selectedId}
-              cursor={i === cursor}
-              now={now}
-              onOpen={() => {
-                setCursor(i)
-                onOpen(item.id)
-              }}
+      {automaticTab ? (
+        <AutomaticList now={now} onOpen={onOpen} />
+      ) : (
+        <>
+          <div className='flex flex-wrap items-center gap-2 border-border border-b p-2'>
+            <Select
+              value={filters.status}
+              onValueChange={(v) =>
+                setFilters({ status: v as StatusFilter, page: 1 })
+              }
+            >
+              <SelectTrigger className='w-28' size='sm' aria-label='Status'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='open'>Open</SelectItem>
+                <SelectItem value='resolved'>Resolved</SelectItem>
+                <SelectItem value='all'>All</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={filters.sort}
+              onValueChange={(v) =>
+                setFilters({ sort: v as QueueSort, page: 1 })
+              }
+            >
+              <SelectTrigger className='w-28' size='sm' aria-label='Sort'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='priority'>Priority</SelectItem>
+                <SelectItem value='age'>Newest</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={String(filters.olderThanHours)}
+              onValueChange={(v) =>
+                setFilters({ olderThanHours: Number(v), page: 1 })
+              }
+            >
+              <SelectTrigger className='w-36' size='sm' aria-label='Age'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {AGE_FILTERS.map((a) => (
+                  <SelectItem key={a.hours} value={String(a.hours)}>
+                    {a.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              className='h-8 w-40 flex-1'
+              placeholder='Subject name or id'
+              value={filters.subject}
+              onChange={(e) => setFilters({ subject: e.target.value, page: 1 })}
             />
-          ))
-        )}
-      </div>
+            <Label className='flex items-center gap-1 text-xs'>
+              <Checkbox
+                checked={filters.claimedByMe}
+                onCheckedChange={(c) =>
+                  setFilters({ claimedByMe: c === true, page: 1 })
+                }
+              />
+              Claimed by me
+            </Label>
+          </div>
 
-      {list && list.pages > 1 && (
-        <div className='flex items-center justify-between gap-2 border-border border-t p-2 text-sm'>
-          <Button
-            size='sm'
-            variant='outline'
-            disabled={filters.page <= 1}
-            onClick={() => setFilters({ page: filters.page - 1 })}
+          <div
+            className='min-h-0 flex-1 overflow-y-auto'
+            data-testid='queue-rows'
           >
-            Previous
-          </Button>
-          <span className='text-muted-foreground'>
-            Page {list.page} of {list.pages} · {list.total} items
-          </span>
-          <Button
-            size='sm'
-            variant='outline'
-            disabled={filters.page >= list.pages}
-            onClick={() => setFilters({ page: filters.page + 1 })}
-          >
-            Next
-          </Button>
-        </div>
+            {isLoading ? (
+              <p className='p-3 text-muted-foreground text-sm'>Loading…</p>
+            ) : items.length === 0 ? (
+              <p className='p-3 text-muted-foreground text-sm'>Nothing here.</p>
+            ) : (
+              items.map((item, i) => (
+                <Row
+                  key={item.id}
+                  item={item}
+                  selected={item.id === selectedId}
+                  cursor={i === cursor}
+                  now={now}
+                  onOpen={() => {
+                    setCursor(i)
+                    onOpen(item.id)
+                  }}
+                />
+              ))
+            )}
+          </div>
+
+          {list && list.pages > 1 && (
+            <div className='flex items-center justify-between gap-2 border-border border-t p-2 text-sm'>
+              <Button
+                size='sm'
+                variant='outline'
+                disabled={filters.page <= 1}
+                onClick={() => setFilters({ page: filters.page - 1 })}
+              >
+                Previous
+              </Button>
+              <span className='text-muted-foreground'>
+                Page {list.page} of {list.pages} · {list.total} items
+              </span>
+              <Button
+                size='sm'
+                variant='outline'
+                disabled={filters.page >= list.pages}
+                onClick={() => setFilters({ page: filters.page + 1 })}
+              >
+                Next
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

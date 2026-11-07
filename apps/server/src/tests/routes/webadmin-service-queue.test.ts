@@ -143,7 +143,7 @@ describe('GET /api/webadmin/service-queue/:id', () => {
 		const actions = res.body.allowedActions.map((a: { action: string }) => a.action)
 		expect(actions).toContain('warn')
 		expect(actions).not.toContain('account_ban')
-		expect(res.body.allowedActions.find((a: { action: string }) => a.action === 'queue_ban').presets).toEqual(['7d'])
+		expect(res.body.allowedActions.find((a: { action: string }) => a.action === 'queue_ban').presets).toEqual(['24h', '7d', '30d', 'permanent'])
 		expect(serviceQueueGateway.recordItemEvent).toHaveBeenCalledWith(expect.anything(), {
 			itemId: 1,
 			kind: 'viewed',
@@ -241,12 +241,12 @@ describe('POST /api/webadmin/service-queue/:id/actions/:action', () => {
 			value: { item: { ...ITEM, status: 'resolved' }, action: 'warn', effects: { warningId: 3, delivered: true } },
 		})
 		const res = await request(app)
-			.patch('/api/webadmin/service-queue/1/actions/warn')
+			.post('/api/webadmin/service-queue/1/actions/warn')
 			.set('Authorization', token)
 			.send({ message: 'be nice' })
 		expect(res.status).toBe(200)
 		expect(res.body.effects).toEqual({ warningId: 3, delivered: true })
-		expect(res.body.allowedActions.map((a: { action: string }) => a.action)).toEqual(['reopen', 'unban', 'note'])
+		expect(res.body.allowedActions.map((a: { action: string }) => a.action)).toEqual(['reopen', 'note'])
 	})
 
 	it('answers 404 for a malformed id without dispatching', async () => {

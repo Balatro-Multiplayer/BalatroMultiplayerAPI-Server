@@ -1,17 +1,22 @@
 // Runs a moderator's action on a queue item. The order is fixed: load the
 // item, check the role table, the body and the claim, pick the target; run
-// any external step that must happen first (a void's rating rebuild, an
-// overturn's new result -- both idempotent, so a retry after a failed
-// commit is safe); then one transaction for the source row, the queue row,
+// any external step that must happen first (a void's or an overturn's match
+// edit, which moves only that match's players' ratings -- both idempotent, so
+// a retry after a failed commit is safe); then one transaction for the source row, the queue row,
 // the ban/warning row and the audit event; then, after the commit, tell
 // Nakama (the ban, the warning notification). Every refusal is a value.
+import type { MatchEditSummary } from '../ratings/match-edit.service.js'
 import { heldByOther } from './claim.js'
 import { type QueueCommand, type SanctionCommand, banTypeOf, parseCommand, presetOf } from './command.js'
 import { expiresAtOf } from './durations.js'
+import { type ChatLabel, type DismissLabel, labelOfAction } from './flagged-chat.js'
 import { type OverturnPlan, type Placement, planContestOverturn, planOverturn, ratedPlacements } from './overturn.js'
+import { type AppliedStep, type Ladder, type LadderStep, type Strike, judgePunishment } from '../strikes/ladder.js'
 import { mayLiftBan, permissionFor } from './permissions.js'
 import { type QueueRefusal, type QueueResult, refuse } from './refusals.js'
 import { type Target, type TargetSources, pickTarget, targetsOf } from './targets.js'
+import type { WarningSource } from '../../shared/service-queue/items.js'
+import type { StaffAction, StaffActionEntry } from '../../shared/staff-log/actions.js'
 import { type SourceStatus, sourceStatusFor } from './transitions.js'
 import {
 	type ActionKey,
@@ -62,11 +67,11 @@ export interface GameRef {
 }
 
 export type VoidResult =
-	| { kind: 'voided'; rerated: boolean }
+	| { kind: 'voided'; rerated: boolean; edit?: MatchEditSummary }
 	| { kind: 'not_resolved'; status: string }
 	| { kind: 'failed'; reason: string }
 
-export type OverturnResult = { kind: 'applied'; rerated: boolean } | { kind: 'failed'; reason: string }
+export type OverturnResult = { kind: 'applied'; rerated: boolean; edit?: MatchEditSummary } | { kind: 'failed'; reason: string }
 
 export interface DispatcherDeps<Tx> {
 	now(): Date
@@ -99,13 +104,51 @@ export interface DispatcherDeps<Tx> {
 		ban: { playerId: string; banType: BanRow['banType']; expiresAt: Date | null; issuedBy: string; reason: string },
 	): Promise<BanRow>
 	liftBan(tx: Tx, playerId: string, banId: string, liftedBy: string): Promise<BanRow | null>
+	// The staff log write (shared/staff-log/actions.ts), in the action's transaction.
+	recordStaffAction(tx: Tx, entry: StaffActionEntry): Promise<void>
+	// A flagged chat item's decision: one training label for each message it holds.
+	saveChatLabels(tx: Tx, item: QueueItem, label: ChatLabel, decidedAt: Date): Promise<void>
 	insertWarning(tx: Tx, warning: { playerId: string; itemId: number; message: string; issuedBy: string }): Promise<{ id: string }>
+
+	// The steps of a strike ladder and a player's strikes on it.
+	ladderStateOf(playerId: string, ladder: Ladder): Promise<{ steps: readonly LadderStep[]; strikes: Strike[] }>
+	insertStrike(
+		tx: Tx,
+		strike: {
+			playerId: string
+			ladder: Ladder
+			banId: string | null
+			warningId: string | null
+			recommendedStep: LadderStep
+			appliedStep: AppliedStep
+			deviationReason: string | null
+			issuedAt: Date
+		},
+	): Promise<void>
 
 	// After the commit; failures are reported in the result, never undone.
 	banInNakama(ban: BanRow): Promise<boolean>
 	liftBanInNakama(playerId: string, banId: string): Promise<boolean>
-	notifyWarned(playerId: string, payload: { message: string; itemType: ItemType; warnedAt: number }): Promise<boolean>
+	notifyWarned(playerId: string, payload: { message: string; itemType: WarningSource; warnedAt: number }): Promise<boolean>
 	rescore(item: QueueItem, playerIds: string[]): Promise<void>
+}
+
+// The staff log entry of one action, still without the item and the staff member.
+type Logged = { reason: string; targetPlayerId?: string | null }
+
+// The log action of each queue action (a note is not logged): the log says
+// chat ban and lift where the queue says mute and unban.
+const LOGGED_AS: Record<Exclude<ActionKey, 'note'>, StaffAction> = {
+	dismiss: 'dismiss',
+	resolve: 'resolve',
+	warn: 'warn',
+	chat_mute: 'chat_ban',
+	queue_ban: 'queue_ban',
+	account_ban: 'account_ban',
+	void: 'void',
+	overturn: 'overturn',
+	reopen: 'reopen',
+	unban: 'lift_ban',
 }
 
 export interface ActionEffects {
@@ -139,6 +182,8 @@ class Rollback extends Error {
 }
 
 export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
+	type LogFn = (tx: Tx, action: ActionKey, entry: Logged, detail: unknown) => Promise<void>
+
 	async function run(
 		itemId: number,
 		actionName: string,
@@ -169,27 +214,35 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		}
 
 		const actor = actorOf(staff.role, staff.playerId)
+		const log: LogFn = (tx, action, entry, detail) =>
+			deps.recordStaffAction(tx, {
+				staff: { playerId: staff.playerId, role: staff.role },
+				action: LOGGED_AS[action as Exclude<ActionKey, 'note'>],
+				itemId: item.id,
+				detail,
+				...entry,
+			})
 		try {
 			switch (command.action) {
 				case 'dismiss':
 				case 'resolve':
-					return await close(item, itemType, command, actor, now)
+					return await close(item, itemType, command, actor, now, log)
 				case 'note':
 					return await note(item, command.note, actor, now)
 				case 'reopen':
-					return await reopen(item, itemType, command.note, actor, now)
+					return await reopen(item, itemType, command, actor, now, log)
 				case 'warn':
-					return await warn(item, itemType, command, actor, now)
+					return await warn(item, itemType, command, actor, now, log)
 				case 'chat_mute':
 				case 'queue_ban':
 				case 'account_ban':
-					return await sanction(item, itemType, command, actor, now)
+					return await sanction(item, itemType, command, actor, now, log)
 				case 'unban':
-					return await unban(item, staff, command.banId, command.note, actor, now)
+					return await unban(item, staff, command, actor, now, log)
 				case 'void':
-					return await voidItem(item, itemType, command.note, actor, now)
+					return await voidItem(item, itemType, command, actor, now, log)
 				case 'overturn':
-					return await overturn(item, itemType, command.toReportOf, command.note, actor, now)
+					return await overturn(item, itemType, command, actor, now, log)
 			}
 		} catch (err) {
 			if (err instanceof Rollback) return refuse(err.refusal)
@@ -208,6 +261,9 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		actor: string,
 		now: Date,
 		detail: unknown,
+		log: LogFn,
+		logged: Logged,
+		dismissLabel: DismissLabel | null = null,
 	): Promise<void> {
 		if (!(await deps.markResolved(tx, item.id, actor, action, note, now)))
 			throw new Rollback({ code: 'wrong_status', status: 'resolved' })
@@ -215,6 +271,9 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		if (sourceStatus && !(await deps.setSourceStatus(tx, item, sourceStatus, note)))
 			throw new Rollback({ code: 'source_missing' })
 		await deps.recordEvent(tx, { itemId: item.id, kind: 'acted', actor, action, note, detail })
+		const label = itemType === 'flagged_chat' ? labelOfAction(action, dismissLabel) : null
+		if (label) await deps.saveChatLabels(tx, item, label, now)
+		await log(tx, action, logged, detail)
 	}
 
 	async function close(
@@ -223,11 +282,28 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		command: Extract<QueueCommand, { action: 'dismiss' | 'resolve' }>,
 		actor: string,
 		now: Date,
+		log: LogFn,
 	): Promise<QueueResult<ActionOutcome>> {
+		const dismissLabel = command.action === 'dismiss' ? command.dismissLabel : null
+		// A flagged chat item is dismissed by one of 2 buttons; each one is a label.
+		if (itemType === 'flagged_chat' && command.action === 'dismiss' && !dismissLabel)
+			return refuse({ code: 'invalid_body', field: 'dismissLabel', message: "dismissLabel must be 'not_harmful' or 'harmful_no_action'" })
 		const settled = itemType === 'contest' ? await settleContest(item, 'rate_original') : null
 		if (settled && !settled.ok) return refuse(settled.refusal)
 		await deps.transaction((tx) =>
-			closeIn(tx, item, itemType, command.action, command.note, actor, now, settled ? settled.detail : null),
+			closeIn(
+				tx,
+				item,
+				itemType,
+				command.action,
+				command.note,
+				actor,
+				now,
+				settled ? settled.detail : null,
+				log,
+				{ reason: command.reason, targetPlayerId: item.subjectPlayerId },
+				dismissLabel,
+			),
 		)
 		await deps.rescore(item, subjectsOf(item))
 		return done(item, command.action, {})
@@ -244,16 +320,18 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 	async function reopen(
 		item: QueueItem,
 		itemType: ItemType,
-		text: string | null,
+		command: Extract<QueueCommand, { action: 'reopen' }>,
 		actor: string,
 		now: Date,
+		log: LogFn,
 	): Promise<QueueResult<ActionOutcome>> {
 		await deps.transaction(async (tx) => {
 			if (!(await deps.markReopened(tx, item.id, now))) throw new Rollback({ code: 'wrong_status', status: 'open' })
 			const sourceStatus = sourceStatusFor(itemType, 'reopen')
 			if (sourceStatus && !(await deps.setSourceStatus(tx, item, sourceStatus, null)))
 				throw new Rollback({ code: 'source_missing' })
-			await deps.recordEvent(tx, { itemId: item.id, kind: 'reopened', actor, action: 'reopen', note: text, detail: null })
+			await deps.recordEvent(tx, { itemId: item.id, kind: 'reopened', actor, action: 'reopen', note: command.note, detail: null })
+			await log(tx, 'reopen', { reason: command.reason, targetPlayerId: item.subjectPlayerId }, null)
 		})
 		await deps.rescore(item, subjectsOf(item))
 		return done(item, 'reopen', {})
@@ -268,14 +346,37 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		return pick.target
 	}
 
+	// Judges a punishment against its ladder before anything is written. A
+	// different step than the recommended one needs the staff member's reason.
+	async function judged(
+		playerId: string,
+		ladder: Ladder,
+		applied: AppliedStep,
+		deviationReason: string | null,
+		now: Date,
+	) {
+		const state = await deps.ladderStateOf(playerId, ladder)
+		const judgement = judgePunishment(state.steps, state.strikes, now, applied, deviationReason)
+		if (!judgement.ok) throw new Rollback({ code: 'invalid_body', field: 'deviationReason', message: judgement.message })
+		return { ladder, recommended: judgement.recommended, applied: judgement.applied, deviationReason: judgement.deviationReason }
+	}
+
 	async function warn(
 		item: QueueItem,
 		itemType: ItemType,
 		command: Extract<QueueCommand, { action: 'warn' }>,
 		actor: string,
 		now: Date,
+		log: LogFn,
 	): Promise<QueueResult<ActionOutcome>> {
 		const target = await targetFor(item, command.targetPlayerId)
+		const strike = await judged(
+			target.playerId,
+			command.ladder ?? (itemType === 'flagged_chat' ? 'chat' : 'play'),
+			'warning',
+			command.deviationReason,
+			now,
+		)
 		const settled = await settleForTarget(item, itemType, target)
 		if (settled && !settled.ok) return refuse(settled.refusal)
 		const warning = await deps.transaction(async (tx) => {
@@ -285,12 +386,23 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 				message: command.message,
 				issuedBy: actor,
 			})
+			await deps.insertStrike(tx, {
+				playerId: target.playerId,
+				ladder: strike.ladder,
+				banId: null,
+				warningId: row.id,
+				recommendedStep: strike.recommended,
+				appliedStep: strike.applied,
+				deviationReason: strike.deviationReason,
+				issuedAt: now,
+			})
 			await closeIn(tx, item, itemType, 'warn', command.note, actor, now, {
 				target,
 				warningId: row.id,
 				message: command.message,
+				strike,
 				...(settled ? settled.detail : {}),
-			})
+			}, log, { reason: command.reason, targetPlayerId: target.playerId })
 			return row
 		})
 		const delivered = await deps
@@ -306,10 +418,22 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		command: SanctionCommand,
 		actor: string,
 		now: Date,
+		log: LogFn,
 	): Promise<QueueResult<ActionOutcome>> {
 		const target = await targetFor(item, command.targetPlayerId)
 		const banType = banTypeOf(command)
 		const expiresAt = expiresAtOf(command.duration, now)
+		// An account ban is on no ladder.
+		const strike =
+			command.action === 'account_ban'
+				? null
+				: await judged(
+						target.playerId,
+						command.ladder ?? (command.action === 'chat_mute' ? 'chat' : 'play'),
+						command.duration,
+						command.deviationReason,
+						now,
+					)
 		const settled = await settleForTarget(item, itemType, target)
 		if (settled && !settled.ok) return refuse(settled.refusal)
 		const ban = await deps.transaction(async (tx) => {
@@ -320,14 +444,26 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 				issuedBy: actor,
 				reason: command.reason,
 			})
+			if (strike)
+				await deps.insertStrike(tx, {
+					playerId: target.playerId,
+					ladder: strike.ladder,
+					banId: row.id,
+					warningId: null,
+					recommendedStep: strike.recommended,
+					appliedStep: strike.applied,
+					deviationReason: strike.deviationReason,
+					issuedAt: now,
+				})
 			await closeIn(tx, item, itemType, command.action, command.note, actor, now, {
 				target,
 				banId: row.id,
 				banType,
 				duration: command.duration,
 				expiresAt,
+				...(strike ? { strike } : {}),
 				...(settled ? settled.detail : {}),
-			})
+			}, log, { reason: command.reason, targetPlayerId: target.playerId })
 			return row
 		})
 		const delivered = await deps.banInNakama(ban).catch(() => false)
@@ -338,12 +474,12 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 	async function unban(
 		item: QueueItem,
 		staff: Staff,
-		banId: string,
-		text: string | null,
+		command: Extract<QueueCommand, { action: 'unban' }>,
 		actor: string,
 		now: Date,
+		log: LogFn,
 	): Promise<QueueResult<ActionOutcome>> {
-		const ban = await deps.getBan(banId)
+		const ban = await deps.getBan(command.banId)
 		const sources = await deps.sourcesOf(item)
 		const targets = sources ? targetsOf({ itemType: item.itemType, ...sources }) : []
 		if (!ban || ban.liftedAt || !targets.some((t) => t.playerId === ban.playerId))
@@ -357,9 +493,10 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 				kind: 'acted',
 				actor,
 				action: 'unban',
-				note: text,
+				note: command.note,
 				detail: { banId: ban.id, banType: ban.banType, playerId: ban.playerId },
 			})
+			await log(tx, 'unban', { reason: command.reason, targetPlayerId: ban.playerId }, { banId: ban.id, banType: ban.banType })
 			await deps.touch(tx, item.id, now)
 			return row
 		})
@@ -371,13 +508,15 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 	async function voidItem(
 		item: QueueItem,
 		itemType: ItemType,
-		text: string | null,
+		command: Extract<QueueCommand, { action: 'void' }>,
 		actor: string,
 		now: Date,
+		log: LogFn,
 	): Promise<QueueResult<ActionOutcome>> {
 		const game = await deps.gameOf(item)
 		if (!game) return refuse({ code: 'source_missing' })
 		let rerated = false
+		let edit: MatchEditSummary | undefined
 		// A private game has no matchmade record and no ratings: nothing to undo.
 		if (game.matchmade) {
 			const result = await deps.voidGame(game)
@@ -385,10 +524,14 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 				return refuse({ code: 'not_voidable', reason: `The match is ${result.status}, not resolved` })
 			if (result.kind === 'failed') return refuse({ code: 'nakama_failed', reason: result.reason })
 			rerated = result.rerated
+			edit = result.edit
 		}
 		const voided = { runId: game.runId, rerated }
 		await deps.transaction((tx) =>
-			closeIn(tx, item, itemType, 'void', text, actor, now, { ...voided, matchmade: game.matchmade }),
+			closeIn(tx, item, itemType, 'void', command.note, actor, now, { ...voided, matchmade: game.matchmade, edit }, log, {
+				reason: command.reason,
+				targetPlayerId: item.subjectPlayerId,
+			}),
 		)
 		await deps.rescore(item, subjectsOf(item))
 		return done(item, 'void', { voided })
@@ -397,10 +540,10 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 	async function overturn(
 		item: QueueItem,
 		itemType: ItemType,
-		toReportOf: string,
-		text: string | null,
+		command: Extract<QueueCommand, { action: 'overturn' }>,
 		actor: string,
 		now: Date,
+		log: LogFn,
 	): Promise<QueueResult<ActionOutcome>> {
 		const [conflict, game] = await Promise.all([
 			itemType === 'contest' ? null : deps.conflictOf(item),
@@ -409,14 +552,19 @@ export function createDispatcher<Tx>(deps: DispatcherDeps<Tx>) {
 		if (!game || (itemType !== 'contest' && !conflict)) return refuse({ code: 'source_missing' })
 		// A contest names the winner; a conflict names the report that stands.
 		const plan: OverturnPlan = conflict
-			? planOverturn(conflict, toReportOf)
-			: planContestOverturn(await deps.participantsOf(game), toReportOf)
+			? planOverturn(conflict, command.toReportOf)
+			: planContestOverturn(await deps.participantsOf(game), command.toReportOf)
 		if (!plan.ok) return refuse({ code: plan.refusal })
 		const flagged = game.ranked ? await deps.flaggedPlayersOf(game.runId) : new Set<string>()
 		const result = await deps.overturnGame(game, ratedPlacements(plan.placements, flagged, game.ranked))
 		if (result.kind === 'failed') return refuse({ code: 'nakama_failed', reason: result.reason })
 		const overturned = { runId: game.runId, placements: plan.placements, rerated: result.rerated }
-		await deps.transaction((tx) => closeIn(tx, item, itemType, 'overturn', text, actor, now, overturned))
+		await deps.transaction((tx) =>
+			closeIn(tx, item, itemType, 'overturn', command.note, actor, now, { ...overturned, edit: result.edit }, log, {
+				reason: command.reason,
+				targetPlayerId: item.subjectPlayerId,
+			}),
+		)
 		await deps.rescore(item, subjectsOf(item))
 		return done(item, 'overturn', { overturned })
 	}

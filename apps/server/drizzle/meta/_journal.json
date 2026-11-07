@@ -435,6 +435,41 @@
       "when": 1793700000000,
       "tag": "0061_match_run_logs_shared_at",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1793800000000,
+      "tag": "0062_staff_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1793900000000,
+      "tag": "0063_chat_review_labels",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1794000000000,
+      "tag": "0064_player_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1794100000000,
+"tag": "0065_strike_ladders",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1794200000000,
+      "tag": "0066_appeals",
+      "breakpoints": true
     }
   ]
 }

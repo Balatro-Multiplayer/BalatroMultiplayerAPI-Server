@@ -42,18 +42,6 @@ export async function listMatchConflicts(
 	return { conflicts: rows, total }
 }
 
-export async function resolveMatchConflict(
-	id: number,
-	resolutionNotes: string | undefined,
-): Promise<MatchResultConflictRecord | null> {
-	const [row] = await db
-		.update(matchResultConflicts)
-		.set({ status: 'resolved', resolutionNotes: resolutionNotes ?? null })
-		.where(eq(matchResultConflicts.id, id))
-		.returning()
-	return row ?? null
-}
-
 export async function getMatchConflict(id: number): Promise<MatchResultConflictRecord | null> {
 	const [row] = await db.select().from(matchResultConflicts).where(eq(matchResultConflicts.id, id)).limit(1)
 	return row ?? null

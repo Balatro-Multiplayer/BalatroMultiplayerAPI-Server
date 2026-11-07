@@ -87,6 +87,12 @@ vi.mock('../infrastructure/gateways/ban.gateway.js', () => ({
 	isBanType: (v: unknown) => v === 'chat' || v === 'queue' || v === 'account',
 }))
 
+// Mock the staff log gateway: no real DB in tests. Default: an empty log.
+vi.mock('../infrastructure/gateways/staff-log.gateway.js', () => ({
+	recordStaffAction: vi.fn().mockResolvedValue(undefined),
+	listStaffLog: vi.fn().mockResolvedValue({ entries: [], total: 0 }),
+}))
+
 // Mock the mute gateway — no real DB in tests. Default: no mutes.
 vi.mock('../infrastructure/gateways/mute.gateway.js', () => ({
 	addMute: vi.fn().mockResolvedValue(undefined),

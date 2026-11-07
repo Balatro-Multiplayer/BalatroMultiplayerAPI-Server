@@ -3,7 +3,7 @@ import type { LauncherPlatform } from '../../infrastructure/db/schema.js'
 import { AppError } from '../../shared/utils/errors.js'
 
 // Resolves launcher release metadata (and proxies asset downloads) from the
-// new-launcher repo's own GitHub Releases, instead of this server hosting
+// BET-launcher repo's own GitHub Releases, instead of this server hosting
 // binaries itself (see schema.ts's launcherReleases doc comment for why).
 // Small local copy of the same githubHeaders()/GITHUB_API_BASE pattern
 // features/r2modman-releases/r2modman-github-releases.service.ts also uses,
@@ -13,14 +13,14 @@ import { AppError } from '../../shared/utils/errors.js'
 const GITHUB_API_BASE = 'https://api.github.com'
 const GITHUB_FETCH_TIMEOUT_MS = 15_000
 const REPO_OWNER = 'Balatro-Multiplayer'
-const REPO_NAME = 'new-launcher'
+const REPO_NAME = 'BET-launcher'
 
 // Every call here is triggered directly by an admin action -- failures
 // should surface as a clear error in the admin UI, not silently no-op.
 function githubHeaders(): HeadersInit {
 	if (!env.GITHUB_TOKEN) {
 		throw new AppError(
-			'GITHUB_TOKEN is not configured on this server - required to read releases from the private new-launcher repo',
+			'GITHUB_TOKEN is not configured on this server - required to read releases from the private BET-launcher repo',
 			500,
 		)
 	}

@@ -274,6 +274,11 @@ export function isNetworkBanned(nk: nkruntime.Nakama, hash: string): boolean {
 	return readIndex(nk, hash).length > 0
 }
 
+// The network bans in force on a network: what an admin lifts to unblock it.
+export function networkBanIdsOn(nk: nkruntime.Nakama, hash: string): string[] {
+	return readIndex(nk, hash)
+}
+
 // For a permanent account ban: bans the networks userId used in the last
 // IP_HASH_DAYS. Does nothing for a timed ban, on a server without network
 // bans, or when a network ban for this ban already exists (even a lifted

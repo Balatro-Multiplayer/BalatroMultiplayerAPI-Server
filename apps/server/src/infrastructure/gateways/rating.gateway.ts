@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, lt, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, isNull, lt, lte, or, sql } from 'drizzle-orm'
 import {
 	PLACEMENT_GAMES,
 	RATING_FLOOR,
@@ -64,6 +64,30 @@ export async function getSeasonForReplay(): Promise<
 		.orderBy(desc(seasons.id))
 		.limit(1)
 	return latest
+}
+
+// The season *active at that moment*, not necessarily today's current season:
+// an edit of an old match must not touch the live board.
+export async function getSeasonAt(
+	at: Date,
+): Promise<{
+	id: number
+	name: string
+	startedAt: Date
+	endedAt: Date | null
+} | null> {
+	const [season] = await db
+		.select()
+		.from(seasons)
+		.where(
+			and(
+				lte(seasons.startedAt, at),
+				or(isNull(seasons.endedAt), gt(seasons.endedAt, at)),
+			),
+		)
+		.orderBy(asc(seasons.startedAt))
+		.limit(1)
+	return season ?? null
 }
 
 // Resolve the season to read from. If an explicit id is given, use it as-is.
