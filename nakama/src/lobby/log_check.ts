@@ -35,7 +35,7 @@ export function logGapsOf(log: PlayerLog | undefined): number {
 }
 
 // 'incomplete' when the stored log has a gap: the events are not all here, so
-// the hash cannot be compared. 'unavailable' when there's nothing to check: no log, no 'chk' (the client
+// the hash cannot be compared (even when the 'chk' is missing too). 'unavailable' when there's nothing to check: no log, no 'chk' (the client
 // never reached end_run), or a truncated log. 'mismatch' is only for a
 // complete log whose hash really differs.
 export function checkLog(
@@ -44,9 +44,11 @@ export function checkLog(
 ): { carbonHash: string | null; check: LogCheck } {
 	if (!log) return { carbonHash: null, check: 'unavailable' }
 	const carbonHash = claimedHash(log.lines)
+	// A gap comes first: events after it were refused, so the 'chk' is often
+	// among the missing ones too.
+	if (logGapsOf(log) > 0) return { carbonHash, check: 'incomplete' }
 	if (carbonHash === null || log.truncated)
 		return { carbonHash, check: 'unavailable' }
-	if (logGapsOf(log) > 0) return { carbonHash, check: 'incomplete' }
 	const recomputed = sha256(hashInput(log.lines)).toLowerCase()
 	return {
 		carbonHash,

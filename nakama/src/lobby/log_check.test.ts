@@ -57,6 +57,11 @@ describe('log check', () => {
 		expect(checkLog({ ...logWith('0'.repeat(64)), seq: 5, ahead: 6 }, sha256).check).toBe('incomplete')
 	})
 
+	it('calls a log with a gap incomplete even when its chk never arrived', () => {
+		const noChk = { ...logWith('x'), lines: logWith('x').lines.slice(0, 3), seq: 3, ahead: 8 }
+		expect(checkLog(noChk, sha256)).toEqual({ carbonHash: null, check: 'incomplete' })
+	})
+
 	it('still flags a complete log whose hash differs', () => {
 		const complete = { ...logWith('0'.repeat(64)), seq: 5, ahead: 5 }
 		expect(logGapsOf(complete)).toBe(0)
