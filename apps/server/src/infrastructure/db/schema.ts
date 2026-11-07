@@ -847,6 +847,10 @@ export const lobbyRuns = pgTable(
 			.notNull()
 			.defaultNow(),
 		finalizedAt: timestamp('finalized_at', { withTimezone: true }),
+		// Each player's joins, leaves and rejoins with the log counts the server held at
+		// the end (RunConnections in features/nakama/mirror.service.ts). Null for a
+		// run mirrored before Nakama kept them.
+		connections: jsonb('connections'),
 	},
 	(t) => [index('lobby_runs_lobby_code_idx').on(t.lobbyCode)],
 )

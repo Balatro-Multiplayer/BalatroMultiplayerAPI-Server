@@ -11,6 +11,7 @@ import {
 	serviceQueueItems,
 	staffLog,
 } from '../db/schema.js'
+import type { ConnectionKind, RunConnections } from '../../features/nakama/mirror.service.js'
 import { callNakamaRpc } from '../nakama/admin-client.js'
 import { findNakamaUserIds } from './player.gateway.js'
 
@@ -40,6 +41,57 @@ export async function findRunWindow(runId: string): Promise<RunWindow | null> {
 		.where(eq(lobbyRuns.id, runId))
 		.limit(1)
 	return run ?? null
+}
+
+export interface RunConnectionEvent {
+	playerId: string
+	displayName: string | null
+	kind: ConnectionKind
+	at: number
+	/** A kick: the player who did it, or 'server'. */
+	by: string | null
+	byName: string | null
+	reason: string | null
+}
+
+export interface RunConnectionsView {
+	events: RunConnectionEvent[]
+	/** The highest log event the server held for each player at the end. */
+	logHeld: { playerId: string; displayName: string | null; held: number }[]
+}
+
+// The run's joins, leaves and rejoins as the mirror stored them; null for a
+// run stored before they were kept.
+export async function findRunConnections(runId: string): Promise<RunConnectionsView | null> {
+	if (!UUID.test(runId)) return null
+	const [row] = await db
+		.select({ connections: lobbyRuns.connections })
+		.from(lobbyRuns)
+		.where(eq(lobbyRuns.id, runId))
+		.limit(1)
+	const stored = row?.connections as RunConnections | null | undefined
+	if (!stored) return null
+	const ids = [
+		...stored.events.flatMap((e) => (e.by ? [e.playerId, e.by] : [e.playerId])),
+		...Object.keys(stored.logHeld),
+	]
+	const names = await displayNamesOf(ids)
+	return {
+		events: stored.events.map((e) => ({
+			playerId: e.playerId,
+			displayName: names.get(e.playerId) ?? null,
+			kind: e.kind,
+			at: e.at,
+			by: e.by ?? null,
+			byName: e.by ? (names.get(e.by) ?? null) : null,
+			reason: e.reason ?? null,
+		})),
+		logHeld: Object.entries(stored.logHeld).map(([playerId, held]) => ({
+			playerId,
+			displayName: names.get(playerId) ?? null,
+			held,
+		})),
+	}
 }
 
 export interface RunChatLine {

@@ -29,7 +29,7 @@ export async function storeMirroredRun(rows: RunRows): Promise<void> {
 			.values(lobbyRun)
 			.onConflictDoUpdate({
 				target: lobbyRuns.id,
-				set: { status: lobbyRun.status, finalizedAt: lobbyRun.finalizedAt },
+				set: { status: lobbyRun.status, finalizedAt: lobbyRun.finalizedAt, connections: lobbyRun.connections },
 			})
 		for (const log of rows.logs) {
 			await tx
