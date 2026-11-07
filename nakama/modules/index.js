@@ -3094,6 +3094,44 @@ function noteReturn(nk, logger, userId, now) {
   }
 }
 
+// src/lobby/log_check.ts
+var FRAMING_OPCODES = { end: true, chk: true };
+function opcodeOf(line) {
+  return JSON.parse(line)[1];
+}
+function hashInput(lines) {
+  return `[${lines.filter((line) => !FRAMING_OPCODES[opcodeOf(line)]).join(",")}]`;
+}
+function claimedHash(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const event2 = JSON.parse(lines[i]);
+    if (event2[1] !== "chk") continue;
+    const args = event2[2];
+    return args && typeof args.carbon === "string" ? args.carbon : null;
+  }
+  return null;
+}
+function logHeldOf(log) {
+  var _a;
+  return log ? (_a = log.seq) != null ? _a : log.lines.length : 0;
+}
+function logGapsOf(log) {
+  if (!log || log.ahead === void 0) return 0;
+  return Math.max(0, log.ahead - logHeldOf(log));
+}
+function checkLog(log, sha256) {
+  if (!log) return { carbonHash: null, check: "unavailable" };
+  const carbonHash = claimedHash(log.lines);
+  if (logGapsOf(log) > 0) return { carbonHash, check: "incomplete" };
+  if (carbonHash === null || log.truncated)
+    return { carbonHash, check: "unavailable" };
+  const recomputed = sha256(hashInput(log.lines)).toLowerCase();
+  return {
+    carbonHash,
+    check: recomputed === carbonHash.toLowerCase() ? "match" : "mismatch"
+  };
+}
+
 // src/review/ranked.ts
 function isRankedGameMode(gameMode) {
   return gameMode.indexOf("ranked:") === 0;
@@ -3124,35 +3162,6 @@ function lobbyKindOfLabel(label) {
   } catch (e) {
     return null;
   }
-}
-
-// src/lobby/log_check.ts
-var FRAMING_OPCODES = { end: true, chk: true };
-function opcodeOf(line) {
-  return JSON.parse(line)[1];
-}
-function hashInput(lines) {
-  return `[${lines.filter((line) => !FRAMING_OPCODES[opcodeOf(line)]).join(",")}]`;
-}
-function claimedHash(lines) {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const event2 = JSON.parse(lines[i]);
-    if (event2[1] !== "chk") continue;
-    const args = event2[2];
-    return args && typeof args.carbon === "string" ? args.carbon : null;
-  }
-  return null;
-}
-function checkLog(log, sha256) {
-  if (!log) return { carbonHash: null, check: "unavailable" };
-  const carbonHash = claimedHash(log.lines);
-  if (carbonHash === null || log.truncated)
-    return { carbonHash, check: "unavailable" };
-  const recomputed = sha256(hashInput(log.lines)).toLowerCase();
-  return {
-    carbonHash,
-    check: recomputed === carbonHash.toLowerCase() ? "match" : "mismatch"
-  };
 }
 
 // src/lobby/active.ts
@@ -3735,6 +3744,7 @@ function snapshotFor(lobby, userId, now = Date.now()) {
       started: lobby.game.started,
       reported: Object.keys(lobby.game.reports),
       resultPending: lobby.game.resultPending === true,
+      logSeq: logHeldOf(lobby.game.logs[userId]),
       setup: setupView(setupOf(lobby.game), now)
     },
     groupQueue: viewOf(lobby),
@@ -4809,7 +4819,7 @@ function runFlags(run, events, checks) {
   for (const player of run.players) {
     if (checks[player.id] === "mismatch") flags[player.id] = "hash_mismatch";
     else if (handCount(events[player.id]) * MIN_MS_PER_HAND > elapsedMs) flags[player.id] = "elapsed_time_gate";
-    else if (run.rankedMode && played && player.id in ((_a = run.reports) != null ? _a : {}) && checks[player.id] === "unavailable") flags[player.id] = "unverified_log";
+    else if (run.rankedMode && played && player.id in ((_a = run.reports) != null ? _a : {}) && (checks[player.id] === "unavailable" || checks[player.id] === "incomplete")) flags[player.id] = "unverified_log";
   }
   return flags;
 }
@@ -6580,16 +6590,18 @@ function logChecksOf(run, logs, sha256) {
 function runWrites(run, logs, sha256) {
   const checks = {};
   const logChecks = {};
+  const logGaps = {};
   for (const player of run.players) {
     checks[player.id] = checkLog(logs[player.id], sha256);
     logChecks[player.id] = checks[player.id].check;
+    logGaps[player.id] = logGapsOf(logs[player.id]);
   }
   const writes = [
     {
       collection: RUNS_COLLECTION,
       key: run.runId,
       userId: SYSTEM_USER_ID,
-      value: __spreadProps(__spreadValues({}, run), { logChecks }),
+      value: __spreadProps(__spreadValues({}, run), { logChecks, logGaps }),
       permissionRead: 2,
       permissionWrite: 0
     }
@@ -6604,6 +6616,7 @@ function runWrites(run, logs, sha256) {
         lines: log ? log.lines : [],
         eventCount: log ? log.lines.length : 0,
         truncated: log ? log.truncated : false,
+        gaps: logGaps[player.id],
         carbonHash: checks[player.id].carbonHash,
         check: checks[player.id].check
       },
@@ -7605,7 +7618,8 @@ function logsOf(nk, run, withEvents) {
       eventCount: log.eventCount || 0,
       truncated: log.truncated === true,
       carbonHash: (_a = log.carbonHash) != null ? _a : null,
-      check: log.check || "unavailable"
+      check: log.check || "unavailable",
+      gaps: log.gaps || 0
     }, withEvents ? { events: tuplesOfStored(log) } : {});
   }
   return logs;
@@ -8723,6 +8737,7 @@ var MAX_LOG_EVENTS = 2e4;
 var MAX_LOG_BYTES = 1024 * 1024;
 var MAX_OPCODE_LENGTH = 64;
 function appendLogEvent(lobby, from, now, params) {
+  var _a;
   if (!isPlainObject4(params) || typeof params.t !== "number" || typeof params.opcode !== "string" || params.opcode.length === 0 || params.opcode.length > MAX_OPCODE_LENGTH)
     return { reject: "bad_params" };
   const started = lobby.game.started;
@@ -8734,23 +8749,41 @@ function appendLogEvent(lobby, from, now, params) {
   const size = line.length;
   const game = lobby.game;
   const log = game.logs[from] || { lines: [], bytes: 0, truncated: false };
+  const numbered = typeof params.seq === "number" && Number.isInteger(params.seq) && params.seq > 0;
+  const seq = numbered ? params.seq : 0;
+  const held = logHeldOf(log);
+  if (numbered && seq <= held) return { game, relayed: null };
+  if (numbered && seq > held + 1) {
+    const ahead = Math.max((_a = log.ahead) != null ? _a : 0, seq);
+    return {
+      game: __spreadProps(__spreadValues({}, game), { logs: __spreadProps(__spreadValues({}, game.logs), { [from]: __spreadProps(__spreadValues({}, log), { seq: held, ahead }) }) }),
+      relayed: null
+    };
+  }
+  const counted = numbered ? { seq } : {};
   if (log.truncated || log.lines.length >= MAX_LOG_EVENTS || log.bytes + size > MAX_LOG_BYTES) {
-    const truncated = __spreadProps(__spreadValues({}, log), { truncated: true });
+    const truncated = __spreadProps(__spreadValues(__spreadValues({}, log), counted), { truncated: true });
     return {
       game: __spreadProps(__spreadValues({}, game), { logs: __spreadProps(__spreadValues({}, game.logs), { [from]: truncated }) }),
       relayed: null
     };
   }
-  const grown = {
+  const grown = __spreadProps(__spreadValues(__spreadValues({}, log), counted), {
     lines: log.lines.concat([line]),
     bytes: log.bytes + size,
     truncated: false
-  };
+  });
   const stamped = started.raceStartedAt === void 0 ? __spreadProps(__spreadValues({}, started), { raceStartedAt: now }) : started;
   return {
     game: __spreadProps(__spreadValues({}, game), { started: stamped, logs: __spreadProps(__spreadValues({}, game.logs), { [from]: grown }) }),
     relayed: { playerId: from, t: params.t, opcode: params.opcode, args }
   };
+}
+function ackOf(game, from, events) {
+  const numbered = events.some((e) => isPlainObject4(e) && typeof e.seq === "number");
+  if (!numbered) return void 0;
+  const log = game.logs[from];
+  return { got: logHeldOf(log) };
 }
 var logEvent = {
   key: "mpapi_log_event",
@@ -8762,7 +8795,8 @@ var logEvent = {
     return {
       game: appended.game,
       params: appended.relayed,
-      to: appended.relayed ? "others" : "none"
+      to: appended.relayed ? "others" : "none",
+      ack: ackOf(appended.game, ctx.from, [params])
     };
   }
 };
@@ -8782,13 +8816,15 @@ var logEvents = {
       current = __spreadProps(__spreadValues({}, current), { game: appended.game });
       if (appended.relayed) relayed2.push(appended.relayed);
     }
-    if (relayed2.length === 0) return { game: current.game, params: null, to: "none" };
+    const ack = ackOf(current.game, ctx.from, params.events);
+    if (relayed2.length === 0) return { game: current.game, params: null, to: "none", ack };
     const last = relayed2[relayed2.length - 1];
     return {
       game: current.game,
       params: __spreadProps(__spreadValues({}, last), { count: relayed2.length }),
       to: "others",
-      spectate: relayed2
+      spectate: relayed2,
+      ack
     };
   }
 };
@@ -9053,7 +9089,7 @@ function relayAction(lobby, senderId, data, ctx) {
       out.push({
         kind: "send",
         op: ServerOp.ACTION,
-        payload: { cid, action: key, from: SERVER_TARGET, to: BROADCAST_TARGET, params: { ack: true } },
+        payload: { cid, action: key, from: SERVER_TARGET, to: BROADCAST_TARGET, params: __spreadValues({ ack: true }, result.ack) },
         to: [senderId]
       });
     if (result.out) out.push(...result.out);
