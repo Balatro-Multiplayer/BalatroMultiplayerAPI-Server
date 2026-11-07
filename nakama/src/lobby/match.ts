@@ -24,6 +24,7 @@ import { clearMatched } from '../matchmaking/queue'
 import { hasPlayerAnswer, releaseGroups } from './group_queue'
 import { answerGroupSignal, isGroupSignal } from './group_signals'
 import { type RelayStep, action } from './relay'
+import { sharedRulesTick } from './shared_rules'
 import { catchUpLimitMsFor } from './catch_up'
 import {
 	DEFAULT_GRACE_MS,
@@ -771,13 +772,22 @@ export function lobbyMatchLoop(
 	const now = Date.now()
 	const ticked = apply(ctx, logger, nk, dispatcher, current, tick(current.lobby, now))
 	if (!ticked) return null
-	const setupTicked = apply(
+	const rulesTicked = apply(
 		ctx,
 		logger,
 		nk,
 		dispatcher,
 		ticked,
-		setupTick(ticked.lobby, now, Math.random),
+		sharedRulesTick(ticked.lobby, now),
+	)
+	if (!rulesTicked) return null
+	const setupTicked = apply(
+		ctx,
+		logger,
+		nk,
+		dispatcher,
+		rulesTicked,
+		setupTick(rulesTicked.lobby, now, Math.random),
 	)
 	if (!setupTicked) return null
 	const settled = apply(

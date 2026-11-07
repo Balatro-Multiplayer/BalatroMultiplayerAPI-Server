@@ -447,6 +447,7 @@ export interface SnapshotPlayer extends Omit<PlayerInfo, 'standing' | 'pvpVersio
 }
 
 export interface Snapshot {
+	serverFeatures?: { [key: string]: number }
 	code: string
 	modId: string
 	hostId: string
