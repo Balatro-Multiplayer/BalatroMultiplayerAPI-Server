@@ -3222,6 +3222,18 @@ function checkedRunSave(lobby, userId, lines, sha256) {
   };
 }
 
+// src/lobby/presence.ts
+var PRESENCE_CAP = 400;
+function withPresence(lobby, event2) {
+  var _a;
+  if (!lobby.game.started) return lobby;
+  const kept = ((_a = lobby.game.presence) != null ? _a : []).concat([event2]).slice(-PRESENCE_CAP);
+  return __spreadProps(__spreadValues({}, lobby), { game: __spreadProps(__spreadValues({}, lobby.game), { presence: kept }) });
+}
+function startingPresence(started) {
+  return started.players.map((p) => ({ userId: p.id, kind: "joined", at: started.startedAt }));
+}
+
 // src/lobby/catch_up.ts
 var CATCH_UP_LIMIT_MS_BY_MOD = {
   MultiplayerPvP: 18e4
@@ -3759,9 +3771,10 @@ function join(lobby, userId, sessionId, info, now = Date.now()) {
     const wasAway = existing.awaySince !== null;
     const wasCatchingUp = isCatchingUp(existing);
     const back = __spreadProps(__spreadValues({}, existing), { sessionId, awaySince: null, catchingUpSince: null });
-    const next2 = __spreadProps(__spreadValues({}, lobby), {
-      players: lobby.players.map((p) => p.id === userId ? back : p)
-    });
+    const next2 = withPresence(
+      __spreadProps(__spreadValues({}, lobby), { players: lobby.players.map((p) => p.id === userId ? back : p) }),
+      { userId, kind: "rejoined", at: now }
+    );
     const out = [
       { kind: "setCurrent", userId },
       {
@@ -3794,10 +3807,13 @@ function join(lobby, userId, sessionId, info, now = Date.now()) {
     catchingUpSince: null,
     ownState: null
   };
-  const next = __spreadProps(__spreadValues({}, lobby), {
-    hostId: lobby.allowedIds && lobby.players.length === 0 ? userId : lobby.hostId,
-    players: lobby.players.concat([player])
-  });
+  const next = withPresence(
+    __spreadProps(__spreadValues({}, lobby), {
+      hostId: lobby.allowedIds && lobby.players.length === 0 ? userId : lobby.hostId,
+      players: lobby.players.concat([player])
+    }),
+    { userId, kind: "joined", at: now }
+  );
   const others = othersThan(next, userId);
   return {
     lobby: next,
@@ -3926,9 +3942,9 @@ function remove(lobby, userId, type, why) {
   }
   return closeIfAbandoned({ lobby: next, out });
 }
-function leave(lobby, userId) {
+function leave(lobby, userId, now = Date.now()) {
   if (!findPlayer(lobby, userId)) return { lobby, out: [] };
-  const step = remove(lobby, userId, "player_left", "member_left");
+  const step = remove(withPresence(lobby, { userId, kind: "left", at: now }), userId, "player_left", "member_left");
   return { lobby: step.lobby, out: step.out.concat([{ kind: "kick", userId }]) };
 }
 function disconnect(lobby, userId, sessionId, now) {
@@ -3937,9 +3953,12 @@ function disconnect(lobby, userId, sessionId, now) {
     return { lobby, out: [] };
   const away = __spreadProps(__spreadValues({}, player), { awaySince: now });
   const grouped = memberDisconnected(lobby, userId);
-  const marked = __spreadProps(__spreadValues({}, grouped.lobby), {
-    players: grouped.lobby.players.map((p) => p.id === userId ? away : p)
-  });
+  const marked = withPresence(
+    __spreadProps(__spreadValues({}, grouped.lobby), {
+      players: grouped.lobby.players.map((p) => p.id === userId ? away : p)
+    }),
+    { userId, kind: "disconnected", at: now }
+  );
   const transferred = isParked(marked) ? { lobby: marked, out: [] } : transferHostFrom(marked, userId);
   const out = grouped.out.concat([
     event(
@@ -3954,7 +3973,7 @@ function disconnect(lobby, userId, sessionId, now) {
     out: out.concat(transferred.out)
   });
 }
-function kick(lobby, byId, targetId) {
+function kick(lobby, byId, targetId, now = Date.now()) {
   if (lobby.hostId !== byId)
     return { lobby, out: [rejectOp(byId, "Only the host can kick players")] };
   if (lobbyType(lobby) === "public")
@@ -3963,9 +3982,9 @@ function kick(lobby, byId, targetId) {
     return { lobby, out: [rejectOp(byId, "You cannot kick yourself")] };
   if (!findPlayer(lobby, targetId))
     return { lobby, out: [rejectOp(byId, "Player is not in this lobby")] };
-  return removeKicked(lobby, targetId, { kickedBy: byId });
+  return removeKicked(lobby, targetId, { kickedBy: byId }, now);
 }
-function removeKicked(lobby, targetId, data) {
+function removeKicked(lobby, targetId, data, now) {
   const target = findPlayer(lobby, targetId);
   if (!target) return { lobby, out: [] };
   const announced = event(
@@ -3974,7 +3993,15 @@ function removeKicked(lobby, targetId, data) {
     { playerId: targetId, displayName: target.info.displayName, data },
     allIds(lobby)
   );
-  const marked = __spreadProps(__spreadValues({}, lobby), { kickedIds: lobby.kickedIds.concat([targetId]) });
+  const marked = withPresence(
+    __spreadProps(__spreadValues({}, lobby), { kickedIds: lobby.kickedIds.concat([targetId]) }),
+    __spreadValues({
+      userId: targetId,
+      kind: "kicked",
+      at: now,
+      by: String(data.kickedBy)
+    }, typeof data.reason === "string" ? { reason: data.reason } : {})
+  );
   const step = remove(marked, targetId, null, "member_kicked");
   return {
     lobby: step.lobby,
@@ -3983,9 +4010,9 @@ function removeKicked(lobby, targetId, data) {
     ])
   };
 }
-function adminRemove(lobby, userId, reason, onlyIfStarted = false) {
+function adminRemove(lobby, userId, reason, onlyIfStarted = false, now = Date.now()) {
   if (onlyIfStarted && lobby.game.started === null) return { lobby, out: [] };
-  return removeKicked(lobby, userId, { kickedBy: "server", reason });
+  return removeKicked(lobby, userId, { kickedBy: "server", reason }, now);
 }
 function adminView(lobby) {
   return {
@@ -4080,7 +4107,12 @@ function tick(lobby, now) {
     if (graceRanOut || catchUpLimitReached(lobby, current, now)) {
       const started = step.lobby.game.started;
       const forfeited = started && started.players.some((q) => q.id === p.id) ? [{ kind: "forfeited", userId: p.id, runId: started.runId, code: lobby.code, at: now, lobbyKind: lobbyKindOf(lobby) }] : [];
-      const removed = remove(step.lobby, p.id, "player_left", "member_disconnected");
+      const timedOut = withPresence(step.lobby, {
+        userId: p.id,
+        kind: graceRanOut ? "timed_out" : "catch_up_limit",
+        at: now
+      });
+      const removed = remove(timedOut, p.id, "player_left", "member_disconnected");
       const marked = forfeited.length > 0 && started ? __spreadProps(__spreadValues({}, removed.lobby), { forfeitedSeats: __spreadProps(__spreadValues({}, removed.lobby.forfeitedSeats || {}), { [p.id]: started.runId }) }) : removed.lobby;
       step = { lobby: marked, out: step.out.concat(forfeited, removed.out, toldAndKicked(step.lobby, current, graceRanOut)) };
     }
@@ -6591,17 +6623,19 @@ function runWrites(run, logs, sha256) {
   const checks = {};
   const logChecks = {};
   const logGaps = {};
+  const logHeld = {};
   for (const player of run.players) {
     checks[player.id] = checkLog(logs[player.id], sha256);
     logChecks[player.id] = checks[player.id].check;
     logGaps[player.id] = logGapsOf(logs[player.id]);
+    logHeld[player.id] = logHeldOf(logs[player.id]);
   }
   const writes = [
     {
       collection: RUNS_COLLECTION,
       key: run.runId,
       userId: SYSTEM_USER_ID,
-      value: __spreadProps(__spreadValues({}, run), { logChecks, logGaps }),
+      value: __spreadProps(__spreadValues({}, run), { logChecks, logGaps, logHeld }),
       permissionRead: 2,
       permissionWrite: 0
     }
@@ -8483,7 +8517,7 @@ function finishGame(lobby, now, override) {
   );
   const status = game.contest ? "contested" : override ? override.status : reconciled.status;
   const placements = status === "abandoned" ? [] : reconciled.placements;
-  const run = __spreadValues({
+  const run = __spreadValues(__spreadValues({
     runId: started.runId,
     code: lobby.code,
     modId: lobby.modId,
@@ -8500,7 +8534,7 @@ function finishGame(lobby, now, override) {
     rankedMode: lobby.rankedMode,
     gameMode: lobby.gameMode,
     lobbyType: lobby.rankedMode || lobby.allowedIds ? "public" : "private"
-  }, game.contest ? { contest: game.contest } : {});
+  }, game.contest ? { contest: game.contest } : {}), game.presence && game.presence.length > 0 ? { presence: game.presence } : {});
   const seated = {};
   for (const p of lobby.players) seated[p.id] = true;
   const lateResultTo = game.resultWasPending && status !== "abandoned" ? started.players.filter((p) => !seated[p.id]).map((p) => p.id) : [];
@@ -8618,7 +8652,7 @@ var startGame = {
       options
     );
     return {
-      game: __spreadProps(__spreadValues({}, emptyGame()), { started }),
+      game: __spreadProps(__spreadValues({}, emptyGame()), { started, presence: startingPresence(started) }),
       params: startedParams(started)
     };
   }
@@ -8635,7 +8669,7 @@ var restartGame = {
     });
     const started = newGame(finished.lobby, ctx, current.stake, current.options);
     return {
-      game: __spreadProps(__spreadValues({}, emptyGame()), { started, setup: setupForRestart(lobby.game) }),
+      game: __spreadProps(__spreadValues({}, emptyGame()), { started, setup: setupForRestart(lobby.game), presence: startingPresence(started) }),
       params: startedParams(started),
       out: finished.out
     };
