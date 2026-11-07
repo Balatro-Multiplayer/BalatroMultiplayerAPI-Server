@@ -1037,6 +1037,30 @@ describe('storage writes', () => {
 	})
 })
 
+describe('connection record of a finished game', () => {
+	it('keeps a disconnect, a rejoin and a leave on the run, and the held log counts', () => {
+		let lobby = log2(started('a', 'b'))
+		lobby = disconnect(lobby, 'a', 'a-s1', 1600).lobby
+		lobby = join(lobby, 'a', 'a-s2', info('a'), 1700).lobby
+		lobby = leave(lobby, 'b', 1800).lobby
+		lobby = settle(lobby, 1900).lobby
+		const save = saved(report(lobby, 'a', places('a', 'b'), 2000)) as Save
+		expect(save.run.presence).toEqual([
+			{ userId: 'a', kind: 'disconnected', at: 1600 },
+			{ userId: 'a', kind: 'rejoined', at: 1700 },
+			{ userId: 'b', kind: 'left', at: 1800 },
+		])
+		const writes = runWrites(save.run, save.logs, sha256)
+		expect(writes[0].value).toMatchObject({ logHeld: { a: 1, b: 0 } })
+	})
+
+	it('leaves the run without a record when nobody came or went', () => {
+		let lobby = report(started('a', 'b'), 'a', places('b', 'a')).lobby
+		const save = saved(report(lobby, 'b', places('b', 'a'))) as Save
+		expect(save.run).not.toHaveProperty('presence')
+	})
+})
+
 function log2(lobby: Lobby): Lobby {
 	return send(lobby, 'a', 'mpapi_log_event', { t: 1, opcode: 'play' }, 1500).lobby
 }
