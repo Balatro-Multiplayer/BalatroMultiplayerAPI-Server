@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { checkLog, hashInput } from './log_check'
+import { checkLog, hashInput, logGapsOf } from './log_check'
 
 const sha256 = (input: string) => createHash('sha256').update(input).digest('hex')
 
@@ -47,5 +47,21 @@ describe('log check', () => {
 			'unavailable',
 		)
 		expect(checkLog(undefined, sha256)).toEqual({ carbonHash: null, check: 'unavailable' })
+	})
+
+	it('calls a log with a gap incomplete, not a mismatch', () => {
+		const gapped = { ...logWith(sha256(LUA_INPUT), ['[3,"buy",[7]]']), seq: 6, ahead: 9 }
+		expect(logGapsOf(gapped)).toBe(3)
+		expect(checkLog(gapped, sha256).check).toBe('incomplete')
+		// even a log whose hash would differ
+		expect(checkLog({ ...logWith('0'.repeat(64)), seq: 5, ahead: 6 }, sha256).check).toBe('incomplete')
+	})
+
+	it('still flags a complete log whose hash differs', () => {
+		const complete = { ...logWith('0'.repeat(64)), seq: 5, ahead: 5 }
+		expect(logGapsOf(complete)).toBe(0)
+		expect(checkLog(complete, sha256).check).toBe('mismatch')
+		expect(logGapsOf(undefined)).toBe(0)
+		expect(logGapsOf(logWith('x'))).toBe(0)
 	})
 })

@@ -33,7 +33,7 @@ export function runFlags(
 	for (const player of run.players) {
 		if (checks[player.id] === 'mismatch') flags[player.id] = 'hash_mismatch'
 		else if (handCount(events[player.id]) * MIN_MS_PER_HAND > elapsedMs) flags[player.id] = 'elapsed_time_gate'
-		else if (run.rankedMode && played && player.id in (run.reports ?? {}) && checks[player.id] === 'unavailable') flags[player.id] = 'unverified_log'
+		else if (run.rankedMode && played && player.id in (run.reports ?? {}) && (checks[player.id] === 'unavailable' || checks[player.id] === 'incomplete')) flags[player.id] = 'unverified_log'
 	}
 	return flags
 }

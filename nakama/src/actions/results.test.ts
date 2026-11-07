@@ -20,6 +20,7 @@ import {
 import { type Checkpoint, checkpointOf, resumeFrom } from '../lobby/checkpoint'
 import { runWrites } from '../lobby/storage'
 import { MAX_LOG_BATCH, MAX_LOG_EVENTS } from './registry'
+import { logGapsOf } from '../lobby/log_check'
 import { reconcile, settle } from './results'
 
 const info = (name: string) => ({
@@ -788,6 +789,82 @@ describe('replay logs', () => {
 			const step = send(lobby, 'a', 'mpapi_log_events', { events: [], ack: true })
 			expect(rejection(step)).toBe('bad_params')
 			expect(acks(step)).toEqual([])
+		})
+	})
+
+	describe('numbered events (seq)', () => {
+		const numbered = (from: number, count: number, run?: string) =>
+			Array.from({ length: count }, (_, i) => ({ t: from + i, opcode: 'play', seq: from + i, run }))
+		const batchOf = (lobby: Lobby, events: unknown[]) =>
+			send(lobby, 'a', 'mpapi_log_events', { events, ack: true })
+		const ackOf = (step: Step) =>
+			step.out.filter((o): o is Send => o.kind === 'send' && o.op === ServerOp.ACTION && o.to.length === 1 && o.to[0] === 'a')[0]
+				?.payload as { params: unknown }
+
+		it('tells the sender the highest number held in the ack', () => {
+			const step = batchOf(started('a', 'b'), numbered(1, 3))
+			expect(step.lobby.game.logs.a.lines).toHaveLength(3)
+			expect(ackOf(step).params).toEqual({ ack: true, got: 3 })
+		})
+
+		it('does not keep a batch lost before it, and tells where to start again', () => {
+			let lobby = batchOf(started('a', 'b'), numbered(1, 3)).lobby
+			// events 4 to 6 never arrived; 7 to 9 did
+			const step = batchOf(lobby, numbered(7, 3))
+			expect(step.lobby.game.logs.a.lines).toHaveLength(3)
+			expect(ackOf(step).params).toEqual({ ack: true, got: 3 })
+			expect(step.out.filter((o) => o.kind === 'send' && o.op === ServerOp.ACTION && o.to.length > 1)).toEqual([])
+			// the client sends again from 4: the log is whole and in order
+			lobby = batchOf(step.lobby, numbered(4, 6)).lobby
+			expect(lobby.game.logs.a.lines).toEqual(
+				Array.from({ length: 9 }, (_, i) => `[${i + 1},"play",null]`),
+			)
+			expect(logGapsOf(lobby.game.logs.a)).toBe(0)
+		})
+
+		it('keeps a refused batch again when it is sent a second time', () => {
+			const lobby = started('a', 'b')
+			expect(rejection(send(lobby, 'a', 'mpapi_log_events', { events: [] }))).toBe('bad_params')
+			const step = batchOf(lobby, numbered(1, 2))
+			expect(step.lobby.game.logs.a.lines).toHaveLength(2)
+		})
+
+		it('keeps a copy of a batch it already holds only once', () => {
+			const first = batchOf(started('a', 'b'), numbered(1, 4))
+			const again = batchOf(first.lobby, numbered(1, 4))
+			expect(again.lobby.game.logs.a.lines).toHaveLength(4)
+			expect(ackOf(again).params).toEqual({ ack: true, got: 4 })
+			// no copy reaches the others
+			expect(again.out.filter((o) => o.kind === 'send' && o.to.includes('b'))).toEqual([])
+			// a batch that overlaps what it holds keeps only the new events
+			const overlap = batchOf(first.lobby, numbered(3, 4))
+			expect(overlap.lobby.game.logs.a.lines).toHaveLength(6)
+		})
+
+		it('counts the events it saw beyond a gap that is never filled', () => {
+			const lobby = batchOf(batchOf(started('a', 'b'), numbered(1, 3)).lobby, numbered(8, 2)).lobby
+			expect(lobby.game.logs.a.seq).toBe(3)
+			expect(logGapsOf(lobby.game.logs.a)).toBe(6)
+		})
+
+		it('keeps the old behaviour for events with no number', () => {
+			const step = send(started('a', 'b'), 'a', 'mpapi_log_events', {
+				events: [{ t: 1, opcode: 'play' }, { t: 2, opcode: 'play' }],
+				ack: true,
+			})
+			expect(step.lobby.game.logs.a.lines).toHaveLength(2)
+			expect(ackOf(step).params).toEqual({ ack: true })
+			expect(logGapsOf(step.lobby.game.logs.a)).toBe(0)
+		})
+
+		it('numbers a single event the same way', () => {
+			const lobby = started('a', 'b')
+			const lost = send(lobby, 'a', 'mpapi_log_event', { t: 5, opcode: 'play', seq: 5, ack: true })
+			expect(lost.lobby.game.logs.a.lines).toEqual([])
+			expect((ackOf(lost).params as { got: number }).got).toBe(0)
+			const first = send(lobby, 'a', 'mpapi_log_event', { t: 1, opcode: 'play', seq: 1, ack: true })
+			expect(first.lobby.game.logs.a.lines).toHaveLength(1)
+			expect((ackOf(first).params as { got: number }).got).toBe(1)
 		})
 	})
 

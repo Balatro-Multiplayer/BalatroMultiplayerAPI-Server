@@ -5,7 +5,7 @@
 import { INVALID_ARGUMENT, NOT_FOUND, UNAUTHENTICATED, runtimeError } from '../errors'
 import { parsePayload, requireUser } from '../rpc'
 import { tuplesOfStored } from '../shared/replay/events'
-import { checkLog } from './log_check'
+import { checkLog, logGapsOf } from './log_check'
 import {
 	type LogCheck,
 	LOGS_COLLECTION,
@@ -49,16 +49,18 @@ export function runWrites(
 ): nkruntime.StorageWriteRequest[] {
 	const checks: { [userId: string]: ReturnType<typeof checkLog> } = {}
 	const logChecks: { [userId: string]: LogCheck } = {}
+	const logGaps: { [userId: string]: number } = {}
 	for (const player of run.players) {
 		checks[player.id] = checkLog(logs[player.id], sha256)
 		logChecks[player.id] = checks[player.id].check
+		logGaps[player.id] = logGapsOf(logs[player.id])
 	}
 	const writes: nkruntime.StorageWriteRequest[] = [
 		{
 			collection: RUNS_COLLECTION,
 			key: run.runId,
 			userId: SYSTEM_USER_ID,
-			value: { ...run, logChecks },
+			value: { ...run, logChecks, logGaps },
 			permissionRead: 2,
 			permissionWrite: 0,
 		},
@@ -73,6 +75,7 @@ export function runWrites(
 				lines: log ? log.lines : [],
 				eventCount: log ? log.lines.length : 0,
 				truncated: log ? log.truncated : false,
+				gaps: logGaps[player.id],
 				carbonHash: checks[player.id].carbonHash,
 				check: checks[player.id].check,
 			},

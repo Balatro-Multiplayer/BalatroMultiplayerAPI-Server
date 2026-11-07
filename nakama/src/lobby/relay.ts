@@ -205,7 +205,7 @@ function relayAction(
 			out.push({
 				kind: 'send',
 				op: ServerOp.ACTION,
-				payload: { cid, action: key, from: SERVER_TARGET, to: BROADCAST_TARGET, params: { ack: true } },
+				payload: { cid, action: key, from: SERVER_TARGET, to: BROADCAST_TARGET, params: { ack: true, ...result.ack } },
 				to: [senderId],
 			})
 		if (result.out) out.push(...result.out)

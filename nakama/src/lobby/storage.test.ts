@@ -110,6 +110,33 @@ describe('runWrites', () => {
 		const mine = writes.filter((w) => w.collection === MY_RUNS_COLLECTION && w.userId === 'a')[0]
 		expect(mine.value).toMatchObject({ status: 'partial', place: 2, rating: { delta: -12 } })
 	})
+
+	it('records the gap count and the incomplete check for each player', () => {
+		const run = {
+			runId: 'r1',
+			players: [
+				{ id: 'a', displayName: 'A' },
+				{ id: 'b', displayName: 'B' },
+			],
+			placements: [],
+		} as unknown as RunRecord
+		const lines = ['[1,"play",null]', '[2,"chk",{"carbon":"x"}]']
+		const writes = runWrites(
+			run,
+			{
+				a: { lines, bytes: 0, truncated: false, seq: 2, ahead: 5 },
+				b: { lines, bytes: 0, truncated: false, seq: 2 },
+			},
+			() => 'h',
+		)
+		expect(writes[0].value).toMatchObject({
+			logChecks: { a: 'incomplete', b: 'mismatch' },
+			logGaps: { a: 3, b: 0 },
+		})
+		const stored = (id: string) => writes.filter((w) => w.collection === LOGS_COLLECTION && w.key === `r1:${id}`)[0].value
+		expect(stored('a')).toMatchObject({ gaps: 3, check: 'incomplete' })
+		expect(stored('b')).toMatchObject({ gaps: 0 })
+	})
 })
 
 describe('rpcRunLogs', () => {

@@ -23,6 +23,7 @@ interface StoredLog {
 	truncated?: boolean
 	carbonHash?: string | null
 	check?: string
+	gaps?: number
 }
 
 // Each player's log, summarised (events only when asked for).
@@ -39,6 +40,7 @@ function logsOf(nk: nkruntime.Nakama, run: RunRecord, withEvents: boolean) {
 			truncated: log.truncated === true,
 			carbonHash: log.carbonHash ?? null,
 			check: log.check || 'unavailable',
+			gaps: log.gaps || 0,
 			...(withEvents ? { events: tuplesOfStored(log) } : {}),
 		}
 	}
@@ -46,7 +48,7 @@ function logsOf(nk: nkruntime.Nakama, run: RunRecord, withEvents: boolean) {
 }
 
 // {runId, events?} -> {run, logs: {userId: {eventCount, truncated,
-// carbonHash, check, events?}}}: the stored record, with every player's
+// carbonHash, check, gaps, events?}}}: the stored record, with every player's
 // reports, flags and log checks.
 export function rpcAdminRunGet(
 	ctx: nkruntime.Context,

@@ -130,7 +130,7 @@ describe('admin run RPCs', () => {
 		const nk = stored()
 		const plain = JSON.parse(rpcAdminRunGet(serverCtx(), fakeLogger, nk, JSON.stringify({ runId: 'r1' })))
 		expect(plain.run.runId).toBe('r1')
-		expect(plain.logs.a).toEqual({ eventCount: 1, truncated: false, carbonHash: null, check: 'unavailable' })
+		expect(plain.logs.a).toEqual({ eventCount: 1, truncated: false, gaps: 0, carbonHash: null, check: 'unavailable' })
 		expect(plain.logs.a.events).toBeUndefined()
 		const full = JSON.parse(rpcAdminRunGet(serverCtx(), fakeLogger, nk, JSON.stringify({ runId: 'r1', events: true })))
 		expect(full.logs.a.events).toEqual([{ t: 1 }])
