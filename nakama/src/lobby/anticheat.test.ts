@@ -34,6 +34,12 @@ describe('anti-cheat flags', () => {
 		expect(flags).toEqual({ b: 'unverified_log', c: 'hash_mismatch' })
 	})
 
+	it('gives an incomplete log no hash mismatch, only an unverified log when it was reported', () => {
+		const ranked = { ...run(60_000), rankedMode: 'nemesis', status: 'agreed', reports: { a: [] } } as unknown as RunRecord
+		expect(runFlags(ranked, {}, { a: 'incomplete', b: 'incomplete', c: 'match' })).toEqual({ a: 'unverified_log' })
+		expect(runFlags(run(60_000), {}, { a: 'incomplete', b: 'incomplete', c: 'match' })).toEqual({})
+	})
+
 	it('flags nobody in a clean game', () => {
 		expect(runFlags(run(60_000), { a: log('hand_result') }, { a: 'match', b: 'unavailable', c: 'match' })).toEqual({})
 	})

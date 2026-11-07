@@ -134,6 +134,13 @@ export interface PlayerLog {
 	lines: string[]
 	bytes: number
 	truncated: boolean
+	// The highest event number held with no gap before it. A client that
+	// numbers its events (seq, from 1 per run) is told this in each log ack and
+	// sends again from the next one. Absent for a client that sends no numbers.
+	seq?: number
+	// The highest event number that arrived beyond a gap and was not kept.
+	// More than seq at the end of the game means the log has a gap.
+	ahead?: number
 }
 
 // One Draft tile: a mod's own item, opaque to the server but for `key`, which
@@ -281,6 +288,10 @@ export interface GameView {
 	// GameState.resultPending as a plain boolean: a host that takes over mid-run
 	// reads it here, since only the old host knew it had asked for the hold.
 	resultPending: boolean
+	// How many of the viewer's own numbered log events the server holds (the
+	// highest seq with no gap). A client that rejoins numbers its next event
+	// from here, so the server does not skip it as a copy.
+	logSeq: number
 	setup: SetupView
 }
 
@@ -322,7 +333,8 @@ export interface RatingChange {
 }
 
 // A stored replay log against the client's own closing hash (log_check.ts).
-export type LogCheck = 'match' | 'mismatch' | 'unavailable'
+// 'incomplete': the stored log still has a gap, so its hash says nothing.
+export type LogCheck = 'match' | 'mismatch' | 'unavailable' | 'incomplete'
 
 // A finished game, as stored in RUNS_COLLECTION.
 export interface RunRecord {

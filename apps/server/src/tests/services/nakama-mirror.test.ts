@@ -115,6 +115,16 @@ describe('runRowsOf', () => {
 		})
 	})
 
+	it('stores a log with a gap as partial and flags no hash mismatch for it', () => {
+		const entry = { ...run({ flags: undefined, logChecks: { na: 'match', nb: 'incomplete' }, logGaps: { na: 0, nb: 3 } }), rating: null }
+		const rows = runRowsOf(entry, ids)
+		expect(rows.logs.map((l) => l.status)).toEqual(['complete', 'partial'])
+		expect(rows.flagged).toEqual([])
+		// a complete log whose code differs is still a hash mismatch
+		const mismatch = runRowsOf({ ...entry, run: { ...entry.run, logChecks: { na: 'match', nb: 'mismatch' } } }, ids)
+		expect(mismatch.flagged).toEqual([{ playerId: 'pg-b', reason: 'hash_mismatch' }])
+	})
+
 	it('maps a private, abandoned or restarted run without a match or ratings', () => {
 		const entry = { ...run({ gameMode: undefined, rankedMode: undefined, lobbyType: undefined, status: 'abandoned', logChecks: {} }), rating: null }
 		const rows = runRowsOf(entry, ids)

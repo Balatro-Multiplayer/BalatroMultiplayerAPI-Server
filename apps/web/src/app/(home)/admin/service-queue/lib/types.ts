@@ -227,7 +227,8 @@ export interface ChatLine {
   isFlaggedLine?: boolean
 }
 
-export type LogCheck = 'match' | 'mismatch' | 'unavailable' | string
+// 'incomplete': the stored log has a gap, so its check code was not compared.
+export type LogCheck = 'match' | 'mismatch' | 'unavailable' | 'incomplete' | string
 
 // Nakama's admin_run_get: player ids in here are Nakama user ids.
 export interface NakamaRunView {
@@ -248,6 +249,7 @@ export interface NakamaRunView {
     lobbyType?: string
     flags?: Record<string, string>
     logChecks?: Record<string, LogCheck>
+    logGaps?: Record<string, number>
     overturned?: unknown
   }
   logs: Record<
@@ -257,6 +259,7 @@ export interface NakamaRunView {
       truncated: boolean
       carbonHash: string | null
       check: LogCheck
+      gaps?: number
     }
   >
 }

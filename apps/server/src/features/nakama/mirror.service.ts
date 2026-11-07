@@ -16,7 +16,8 @@ import { CHAT_KEEP_MS, EVIDENCE_KEEP_MS } from '../../shared/retention-periods.j
 // What admin_mirror_pull returns
 // ---------------------------------------------------------------------------
 
-export type LogCheck = 'match' | 'mismatch' | 'unavailable'
+// 'incomplete': the stored log has a gap, so its check code was not compared.
+export type LogCheck = 'match' | 'mismatch' | 'unavailable' | 'incomplete'
 // What kind of game an entry came from (nakama review/ranked.ts LobbyKind).
 export type GameKind = 'ranked' | 'casual' | 'private'
 export type FlagReason = 'hash_mismatch' | 'elapsed_time_gate' | 'unverified_log'
@@ -42,6 +43,8 @@ export interface NakamaRun {
 	gameMode?: string
 	lobbyType?: 'public' | 'private'
 	logChecks?: { [userId: string]: LogCheck }
+	// Events each player's log still lacks at the end of the game.
+	logGaps?: { [userId: string]: number }
 	flags?: { [userId: string]: FlagReason }
 	// A ranked run's rating result per player Nakama rated ({} when it rated
 	// nobody: a disputed result).
@@ -58,6 +61,7 @@ export interface NakamaLog {
 	truncated: boolean
 	carbonHash: string | null
 	check: LogCheck
+	gaps?: number
 }
 
 export interface NakamaRating {
@@ -366,7 +370,7 @@ export function runRowsOf(entry: PulledRun, ids: Map<string, string>): RunRows {
 			compressedEvents: compressToBase64(eventsJsonOf(log)),
 			carbonHash: log ? log.carbonHash : null,
 			eventCount: log ? log.eventCount : 0,
-			status: check === 'unavailable' ? 'partial' : 'complete',
+			status: check === 'unavailable' || check === 'incomplete' ? 'partial' : 'complete',
 			flagReason,
 			finalizedAt,
 			expiresAt: new Date(run.endedAt + EVIDENCE_KEEP_MS),

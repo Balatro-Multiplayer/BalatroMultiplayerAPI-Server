@@ -27,15 +27,31 @@ export function claimedHash(lines: string[]): string | null {
 	return null
 }
 
-// 'unavailable' when there's nothing to check: no log, no 'chk' (the client
-// never reached end_run), or a truncated log. Distinct from 'mismatch', which
-// is evidence the log was tampered with.
+// The highest event number the server holds with no gap before it (0 for no log).
+export function logHeldOf(log: PlayerLog | undefined): number {
+	return log ? (log.seq ?? log.lines.length) : 0
+}
+
+// How many events the server saw numbers for but never kept: the log's gap.
+// 0 for a complete log, and for a client that numbers no events.
+export function logGapsOf(log: PlayerLog | undefined): number {
+	if (!log || log.ahead === undefined) return 0
+	return Math.max(0, log.ahead - logHeldOf(log))
+}
+
+// 'incomplete' when the stored log has a gap: the events are not all here, so
+// the hash cannot be compared (even when the 'chk' is missing too). 'unavailable' when there's nothing to check: no log, no 'chk' (the client
+// never reached end_run), or a truncated log. 'mismatch' is only for a
+// complete log whose hash really differs.
 export function checkLog(
 	log: PlayerLog | undefined,
 	sha256: (input: string) => string,
 ): { carbonHash: string | null; check: LogCheck } {
 	if (!log) return { carbonHash: null, check: 'unavailable' }
 	const carbonHash = claimedHash(log.lines)
+	// A gap comes first: events after it were refused, so the 'chk' is often
+	// among the missing ones too.
+	if (logGapsOf(log) > 0) return { carbonHash, check: 'incomplete' }
 	if (carbonHash === null || log.truncated)
 		return { carbonHash, check: 'unavailable' }
 	const recomputed = sha256(hashInput(log.lines)).toLowerCase()

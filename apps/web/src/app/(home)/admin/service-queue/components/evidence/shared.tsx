@@ -63,7 +63,18 @@ const CHECK_VARIANT: Record<string, 'secondary' | 'destructive' | 'outline'> = {
 
 export function CheckBadge({ check }: { check: LogCheck | null | undefined }) {
   if (!check) return <Badge variant='outline'>no check</Badge>
-  return <Badge variant={CHECK_VARIANT[check] ?? 'outline'}>log {check}</Badge>
+  return (
+    <Badge
+      variant={CHECK_VARIANT[check] ?? 'outline'}
+      title={
+        check === 'incomplete'
+          ? 'The stored log has missing events, so its check code was not compared.'
+          : undefined
+      }
+    >
+      log {check}
+    </Badge>
+  )
 }
 
 export function Placements({

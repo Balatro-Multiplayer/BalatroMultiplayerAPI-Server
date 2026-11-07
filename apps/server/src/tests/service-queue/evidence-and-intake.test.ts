@@ -135,6 +135,7 @@ describe('anti-cheat explanations', () => {
 
 	it('explains a hash mismatch, and anything else as-is', () => {
 		expect(explainFlag('hash_mismatch', 0, 0).reason).toBe('hash_mismatch')
+		expect(explainFlag('hash_mismatch', 0, 0).text).toContain('shown as incomplete')
 		expect(explainFlag(null, 0, 0)).toEqual({ reason: 'unknown', text: 'Flag reason: none recorded' })
 	})
 })

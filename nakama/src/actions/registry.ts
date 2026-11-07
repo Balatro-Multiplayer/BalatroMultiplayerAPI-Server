@@ -5,7 +5,7 @@
 //
 // Pure: a reducer gets the lobby and its context and returns the new game
 // state plus the results to broadcast, or a rejection reason for the sender.
-import type { GameState, SpectateEvent, StartedGame } from '../lobby/protocol'
+import type { GameState, PlayerLog, SpectateEvent, StartedGame } from '../lobby/protocol'
 import {
 	type Lobby,
 	type Outbound,
@@ -13,6 +13,7 @@ import {
 	emptyGame,
 	isParticipant,
 } from '../lobby/state'
+import { logHeldOf } from '../lobby/log_check'
 import { lobbyKindOf } from '../review/ranked'
 import { runSavePart } from './run_save'
 import { finishGame, parsePlacements } from './results'
@@ -40,6 +41,9 @@ export interface ActionResult {
 	out?: Outbound[]
 	// Replay events to pass on to spectators, one by one (a batch of events).
 	spectate?: SpectateEvent[]
+	// Extra fields for the sender's ack of a log action (relay.ts adds them to
+	// { ack: true }).
+	ack?: { [field: string]: unknown }
 }
 
 export type Reduction = ActionResult | { reject: string }
@@ -329,18 +333,36 @@ function appendLogEvent(lobby: Lobby, from: string, now: number, params: unknown
 
 	const game = lobby.game
 	const log = game.logs[from] || { lines: [], bytes: 0, truncated: false }
+	// A numbered event (seq) is kept only when it is the next one the server
+	// holds. An earlier number is a copy of one already kept. A later number
+	// means events before it were lost: it is not kept, so the stored log never
+	// has a gap inside, and the ack tells the client where to start again.
+	const numbered = typeof params.seq === 'number' && Number.isInteger(params.seq) && params.seq > 0
+	const seq = numbered ? (params.seq as number) : 0
+	const held = logHeldOf(log)
+	if (numbered && seq <= held) return { game, relayed: null }
+	if (numbered && seq > held + 1) {
+		const ahead = Math.max(log.ahead ?? 0, seq)
+		return {
+			game: { ...game, logs: { ...game.logs, [from]: { ...log, seq: held, ahead } } },
+			relayed: null,
+		}
+	}
+	const counted = numbered ? { seq } : {}
 	if (
 		log.truncated ||
 		log.lines.length >= MAX_LOG_EVENTS ||
 		log.bytes + size > MAX_LOG_BYTES
 	) {
-		const truncated = { ...log, truncated: true }
+		const truncated = { ...log, ...counted, truncated: true }
 		return {
 			game: { ...game, logs: { ...game.logs, [from]: truncated } },
 			relayed: null,
 		}
 	}
-	const grown = {
+	const grown: PlayerLog = {
+		...log,
+		...counted,
 		lines: log.lines.concat([line]),
 		bytes: log.bytes + size,
 		truncated: false,
@@ -354,6 +376,16 @@ function appendLogEvent(lobby: Lobby, from: string, now: number, params: unknown
 		game: { ...game, started: stamped, logs: { ...game.logs, [from]: grown } },
 		relayed: { playerId: from, t: params.t, opcode: params.opcode, args },
 	}
+}
+
+// What the sender is told in the ack of a log action when it numbers its
+// events: the highest number the server holds with no gap. Nothing for a
+// client that sends no numbers.
+function ackOf(game: GameState, from: string, events: unknown[]): { got: number } | undefined {
+	const numbered = events.some((e) => isPlainObject(e) && typeof e.seq === 'number')
+	if (!numbered) return undefined
+	const log = game.logs[from]
+	return { got: logHeldOf(log) }
 }
 
 // {t, opcode, args?, run?} -- one replay event from a participant, kept for the
@@ -370,6 +402,7 @@ const logEvent: AuthoritativeAction = {
 			game: appended.game,
 			params: appended.relayed,
 			to: appended.relayed ? 'others' : 'none',
+			ack: ackOf(appended.game, ctx.from, [params]),
 		}
 	},
 }
@@ -402,13 +435,15 @@ const logEvents: AuthoritativeAction = {
 			current = { ...current, game: appended.game }
 			if (appended.relayed) relayed.push(appended.relayed)
 		}
-		if (relayed.length === 0) return { game: current.game, params: null, to: 'none' }
+		const ack = ackOf(current.game, ctx.from, params.events)
+		if (relayed.length === 0) return { game: current.game, params: null, to: 'none', ack }
 		const last = relayed[relayed.length - 1]
 		return {
 			game: current.game,
 			params: { ...last, count: relayed.length },
 			to: 'others',
 			spectate: relayed,
+			ack,
 		}
 	},
 }
