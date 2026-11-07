@@ -6,6 +6,7 @@ import {
 	type TickOutput,
 	type TimetableEvent,
 	type TimetableState,
+	checkInToRounds,
 	extendMatch,
 	newTimetable,
 	pause,
@@ -309,4 +310,111 @@ describe('whole tournaments', () => {
 			expect(finalPlacements(run.bracket).length).toBe(n)
 		})
 	}
+})
+
+describe('a round with its own check-in', () => {
+	const DAY = 24 * HOUR
+	const b4 = () => bracketOf('single_elim', 4)
+	// Round 1 live at the start; the final the next day with a 30-minute check-in.
+	function timed(checkInMinutes: number | undefined = 30): ScheduleBlock[] {
+		const base = presetSchedule(b4(), 'live_event')[0]
+		return [
+			{ ...base, untilStep: 1 },
+			{ ...base, untilStep: 2, start: { kind: 'at', at: T0 + DAY }, ...(checkInMinutes ? { checkInMinutes } : {}) },
+		]
+	}
+	function playRound1(run: Run, winners: [Side, Side] = [0, 0]) {
+		run.at(T0)
+		for (const [id, w] of [['W1-1', winners[0]], ['W1-2', winners[1]]] as [string, Side][]) {
+			run.ready(id, 0)
+			run.ready(id, 1)
+			run.tick()
+			run.game(id, w)
+		}
+		run.at(T0 + HOUR)
+		run.take()
+	}
+	function checkIn(run: Run, id: string) {
+		const r = checkInToRounds(run.state, id)
+		if (!r.ok) throw new Error(r.error.message)
+		run.state = r.value
+	}
+
+	it('opens check-in before the start and wakes for it', () => {
+		const run = new Run(b4(), timed())
+		playRound1(run)
+		expect(run.tick().nextWakeAt).toBe(T0 + DAY - 30 * MIN)
+		expect(checkInToRounds(run.state, 'p1').ok).toBe(false)
+		run.at(T0 + DAY - 30 * MIN)
+		expect(run.take()).toEqual([{ kind: 'round_check_in_opened', block: 1, startsAt: T0 + DAY }])
+	})
+
+	it('opens the match normally when both checked in', () => {
+		const run = new Run(b4(), timed())
+		playRound1(run)
+		run.at(T0 + DAY - 20 * MIN)
+		checkIn(run, 'p1')
+		checkIn(run, 'p2')
+		run.at(T0 + DAY)
+		expect(run.take().map((e) => e.kind)).toEqual(['round_check_in_opened', 'block_started', 'match_opened'])
+		expect(run.state.matches['W2-1'].phase).toBe('ready_up')
+	})
+
+	it('forfeits the match of a player who did not check in', () => {
+		const run = new Run(b4(), timed())
+		playRound1(run)
+		run.at(T0 + DAY - 20 * MIN)
+		checkIn(run, 'p2')
+		run.at(T0 + DAY)
+		const events = run.take()
+		expect(events).toContainEqual({ kind: 'check_in_missed', matchId: 'W2-1', missing: ['p1'] })
+		expect(events).toContainEqual({ kind: 'match_forfeited', matchId: 'W2-1', winner: 1 })
+		expect(finalPlacements(run.bracket)[0].id).toBe('p2')
+	})
+
+	it('leaves the match unplayed for the fallback when neither checked in', () => {
+		const run = new Run(b4(), timed())
+		playRound1(run)
+		run.at(T0 + DAY)
+		// The preset's fallback (higher seed, after 0 hours) applies at once.
+		expect(run.take().map((e) => e.kind).slice(0, 5)).toEqual(['round_check_in_opened', 'block_started', 'check_in_missed', 'unplayed', 'fallback_applied'])
+		expect(finalPlacements(run.bracket)[0].id).toBe('p1')
+	})
+
+	it('does not ask for it from a player still finishing an earlier round', () => {
+		const run = new Run(b4(), timed())
+		run.at(T0)
+		run.ready('W1-1', 0)
+		run.ready('W1-1', 1)
+		run.tick()
+		run.game('W1-1', 0)
+		// W1-2 is still being played when the final starts: nobody checked in.
+		run.ready('W1-2', 0)
+		run.ready('W1-2', 1)
+		run.tick()
+		run.at(T0 + DAY)
+		run.game('W1-2', 0)
+		run.at(T0 + DAY + 5 * MIN)
+		expect(run.kinds()).not.toContain('check_in_missed')
+		expect(run.state.matches['W2-1'].phase).toBe('ready_up')
+	})
+
+	it('drops the check-in when the organiser starts the round early', () => {
+		const run = new Run(b4(), timed())
+		playRound1(run)
+		const r = startBlock(run.state, 1, run.now)
+		if (!r.ok) throw new Error(r.error.message)
+		run.state = r.value
+		run.tick()
+		expect(run.kinds()).not.toContain('check_in_missed')
+		expect(run.kinds()).not.toContain('round_check_in_opened')
+		expect(run.state.matches['W2-1'].phase).toBe('ready_up')
+	})
+
+	it('is only for a round that starts at a set time', () => {
+		const base = presetSchedule(b4(), 'live_event')[0]
+		expect(validateSchedule(b4(), [{ ...base, untilStep: 1 }, { ...base, untilStep: 2, checkInMinutes: 30 }]).ok).toBe(false)
+		expect(validateSchedule(b4(), timed(5)).ok).toBe(false)
+		expect(validateSchedule(b4(), timed(30)).ok).toBe(true)
+	})
 })

@@ -10,7 +10,7 @@ import { readConfig } from '../config'
 import { integrityRefusal, readIntegrity } from '../integrity'
 import { requiredStandingFor } from '../standing/standing'
 import { resolveBracket } from './engine/resolve'
-import type { Change } from './lifecycle'
+import { type Change, stillIn } from './lifecycle'
 import { type LobbyNeed, claimLobby, gameEnded, lobbiesNeeded, lobbyClosed, lobbyLost, lobbyOpened, lobbyReused, minutesLeft } from './matches'
 import { lobbiesToClose } from './lobby_state'
 import { draftOrderFor } from './lobby_draft'
@@ -205,6 +205,7 @@ const MATCH_UPDATES = [
 	'deadline_extended',
 	'match_reset',
 	'lobby_closed',
+	'check_in_missed',
 ]
 const EVERYONE_UPDATES = ['check_in_opened', 'started', 'tournament_finished', 'cancelled', 'paused', 'resumed', 'round_started_early', 'settings_changed', 'notice_set']
 const MANAGER_UPDATES = ['unplayed', 'result_disputed']
@@ -242,6 +243,13 @@ function sendNotifications(nk: nkruntime.Nakama, before: Tournament, after: Tour
 					opponent: typeof opponentId === 'string' ? { id: opponentId, name: names[opponentId] ?? '?' } : null,
 				})
 			}
+		} else if (e.kind === 'round_check_in_opened') {
+			// A round that continues at a set time: everyone still in checks in
+			// (they may reach it yet); the organisers just see it.
+			for (const userId of realPlayers(after.entrants.map((x) => x.userId).filter((id) => stillIn(after, id)))) {
+				notify(nk, userId, NotifyCode.TOURNAMENT_UPDATED, `${after.name}: check in for the next round`, { ...base, kind: 'round_check_in', startsAt: e.startsAt, matchId: null })
+			}
+			for (const userId of managers) notify(nk, userId, NotifyCode.TOURNAMENT_UPDATED, after.name, { ...base, kind: e.kind, matchId: null })
 		} else if (e.kind === 'lobby_opened') {
 			for (const userId of players) {
 				notify(nk, userId, NotifyCode.TOURNAMENT_LOBBY, `${after.name}: your game is ready`, { ...base, matchId, code: e.code, game: e.game, wins: e.wins, reused: e.reused === true })

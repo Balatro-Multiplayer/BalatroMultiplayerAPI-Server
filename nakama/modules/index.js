@@ -9552,6 +9552,19 @@ function finalPlacements(bracket, dropped = []) {
   return result;
 }
 
+// src/tournament/lobby_state.ts
+function lobbiesToClose(t) {
+  const out = [];
+  if (!t.lobbies) return out;
+  for (const matchId of Object.keys(t.lobbies)) {
+    const lobby = t.lobbies[matchId];
+    if (lobby.status !== "open" && lobby.status !== "disputed") continue;
+    const clock = t.clock ? t.clock.matches[matchId] : void 0;
+    if (t.status !== "running" || !clock || clock.phase === "closed") out.push({ matchId, code: lobby.code });
+  }
+  return out;
+}
+
 // src/tournament/engine/schedule.ts
 var MINUTE_MS = 60 * 1e3;
 var HOUR_MS = 60 * MINUTE_MS;
@@ -9615,6 +9628,12 @@ function validateSchedule(bracket, schedule) {
     }
     if (bracket.format === "swiss" && b.opening === "rolling") {
       return err({ code: "invalid", message: "Swiss rounds always open together" });
+    }
+    if (b.checkInMinutes !== void 0) {
+      if (b.start.kind !== "at") return err({ code: "invalid", message: "Only a round that starts at a set time can have a check-in" });
+      if (!Number.isInteger(b.checkInMinutes) || b.checkInMinutes < 10 || b.checkInMinutes > 60) {
+        return err({ code: "invalid", message: "A round check-in must be 10-60 minutes" });
+      }
     }
   }
   if (previous !== steps) return err({ code: "invalid", message: `The schedule must cover all ${steps} rounds` });
@@ -9720,7 +9739,7 @@ function unwrap(r) {
   return r.value;
 }
 function tickTimetable(input) {
-  var _a, _b, _c, _d;
+  var _a, _b, _c, _d, _e, _f;
   const dropped = (_a = input.dropped) != null ? _a : [];
   const { schedule, now } = input;
   let bracket = input.bracket;
@@ -9761,9 +9780,20 @@ function tickTimetable(input) {
         changed2 = true;
       }
       if (clock.startedAt === void 0) {
+        const block = schedule[i];
+        if (block.start.kind === "at" && block.checkInMinutes && clock.checkInOpenedAt === void 0 && clock.startRequestedAt === void 0) {
+          const opens = block.start.at - block.checkInMinutes * MINUTE_MS;
+          if (opens <= now) {
+            clock.checkInOpenedAt = now;
+            clock.checkedIn = (_c = clock.checkedIn) != null ? _c : [];
+            events.push({ kind: "round_check_in_opened", block: i, startsAt: block.start.at });
+            changed2 = true;
+          } else wake.push(opens);
+        }
         const at = blockStartTime(i, schedule, state);
         if (at !== null && at <= now) {
           clock.startedAt = now;
+          clock.checkInApplies = !!block.checkInMinutes && block.start.kind === "at" && clock.startRequestedAt === void 0;
           events.push({ kind: "block_started", block: i });
           changed2 = true;
         } else if (at !== null) wake.push(at);
@@ -9781,6 +9811,36 @@ function tickTimetable(input) {
       if (!clock) {
         if (blockClock.startedAt === void 0 || m.status !== "ready" || !pair) continue;
         if (block.opening === "synchronized" && !stepDone.slice(0, loc.step).every(Boolean)) continue;
+        if (blockClock.checkInApplies && blockClock.startedAt === now) {
+          const checkedIn = (_d = blockClock.checkedIn) != null ? _d : [];
+          const here = [checkedIn.indexOf(pair[0]) !== -1, checkedIn.indexOf(pair[1]) !== -1];
+          if (!here[0] || !here[1]) {
+            const missing = pair.filter((_, side) => !here[side]);
+            events.push({ kind: "check_in_missed", matchId: m.def.id, missing });
+            const base = {
+              openedAt: now,
+              phase: "closed",
+              deadline: null,
+              ready: [false, false],
+              readiedAt: [null, null],
+              readyLog: [],
+              gamesSeen: m.def.games.length,
+              remindersSent: [],
+              players: pair
+            };
+            if (here[0] || here[1]) {
+              const winner = here[0] ? 0 : 1;
+              bracket = unwrap(decideMatch(bracket, m.def.id, { kind: "forfeit", winner }, { dropped }));
+              state.matches[m.def.id] = base;
+              events.push({ kind: "match_forfeited", matchId: m.def.id, winner });
+            } else {
+              state.matches[m.def.id] = __spreadProps(__spreadValues({}, base), { phase: "unplayed", unplayedSince: now });
+              events.push({ kind: "unplayed", matchId: m.def.id, fallbackAt: now + block.unplayed.fallbackAfterHours * HOUR_MS });
+            }
+            changed2 = true;
+            break;
+          }
+        }
         const deadline = deadlineFor(block.play, now);
         state.matches[m.def.id] = {
           openedAt: now,
@@ -9828,13 +9888,13 @@ function tickTimetable(input) {
           clock.phase = "in_game";
           clock.deadline = null;
           clock.inGameSince = now;
-          clock.handoff = ((_c = clock.handoff) != null ? _c : 0) + 1;
+          clock.handoff = ((_e = clock.handoff) != null ? _e : 0) + 1;
           events.push({ kind: "lobby_needed", matchId: m.def.id, players: pair, game: m.def.games.length + 1 });
           changed2 = true;
           continue;
         }
         if (clock.deadline === null) continue;
-        for (const minutes of (_d = block.reminders) != null ? _d : []) {
+        for (const minutes of (_f = block.reminders) != null ? _f : []) {
           const at = clock.deadline - minutes * MINUTE_MS;
           if (clock.remindersSent.indexOf(minutes) !== -1 || at <= clock.openedAt) continue;
           if (now >= at && now < clock.deadline) {
@@ -9903,6 +9963,18 @@ function openClock(state, matchId, phase) {
   if (phase && clock.phase !== phase) return err({ code: "not_playable", message: `Match ${matchId} is ${clock.phase}` });
   return ok({ state: next, clock });
 }
+function checkInToRounds(state, playerId) {
+  var _a;
+  const open = state.blocks.filter((b) => b.checkInOpenedAt !== void 0 && b.startedAt === void 0);
+  if (open.length === 0) return err({ code: "not_playable", message: "No round check-in is open" });
+  const next = cloneState(state);
+  for (const b of next.blocks) {
+    if (b.checkInOpenedAt === void 0 || b.startedAt !== void 0) continue;
+    const ids = (_a = b.checkedIn) != null ? _a : [];
+    if (ids.indexOf(playerId) === -1) b.checkedIn = ids.concat([playerId]);
+  }
+  return ok(next);
+}
 function setReady(state, matchId, side, ready2, now) {
   if (state.pausedSince !== void 0) return err({ code: "not_playable", message: "The tournament is paused" });
   const r = openClock(state, matchId, "ready_up");
@@ -9966,19 +10038,6 @@ function reopenReadyUp(state, matchId, now, minutes) {
   clock.inGameSince = void 0;
   clock.remindersSent = [];
   return ok(r.value.state);
-}
-
-// src/tournament/lobby_state.ts
-function lobbiesToClose(t) {
-  const out = [];
-  if (!t.lobbies) return out;
-  for (const matchId of Object.keys(t.lobbies)) {
-    const lobby = t.lobbies[matchId];
-    if (lobby.status !== "open" && lobby.status !== "disputed") continue;
-    const clock = t.clock ? t.clock.matches[matchId] : void 0;
-    if (t.status !== "running" || !clock || clock.phase === "closed") out.push({ matchId, code: lobby.code });
-  }
-  return out;
 }
 
 // src/tournament/engine/seeding.ts
@@ -10361,6 +10420,11 @@ function validRoundTimings(value) {
       if (typeof v.startAt !== "number" || !Number.isInteger(v.startAt) || v.startAt <= 0) return err(`timetable.rounds.${key}: startAt must be a time`);
       t.startAt = v.startAt;
     }
+    if (v.checkInMinutes !== void 0 && v.checkInMinutes !== false && v.checkInMinutes !== null) {
+      if (t.startAt === void 0) return err(`timetable.rounds.${key}: checkInMinutes needs startAt`);
+      if (typeof v.checkInMinutes !== "number" || !Number.isInteger(v.checkInMinutes) || v.checkInMinutes < 10 || v.checkInMinutes > 60) return err(`timetable.rounds.${key}: checkInMinutes must be 10-60`);
+      t.checkInMinutes = v.checkInMinutes;
+    }
     if (v.onward !== void 0) {
       if (typeof v.onward !== "boolean") return err(`timetable.rounds.${key}: onward must be true or false`);
       t.onward = v.onward;
@@ -10433,6 +10497,8 @@ function applyRoundTimings(bracket, blocks, timings) {
     }
     if (s > 1 && here.startAt !== void 0) {
       block.start = { kind: "at", at: here.startAt };
+      if (here.checkInMinutes !== void 0) block.checkInMinutes = here.checkInMinutes;
+      else delete block.checkInMinutes;
       entry.changed = true;
     } else if (s > 1 && here.manualStart) {
       block.start = { kind: "manual" };
@@ -10539,8 +10605,24 @@ function checkTimetable(t) {
   for (const n of [2, t.maxPlayers]) {
     const bracket = sampleBracket(t, n);
     if (!bracket) return fail(INVALID_ARGUMENT, `The format options don't work with ${n} players`);
-    const valid = validateSchedule(bracket, scheduleFor(t, bracket));
+    const schedule = scheduleFor(t, bracket);
+    const valid = validateSchedule(bracket, schedule);
     if (!valid.ok) return fail(INVALID_ARGUMENT, `timetable: ${valid.error.message}`);
+    const timed = timedRoundsFit(t, schedule);
+    if (!timed.ok) return timed;
+  }
+  return ok(true);
+}
+function timedRoundsFit(t, schedule) {
+  let previous = t.startsAt;
+  for (const b of schedule) {
+    if (b.start.kind !== "at") continue;
+    if (b.start.at < t.startsAt) return fail(INVALID_ARGUMENT, "A round set to continue at a date and time must be after the tournament starts");
+    if (b.checkInMinutes && b.start.at - b.checkInMinutes * MINUTE_MS < t.startsAt) {
+      return fail(INVALID_ARGUMENT, "A round's check-in can't open before the tournament starts");
+    }
+    if (b.start.at < previous) return fail(INVALID_ARGUMENT, "Rounds set to continue at a date and time must be in round order");
+    previous = b.start.at;
   }
   return ok(true);
 }
@@ -10634,6 +10716,7 @@ function removePlayer(t, managerId, userId, now) {
   return ok(withEvent(r.value, now, "removed_by_organiser", { userId, by: managerId }));
 }
 function checkInEntrant(t, userId, now) {
+  if (t.status === "running") return checkInToRound(t, userId, now);
   if (t.status !== "check_in") return fail(FAILED_PRECONDITION, "Check-in is not open");
   const index = t.entrants.findIndex((e) => e.userId === userId);
   if (index === -1) return fail(FAILED_PRECONDITION, "You are not in this tournament");
@@ -10641,6 +10724,19 @@ function checkInEntrant(t, userId, now) {
   const entrants = t.entrants.slice();
   entrants[index] = __spreadProps(__spreadValues({}, entrants[index]), { checkedInAt: now });
   return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { entrants }), now, "checked_in", { userId }), now));
+}
+function stillIn(t, userId) {
+  if (!t.bracket || t.bracket.seeds.indexOf(userId) === -1 || t.dropped.indexOf(userId) !== -1) return false;
+  if (t.format !== "single_elim" && t.format !== "double_elim") return true;
+  return !finalPlacements(t.bracket, t.dropped).some((p) => p.id === userId);
+}
+function checkInToRound(t, userId, now) {
+  if (!t.clock) return fail(FAILED_PRECONDITION, "Check-in is not open");
+  if (!stillIn(t, userId)) return fail(FAILED_PRECONDITION, "You are no longer in this tournament");
+  const r = checkInToRounds(t.clock, userId);
+  if (!r.ok) return fail(FAILED_PRECONDITION, "Check-in is not open");
+  if (JSON.stringify(r.value.blocks) === JSON.stringify(t.clock.blocks)) return ok(t);
+  return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { clock: r.value }), now, "round_checked_in", { userId }), now));
 }
 function promote(t, managerId, userId, now) {
   const allowed = managerOnly(t, managerId);
@@ -11143,6 +11239,24 @@ function summaryOf(t) {
     requireRanked: t.requireRanked === true
   };
 }
+function nextRoundCheckIn(t, viewerId) {
+  var _a;
+  if (!t.schedule || !t.clock) return null;
+  for (let i = 0; i < t.schedule.length; i++) {
+    const b = t.schedule[i];
+    const c = t.clock.blocks[i];
+    if (!c || b.start.kind !== "at" || !b.checkInMinutes || c.startedAt !== void 0 || c.startRequestedAt !== void 0) continue;
+    return {
+      block: i,
+      firstRound: i === 0 ? 1 : t.schedule[i - 1].untilStep + 1,
+      opensAt: b.start.at - b.checkInMinutes * MINUTE_MS,
+      startsAt: b.start.at,
+      open: c.checkInOpenedAt !== void 0,
+      checkedIn: ((_a = c.checkedIn) != null ? _a : []).indexOf(viewerId) !== -1
+    };
+  }
+  return null;
+}
 function nameMap(t) {
   const names = {};
   for (const e of t.entrants.concat(t.waitlist)) names[e.userId] = e.name;
@@ -11215,6 +11329,7 @@ function tournamentView(t, viewerId, now) {
       const out = elimination && t.status === "running" && places.some((p) => p.id === viewerId);
       const dropped = t.dropped.indexOf(viewerId) !== -1;
       you = { nextMatchId: next ? next.def.id : null, eliminated: out || dropped, dropped };
+      if (!you.eliminated && t.status === "running") you.roundCheckIn = nextRoundCheckIn(t, viewerId);
     }
   }
   const manager = isManager(t, viewerId);
@@ -11599,7 +11714,8 @@ var MATCH_UPDATES = [
   "result_cleared",
   "deadline_extended",
   "match_reset",
-  "lobby_closed"
+  "lobby_closed",
+  "check_in_missed"
 ];
 var EVERYONE_UPDATES = ["check_in_opened", "started", "tournament_finished", "cancelled", "paused", "resumed", "round_started_early", "settings_changed", "notice_set"];
 var MANAGER_UPDATES = ["unplayed", "result_disputed"];
@@ -11638,6 +11754,11 @@ function sendNotifications(nk, before, after) {
           opponent: typeof opponentId === "string" ? { id: opponentId, name: (_a = names[opponentId]) != null ? _a : "?" } : null
         }));
       }
+    } else if (e.kind === "round_check_in_opened") {
+      for (const userId of realPlayers(after.entrants.map((x) => x.userId).filter((id) => stillIn(after, id)))) {
+        notify(nk, userId, NotifyCode.TOURNAMENT_UPDATED, `${after.name}: check in for the next round`, __spreadProps(__spreadValues({}, base), { kind: "round_check_in", startsAt: e.startsAt, matchId: null }));
+      }
+      for (const userId of managers) notify(nk, userId, NotifyCode.TOURNAMENT_UPDATED, after.name, __spreadProps(__spreadValues({}, base), { kind: e.kind, matchId: null }));
     } else if (e.kind === "lobby_opened") {
       for (const userId of players) {
         notify(nk, userId, NotifyCode.TOURNAMENT_LOBBY, `${after.name}: your game is ready`, __spreadProps(__spreadValues({}, base), { matchId, code: e.code, game: e.game, wins: e.wins, reused: e.reused === true }));

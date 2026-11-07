@@ -18,6 +18,8 @@ export interface RoundTiming {
 	manualStart?: boolean
 	// It continues at this time (epoch ms), after a long break.
 	startAt?: number
+	// With startAt: its players check in this many minutes before (10-60).
+	checkInMinutes?: number
 	play?: { kind: 'live'; readyUpMinutes: number } | { kind: 'window'; durationMinutes: number }
 	// Also every later round (until another change takes over).
 	onward?: boolean
@@ -50,6 +52,11 @@ export function validRoundTimings(value: unknown): Result<{ [key: string]: Round
 		if (v.startAt !== undefined) {
 			if (typeof v.startAt !== 'number' || !Number.isInteger(v.startAt) || v.startAt <= 0) return err(`timetable.rounds.${key}: startAt must be a time`)
 			t.startAt = v.startAt
+		}
+		if (v.checkInMinutes !== undefined && v.checkInMinutes !== false && v.checkInMinutes !== null) {
+			if (t.startAt === undefined) return err(`timetable.rounds.${key}: checkInMinutes needs startAt`)
+			if (typeof v.checkInMinutes !== 'number' || !Number.isInteger(v.checkInMinutes) || v.checkInMinutes < 10 || v.checkInMinutes > 60) return err(`timetable.rounds.${key}: checkInMinutes must be 10-60`)
+			t.checkInMinutes = v.checkInMinutes
 		}
 		if (v.onward !== undefined) {
 			if (typeof v.onward !== 'boolean') return err(`timetable.rounds.${key}: onward must be true or false`)
@@ -141,6 +148,8 @@ export function applyRoundTimings(bracket: Bracket, blocks: ScheduleBlock[], tim
 		}
 		if (s > 1 && here.startAt !== undefined) {
 			block.start = { kind: 'at', at: here.startAt }
+			if (here.checkInMinutes !== undefined) block.checkInMinutes = here.checkInMinutes
+			else delete block.checkInMinutes
 			entry.changed = true
 		} else if (s > 1 && here.manualStart) {
 			block.start = { kind: 'manual' }

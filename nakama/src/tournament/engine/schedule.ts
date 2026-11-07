@@ -48,6 +48,12 @@ export interface ScheduleBlock {
 	unplayed: { fallbackAfterHours: number; fallback: 'higher_seed' | 'both_lose' }
 	// Minutes before a deadline to remind both players (window play).
 	reminders?: number[]
+	// A block that starts at a set time (start.kind 'at') can have its own
+	// check-in, this many minutes before: a match ready when the block starts
+	// is forfeited by a player who didn't check in (neither: unplayed, and the
+	// fallback applies). Matches that open later -- an earlier round ran
+	// late -- use the ready-up alone: their players have shown they're here.
+	checkInMinutes?: number
 }
 
 export type MatchPhase = 'ready_up' | 'in_game' | 'unplayed' | 'closed'
@@ -84,6 +90,13 @@ export interface BlockClock {
 	finishedAt?: number
 	// Set by the organiser for a manual start (or to start a block early).
 	startRequestedAt?: number
+	// The block's own check-in (ScheduleBlock.checkInMinutes): when it
+	// opened, and who has checked in.
+	checkInOpenedAt?: number
+	checkedIn?: EntrantId[]
+	// The check-in applies to the matches opened at the start: false when
+	// the organiser started the block early.
+	checkInApplies?: boolean
 }
 
 export interface TimetableState {
@@ -106,6 +119,8 @@ export type TimetableEvent =
 	| { kind: 'unplayed'; matchId: string; fallbackAt: number }
 	| { kind: 'fallback_applied'; matchId: string; fallback: 'higher_seed' | 'both_lose' }
 	| { kind: 'reminder'; matchId: string; minutesLeft: number }
+	| { kind: 'round_check_in_opened'; block: number; startsAt: number }
+	| { kind: 'check_in_missed'; matchId: string; missing: EntrantId[] }
 	| { kind: 'swiss_round_paired'; round: number }
 	| { kind: 'finished' }
 
@@ -191,6 +206,12 @@ export function validateSchedule(bracket: Bracket, schedule: ScheduleBlock[]): R
 		}
 		if (bracket.format === 'swiss' && b.opening === 'rolling') {
 			return err({ code: 'invalid', message: 'Swiss rounds always open together' })
+		}
+		if (b.checkInMinutes !== undefined) {
+			if (b.start.kind !== 'at') return err({ code: 'invalid', message: 'Only a round that starts at a set time can have a check-in' })
+			if (!Number.isInteger(b.checkInMinutes) || b.checkInMinutes < 10 || b.checkInMinutes > 60) {
+				return err({ code: 'invalid', message: 'A round check-in must be 10-60 minutes' })
+			}
 		}
 	}
 	if (previous !== steps) return err({ code: 'invalid', message: `The schedule must cover all ${steps} rounds` })
@@ -372,9 +393,20 @@ export function tickTimetable(input: TickInput): TickOutput {
 				changed = true
 			}
 			if (clock.startedAt === undefined) {
+				const block = schedule[i]
+				if (block.start.kind === 'at' && block.checkInMinutes && clock.checkInOpenedAt === undefined && clock.startRequestedAt === undefined) {
+					const opens = block.start.at - block.checkInMinutes * MINUTE_MS
+					if (opens <= now) {
+						clock.checkInOpenedAt = now
+						clock.checkedIn = clock.checkedIn ?? []
+						events.push({ kind: 'round_check_in_opened', block: i, startsAt: block.start.at })
+						changed = true
+					} else wake.push(opens)
+				}
 				const at = blockStartTime(i, schedule, state)
 				if (at !== null && at <= now) {
 					clock.startedAt = now
+					clock.checkInApplies = !!block.checkInMinutes && block.start.kind === 'at' && clock.startRequestedAt === undefined
 					events.push({ kind: 'block_started', block: i })
 					changed = true
 				} else if (at !== null) wake.push(at)
@@ -396,6 +428,37 @@ export function tickTimetable(input: TickInput): TickOutput {
 				// Open it?
 				if (blockClock.startedAt === undefined || m.status !== 'ready' || !pair) continue
 				if (block.opening === 'synchronized' && !stepDone.slice(0, loc.step).every(Boolean)) continue
+				// The block's check-in: only for matches ready as it starts.
+				if (blockClock.checkInApplies && blockClock.startedAt === now) {
+					const checkedIn = blockClock.checkedIn ?? []
+					const here: [boolean, boolean] = [checkedIn.indexOf(pair[0]) !== -1, checkedIn.indexOf(pair[1]) !== -1]
+					if (!here[0] || !here[1]) {
+						const missing = pair.filter((_, side) => !here[side])
+						events.push({ kind: 'check_in_missed', matchId: m.def.id, missing })
+						const base: MatchClock = {
+							openedAt: now,
+							phase: 'closed',
+							deadline: null,
+							ready: [false, false],
+							readiedAt: [null, null],
+							readyLog: [],
+							gamesSeen: m.def.games.length,
+							remindersSent: [],
+							players: pair,
+						}
+						if (here[0] || here[1]) {
+							const winner: Side = here[0] ? 0 : 1
+							bracket = unwrap(decideMatch(bracket, m.def.id, { kind: 'forfeit', winner }, { dropped }))
+							state.matches[m.def.id] = base
+							events.push({ kind: 'match_forfeited', matchId: m.def.id, winner })
+						} else {
+							state.matches[m.def.id] = { ...base, phase: 'unplayed', unplayedSince: now }
+							events.push({ kind: 'unplayed', matchId: m.def.id, fallbackAt: now + block.unplayed.fallbackAfterHours * HOUR_MS })
+						}
+						changed = true
+						break
+					}
+				}
 				const deadline = deadlineFor(block.play, now)
 				state.matches[m.def.id] = {
 					openedAt: now,
@@ -530,6 +593,20 @@ function openClock(state: TimetableState, matchId: string, phase?: MatchPhase): 
 	if (!clock) return err({ code: 'not_playable', message: `Match ${matchId} is not open` })
 	if (phase && clock.phase !== phase) return err({ code: 'not_playable', message: `Match ${matchId} is ${clock.phase}` })
 	return ok({ state: next, clock })
+}
+
+// A player checks in to every round whose check-in is open (usually one).
+// Who may is the caller's business (lifecycle.ts: players still in).
+export function checkInToRounds(state: TimetableState, playerId: EntrantId): Result<TimetableState, EngineError> {
+	const open = state.blocks.filter((b) => b.checkInOpenedAt !== undefined && b.startedAt === undefined)
+	if (open.length === 0) return err({ code: 'not_playable', message: 'No round check-in is open' })
+	const next = cloneState(state)
+	for (const b of next.blocks) {
+		if (b.checkInOpenedAt === undefined || b.startedAt !== undefined) continue
+		const ids = b.checkedIn ?? []
+		if (ids.indexOf(playerId) === -1) b.checkedIn = ids.concat([playerId])
+	}
+	return ok(next)
 }
 
 export function setReady(state: TimetableState, matchId: string, side: Side, ready: boolean, now: number): Result<TimetableState, EngineError> {

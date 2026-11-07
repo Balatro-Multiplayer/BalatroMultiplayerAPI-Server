@@ -9,11 +9,11 @@
 // then on advance() runs the engine's timetable.
 import { FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED } from '../errors'
 import { type Result, err, ok } from '../shared/result'
-import { createBracket, recordGame, setRoundBestOf } from './engine/bracket'
+import { createBracket, finalPlacements, recordGame, setRoundBestOf } from './engine/bracket'
 import { resolveBracket } from './engine/resolve'
 import { lobbiesToClose } from './lobby_state'
 import { splitGroups } from './engine/round_robin'
-import { MINUTE_MS, type ScheduleBlock, newTimetable, presetSchedule, roundSteps, setReady, tickTimetable, validateSchedule } from './engine/schedule'
+import { MINUTE_MS, type ScheduleBlock, checkInToRounds, newTimetable, presetSchedule, roundSteps, setReady, tickTimetable, validateSchedule } from './engine/schedule'
 import { type Rng, seedEntrants } from './engine/seeding'
 import type { Bracket, Format, Side } from './engine/types'
 import { applyRoundTimings } from './round_timing'
@@ -143,8 +143,28 @@ function checkTimetable(t: Tournament): Result<true, LifecycleError> {
 	for (const n of [2, t.maxPlayers]) {
 		const bracket = sampleBracket(t, n)
 		if (!bracket) return fail(INVALID_ARGUMENT, `The format options don't work with ${n} players`)
-		const valid = validateSchedule(bracket, scheduleFor(t, bracket))
+		const schedule = scheduleFor(t, bracket)
+		const valid = validateSchedule(bracket, schedule)
 		if (!valid.ok) return fail(INVALID_ARGUMENT, `timetable: ${valid.error.message}`)
+		const timed = timedRoundsFit(t, schedule)
+		if (!timed.ok) return timed
+	}
+	return ok(true)
+}
+
+// Rounds that continue at a set time: not before the tournament starts,
+// their check-in not opening before it either, and in round order (a later
+// round never set earlier than an earlier one).
+function timedRoundsFit(t: Tournament, schedule: ScheduleBlock[]): Result<true, LifecycleError> {
+	let previous = t.startsAt
+	for (const b of schedule) {
+		if (b.start.kind !== 'at') continue
+		if (b.start.at < t.startsAt) return fail(INVALID_ARGUMENT, 'A round set to continue at a date and time must be after the tournament starts')
+		if (b.checkInMinutes && b.start.at - b.checkInMinutes * MINUTE_MS < t.startsAt) {
+			return fail(INVALID_ARGUMENT, "A round's check-in can't open before the tournament starts")
+		}
+		if (b.start.at < previous) return fail(INVALID_ARGUMENT, 'Rounds set to continue at a date and time must be in round order')
+		previous = b.start.at
 	}
 	return ok(true)
 }
@@ -254,6 +274,7 @@ export function removePlayer(t: Tournament, managerId: string, userId: string, n
 }
 
 export function checkInEntrant(t: Tournament, userId: string, now: number): Change {
+	if (t.status === 'running') return checkInToRound(t, userId, now)
 	if (t.status !== 'check_in') return fail(FAILED_PRECONDITION, 'Check-in is not open')
 	const index = t.entrants.findIndex((e) => e.userId === userId)
 	if (index === -1) return fail(FAILED_PRECONDITION, 'You are not in this tournament')
@@ -261,6 +282,24 @@ export function checkInEntrant(t: Tournament, userId: string, now: number): Chan
 	const entrants = t.entrants.slice()
 	entrants[index] = { ...entrants[index], checkedInAt: now }
 	return ok(touch(withEvent({ ...t, entrants }, now, 'checked_in', { userId }), now))
+}
+
+// Whether a player can still play: in the bracket, not dropped out, not
+// knocked out (elimination formats; everyone plays on in the others).
+export function stillIn(t: Tournament, userId: string): boolean {
+	if (!t.bracket || t.bracket.seeds.indexOf(userId) === -1 || t.dropped.indexOf(userId) !== -1) return false
+	if (t.format !== 'single_elim' && t.format !== 'double_elim') return true
+	return !finalPlacements(t.bracket, t.dropped).some((p) => p.id === userId)
+}
+
+// Check-in for a round that continues at a set time (its window is open).
+function checkInToRound(t: Tournament, userId: string, now: number): Change {
+	if (!t.clock) return fail(FAILED_PRECONDITION, 'Check-in is not open')
+	if (!stillIn(t, userId)) return fail(FAILED_PRECONDITION, 'You are no longer in this tournament')
+	const r = checkInToRounds(t.clock, userId)
+	if (!r.ok) return fail(FAILED_PRECONDITION, 'Check-in is not open')
+	if (JSON.stringify(r.value.blocks) === JSON.stringify(t.clock.blocks)) return ok(t)
+	return ok(touch(withEvent({ ...t, clock: r.value }, now, 'round_checked_in', { userId }), now))
 }
 
 // The organiser moves a waitlisted player into the tournament (no automatic

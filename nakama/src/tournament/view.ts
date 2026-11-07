@@ -50,6 +50,36 @@ export function summaryOf(t: Tournament): TournamentSummary {
 	}
 }
 
+// The next round with its own check-in (it continues at a set time), for a
+// player still in: when check-in opens, when the round starts, whether it is
+// open and whether they have checked in. firstRound: its first round number.
+export interface RoundCheckIn {
+	block: number
+	firstRound: number
+	opensAt: number
+	startsAt: number
+	open: boolean
+	checkedIn: boolean
+}
+
+function nextRoundCheckIn(t: Tournament, viewerId: string): RoundCheckIn | null {
+	if (!t.schedule || !t.clock) return null
+	for (let i = 0; i < t.schedule.length; i++) {
+		const b = t.schedule[i]
+		const c = t.clock.blocks[i]
+		if (!c || b.start.kind !== 'at' || !b.checkInMinutes || c.startedAt !== undefined || c.startRequestedAt !== undefined) continue
+		return {
+			block: i,
+			firstRound: i === 0 ? 1 : t.schedule[i - 1].untilStep + 1,
+			opensAt: b.start.at - b.checkInMinutes * MINUTE_MS,
+			startsAt: b.start.at,
+			open: c.checkInOpenedAt !== undefined,
+			checkedIn: (c.checkedIn ?? []).indexOf(viewerId) !== -1,
+		}
+	}
+	return null
+}
+
 type PlayerRef = { id: string; name: string } | null | 'tbd'
 
 function nameMap(t: Tournament): { [id: string]: string } {
@@ -73,7 +103,7 @@ export function tournamentView(t: Tournament, viewerId: string, now: number) {
 	let bracket = null
 	let standings = null
 	let places = null
-	let you: { nextMatchId: string | null; eliminated: boolean; dropped: boolean } | null = null
+	let you: { nextMatchId: string | null; eliminated: boolean; dropped: boolean; roundCheckIn?: RoundCheckIn | null } | null = null
 	if (t.bracket) {
 		const resolved = resolveBracket(t.bracket, t.dropped)
 		const clock = t.clock ? t.clock.matches : {}
@@ -125,6 +155,7 @@ export function tournamentView(t: Tournament, viewerId: string, now: number) {
 			const dropped = t.dropped.indexOf(viewerId) !== -1
 			// dropped: they left (DROP OUT or removed), not knocked out.
 			you = { nextMatchId: next ? next.def.id : null, eliminated: out || dropped, dropped }
+			if (!you.eliminated && t.status === 'running') you.roundCheckIn = nextRoundCheckIn(t, viewerId)
 		}
 	}
 
