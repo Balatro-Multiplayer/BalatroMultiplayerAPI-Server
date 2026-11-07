@@ -69,4 +69,25 @@ describe('log check', () => {
 		expect(logGapsOf(undefined)).toBe(0)
 		expect(logGapsOf(logWith('x'))).toBe(0)
 	})
+
+	it('checks a log a client resumed after a crash, hashed over the server text of its earlier events', () => {
+		const before = ['[1,"lobby_info",{"ruleset":"y","gamemode":"x"}]', '[2,"play",[1,[2,3]]]']
+		// What the rejoin hands the client (ActiveRun.logText), then what it records after.
+		const logText = hashInput(before)
+		const input = `${logText.slice(0, -1)},[3,"reroll",null]]`
+		const resumed = {
+			lines: [
+				...before,
+				'[3,"reroll",null]',
+				'[4,"end",{"result":"win"}]',
+				`[5,"chk",{"human":"00000000","carbon":"${sha256(input)}","bytes":10}]`,
+			],
+			bytes: 0,
+			truncated: false,
+			seq: 5,
+			ahead: 5,
+		}
+		expect(input).toBe(LUA_INPUT)
+		expect(checkLog(resumed, sha256).check).toBe('match')
+	})
 })
