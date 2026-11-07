@@ -857,6 +857,21 @@ describe('replay logs', () => {
 			expect(logGapsOf(step.lobby.game.logs.a)).toBe(0)
 		})
 
+		it('tells a rejoining player how many events it holds, so the next ones are kept', () => {
+			let lobby = batchOf(started('a', 'b'), numbered(1, 4)).lobby
+			expect(snapshotFor(lobby, 'a', 2000).game.logSeq).toBe(4)
+			expect(snapshotFor(lobby, 'b', 2000).game.logSeq).toBe(0)
+			// a new process rejoins: it starts from the snapshot's count
+			lobby = disconnect(lobby, 'a', 'a-s1', 1600).lobby
+			lobby = join(lobby, 'a', 'a-s2', info('a')).lobby
+			const from = snapshotFor(lobby, 'a', 2000).game.logSeq + 1
+			const step = batchOf(lobby, numbered(from, 2))
+			expect(step.lobby.game.logs.a.lines).toHaveLength(6)
+			expect(ackOf(step).params).toEqual({ ack: true, got: 6 })
+			// numbering again from 1 would be skipped as copies
+			expect(batchOf(lobby, numbered(1, 2)).lobby.game.logs.a.lines).toHaveLength(4)
+		})
+
 		it('numbers a single event the same way', () => {
 			const lobby = started('a', 'b')
 			const lost = send(lobby, 'a', 'mpapi_log_event', { t: 5, opcode: 'play', seq: 5, ack: true })

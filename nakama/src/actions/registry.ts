@@ -13,6 +13,7 @@ import {
 	emptyGame,
 	isParticipant,
 } from '../lobby/state'
+import { logHeldOf } from '../lobby/log_check'
 import { lobbyKindOf } from '../review/ranked'
 import { runSavePart } from './run_save'
 import { finishGame, parsePlacements } from './results'
@@ -338,7 +339,7 @@ function appendLogEvent(lobby: Lobby, from: string, now: number, params: unknown
 	// has a gap inside, and the ack tells the client where to start again.
 	const numbered = typeof params.seq === 'number' && Number.isInteger(params.seq) && params.seq > 0
 	const seq = numbered ? (params.seq as number) : 0
-	const held = log.seq ?? log.lines.length
+	const held = logHeldOf(log)
 	if (numbered && seq <= held) return { game, relayed: null }
 	if (numbered && seq > held + 1) {
 		const ahead = Math.max(log.ahead ?? 0, seq)
@@ -384,7 +385,7 @@ function ackOf(game: GameState, from: string, events: unknown[]): { got: number 
 	const numbered = events.some((e) => isPlainObject(e) && typeof e.seq === 'number')
 	if (!numbered) return undefined
 	const log = game.logs[from]
-	return { got: log ? (log.seq ?? log.lines.length) : 0 }
+	return { got: logHeldOf(log) }
 }
 
 // {t, opcode, args?, run?} -- one replay event from a participant, kept for the

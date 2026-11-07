@@ -3,6 +3,7 @@
 // instead of mutating. Nakama round-trips match state through Go between
 // calls, where Set/Map values are lost and in-place nested mutation can
 // silently not stick, so the state holds only plain objects and arrays.
+import { logHeldOf } from './log_check'
 import type { TeamPlan } from '../matchmaking/group/teams'
 import type { RequiredStanding } from '../standing/standing'
 import { type LobbyKind, lobbyKindOf } from '../review/ranked'
@@ -345,6 +346,7 @@ export function snapshotFor(lobby: Lobby, userId: string, now: number = Date.now
 			started: lobby.game.started,
 			reported: Object.keys(lobby.game.reports),
 			resultPending: lobby.game.resultPending === true,
+			logSeq: logHeldOf(lobby.game.logs[userId]),
 			setup: setupView(setupOf(lobby.game), now),
 		},
 		groupQueue: viewOf(lobby),

@@ -288,6 +288,10 @@ export interface GameView {
 	// GameState.resultPending as a plain boolean: a host that takes over mid-run
 	// reads it here, since only the old host knew it had asked for the hold.
 	resultPending: boolean
+	// How many of the viewer's own numbered log events the server holds (the
+	// highest seq with no gap). A client that rejoins numbers its next event
+	// from here, so the server does not skip it as a copy.
+	logSeq: number
 	setup: SetupView
 }
 

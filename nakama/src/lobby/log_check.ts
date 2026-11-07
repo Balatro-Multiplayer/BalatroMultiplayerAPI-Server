@@ -27,11 +27,16 @@ export function claimedHash(lines: string[]): string | null {
 	return null
 }
 
+// The highest event number the server holds with no gap before it (0 for no log).
+export function logHeldOf(log: PlayerLog | undefined): number {
+	return log ? (log.seq ?? log.lines.length) : 0
+}
+
 // How many events the server saw numbers for but never kept: the log's gap.
 // 0 for a complete log, and for a client that numbers no events.
 export function logGapsOf(log: PlayerLog | undefined): number {
 	if (!log || log.ahead === undefined) return 0
-	return Math.max(0, log.ahead - (log.seq ?? log.lines.length))
+	return Math.max(0, log.ahead - logHeldOf(log))
 }
 
 // 'incomplete' when the stored log has a gap: the events are not all here, so
