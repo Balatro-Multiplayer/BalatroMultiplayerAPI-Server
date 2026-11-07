@@ -8,6 +8,7 @@ import type { TeamPlan } from '../matchmaking/group/teams'
 import type { RequiredStanding } from '../standing/standing'
 import { type LobbyKind, lobbyKindOf } from '../review/ranked'
 import { replayTailOf } from './active'
+import { withPresence } from './presence'
 import { CATCH_UP_LIMIT_REASON } from './catch_up'
 import { setupOf, setupView } from '../actions/setup'
 import {
@@ -369,10 +370,10 @@ export function join(
 		const wasAway = existing.awaySince !== null
 		const wasCatchingUp = isCatchingUp(existing)
 		const back: LobbyPlayer = { ...existing, sessionId, awaySince: null, catchingUpSince: null }
-		const next = {
-			...lobby,
-			players: lobby.players.map((p) => (p.id === userId ? back : p)),
-		}
+		const next = withPresence(
+			{ ...lobby, players: lobby.players.map((p) => (p.id === userId ? back : p)) },
+			{ userId, kind: 'rejoined', at: now },
+		)
 		// Back from somewhere else (a group's public game) their current-lobby
 		// record names that lobby, so it is written again.
 		const out: Outbound[] = [
@@ -410,12 +411,15 @@ export function join(
 		ownState: null,
 	}
 	// A matchmade lobby has no creator to wait for: whoever arrives first hosts.
-	const next = {
-		...lobby,
-		hostId:
-			lobby.allowedIds && lobby.players.length === 0 ? userId : lobby.hostId,
-		players: lobby.players.concat([player]),
-	}
+	const next = withPresence(
+		{
+			...lobby,
+			hostId:
+				lobby.allowedIds && lobby.players.length === 0 ? userId : lobby.hostId,
+			players: lobby.players.concat([player]),
+		},
+		{ userId, kind: 'joined', at: now },
+	)
 	const others = othersThan(next, userId)
 	return {
 		lobby: next,
@@ -582,9 +586,9 @@ function remove(
 }
 
 // The player asked to leave (op LEAVE, or the leave RPC): gone for good.
-export function leave(lobby: Lobby, userId: string): Step {
+export function leave(lobby: Lobby, userId: string, now: number = Date.now()): Step {
 	if (!findPlayer(lobby, userId)) return { lobby, out: [] }
-	const step = remove(lobby, userId, 'player_left', 'member_left')
+	const step = remove(withPresence(lobby, { userId, kind: 'left', at: now }), userId, 'player_left', 'member_left')
 	return { lobby: step.lobby, out: step.out.concat([{ kind: 'kick', userId }]) }
 }
 
@@ -604,10 +608,13 @@ export function disconnect(
 
 	const away: LobbyPlayer = { ...player, awaySince: now }
 	const grouped = memberDisconnected(lobby, userId)
-	const marked = {
-		...grouped.lobby,
-		players: grouped.lobby.players.map((p) => (p.id === userId ? away : p)),
-	}
+	const marked = withPresence(
+		{
+			...grouped.lobby,
+			players: grouped.lobby.players.map((p) => (p.id === userId ? away : p)),
+		},
+		{ userId, kind: 'disconnected', at: now },
+	)
 	const transferred = isParked(marked) ? { lobby: marked, out: [] } : transferHostFrom(marked, userId)
 	const out: Outbound[] = grouped.out.concat([
 		event(
@@ -623,7 +630,7 @@ export function disconnect(
 	})
 }
 
-export function kick(lobby: Lobby, byId: string, targetId: string): Step {
+export function kick(lobby: Lobby, byId: string, targetId: string, now: number = Date.now()): Step {
 	if (lobby.hostId !== byId)
 		return { lobby, out: [rejectOp(byId, 'Only the host can kick players')] }
 	// The matchmaker seated these players, so the host has no say over who plays.
@@ -633,12 +640,12 @@ export function kick(lobby: Lobby, byId: string, targetId: string): Step {
 		return { lobby, out: [rejectOp(byId, 'You cannot kick yourself')] }
 	if (!findPlayer(lobby, targetId))
 		return { lobby, out: [rejectOp(byId, 'Player is not in this lobby')] }
-	return removeKicked(lobby, targetId, { kickedBy: byId })
+	return removeKicked(lobby, targetId, { kickedBy: byId }, now)
 }
 
 // Announced to everyone, the target included, before they are removed; they
 // may not come back.
-function removeKicked(lobby: Lobby, targetId: string, data: { [key: string]: unknown }): Step {
+function removeKicked(lobby: Lobby, targetId: string, data: { [key: string]: unknown }, now: number): Step {
 	const target = findPlayer(lobby, targetId)
 	if (!target) return { lobby, out: [] }
 	const announced = event(
@@ -647,7 +654,16 @@ function removeKicked(lobby: Lobby, targetId: string, data: { [key: string]: unk
 		{ playerId: targetId, displayName: target.info.displayName, data },
 		allIds(lobby),
 	)
-	const marked = { ...lobby, kickedIds: lobby.kickedIds.concat([targetId]) }
+	const marked = withPresence(
+		{ ...lobby, kickedIds: lobby.kickedIds.concat([targetId]) },
+		{
+			userId: targetId,
+			kind: 'kicked',
+			at: now,
+			by: String(data.kickedBy),
+			...(typeof data.reason === 'string' ? { reason: data.reason } : {}),
+		},
+	)
 	const step = remove(marked, targetId, null, 'member_kicked')
 	return {
 		lobby: step.lobby,
@@ -666,9 +682,10 @@ export function adminRemove(
 	userId: string,
 	reason: string,
 	onlyIfStarted = false,
+	now: number = Date.now(),
 ): Step {
 	if (onlyIfStarted && lobby.game.started === null) return { lobby, out: [] }
-	return removeKicked(lobby, userId, { kickedBy: 'server', reason })
+	return removeKicked(lobby, userId, { kickedBy: 'server', reason }, now)
 }
 
 // What webadmin shows of a lobby beyond its label.
@@ -790,7 +807,12 @@ export function tick(lobby: Lobby, now: number): Step {
 				started && started.players.some((q) => q.id === p.id)
 					? [{ kind: 'forfeited', userId: p.id, runId: started.runId, code: lobby.code, at: now, lobbyKind: lobbyKindOf(lobby) }]
 					: []
-			const removed = remove(step.lobby, p.id, 'player_left', 'member_disconnected')
+			const timedOut = withPresence(step.lobby, {
+				userId: p.id,
+				kind: graceRanOut ? 'timed_out' : 'catch_up_limit',
+				at: now,
+			})
+			const removed = remove(timedOut, p.id, 'player_left', 'member_disconnected')
 			const marked =
 				forfeited.length > 0 && started
 					? { ...removed.lobby, forfeitedSeats: { ...(removed.lobby.forfeitedSeats || {}), [p.id]: started.runId } }

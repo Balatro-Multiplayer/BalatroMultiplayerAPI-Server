@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import {
 	type RunQueueItem,
+	findRunConnections,
 	findRunMatch,
 	findRunRatings,
 	findRunWindow,
@@ -40,8 +41,8 @@ function claimOf(
 	return holder.slice(holder.indexOf(':') + 1) === viewerId ? 'you' : 'other'
 }
 
-// The match, its result with rating changes, the queue items about it and the
-// staff actions taken on it.
+// The match, its result with rating changes, the queue items about it, the
+// staff actions taken on it and each player's joins, leaves and rejoins.
 router.get('/matches/:runId/staff', async (req, res, next) => {
 	try {
 		const staff = await staffOf(req)
@@ -50,9 +51,10 @@ router.get('/matches/:runId/staff', async (req, res, next) => {
 		const run = await findRunWindow(runId)
 		if (!run) throw new AppError('Run not found', 404)
 
-		const [match, items] = await Promise.all([
+		const [match, items, connections] = await Promise.all([
 			findRunMatch(runId),
 			listQueueItemsAboutRun(runId, staff.role),
+			findRunConnections(runId),
 		])
 		const placements = match ? placementsOf(match.resultPlacements) : []
 		const [ratings, actions] = await Promise.all([
@@ -94,6 +96,7 @@ router.get('/matches/:runId/staff', async (req, res, next) => {
 				claim: claimOf(i, staff.playerId, now),
 			})),
 			staffActions: actions,
+			connections,
 			viewer: { role: staff.role },
 		})
 	} catch (err) {

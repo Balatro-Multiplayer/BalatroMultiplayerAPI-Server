@@ -574,3 +574,51 @@ describe('catching up', () => {
 		expect(eventTypes(back)).toEqual(['player_reconnected', 'player_catching_up'])
 	})
 })
+
+describe('presence record of a running game', () => {
+	const running = () => {
+		const lobby = lobbyWith('a', 'b', 'c')
+		return {
+			...lobby,
+			game: { ...lobby.game, started: { runId: 'r1', players: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] } as any },
+		}
+	}
+
+	it('records a leave with its time', () => {
+		const step = leave(running(), 'b', 500)
+		expect(step.lobby.game.presence).toEqual([{ userId: 'b', kind: 'left', at: 500 }])
+	})
+
+	it('records a disconnect, then the rejoin', () => {
+		const dropped = disconnect(running(), 'b', 'b-s1', 1000).lobby
+		const back = join(dropped, 'b', 'b-s2', info('b'), 4000).lobby
+		expect(back.game.presence).toEqual([
+			{ userId: 'b', kind: 'disconnected', at: 1000 },
+			{ userId: 'b', kind: 'rejoined', at: 4000 },
+		])
+	})
+
+	it('records a disconnect that ran out of grace as a timeout', () => {
+		const dropped = disconnect(running(), 'b', 'b-s1', 1000).lobby
+		const expired = tick(dropped, 1000 + GRACE).lobby
+		expect(expired.game.presence).toEqual([
+			{ userId: 'b', kind: 'disconnected', at: 1000 },
+			{ userId: 'b', kind: 'timed_out', at: 1000 + GRACE },
+		])
+	})
+
+	it('records a kick by the host and a kick by the server with its reason', () => {
+		expect(kick(running(), 'a', 'b', 700).lobby.game.presence).toEqual([
+			{ userId: 'b', kind: 'kicked', at: 700, by: 'a' },
+		])
+		expect(adminRemove(running(), 'c', 'banned', false, 800).lobby.game.presence).toEqual([
+			{ userId: 'c', kind: 'kicked', at: 800, by: 'server', reason: 'banned' },
+		])
+	})
+
+	it('keeps nothing when no game runs', () => {
+		const lobby = lobbyWith('a', 'b')
+		expect(leave(lobby, 'b', 500).lobby.game.presence).toBeUndefined()
+		expect(disconnect(lobby, 'b', 'b-s1', 1000).lobby.game.presence).toBeUndefined()
+	})
+})

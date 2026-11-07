@@ -125,6 +125,32 @@ describe('runRowsOf', () => {
 		expect(mismatch.flagged).toEqual([{ playerId: 'pg-b', reason: 'hash_mismatch' }])
 	})
 
+	it('stores the seat changes and held log counts under Postgres player ids', () => {
+		const entry = {
+			...run({
+				presence: [
+					{ userId: 'na', kind: 'disconnected', at: T0 + 1000 },
+					{ userId: 'na', kind: 'rejoined', at: T0 + 5000 },
+					{ userId: 'nb', kind: 'left', at: T0 + 9000 },
+					{ userId: 'nb', kind: 'kicked', at: T0 + 9500, by: 'server', reason: 'banned' },
+					{ userId: 'unknown', kind: 'left', at: T0 + 9900 },
+				],
+				logHeld: { na: 12, nb: 7 },
+			}),
+			rating: null,
+		}
+		expect(runRowsOf(entry, ids).lobbyRun.connections).toEqual({
+			events: [
+				{ playerId: 'pg-a', kind: 'disconnected', at: T0 + 1000 },
+				{ playerId: 'pg-a', kind: 'rejoined', at: T0 + 5000 },
+				{ playerId: 'pg-b', kind: 'left', at: T0 + 9000 },
+				{ playerId: 'pg-b', kind: 'kicked', at: T0 + 9500, by: 'server', reason: 'banned' },
+			],
+			logHeld: { 'pg-a': 12, 'pg-b': 7 },
+		})
+		expect(runRowsOf({ ...entry, run: run().run }, ids).lobbyRun.connections).toBeNull()
+	})
+
 	it('maps a private, abandoned or restarted run without a match or ratings', () => {
 		const entry = { ...run({ gameMode: undefined, rankedMode: undefined, lobbyType: undefined, status: 'abandoned', logChecks: {} }), rating: null }
 		const rows = runRowsOf(entry, ids)

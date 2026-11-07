@@ -1,10 +1,20 @@
 import { TYPE_LABELS } from '../../admin/service-queue/lib/format'
-import type { QueueItemClaim, StaffQueueItem, StaffResultRow } from './types'
+import type {
+  ConnectionEvent,
+  QueueItemClaim,
+  StaffQueueItem,
+  StaffResultRow,
+} from './types'
 
 // Pure rules for the staff parts of the match page: the tabs, the links back
 // to the queue, and the wording of the result, claims and staff actions.
 
-export type StaffTabKey = 'timeline' | 'chat' | 'rounds' | 'logs'
+export type StaffTabKey =
+  | 'timeline'
+  | 'chat'
+  | 'rounds'
+  | 'logs'
+  | 'connections'
 
 export interface StaffTab {
   key: StaffTabKey
@@ -17,12 +27,15 @@ export function staffTabs(counts: {
   chat: number | null
   rounds: number
   logs: number
+  /** Null while the staff data is not loaded, or the match has none. */
+  connections: number | null
 }): StaffTab[] {
   return [
     { key: 'timeline', label: 'Timeline', count: null },
     { key: 'chat', label: 'Chat', count: counts.chat },
     { key: 'rounds', label: 'Rounds', count: counts.rounds },
     { key: 'logs', label: 'Logs', count: counts.logs },
+    { key: 'connections', label: 'Connections', count: counts.connections },
   ]
 }
 
@@ -94,4 +107,25 @@ export function actionText(action: string): string {
   if (ACTION_TEXT[action]) return ACTION_TEXT[action]
   const words = action.replaceAll('_', ' ')
   return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+const CONNECTION_TEXT: Record<ConnectionEvent['kind'], string> = {
+  joined: 'Joined',
+  rejoined: 'Rejoined',
+  left: 'Left',
+  disconnected: 'Disconnected',
+  kicked: 'Kicked',
+  timed_out: 'Timed out while away',
+  catch_up_limit: 'Catch-up limit reached',
+}
+
+/** "Rejoined", or "Kicked by the server: banned" for a kick. */
+export function connectionText(
+  event: Pick<ConnectionEvent, 'kind' | 'by' | 'byName' | 'reason'>
+): string {
+  const base = CONNECTION_TEXT[event.kind]
+  if (event.kind !== 'kicked') return base
+  const who =
+    event.by === 'server' ? 'the server' : (event.byName ?? 'another player')
+  return event.reason ? `${base} by ${who}: ${event.reason}` : `${base} by ${who}`
 }

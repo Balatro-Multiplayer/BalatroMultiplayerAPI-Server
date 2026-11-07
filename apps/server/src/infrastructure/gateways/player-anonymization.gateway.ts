@@ -69,6 +69,7 @@ export const PLAYER_ID_COLUMNS: readonly PlayerIdColumn[] = [
 		kind: 'id',
 		data: 'moderation',
 	},
+	{ table: 'lobby_runs', column: 'connections', kind: 'json', data: 'shared' },
 	{
 		table: 'matchmaking_matches',
 		column: 'players',

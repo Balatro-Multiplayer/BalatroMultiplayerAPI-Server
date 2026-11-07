@@ -172,6 +172,7 @@ export function finishGame(
 		gameMode: lobby.gameMode,
 		lobbyType: lobby.rankedMode || lobby.allowedIds ? 'public' : 'private',
 		...(game.contest ? { contest: game.contest } : {}),
+		...(game.presence && game.presence.length > 0 ? { presence: game.presence } : {}),
 	}
 
 	const seated: { [id: string]: boolean } = {}

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../../infrastructure/gateways/match-staff.gateway.js', () => ({
 	findRunWindow: vi.fn(),
 	findRunMatch: vi.fn(),
+	findRunConnections: vi.fn(),
 	findRunRatings: vi.fn(),
 	listQueueItemsAboutRun: vi.fn(),
 	listRunChat: vi.fn(),
@@ -124,6 +125,7 @@ describe('GET /api/webadmin/matches/:runId/staff', () => {
 			} as never,
 		])
 		vi.mocked(gateway.listStaffActionsForRun).mockResolvedValue([])
+		vi.mocked(gateway.findRunConnections).mockResolvedValue(null)
 	})
 
 	it('refuses a player with no staff role', async () => {
@@ -158,6 +160,29 @@ describe('GET /api/webadmin/matches/:runId/staff', () => {
 			RUN,
 			[7],
 		)
+	})
+
+	it("gives each player's joins, leaves and rejoins", async () => {
+		const connections = {
+			events: [
+				{ playerId: 'p2', displayName: 'rdpaul1234', kind: 'disconnected', at: 1000, by: null, byName: null, reason: null },
+				{ playerId: 'p2', displayName: 'rdpaul1234', kind: 'rejoined', at: 5000, by: null, byName: null, reason: null },
+			],
+			logHeld: [{ playerId: 'p2', displayName: 'rdpaul1234', held: 40 }],
+		}
+		vi.mocked(gateway.findRunConnections).mockResolvedValue(connections as never)
+		const res = await request(app)
+			.get(`/api/webadmin/matches/${RUN}/staff`)
+			.set('Authorization', authAs('mod-1', ['moderator']))
+		expect(res.body.connections).toEqual(connections)
+		expect(gateway.findRunConnections).toHaveBeenCalledWith(RUN)
+	})
+
+	it('answers null connections for a run stored before they were kept', async () => {
+		const res = await request(app)
+			.get(`/api/webadmin/matches/${RUN}/staff`)
+			.set('Authorization', authAs('mod-1', ['moderator']))
+		expect(res.body.connections).toBeNull()
 	})
 
 	it("marks another staff member's claim as other", async () => {

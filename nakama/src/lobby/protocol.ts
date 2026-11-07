@@ -252,6 +252,36 @@ export interface GameState {
 	runSaves?: { [userId: string]: RunSave }
 	// A player's Run save still missing parts.
 	runSavePending?: { [userId: string]: PendingRunSave }
+	// Who joined, left, dropped or came back while the game ran, in order
+	// (lobby/presence.ts). Absent in match state from before it was kept.
+	presence?: PresenceEvent[]
+}
+
+// How a player's seat changed during a game.
+export type PresenceKind =
+	// Took a seat.
+	| 'joined'
+	// Came back to the seat they had (after a disconnect or on a new session).
+	| 'rejoined'
+	// Asked to leave: gone for good.
+	| 'left'
+	// The socket dropped without a leave; the seat is held for the grace period.
+	| 'disconnected'
+	// The host or the server removed them.
+	| 'kicked'
+	// The grace period ran out while they were away.
+	| 'timed_out'
+	// The catch-up limit ran out while they were catching up.
+	| 'catch_up_limit'
+
+export interface PresenceEvent {
+	userId: string
+	kind: PresenceKind
+	at: number
+	// A kick: who did it ('server' for an admin or a ban).
+	by?: string
+	// A kick by the server: why.
+	reason?: string
 }
 
 // One player's Run save: the base64 text of the compressed save, whole, with
@@ -361,6 +391,11 @@ export interface RunRecord {
 	lobbyType?: 'public' | 'private'
 	// Each rated player's result, once the game was rated.
 	ratings?: { [userId: string]: RatingResult }
+	// Each player's seat changes during the game, in order.
+	presence?: PresenceEvent[]
+	// userId -> the highest log event the server held with no gap before it
+	// when the game ended (the acknowledgement the client last got).
+	logHeld?: { [userId: string]: number }
 	// Players whose result is suspect (lobby/anticheat.ts); still rated.
 	flags?: { [userId: string]: FlagReason }
 	// Set when a moderator replaced the recorded result (review/result.ts):

@@ -22,6 +22,22 @@ export type LogCheck = 'match' | 'mismatch' | 'unavailable' | 'incomplete'
 export type GameKind = 'ranked' | 'casual' | 'private'
 export type FlagReason = 'hash_mismatch' | 'elapsed_time_gate' | 'unverified_log'
 
+export type ConnectionKind =
+	| 'joined'
+	| 'rejoined'
+	| 'left'
+	| 'disconnected'
+	| 'kicked'
+	| 'timed_out'
+	| 'catch_up_limit'
+
+// What lobby_runs.connections holds, with Postgres player ids.
+export interface RunConnections {
+	events: { playerId: string; kind: ConnectionKind; at: number; by?: string; reason?: string }[]
+	// playerId -> the highest log event number the server held at the end.
+	logHeld: { [playerId: string]: number }
+}
+
 export interface NakamaRun {
 	runId: string
 	code: string
@@ -45,6 +61,16 @@ export interface NakamaRun {
 	logChecks?: { [userId: string]: LogCheck }
 	// Events each player's log still lacks at the end of the game.
 	logGaps?: { [userId: string]: number }
+	// The highest log event number the server held, per player, at the end.
+	logHeld?: { [userId: string]: number }
+	// Each seat change during the game, in order.
+	presence?: {
+		userId: string
+		kind: ConnectionKind
+		at: number
+		by?: string
+		reason?: string
+	}[]
 	flags?: { [userId: string]: FlagReason }
 	// A ranked run's rating result per player Nakama rated ({} when it rated
 	// nobody: a disputed result).
@@ -167,6 +193,7 @@ export interface RunRows {
 		status: 'completed' | 'abandoned' | 'terminated'
 		startedAt: Date
 		finalizedAt: Date
+		connections: RunConnections | null
 	}
 	logs: {
 		runId: string
@@ -349,6 +376,30 @@ function flagReasonOf(run: PulledRun['run'], userId: string, log: NakamaLog | un
 	return logCheckOf(run, userId, log) === 'mismatch' ? 'hash_mismatch' : null
 }
 
+// The run's seat changes and held log counts for the staff match view. A
+// player with no Postgres row is left out; a kick by 'server' stays as it is.
+export function connectionsOf(run: NakamaRun, ids: Map<string, string>): RunConnections | null {
+	const events: RunConnections['events'] = []
+	for (const e of run.presence ?? []) {
+		const playerId = ids.get(e.userId)
+		if (!playerId) continue
+		events.push({
+			playerId,
+			kind: e.kind,
+			at: e.at,
+			...(e.by ? { by: ids.get(e.by) ?? e.by } : {}),
+			...(e.reason ? { reason: e.reason } : {}),
+		})
+	}
+	const logHeld: RunConnections['logHeld'] = {}
+	for (const [userId, held] of Object.entries(run.logHeld ?? {})) {
+		const playerId = ids.get(userId)
+		if (playerId) logHeld[playerId] = held
+	}
+	if (events.length === 0 && Object.keys(logHeld).length === 0) return null
+	return { events, logHeld }
+}
+
 // ids maps every Nakama user in the run to their player id.
 export function runRowsOf(entry: PulledRun, ids: Map<string, string>): RunRows {
 	const { run } = entry
@@ -450,6 +501,7 @@ export function runRowsOf(entry: PulledRun, ids: Map<string, string>): RunRows {
 			status: runStatusOf(run.status),
 			startedAt: new Date(run.startedAt),
 			finalizedAt,
+			connections: connectionsOf(run, ids),
 		},
 		logs,
 		match,
