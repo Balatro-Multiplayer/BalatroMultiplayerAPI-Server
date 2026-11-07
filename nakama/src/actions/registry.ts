@@ -14,6 +14,7 @@ import {
 	isParticipant,
 } from '../lobby/state'
 import { logHeldOf } from '../lobby/log_check'
+import { startingPresence } from '../lobby/presence'
 import { lobbyKindOf } from '../review/ranked'
 import { runSavePart } from './run_save'
 import { finishGame, parsePlacements } from './results'
@@ -159,7 +160,7 @@ const startGame: AuthoritativeAction = {
 			options,
 		)
 		return {
-			game: { ...emptyGame(), started },
+			game: { ...emptyGame(), started, presence: startingPresence(started) },
 			params: startedParams(started),
 		}
 	},
@@ -181,7 +182,7 @@ const restartGame: AuthoritativeAction = {
 		})
 		const started = newGame(finished.lobby, ctx, current.stake, current.options)
 		return {
-			game: { ...emptyGame(), started, setup: setupForRestart(lobby.game) },
+			game: { ...emptyGame(), started, setup: setupForRestart(lobby.game), presence: startingPresence(started) },
 			params: startedParams(started),
 			out: finished.out,
 		}

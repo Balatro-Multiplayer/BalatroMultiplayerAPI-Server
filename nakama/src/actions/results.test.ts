@@ -1046,6 +1046,8 @@ describe('connection record of a finished game', () => {
 		lobby = settle(lobby, 1900).lobby
 		const save = saved(report(lobby, 'a', places('a', 'b'), 2000)) as Save
 		expect(save.run.presence).toEqual([
+			{ userId: 'a', kind: 'joined', at: expect.any(Number) },
+			{ userId: 'b', kind: 'joined', at: expect.any(Number) },
 			{ userId: 'a', kind: 'disconnected', at: 1600 },
 			{ userId: 'a', kind: 'rejoined', at: 1700 },
 			{ userId: 'b', kind: 'left', at: 1800 },
@@ -1054,10 +1056,13 @@ describe('connection record of a finished game', () => {
 		expect(writes[0].value).toMatchObject({ logHeld: { a: 1, b: 0 } })
 	})
 
-	it('leaves the run without a record when nobody came or went', () => {
-		let lobby = report(started('a', 'b'), 'a', places('b', 'a')).lobby
+	it('lists a joined row for each player of a game with no seat change', () => {
+		const lobby = report(started('a', 'b'), 'a', places('b', 'a')).lobby
 		const save = saved(report(lobby, 'b', places('b', 'a'))) as Save
-		expect(save.run).not.toHaveProperty('presence')
+		expect(save.run.presence).toEqual([
+			{ userId: 'a', kind: 'joined', at: save.run.startedAt },
+			{ userId: 'b', kind: 'joined', at: save.run.startedAt },
+		])
 	})
 })
 

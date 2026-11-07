@@ -259,6 +259,7 @@ describe('authoritative actions', () => {
 			reportOrder: [],
 			settleFrom: null,
 			logs: {},
+			presence: players.map((p) => ({ userId: p.id, kind: 'joined', at: 1000 })),
 		})
 		expect(delivered(step)[0].payload).toMatchObject({
 			from: 'server',
