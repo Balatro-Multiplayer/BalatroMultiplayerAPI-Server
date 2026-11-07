@@ -24,6 +24,7 @@ export const STAFF_ACTIONS = [
 	'role_remove',
 	'lobby_kick',
 	'lobby_close',
+	'tournament_close',
 	'config_change',
 	'allowlist_add',
 	'allowlist_remove',

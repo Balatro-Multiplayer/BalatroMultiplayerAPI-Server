@@ -7,6 +7,7 @@ import {
 } from '../../infrastructure/nakama/tournament-sync.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
+import { logStaffAction, requireReason } from './staff-action.js'
 
 // The webadmin Tournaments page: every tournament (private ones and drafts
 // too), one tournament's details, and closing one with a reason the players
@@ -65,16 +66,18 @@ router.post('/tournaments/:id/close', async (req, res, next) => {
 	try {
 		if (!ID_PATTERN.test(req.params.id))
 			throw new AppError('Tournament not found', 404)
-		const { reason } = req.body as { reason?: unknown }
-		if (typeof reason !== 'string' || reason.trim() === '')
-			throw new AppError('A reason is required', 400)
+		// Players see the reason in game, so it is shorter than the staff
+		// log's usual limit.
+		const reason = requireReason(req)
 		if (reason.length > REASON_MAX)
 			throw new AppError(
 				`The reason can be at most ${REASON_MAX} characters`,
 				400,
 			)
+		// For the staff log: which tournament, by name, as it was.
+		const before = await getNakamaTournament(req.params.id)
 
-		const result = await closeNakamaTournament(req.params.id, reason.trim())
+		const result = await closeNakamaTournament(req.params.id, reason)
 		if (!result.ok) {
 			if (result.error === 'not_found')
 				throw new AppError('Tournament not found', 404)
@@ -83,8 +86,18 @@ router.post('/tournaments/:id/close', async (req, res, next) => {
 			throw unavailable()
 		}
 
+		await logStaffAction(req, {
+			action: 'tournament_close',
+			reason,
+			detail: {
+				tournamentId: req.params.id,
+				name: before.ok ? before.value.name : null,
+				organiser: before.ok ? before.value.organiser : null,
+			},
+		})
+
 		console.log(
-			`[webadmin] ${req.player?.playerId} closed tournament ${req.params.id}: ${JSON.stringify(reason.trim())}`,
+			`[webadmin] ${req.player?.playerId} closed tournament ${req.params.id}`,
 		)
 		res.json({ ok: true })
 	} catch (err) {
