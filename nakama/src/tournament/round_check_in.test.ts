@@ -32,7 +32,7 @@ beforeEach(() => {
 		matchGet: () => null,
 		matchSignal: () => 'ok',
 	})
-	writeConfig(NK(), { ...DEFAULT_CONFIG, tournamentsEnabled: true })
+	writeConfig(NK(), { ...DEFAULT_CONFIG, tournamentsEnabled: true, tournamentCreationRestricted: false })
 	for (const id of [ORG, P(1), P(2), P(3), P(4)]) writeModReport(NK(), id, { mods: [], reportedAt: T0 })
 })
 

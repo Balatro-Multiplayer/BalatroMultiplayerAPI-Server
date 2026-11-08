@@ -40,7 +40,7 @@ import {
 	start,
 	updateSettings,
 } from './lifecycle'
-import { OFFICIAL_PRIVILEGE, ORGANISER_MESSAGE_MAX, TOURNAMENT_MOD_ID, type Input, type Tournament, isFakeEntrant, isManager, nowFor, roleOf } from './model'
+import { CREATE_PRIVILEGE, OFFICIAL_PRIVILEGE, ORGANISER_MESSAGE_MAX, TOURNAMENT_MOD_ID, type Input, type Tournament, isFakeEntrant, isManager, nowFor, roleOf } from './model'
 export { nowFor }
 import {
 	type IndexEntry,
@@ -187,6 +187,15 @@ function requireOfficialRight(nk: nkruntime.Nakama, userId: string, input: Input
 	}
 }
 
+// While creation is restricted, only privileged players may create.
+export const CREATE_REFUSED = 'Only privileged users can create tournaments currently.'
+
+function canCreate(nk: nkruntime.Nakama, userId: string): boolean {
+	if (!readConfig(nk).tournamentCreationRestricted) return true
+	const privileges = profileFor(nk, userId).privileges
+	return privileges.indexOf(CREATE_PRIVILEGE) !== -1 || privileges.indexOf(OFFICIAL_PRIVILEGE) !== -1
+}
+
 function displayNameFor(nk: nkruntime.Nakama, ctx: nkruntime.Context, userId: string): string {
 	return displayNameOf(profileFor(nk, userId, ctx.username))
 }
@@ -327,6 +336,7 @@ export function rpcTournamentCreate(ctx: nkruntime.Context, logger: nkruntime.Lo
 	const real = Date.now()
 	const refused = entryRefusal(nk, ctx, userId, real)
 	if (refused) throw runtimeError(PERMISSION_DENIED, refused)
+	if (!canCreate(nk, userId)) throw runtimeError(PERMISSION_DENIED, CREATE_REFUSED)
 	ensureClock(nk)
 	requireOfficialRight(nk, userId, input)
 	spendTournamentCreate(nk, userId, real)
@@ -337,6 +347,13 @@ export function rpcTournamentCreate(ctx: nkruntime.Context, logger: nkruntime.Lo
 	insertTournament(nk, created.value)
 	logger.info('Tournament %s created by %s', id, userId)
 	return respond(created.value, userId, real)
+}
+
+// {} -> {canCreate}: whether the caller may create a tournament now (the
+// organiser's NEW TOURNAMENT asks before opening the wizard).
+export function rpcTournamentCanCreate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	requireEnabled(nk)
+	return JSON.stringify({ canCreate: canCreate(nk, requireUser(ctx)) })
 }
 
 // {settings, players, step} -> {tournament, steps, step}: the bracket the

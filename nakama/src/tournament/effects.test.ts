@@ -58,7 +58,7 @@ function setup() {
 			return 'ok'
 		},
 	})
-	writeConfig(nk as unknown as nkruntime.Nakama, { ...DEFAULT_CONFIG, tournamentsEnabled: true })
+	writeConfig(nk as unknown as nkruntime.Nakama, { ...DEFAULT_CONFIG, tournamentsEnabled: true, tournamentCreationRestricted: false })
 	for (const id of [ORG, P(1), P(2), P(3), P(4)]) writeModReport(nk as unknown as nkruntime.Nakama, id, { mods: [], reportedAt: T0 })
 }
 

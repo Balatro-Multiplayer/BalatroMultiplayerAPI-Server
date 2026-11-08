@@ -173,6 +173,11 @@ export interface TournamentLobbyRef {
 // that lets a player create official tournaments.
 export const OFFICIAL_PRIVILEGE = 'tournament_official'
 
+// The privilege that lets a player create tournaments while creation is
+// restricted (ServerConfig.tournamentCreationRestricted). The official
+// privilege allows it too.
+export const CREATE_PRIVILEGE = 'tournament_create'
+
 export const NAME_MAX = 48
 export const DESCRIPTION_MAX = 500
 // The notice board, and an organiser's message into the match lobbies.

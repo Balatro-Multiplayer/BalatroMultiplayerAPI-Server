@@ -13,6 +13,7 @@ import {
 	rpcTournamentCoOrganiserJoin,
 	rpcTournamentCoOrganisersSet,
 	rpcTournamentCheckIn,
+	rpcTournamentCanCreate,
 	rpcTournamentCreate,
 	rpcTournamentGet,
 	rpcTournamentJoin,
@@ -54,7 +55,7 @@ function setup(enabled = true) {
 			return id
 		},
 	}))
-	writeConfig(nk as unknown as nkruntime.Nakama, { ...DEFAULT_CONFIG, tournamentsEnabled: enabled })
+	writeConfig(nk as unknown as nkruntime.Nakama, { ...DEFAULT_CONFIG, tournamentsEnabled: enabled, tournamentCreationRestricted: false })
 	for (const id of [ORG, P(1), P(2), P(3), P(4)]) writeModReport(nk as unknown as nkruntime.Nakama, id, { mods: [], reportedAt: T0 })
 }
 
@@ -230,7 +231,7 @@ describe('tournaments that need a ranked profile', () => {
 		nk.storageWrite([{ collection: 'integrity', key: 'status', userId, value: { verified, expiresAt: null }, permissionRead: 0, permissionWrite: 0 }])
 
 	it('hold players to the ranked rule: join, check-in, and their view says so', () => {
-		writeConfig(nk as unknown as nkruntime.Nakama, { ...DEFAULT_CONFIG, tournamentsEnabled: true, integrityEnforced: true })
+		writeConfig(nk as unknown as nkruntime.Nakama, { ...DEFAULT_CONFIG, tournamentsEnabled: true, tournamentCreationRestricted: false, integrityEnforced: true })
 		const t = created({ requireRanked: true })
 		expect(t.summary.requireRanked).toBe(true)
 		const id = t.summary.id
@@ -254,7 +255,7 @@ describe('tournaments that need a ranked profile', () => {
 	})
 
 	it('reminds players not on it when check-in opens', () => {
-		writeConfig(nk as unknown as nkruntime.Nakama, { ...DEFAULT_CONFIG, tournamentsEnabled: true, integrityEnforced: true })
+		writeConfig(nk as unknown as nkruntime.Nakama, { ...DEFAULT_CONFIG, tournamentsEnabled: true, tournamentCreationRestricted: false, integrityEnforced: true })
 		const id = created({ requireRanked: true }).summary.id
 		call(rpcTournamentOpen, ORG, { id })
 		for (const n of [1, 2]) {
@@ -368,6 +369,47 @@ describe('dev helpers', () => {
 		const t = call(rpcTournamentDevTime, ORG, { id, minutes: 60 }).tournament
 		expect(t.summary.status).toBe('running')
 		expect(t.entrants.length).toBe(4)
+	})
+})
+
+describe('restricted creation', () => {
+	function restrict(on: boolean) {
+		writeConfig(nk as unknown as nkruntime.Nakama, { ...DEFAULT_CONFIG, tournamentsEnabled: true, tournamentCreationRestricted: on })
+	}
+	function grant(userId: string, privilege: string) {
+		writeProfile(nk as unknown as nkruntime.Nakama, userId, { ...defaultProfile(userId), privileges: [privilege] })
+	}
+
+	it('is restricted by default', () => {
+		expect(DEFAULT_CONFIG.tournamentCreationRestricted).toBe(true)
+	})
+
+	it('needs the create or official privilege while on', () => {
+		restrict(true)
+		expect(call(rpcTournamentCanCreate, P(1)).canCreate).toBe(false)
+		const refused = fails(rpcTournamentCreate, P(1), SETTINGS)
+		expect(refused.code).toBe(7)
+		expect(refused.message).toBe('Only privileged users can create tournaments currently.')
+		grant(P(1), 'tournament_create')
+		expect(call(rpcTournamentCanCreate, P(1)).canCreate).toBe(true)
+		expect(call(rpcTournamentCreate, P(1), SETTINGS).tournament.summary.status).toBe('draft')
+		grant(P(2), 'tournament_official')
+		expect(call(rpcTournamentCreate, P(2), SETTINGS).tournament.summary.status).toBe('draft')
+	})
+
+	it('lets anyone create while off', () => {
+		restrict(false)
+		expect(call(rpcTournamentCanCreate, P(1)).canCreate).toBe(true)
+		expect(call(rpcTournamentCreate, P(1), SETTINGS).tournament.role).toBe('organiser')
+	})
+
+	it("doesn't stop anyone running a tournament they already have", () => {
+		const id = created().summary.id
+		restrict(true)
+		call(rpcTournamentUpdate, ORG, { id, name: 'Renamed' })
+		call(rpcTournamentOpen, ORG, { id })
+		const code = call(rpcTournamentCoOrganiserCode, ORG, { id }).tournament.coOrganiserCode
+		expect(call(rpcTournamentCoOrganiserJoin, P(1), { code }).tournament.role).toBe('co_organiser')
 	})
 })
 
