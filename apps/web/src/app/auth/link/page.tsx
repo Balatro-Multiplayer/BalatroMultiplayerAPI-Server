@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useRef } from 'react'
+import { FlowCard, FlowPage } from '@/app/_components/flow-card'
 import { apiFetch } from '@/lib/api'
 import { setToken } from '@/lib/auth'
 
@@ -14,7 +15,7 @@ function sitePath(path: string): string {
 
 export default function AuthLinkPage() {
   return (
-    <Suspense fallback={<Message text='Signing you in…' />}>
+    <Suspense fallback={<Message text='Signing you in' />}>
       <AuthLinkContent />
     </Suspense>
   )
@@ -35,13 +36,18 @@ function AuthLinkContent() {
       return
     }
 
-    apiFetch<LinkLogin>('/auth/link-login', { method: 'POST', body: JSON.stringify({ code }) })
+    apiFetch<LinkLogin>('/auth/link-login', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    })
       .then((login) => {
         if (login.token) {
           setToken(login.token)
           router.replace(sitePath(login.path))
         } else if (login.tosToken) {
-          router.replace(`/auth/tos?token=${encodeURIComponent(login.tosToken)}`)
+          router.replace(
+            `/auth/tos?token=${encodeURIComponent(login.tosToken)}`
+          )
         } else {
           router.replace('/login?error=link_expired')
         }
@@ -49,13 +55,13 @@ function AuthLinkContent() {
       .catch(() => router.replace('/login?error=link_expired'))
   }, [searchParams, router])
 
-  return <Message text='Signing you in…' />
+  return <Message text='Signing you in' />
 }
 
 function Message({ text }: { text: string }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-      <p style={{ color: 'var(--bal-teal-gray)' }}>{text}</p>
-    </div>
+    <FlowPage>
+      <FlowCard title={text} intro='One moment.' />
+    </FlowPage>
   )
 }

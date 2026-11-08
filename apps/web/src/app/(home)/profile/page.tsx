@@ -3,65 +3,94 @@
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { ApiError, apiFetch } from '@/lib/api'
-import { clearToken, setToken, useAuth } from '@/lib/auth'
+import {
+  KeyValues,
+  MainAndSide,
+  PageHeader,
+  PageShell,
+  SideCard,
+  TabCard,
+  type TabSpec,
+} from '@/components/page-kit'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
+import { ApiError, apiFetch } from '@/lib/api'
+import { clearToken, setToken, useAuth } from '@/lib/auth'
 import { jokers } from '@/shared/jokers'
-import { PunishmentsCard } from './punishments-card'
-import { type AvatarCatalog, type AvatarEntry, goalText, shownProgress } from './avatar-goals'
+import {
+  type AvatarCatalog,
+  type AvatarEntry,
+  goalText,
+  shownProgress,
+} from './avatar-goals'
+import { PunishmentsList, usePunishments } from './punishments-card'
 
-function ProfileInfoCard({
-  player,
+type Me = {
+  displayName: string
+  steamName: string
+  discordLinked: boolean
+  discordUsername: string | null
+  preferredJoker: string | null
+  privileges: string[]
+  usernameBanned?: boolean
+  chatEnabled: boolean
+  chatBlocked: boolean
+}
+
+function ProfileFacts({ player }: { player: Me }) {
+  const rows: Array<[string, string]> = player.usernameBanned
+    ? [['Username', player.displayName]]
+    : [
+        ['Display name', player.displayName],
+        ['Steam name', player.steamName],
+      ]
+  if (!player.usernameBanned && player.discordLinked)
+    rows.push(['Discord', player.discordUsername ?? 'Linked'])
+  if (player.preferredJoker)
+    rows.push([
+      'Avatar',
+      jokers[player.preferredJoker]?.name ?? player.preferredJoker,
+    ])
+  if (player.privileges.length > 0)
+    rows.push(['Privileges', player.privileges.join(', ')])
+  return (
+    <SideCard title='Profile'>
+      <KeyValues rows={rows} />
+      {player.usernameBanned && (
+        // While the username ban lasts, one row with the name everyone sees
+        // replaces the display, Steam and Discord names.
+        <p className='text-muted-foreground text-sm'>
+          Your name broke the rules, so other players see this name instead. You
+          can appeal in Punishments.
+        </p>
+      )}
+    </SideCard>
+  )
+}
+
+// A titled block inside a tab.
+function Section({
+  title,
+  hint,
+  children,
+  className,
 }: {
-  player: { displayName: string; steamName: string; discordLinked: boolean; discordUsername: string | null; preferredJoker: string | null; privileges: string[]; usernameBanned?: boolean }
+  title: string
+  hint?: React.ReactNode
+  children: React.ReactNode
+  className?: string
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Profile</CardTitle>
-      </CardHeader>
-      <CardContent className='space-y-3'>
-        {player.usernameBanned ? (
-          // While the username ban lasts, one row with the name everyone sees
-          // replaces the display, Steam and Discord names.
-          <>
-            <InfoRow label='Username' value={player.displayName} />
-            <p className='text-sm text-muted-foreground'>
-              Your name broke the rules, so other players see this name instead. You can appeal below.
-            </p>
-          </>
-        ) : (
-          <>
-            <InfoRow label='Display Name' value={player.displayName} />
-            <Separator />
-            <InfoRow label='Steam Name' value={player.steamName} />
-            {player.discordLinked && (
-              <>
-                <Separator />
-                <InfoRow label='Discord' value={player.discordUsername ?? 'Linked'} />
-              </>
-            )}
-          </>
-        )}
-        {player.preferredJoker && (
-          <>
-            <Separator />
-            <InfoRow label='Preferred Joker' value={player.preferredJoker} />
-          </>
-        )}
-        {player.privileges.length > 0 && (
-          <>
-            <Separator />
-            <InfoRow label='Privileges' value={player.privileges.join(', ')} />
-          </>
-        )}
-      </CardContent>
-    </Card>
+    <section className={`space-y-3 ${className ?? ''}`}>
+      <div className='space-y-0.5'>
+        <h3 className='font-pixel text-lg uppercase tracking-wide'>{title}</h3>
+        {hint && <p className='text-muted-foreground text-sm'>{hint}</p>}
+      </div>
+      {children}
+    </section>
   )
 }
 
@@ -79,10 +108,19 @@ function DiscordLinkCard({
   async function handleLinkDiscord() {
     setError(null)
     try {
-      const { url } = await apiFetch<{ url: string }>('/auth/link/discord?source=web', { method: 'POST' })
+      const { url } = await apiFetch<{ url: string }>(
+        '/auth/link/discord?source=web',
+        { method: 'POST' }
+      )
       window.location.href = url
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to start Discord linking')
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to start Discord linking'
+      )
     }
   }
 
@@ -90,32 +128,38 @@ function DiscordLinkCard({
     setError(null)
     try {
       // Unlink returns a fresh token (display name may revert); adopt it, then refresh.
-      const res = await apiFetch<{ token?: string }>('/auth/unlink/discord', { method: 'POST' })
+      const res = await apiFetch<{ token?: string }>('/auth/unlink/discord', {
+        method: 'POST',
+      })
       if (res?.token) setToken(res.token)
       await onRefresh()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to unlink Discord')
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to unlink Discord'
+      )
     }
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Discord</CardTitle>
-        <CardDescription>
-          Link your Discord account to use your Discord name as your display name.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className='space-y-3'>
+    <Section
+      title='Discord'
+      hint='Link your Discord account to use your Discord name as your display name.'
+    >
+      <div className='space-y-3'>
         {player.discordLinked ? (
           <div className='flex items-center justify-between'>
             <p className='text-sm'>
-              Linked as <span className='font-semibold'>{player.discordUsername}</span>
+              Linked as{' '}
+              <span className='font-semibold'>{player.discordUsername}</span>
             </p>
             <button
               type='button'
               onClick={handleUnlinkDiscord}
-              className='text-sm text-destructive hover:underline underline-offset-4'
+              className='text-destructive text-sm underline-offset-4 hover:underline'
             >
               Unlink
             </button>
@@ -124,15 +168,15 @@ function DiscordLinkCard({
           <button
             type='button'
             onClick={handleLinkDiscord}
-            className='inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90'
+            className='inline-flex items-center gap-2 rounded-md px-4 py-2 font-semibold text-sm text-white transition-opacity hover:opacity-90'
             style={{ background: '#5865f2' }}
           >
             Link Discord
           </button>
         )}
-        {error && <p className='text-sm text-destructive'>{error}</p>}
-      </CardContent>
-    </Card>
+        {error && <p className='text-destructive text-sm'>{error}</p>}
+      </div>
+    </Section>
   )
 }
 
@@ -143,7 +187,12 @@ function DisplayNameCard({
   player,
   onRefresh,
 }: {
-  player: { useDiscordName: boolean; discordLinked: boolean; discordUsername: string | null; steamName: string }
+  player: {
+    useDiscordName: boolean
+    discordLinked: boolean
+    discordUsername: string | null
+    steamName: string
+  }
   onRefresh: () => Promise<unknown>
 }) {
   const [saving, setSaving] = useState(false)
@@ -153,31 +202,41 @@ function DisplayNameCard({
     setSaving(true)
     setError(null)
     try {
-      const res = await apiFetch<{ token: string }>('/auth/preferences/display-name', {
-        method: 'POST',
-        body: JSON.stringify({ useDiscordName }),
-      })
+      const res = await apiFetch<{ token: string }>(
+        '/auth/preferences/display-name',
+        {
+          method: 'POST',
+          body: JSON.stringify({ useDiscordName }),
+        }
+      )
       setToken(res.token)
       await onRefresh()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to update display name')
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to update display name'
+      )
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Display Name</CardTitle>
-        <CardDescription>Choose whether other players see your Steam name or your Discord name.</CardDescription>
-      </CardHeader>
-      <CardContent className='space-y-3'>
+    <Section
+      title='Display Name'
+      hint='Choose whether other players see your Steam name or your Discord name.'
+    >
+      <div className='space-y-3'>
         <div className='flex items-center justify-between'>
           <div className='space-y-0.5'>
-            <p className='text-sm font-medium'>Use Discord name</p>
-            <p className='text-sm text-muted-foreground'>
-              {player.discordLinked ? (player.discordUsername ?? 'Linked') : 'Link Discord below to enable this'}
+            <p className='font-medium text-sm'>Use Discord name</p>
+            <p className='text-muted-foreground text-sm'>
+              {player.discordLinked
+                ? (player.discordUsername ?? 'Linked')
+                : 'Link Discord below to enable this'}
             </p>
           </div>
           <Switch
@@ -186,9 +245,9 @@ function DisplayNameCard({
             onCheckedChange={handleToggle}
           />
         </div>
-        {error && <p className='text-sm text-destructive'>{error}</p>}
-      </CardContent>
-    </Card>
+        {error && <p className='text-destructive text-sm'>{error}</p>}
+      </div>
+    </Section>
   )
 }
 
@@ -223,7 +282,13 @@ function AvatarCard({
       })
       await onRefresh()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to update avatar')
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to update avatar'
+      )
     } finally {
       setSaving(false)
     }
@@ -232,21 +297,30 @@ function AvatarCard({
   const unlockedCount = catalog?.avatars.filter((a) => a.unlocked).length ?? 0
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Avatar</CardTitle>
-        <CardDescription>
+    <Section
+      title='Avatar'
+      hint={
+        <>
           The joker card shown as your avatar to other players.
-          {catalog && ` ${unlockedCount} of ${catalog.avatars.length} unlocked.`}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className='space-y-3'>
-        {loadFailed && <p className='text-sm text-muted-foreground'>Avatars are unavailable right now.</p>}
+          {catalog &&
+            ` ${unlockedCount} of ${catalog.avatars.length} unlocked.`}
+        </>
+      }
+    >
+      <div className='space-y-3'>
+        {loadFailed && (
+          <p className='text-muted-foreground text-sm'>
+            Avatars are unavailable right now.
+          </p>
+        )}
         {catalog && !catalog.enabled && (
-          <p className='text-sm text-muted-foreground'>Avatar achievements are paused: games don&apos;t count toward goals right now.</p>
+          <p className='text-muted-foreground text-sm'>
+            Avatar achievements are paused: games don&apos;t count toward goals
+            right now.
+          </p>
         )}
         {catalog && (
-          <div className='grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-3'>
+          <div className='grid max-h-[640px] grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-3 overflow-y-auto pr-1'>
             {catalog.avatars.map((avatar) => (
               <AvatarTile
                 key={avatar.id}
@@ -258,9 +332,9 @@ function AvatarCard({
             ))}
           </div>
         )}
-        {error && <p className='text-sm text-destructive'>{error}</p>}
-      </CardContent>
-    </Card>
+        {error && <p className='text-destructive text-sm'>{error}</p>}
+      </div>
+    </Section>
   )
 }
 
@@ -278,7 +352,8 @@ function AvatarTile({
   const art = jokers[avatar.id]
   const name = art?.name ?? avatar.id
   const goal = avatar.goal ? goalText(avatar.goal) : null
-  const progress = !avatar.unlocked && avatar.goal ? shownProgress(avatar.goal) : null
+  const progress =
+    !avatar.unlocked && avatar.goal ? shownProgress(avatar.goal) : null
   return (
     <button
       type='button'
@@ -299,9 +374,21 @@ function AvatarTile({
           className={`rounded-sm ${avatar.unlocked ? '' : 'opacity-40 grayscale'}`}
         />
       )}
-      <span className={avatar.unlocked ? 'font-medium' : 'text-muted-foreground'}>{name}</span>
-      {!avatar.unlocked && goal && <span className='text-[10px] leading-tight text-muted-foreground'>{goal}</span>}
-      {progress && <span className='text-[10px] font-medium text-muted-foreground'>{progress}</span>}
+      <span
+        className={avatar.unlocked ? 'font-medium' : 'text-muted-foreground'}
+      >
+        {name}
+      </span>
+      {!avatar.unlocked && goal && (
+        <span className='text-[10px] text-muted-foreground leading-tight'>
+          {goal}
+        </span>
+      )}
+      {progress && (
+        <span className='font-medium text-[10px] text-muted-foreground'>
+          {progress}
+        </span>
+      )}
     </button>
   )
 }
@@ -323,27 +410,25 @@ function ChatCard({
 
   if (player.chatBlocked) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Chat</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className='text-sm text-muted-foreground'>Chat is permanently restricted on this account.</p>
-        </CardContent>
-      </Card>
+      <Section title='Chat'>
+        <div className='space-y-3'>
+          <p className='text-muted-foreground text-sm'>
+            Chat is permanently restricted on this account.
+          </p>
+        </div>
+      </Section>
     )
   }
 
   if (player.chatEnabled) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Chat</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className='text-sm text-muted-foreground'>Chat is enabled on this account.</p>
-        </CardContent>
-      </Card>
+      <Section title='Chat'>
+        <div className='space-y-3'>
+          <p className='text-muted-foreground text-sm'>
+            Chat is enabled on this account.
+          </p>
+        </div>
+      </Section>
     )
   }
 
@@ -354,40 +439,30 @@ function ChatCard({
       await apiFetch('/auth/chat/enable', { method: 'POST' })
       await onRefresh()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to enable chat')
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to enable chat'
+      )
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Chat</CardTitle>
-        <CardDescription>Your account predates in-game chat and has never enabled it.</CardDescription>
-      </CardHeader>
-      <CardContent className='space-y-3'>
+    <Section
+      title='Chat'
+      hint='Your account predates in-game chat and has never enabled it.'
+    >
+      <div className='space-y-3'>
         <Button onClick={handleEnable} disabled={saving}>
           {saving ? 'Enabling…' : 'Enable Chat'}
         </Button>
-        {error && <p className='text-sm text-destructive'>{error}</p>}
-      </CardContent>
-    </Card>
-  )
-}
-
-function SessionCard({ onLogout }: { onLogout: () => void }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Session</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <Button variant='outline' onClick={onLogout}>
-          Sign Out
-        </Button>
-      </CardContent>
-    </Card>
+        {error && <p className='text-destructive text-sm'>{error}</p>}
+      </div>
+    </Section>
   )
 }
 
@@ -405,24 +480,28 @@ function DangerZoneCard({ onDeleted }: { onDeleted: () => void }) {
       clearToken()
       onDeleted()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to delete account')
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to delete account'
+      )
     } finally {
       setDeleting(false)
     }
   }
 
   return (
-    <Card className='border-destructive/50'>
-      <CardHeader>
-        <CardTitle className='text-destructive'>Danger Zone</CardTitle>
-        <CardDescription>
-          Permanently delete your account and all associated data. This cannot be undone.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className='space-y-4'>
+    <Section
+      title='Delete account'
+      hint='Permanently delete your account and all associated data. This cannot be undone.'
+      className='rounded-md border border-destructive/50 p-4'
+    >
+      <div className='space-y-4'>
         <div className='space-y-2'>
           <Label htmlFor='delete-confirm' className='text-destructive'>
-            Type <span className='font-mono font-bold'>DELETE</span> to confirm
+            Type <span className='font-bold font-mono'>DELETE</span> to confirm
           </Label>
           <div className='flex gap-2'>
             <Input
@@ -440,16 +519,20 @@ function DangerZoneCard({ onDeleted }: { onDeleted: () => void }) {
               {deleting ? 'Deleting…' : 'Delete Account'}
             </Button>
           </div>
-          {error && <p className='text-sm text-destructive'>{error}</p>}
+          {error && <p className='text-destructive text-sm'>{error}</p>}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </Section>
   )
 }
+
+type Tab = 'avatar' | 'punishments' | 'name' | 'account'
 
 export default function ProfilePage() {
   const { player, pending, isLoggedIn, logout, fetchMe } = useAuth()
   const router = useRouter()
+  const { data: punishments, load: reloadPunishments } = usePunishments()
+  const [tab, setTab] = useState<Tab | null>(null)
 
   useEffect(() => {
     if (!pending && !isLoggedIn) router.replace('/login')
@@ -465,26 +548,92 @@ export default function ProfilePage() {
 
   if (!player) return null
 
-  return (
-    <div className='container max-w-2xl py-8 space-y-6'>
-      <h1 className='text-2xl font-bold tracking-tight'>Your Account</h1>
-      <PunishmentsCard />
-      <ProfileInfoCard player={player} />
-      <DisplayNameCard player={player} onRefresh={fetchMe} />
-      <AvatarCard player={player} onRefresh={fetchMe} />
-      <ChatCard player={player} onRefresh={fetchMe} />
-      <DiscordLinkCard player={player} onRefresh={fetchMe} />
-      <SessionCard onLogout={logout} />
-      <DangerZoneCard onDeleted={() => router.replace('/')} />
-    </div>
-  )
-}
+  const hasPunishments =
+    !!punishments &&
+    (punishments.punishments.length > 0 || punishments.networkBanned)
+  const activeCount =
+    punishments?.punishments.filter((p) => p.status === 'active').length ?? 0
+  const current: Tab =
+    tab ??
+    (activeCount > 0 || punishments?.networkBanned ? 'punishments' : 'avatar')
+  const chat = player.chatBlocked
+    ? 'Restricted'
+    : player.chatEnabled
+      ? 'On'
+      : 'Off'
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+  const tabs: TabSpec<Tab>[] = [
+    { key: 'avatar', label: 'Avatar' },
+    ...(hasPunishments
+      ? [
+          {
+            key: 'punishments' as const,
+            label: 'Punishments',
+            count: punishments.punishments.length,
+          },
+        ]
+      : []),
+    { key: 'name', label: 'Name and Discord' },
+    { key: 'account', label: 'Account' },
+  ]
+
   return (
-    <div className='flex items-center justify-between text-sm'>
-      <span className='text-muted-foreground'>{label}</span>
-      <span className='font-medium'>{value}</span>
-    </div>
+    <PageShell>
+      <PageHeader
+        title={player.displayName}
+        meta='Your account'
+        badges={
+          activeCount > 0 ? (
+            <Badge variant='destructive'>{activeCount} active</Badge>
+          ) : undefined
+        }
+        actions={
+          <Button variant='outline' onClick={logout}>
+            Sign out
+          </Button>
+        }
+      />
+      <MainAndSide
+        main={
+          <TabCard tabs={tabs} current={current} onChange={setTab}>
+            {current === 'avatar' && (
+              <AvatarCard player={player} onRefresh={fetchMe} />
+            )}
+            {current === 'punishments' && punishments && hasPunishments && (
+              <PunishmentsList
+                data={punishments}
+                onChange={reloadPunishments}
+              />
+            )}
+            {current === 'name' && (
+              <div className='space-y-8'>
+                <DisplayNameCard player={player} onRefresh={fetchMe} />
+                <DiscordLinkCard player={player} onRefresh={fetchMe} />
+              </div>
+            )}
+            {current === 'account' && (
+              <div className='space-y-8'>
+                <ChatCard player={player} onRefresh={fetchMe} />
+                <DangerZoneCard onDeleted={() => router.replace('/')} />
+              </div>
+            )}
+          </TabCard>
+        }
+        side={
+          <>
+            <ProfileFacts player={player} />
+            <SideCard title='Standing'>
+              <KeyValues
+                rows={[
+                  ['Active punishments', String(activeCount)],
+                  ['Network', punishments?.networkBanned ? 'Banned' : 'Clear'],
+                  ['Chat', chat],
+                ]}
+              />
+            </SideCard>
+          </>
+        }
+      />
+    </PageShell>
   )
 }
