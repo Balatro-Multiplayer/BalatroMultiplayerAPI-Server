@@ -1,11 +1,16 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
+import Link from 'next/link'
 import { parseAsInteger, parseAsString, useQueryState } from 'nuqs'
 import { Suspense, useEffect, useState } from 'react'
-import { Badge } from '@/components/ui/badge'
+import {
+  ContentCard,
+  EmptyLine,
+  PageHeader,
+  PageShell,
+} from '@/components/page-kit'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { apiFetch } from '@/lib/api'
 import {
@@ -142,13 +147,11 @@ function LeaderboardsContent() {
   const entries = leaderboardData?.entries ?? []
 
   return (
-    <div className='container space-y-6 py-8'>
-      <div className='space-y-1'>
-        <h1 className='font-bold text-3xl tracking-tight'>Leaderboards</h1>
-        <p className='text-muted-foreground'>
-          Ranked standings by game and mode, per season.
-        </p>
-      </div>
+    <PageShell>
+      <PageHeader
+        title='Leaderboards'
+        meta='Ranked standings by game and mode, per season.'
+      />
 
       {/* Mod selector, biggest board first */}
       <div className='flex flex-wrap gap-2'>
@@ -161,7 +164,7 @@ function LeaderboardsContent() {
               setModeParam(null)
               setPage(1)
             }}
-            className={`rounded-md border px-4 py-2 font-bold font-pixel text-base transition-colors ${
+            className={`rounded-md border px-4 py-2 font-pixel text-lg transition-colors ${
               category.id === c.id
                 ? 'border-primary bg-primary text-primary-foreground'
                 : 'border-border bg-muted text-muted-foreground hover:bg-accent'
@@ -193,117 +196,126 @@ function LeaderboardsContent() {
         ))}
       </div>
 
-      {/* Season pills */}
-      {seasons.length > 0 && (
-        <div className='flex flex-wrap gap-2'>
-          {seasons.map((s) => (
-            <button
-              key={s.id}
-              type='button'
-              onClick={() => {
-                setSeasonParam(s.id === currentSeasonId ? null : s.id)
-                setPage(1)
-              }}
-              className={`rounded-full border px-3 py-1 font-semibold text-xs transition-colors ${
-                selectedSeason === s.id
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-border bg-muted text-muted-foreground hover:bg-accent'
-              }`}
-            >
-              {s.name ?? `Season ${s.id}`}
-              {s.id === currentSeasonId && (
-                <span className='ml-1.5 text-[10px] text-bal-green'>LIVE</span>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* Search + table */}
       <div className='space-y-4'>
+        {seasons.length > 0 && (
+          <div className='flex flex-wrap gap-2'>
+            {seasons.map((s) => (
+              <button
+                key={s.id}
+                type='button'
+                onClick={() => {
+                  setSeasonParam(s.id === currentSeasonId ? null : s.id)
+                  setPage(1)
+                }}
+                className={`rounded-full border px-3 py-1 font-semibold text-xs transition-colors ${
+                  selectedSeason === s.id
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border bg-muted text-muted-foreground hover:bg-accent'
+                }`}
+              >
+                {s.name ?? `Season ${s.id}`}
+                {s.id === currentSeasonId && (
+                  <span className='ml-1.5 text-[10px] text-bal-green'>
+                    LIVE
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
         <Input
-          placeholder='Search players…'
+          placeholder='Search players...'
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className='max-w-sm'
         />
 
-        <Card>
-          <CardHeader>
-            <CardTitle className='text-base'>
-              {category.label} · {mode.label} · Season {selectedSeason ?? '…'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className='p-0'>
-            {lbLoading ? (
-              <p className='p-6 text-muted-foreground text-sm'>Loading…</p>
-            ) : entries.length === 0 ? (
-              <p className='p-6 text-muted-foreground text-sm'>
-                No entries found.
-              </p>
-            ) : (
-              <div className='overflow-x-auto'>
-                <table className='w-full font-readable text-sm'>
-                  <thead>
-                    <tr className='border-border border-b bg-muted/40'>
-                      {[
-                        'Rank',
-                        'Player',
-                        'Rating',
-                        category.metricLabel,
-                        'W',
-                        'L',
-                        'Games',
-                      ].map((h) => (
-                        <th
-                          key={h}
-                          className='px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide'
+        <ContentCard
+          title={`${category.label} · ${mode.label} · Season ${selectedSeason ?? '...'}`}
+          className='p-0 sm:p-0 [&>div:first-child]:px-4 [&>div:first-child]:pt-4'
+        >
+          {lbLoading ? (
+            <EmptyLine>Loading...</EmptyLine>
+          ) : entries.length === 0 ? (
+            <div className='px-4 pb-4'>
+              <EmptyLine>No entries found.</EmptyLine>
+            </div>
+          ) : (
+            <table className='w-full text-sm'>
+              <thead>
+                <tr className='border-border border-y text-muted-foreground text-xs'>
+                  <th className='px-3 py-2 text-left font-medium sm:px-4'>
+                    Rank
+                  </th>
+                  <th className='px-3 py-2 text-left font-medium sm:px-4'>
+                    Player
+                  </th>
+                  <th className='px-3 py-2 text-left font-medium sm:px-4'>
+                    Rating
+                  </th>
+                  <th className='hidden px-4 py-2 text-left font-medium md:table-cell'>
+                    {category.metricLabel}
+                  </th>
+                  <th className='hidden px-4 py-2 text-left font-medium sm:table-cell'>
+                    Wins
+                  </th>
+                  <th className='hidden px-4 py-2 text-left font-medium sm:table-cell'>
+                    Losses
+                  </th>
+                  <th className='hidden px-4 py-2 text-left font-medium md:table-cell'>
+                    Games
+                  </th>
+                  <th className='px-3 py-2 text-left font-medium sm:px-4'>
+                    Win rate
+                  </th>
+                </tr>
+              </thead>
+              <tbody className='divide-y divide-border'>
+                {entries.map((entry) => {
+                  const g = entry.wins + entry.losses
+                  return (
+                    <tr
+                      key={entry.playerId}
+                      className='transition-colors hover:bg-muted/30'
+                    >
+                      <td className='px-3 py-3 sm:px-4'>
+                        <RankBadge rank={entry.rank} />
+                      </td>
+                      <td className='max-w-0 px-3 py-3 font-medium sm:px-4'>
+                        <Link
+                          href={`/players/${entry.playerId}`}
+                          className='block truncate hover:text-primary'
                         >
-                          {h}
-                        </th>
-                      ))}
+                          {entry.displayName}
+                        </Link>
+                      </td>
+                      <td className='px-3 py-3 font-pixel text-bal-blue text-xl sm:px-4'>
+                        {Math.round(entry.rating)}
+                      </td>
+                      <td className='hidden px-4 py-3 md:table-cell'>
+                        {formatMetric(category.metric, entry.seasonBest)}
+                      </td>
+                      <td className='hidden px-4 py-3 sm:table-cell'>
+                        {entry.wins}
+                      </td>
+                      <td className='hidden px-4 py-3 sm:table-cell'>
+                        {entry.losses}
+                      </td>
+                      <td className='hidden px-4 py-3 md:table-cell'>
+                        {entry.gamesPlayed}
+                      </td>
+                      <td className='px-3 py-3 text-muted-foreground sm:px-4'>
+                        {g > 0 ? `${Math.round((entry.wins / g) * 100)}%` : '-'}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className='divide-y divide-border'>
-                    {entries.map((entry) => (
-                      <tr
-                        key={entry.playerId}
-                        className='transition-colors hover:bg-muted/30'
-                      >
-                        <td className='px-4 py-3'>
-                          <RankBadge rank={entry.rank} />
-                        </td>
-                        <td className='px-4 py-3 font-semibold'>
-                          <a
-                            href={`/players/${entry.playerId}`}
-                            className='transition-colors hover:text-primary'
-                          >
-                            {entry.displayName}
-                          </a>
-                        </td>
-                        <td className='px-4 py-3 font-bold font-pixel text-bal-gold'>
-                          {Math.round(entry.rating)}
-                        </td>
-                        <td className='px-4 py-3 font-semibold text-bal-blue'>
-                          {formatMetric(category.metric, entry.seasonBest)}
-                        </td>
-                        <td className='px-4 py-3 text-bal-green'>
-                          {entry.wins}
-                        </td>
-                        <td className='px-4 py-3 text-bal-red'>
-                          {entry.losses}
-                        </td>
-                        <td className='px-4 py-3 text-muted-foreground'>
-                          {entry.gamesPlayed}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </ContentCard>
 
         {(leaderboardData?.totalPages ?? 1) > 1 && (
           <div className='flex items-center justify-between'>
@@ -338,28 +350,18 @@ function LeaderboardsContent() {
           </div>
         )}
       </div>
-    </div>
+    </PageShell>
   )
 }
 
 function RankBadge({ rank }: { rank: number }) {
-  if (rank === 1)
-    return (
-      <Badge className='border-yellow-500/30 bg-yellow-500/20 text-bal-gold'>
-        #1
-      </Badge>
-    )
-  if (rank === 2)
-    return (
-      <Badge className='border-slate-400/30 bg-slate-400/20 text-slate-300'>
-        #2
-      </Badge>
-    )
-  if (rank === 3)
-    return (
-      <Badge className='border-amber-700/30 bg-amber-700/20 text-bal-orange'>
-        #3
-      </Badge>
-    )
-  return <span className='text-muted-foreground text-sm'>#{rank}</span>
+  const color =
+    rank === 1
+      ? 'text-bal-gold'
+      : rank === 2
+        ? 'text-slate-300'
+        : rank === 3
+          ? 'text-bal-orange'
+          : ''
+  return <span className={`font-pixel text-xl ${color}`}>{rank}</span>
 }

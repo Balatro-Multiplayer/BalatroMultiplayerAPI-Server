@@ -5,16 +5,13 @@ import { format } from 'date-fns'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+  ContentCard,
+  EmptyLine,
+  PageHeader,
+  PageShell,
+} from '@/components/page-kit'
+import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { RunStatusBadge } from './components/status-badge'
@@ -46,70 +43,48 @@ export default function MyMatchesPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
-    <div className='container max-w-5xl space-y-6 py-8'>
-      <div className='space-y-1'>
-        <h1 className='font-bold text-2xl tracking-tight'>My Matches</h1>
-        <p className='text-muted-foreground text-sm'>
-          Your recorded match history and replay logs.{' '}
-          {data ? `${total} total.` : ''}
-        </p>
-      </div>
+    <PageShell>
+      <PageHeader
+        title='My Matches'
+        meta={
+          data
+            ? `${total} recorded ${total === 1 ? 'match' : 'matches'}. Open one to read its log.`
+            : 'Your recorded matches.'
+        }
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Matches</CardTitle>
-        </CardHeader>
-        <CardContent className='p-0'>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Mod</TableHead>
-                <TableHead>Lobby Code</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className='text-right'>Replay</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={5} className='text-muted-foreground'>
-                    Loading…
-                  </TableCell>
-                </TableRow>
-              ) : runs.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className='text-muted-foreground'>
-                    No matches recorded yet.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                runs.map((run) => (
-                  <TableRow key={run.id}>
-                    <TableCell className='text-muted-foreground'>
+      <ContentCard>
+        {isLoading ? (
+          <EmptyLine>Loading...</EmptyLine>
+        ) : runs.length === 0 ? (
+          <EmptyLine>No matches recorded yet.</EmptyLine>
+        ) : (
+          <ul className='-my-1 divide-y divide-border'>
+            {runs.map((run) => (
+              <li key={run.id}>
+                <Link
+                  href={`/matches/${run.id}`}
+                  className='flex flex-wrap items-center gap-x-4 gap-y-1 rounded py-3 hover:bg-muted/30'
+                >
+                  <div className='min-w-40 flex-1'>
+                    <div className='font-medium'>
+                      {run.modId.replace('Multiplayer', '')} match
+                    </div>
+                    <div className='text-muted-foreground text-xs'>
                       {format(new Date(run.startedAt), 'MMM d, yyyy HH:mm')}
-                    </TableCell>
-                    <TableCell>
-                      {run.modId.replace('Multiplayer', '')}
-                    </TableCell>
-                    <TableCell className='font-mono text-xs'>
-                      {run.lobbyCode}
-                    </TableCell>
-                    <TableCell>
-                      <RunStatusBadge status={run.status} />
-                    </TableCell>
-                    <TableCell className='text-right'>
-                      <Button variant='outline' size='sm' asChild>
-                        <Link href={`/matches/${run.id}`}>View Log</Link>
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                    </div>
+                  </div>
+                  <span className='font-mono text-muted-foreground text-xs'>
+                    {run.lobbyCode}
+                  </span>
+                  <RunStatusBadge status={run.status} />
+                  <span className='text-bal-blue text-sm'>View log</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </ContentCard>
 
       {totalPages > 1 && (
         <div className='flex items-center justify-end gap-2'>
@@ -134,6 +109,6 @@ export default function MyMatchesPage() {
           </Button>
         </div>
       )}
-    </div>
+    </PageShell>
   )
 }

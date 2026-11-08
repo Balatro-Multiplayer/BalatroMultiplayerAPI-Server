@@ -3,15 +3,24 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { useParams, useSearchParams } from 'next/navigation'
+import type { ReactNode } from 'react'
 import { useMemo, useState } from 'react'
+import {
+  EmptyLine,
+  KeyValues,
+  MainAndSide,
+  PageHeader,
+  PageShell,
+  SideCard,
+} from '@/components/page-kit'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ApiError, apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { ContestButton } from '../components/contest-button'
 import { GameLogView } from '../components/game-log/game-log-view'
-import { StaffMatchView } from '../components/staff-match-view'
 import { PlayerLabel } from '../components/player-label'
+import { StaffMatchView } from '../components/staff-match-view'
 import { RunStatusBadge } from '../components/status-badge'
 import { decodePlayerLogs } from '../lib/decode-player-logs'
 import { buildGameLog } from '../lib/game-log/build-game-log'
@@ -53,7 +62,7 @@ function ShareButtons({
     setTimeout(() => setCopied(false), 2000)
   }
   return (
-    <div className='ml-auto flex items-center gap-2'>
+    <div className='flex items-center gap-2'>
       {shared && (
         <Button size='sm' variant='outline' onClick={copy}>
           {copied ? 'Copied' : 'Copy link'}
@@ -72,7 +81,7 @@ function ShareButtons({
 }
 
 export default function MatchPage() {
-  const { pending, player } = useAuth()
+  const { pending, player, isLoggedIn } = useAuth()
   const runId = useParams().runId as string
   const queryClient = useQueryClient()
   const fromItem = Number.parseInt(useSearchParams().get('item') ?? '', 10)
@@ -136,7 +145,8 @@ export default function MatchPage() {
         <CardContent className='space-y-1 pt-6 text-destructive text-sm'>
           {failures.map((f) => (
             <p key={f.playerId}>
-              Player {names.get(f.playerId) ?? f.playerId.slice(0, 8)}: {f.error}
+              Player {names.get(f.playerId) ?? f.playerId.slice(0, 8)}:{' '}
+              {f.error}
             </p>
           ))}
         </CardContent>
@@ -167,61 +177,123 @@ export default function MatchPage() {
     )
   }
 
+  const run = data.run
   return (
-    <div className='container max-w-6xl space-y-6 py-8'>
-      <div className='space-y-1'>
-        <BackLink />
-        <div className='flex flex-wrap items-center gap-3'>
-          <h1 className='font-bold text-2xl tracking-tight'>Match Log</h1>
-          <RunStatusBadge status={data.run.status} />
-          {share && (
-            <ShareButtons
-              runId={runId}
-              shared={share.shared}
-              busy={shareMutation.isPending}
-              onToggle={() => shareMutation.mutate(!share.shared)}
-            />
-          )}
-        </div>
-        <p className='text-muted-foreground text-sm'>
-          {data.run.modId}
-          {data.run.lobbyCode && ` · Lobby ${data.run.lobbyCode}`} · Started{' '}
-          {new Date(data.run.startedAt).toLocaleString()}
-        </p>
-        {data.viewer.role === 'participant' && <ContestButton runId={runId} />}
-        {share && (
-          <p className='text-muted-foreground text-xs'>
-            {share.shared
-              ? 'Your side is shared. Anyone with the link can see it.'
-              : 'Only you and your opponents can see your side. Share it to let anyone with the link see it.'}
-          </p>
-        )}
-        {shareMutation.isError && (
-          <p className='text-destructive text-sm'>
-            Could not change sharing. Please try again.
-          </p>
-        )}
-      </div>
+    <PageShell>
+      <PageHeader
+        back={
+          isLoggedIn
+            ? { href: '/matches', label: 'Back to My Matches' }
+            : undefined
+        }
+        title={`${run.modId.replace('Multiplayer', '')} match`}
+        badges={<RunStatusBadge status={run.status} />}
+        actions={
+          <>
+            {data.viewer.role === 'participant' && (
+              <ContestButton runId={runId} />
+            )}
+            {share && (
+              <ShareButtons
+                runId={runId}
+                shared={share.shared}
+                busy={shareMutation.isPending}
+                onToggle={() => shareMutation.mutate(!share.shared)}
+              />
+            )}
+          </>
+        }
+        meta={`Started ${new Date(run.startedAt).toLocaleString()}`}
+      />
 
-      {failureNotes}
-
-      {gameLog.players.length === 0 ? (
-        <p className='text-muted-foreground text-sm'>
-          No player logs were recorded for this match.
+      {shareMutation.isError && (
+        <p className='text-destructive text-sm'>
+          Could not change sharing. Please try again.
         </p>
-      ) : (
-        <GameLogView
-          log={gameLog}
-          hiddenPlayerIds={hidden}
-          playerLabel={(id) => (
-            <PlayerLabel
-              playerId={id}
-              displayName={names.get(id)}
-              viewerId={viewerId}
-            />
-          )}
-        />
       )}
-    </div>
+
+      <MainAndSide
+        main={
+          <>
+            {failureNotes}
+            {gameLog.players.length === 0 ? (
+              <EmptyLine>
+                No player logs were recorded for this match.
+              </EmptyLine>
+            ) : (
+              <GameLogView
+                log={gameLog}
+                hiddenPlayerIds={hidden}
+                playerLabel={(id) => (
+                  <PlayerLabel
+                    playerId={id}
+                    displayName={names.get(id)}
+                    viewerId={viewerId}
+                  />
+                )}
+              />
+            )}
+          </>
+        }
+        side={
+          <>
+            <SideCard title='Match'>
+              <KeyValues
+                rows={[
+                  ['Mod', run.modId.replace('Multiplayer', '')],
+                  ...(run.lobbyCode
+                    ? ([
+                        [
+                          'Lobby',
+                          <span key='l' className='font-mono text-xs'>
+                            {run.lobbyCode}
+                          </span>,
+                        ],
+                      ] as [string, ReactNode][])
+                    : []),
+                  ['Started', new Date(run.startedAt).toLocaleString()],
+                  ...(run.finalizedAt
+                    ? ([
+                        ['Ended', new Date(run.finalizedAt).toLocaleString()],
+                      ] as [string, ReactNode][])
+                    : []),
+                ]}
+              />
+            </SideCard>
+            {data.logs.length > 0 && (
+              <SideCard title='Players'>
+                <ul className='space-y-1 text-sm'>
+                  {data.logs.map((l) => (
+                    <li key={l.playerId}>
+                      <Link
+                        href={`/players/${l.playerId}`}
+                        className='text-bal-blue hover:underline'
+                      >
+                        {l.displayName}
+                      </Link>
+                      {l.playerId === viewerId && (
+                        <span className='text-muted-foreground text-xs'>
+                          {' '}
+                          (you)
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </SideCard>
+            )}
+            {share && (
+              <SideCard title='Sharing'>
+                <p className='text-muted-foreground text-sm'>
+                  {share.shared
+                    ? 'Your side is shared. Anyone with the link can see it.'
+                    : 'Only you and your opponents can see your side. Share it to let anyone with the link see it.'}
+                </p>
+              </SideCard>
+            )}
+          </>
+        }
+      />
+    </PageShell>
   )
 }
