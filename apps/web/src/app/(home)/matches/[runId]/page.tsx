@@ -8,7 +8,6 @@ import { useMemo, useState } from 'react'
 import {
   EmptyLine,
   KeyValues,
-  MainAndSide,
   PageHeader,
   PageShell,
   SideCard,
@@ -212,88 +211,82 @@ export default function MatchPage() {
         </p>
       )}
 
-      <MainAndSide
-        main={
-          <>
-            {failureNotes}
-            {gameLog.players.length === 0 ? (
-              <EmptyLine>
-                No player logs were recorded for this match.
-              </EmptyLine>
-            ) : (
-              <GameLogView
-                log={gameLog}
-                hiddenPlayerIds={hidden}
-                playerLabel={(id) => (
-                  <PlayerLabel
-                    playerId={id}
-                    displayName={names.get(id)}
-                    viewerId={viewerId}
-                  />
-                )}
-              />
-            )}
-          </>
-        }
-        side={
-          <>
-            <SideCard title='Match'>
-              <KeyValues
-                rows={[
-                  ['Mod', run.modId.replace('Multiplayer', '')],
-                  ...(run.lobbyCode
-                    ? ([
-                        [
-                          'Lobby',
-                          <span key='l' className='font-mono text-xs'>
-                            {run.lobbyCode}
-                          </span>,
-                        ],
-                      ] as [string, ReactNode][])
-                    : []),
-                  ['Started', new Date(run.startedAt).toLocaleString()],
-                  ...(run.finalizedAt
-                    ? ([
-                        ['Ended', new Date(run.finalizedAt).toLocaleString()],
-                      ] as [string, ReactNode][])
-                    : []),
-                ]}
-              />
-            </SideCard>
-            {data.logs.length > 0 && (
-              <SideCard title='Players'>
-                <ul className='space-y-1 text-sm'>
-                  {data.logs.map((l) => (
-                    <li key={l.playerId}>
-                      <Link
-                        href={`/players/${l.playerId}`}
-                        className='text-bal-blue hover:underline'
-                      >
-                        {l.displayName}
-                      </Link>
-                      {l.playerId === viewerId && (
-                        <span className='text-muted-foreground text-xs'>
-                          {' '}
-                          (you)
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </SideCard>
-            )}
-            {share && (
-              <SideCard title='Sharing'>
-                <p className='text-muted-foreground text-sm'>
-                  {share.shared
-                    ? 'Your side is shared. Anyone with the link can see it.'
-                    : 'Only you and your opponents can see your side. Share it to let anyone with the link see it.'}
-                </p>
-              </SideCard>
-            )}
-          </>
-        }
-      />
+      {/* The game log is the page's main content and needs the full width,
+          so the match facts sit in a row above it. */}
+      <div className='grid items-start gap-4 md:grid-cols-3'>
+        <SideCard title='Match'>
+          <KeyValues
+            rows={[
+              ['Mod', run.modId.replace('Multiplayer', '')],
+              ...(run.lobbyCode
+                ? ([
+                    [
+                      'Lobby',
+                      <span key='l' className='font-mono text-xs'>
+                        {run.lobbyCode}
+                      </span>,
+                    ],
+                  ] as [string, ReactNode][])
+                : []),
+              ['Started', new Date(run.startedAt).toLocaleString()],
+              ...(run.finalizedAt
+                ? ([['Ended', new Date(run.finalizedAt).toLocaleString()]] as [
+                    string,
+                    ReactNode,
+                  ][])
+                : []),
+            ]}
+          />
+        </SideCard>
+        {data.logs.length > 0 && (
+          <SideCard title='Players'>
+            <ul className='space-y-1 text-sm'>
+              {data.logs.map((l) => (
+                <li key={l.playerId}>
+                  <Link
+                    href={`/players/${l.playerId}`}
+                    className='text-bal-blue hover:underline'
+                  >
+                    {l.displayName}
+                  </Link>
+                  {l.playerId === viewerId && (
+                    <span className='text-muted-foreground text-xs'>
+                      {' '}
+                      (you)
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </SideCard>
+        )}
+        {share && (
+          <SideCard title='Sharing'>
+            <p className='text-muted-foreground text-sm'>
+              {share.shared
+                ? 'Your side is shared. Anyone with the link can see it.'
+                : 'Only you and your opponents can see your side. Share it to let anyone with the link see it.'}
+            </p>
+          </SideCard>
+        )}
+      </div>
+
+      {failureNotes}
+      {gameLog.players.length === 0 ? (
+        <EmptyLine>No player logs were recorded for this match.</EmptyLine>
+      ) : (
+        <GameLogView
+          log={gameLog}
+          hiddenPlayerIds={hidden}
+          playerLabel={(id) => (
+            <PlayerLabel
+              playerId={id}
+              displayName={names.get(id)}
+              viewerId={viewerId}
+            />
+          )}
+        />
+      )}
     </PageShell>
   )
 }

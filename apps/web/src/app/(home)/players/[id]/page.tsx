@@ -84,9 +84,11 @@ export default function PlayerPage() {
   const [tab, setTab] = useState<string | null>(null)
 
   const ranked = results.filter((r) => r.data?.rank)
-  const winTotal = ranked.reduce((sum, r) => sum + (r.data?.wins ?? 0), 0)
-  const lossTotal = ranked.reduce((sum, r) => sum + (r.data?.losses ?? 0), 0)
-  const gameTotal = ranked.reduce(
+  // Wins, losses and games count placement games too: a board has no rank
+  // until its placement games are done.
+  const winTotal = results.reduce((sum, r) => sum + (r.data?.wins ?? 0), 0)
+  const lossTotal = results.reduce((sum, r) => sum + (r.data?.losses ?? 0), 0)
+  const gameTotal = results.reduce(
     (sum, r) => sum + (r.data?.gamesPlayed ?? 0),
     0
   )

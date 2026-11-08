@@ -556,11 +556,16 @@ export default function ProfilePage() {
   const current: Tab =
     tab ??
     (activeCount > 0 || punishments?.networkBanned ? 'punishments' : 'avatar')
-  const chat = player.chatBlocked
-    ? 'Restricted'
-    : player.chatEnabled
-      ? 'On'
-      : 'Off'
+  // The account response does not always carry the chat fields: show the row
+  // only when it does.
+  const chat =
+    player.chatEnabled === undefined
+      ? null
+      : player.chatBlocked
+        ? 'Restricted'
+        : player.chatEnabled
+          ? 'On'
+          : 'Off'
 
   const tabs: TabSpec<Tab>[] = [
     { key: 'avatar', label: 'Avatar' },
@@ -627,7 +632,7 @@ export default function ProfilePage() {
                 rows={[
                   ['Active punishments', String(activeCount)],
                   ['Network', punishments?.networkBanned ? 'Banned' : 'Clear'],
-                  ['Chat', chat],
+                  ...(chat ? [['Chat', chat] as [string, string]] : []),
                 ]}
               />
             </SideCard>
