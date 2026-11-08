@@ -26,6 +26,9 @@ export interface ServerConfig {
 	// In-client tournaments (tournament/). Off until switched on: every
 	// tournament RPC refuses and the tournament clock does nothing.
 	tournamentsEnabled: boolean
+	// Only players with the tournament_create (or tournament_official)
+	// privilege may create tournaments. Managing existing ones never needs it.
+	tournamentCreationRestricted: boolean
 	// Chat messages that skip moderation, as webadmin lists them (looked up by
 	// chat/filter.ts normalizeForAllowlist).
 	chatAllowlist: string[]
@@ -50,6 +53,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
 	integrityEnforced: false,
 	achievementsEnabled: true,
 	tournamentsEnabled: false,
+	tournamentCreationRestricted: true,
 	chatAllowlist: [],
 	season: 0,
 	queueAllowedModIds: [],
@@ -81,6 +85,7 @@ export function mergeConfig(current: ServerConfig, update: { [key: string]: unkn
 		'integrityEnforced',
 		'achievementsEnabled',
 		'tournamentsEnabled',
+		'tournamentCreationRestricted',
 	]
 	for (const flag of flags) {
 		const value = update[flag]

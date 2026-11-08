@@ -107,6 +107,7 @@ import {
 	rpcTournamentCoOrganiserJoin,
 	rpcTournamentNoticeSet,
 	rpcTournamentMessage,
+	rpcTournamentCanCreate,
 	rpcTournamentCreate,
 	rpcTournamentGet,
 	rpcTournamentPreview,
@@ -273,6 +274,7 @@ function InitModule(
 	initializer.registerRpc('tournament_leave', rpcTournamentLeave)
 	initializer.registerRpc('tournament_check_in', rpcTournamentCheckIn)
 	initializer.registerRpc('tournament_create', rpcTournamentCreate)
+	initializer.registerRpc('tournament_can_create', rpcTournamentCanCreate)
 	initializer.registerRpc('tournament_update', rpcTournamentUpdate)
 	initializer.registerRpc('tournament_open', rpcTournamentOpen)
 	initializer.registerRpc('tournament_registration_set', rpcTournamentRegistrationSet)

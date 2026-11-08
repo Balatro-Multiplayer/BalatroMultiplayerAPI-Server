@@ -1602,6 +1602,7 @@ var DEFAULT_CONFIG = {
   integrityEnforced: false,
   achievementsEnabled: true,
   tournamentsEnabled: false,
+  tournamentCreationRestricted: true,
   chatAllowlist: [],
   season: 0,
   queueAllowedModIds: [],
@@ -1627,7 +1628,8 @@ function mergeConfig(current, update) {
     "testingMode",
     "integrityEnforced",
     "achievementsEnabled",
-    "tournamentsEnabled"
+    "tournamentsEnabled",
+    "tournamentCreationRestricted"
   ];
   for (const flag2 of flags) {
     const value = update[flag2];
@@ -10113,6 +10115,7 @@ var COCKTAIL_NAME_MAX = 32;
 var COCKTAIL_DECKS_MAX = 3;
 var POOL_COCKTAILS_MAX = 8;
 var OFFICIAL_PRIVILEGE = "tournament_official";
+var CREATE_PRIVILEGE = "tournament_create";
 var NAME_MAX = 48;
 var DESCRIPTION_MAX = 500;
 var NOTICE_MAX = 300;
@@ -14420,6 +14423,12 @@ function requireOfficialRight(nk, userId, input) {
     throw runtimeError(PERMISSION_DENIED, "Only players with official rights can run official tournaments");
   }
 }
+var CREATE_REFUSED = "Only privileged users can create tournaments currently.";
+function canCreate(nk, userId) {
+  if (!readConfig(nk).tournamentCreationRestricted) return true;
+  const privileges = profileFor(nk, userId).privileges;
+  return privileges.indexOf(CREATE_PRIVILEGE) !== -1 || privileges.indexOf(OFFICIAL_PRIVILEGE) !== -1;
+}
 function displayNameFor(nk, ctx, userId) {
   return displayNameOf(profileFor(nk, userId, ctx.username));
 }
@@ -14535,6 +14544,7 @@ function rpcTournamentCreate(ctx, logger, nk, payload) {
   const real = Date.now();
   const refused = entryRefusal(nk, ctx, userId, real);
   if (refused) throw runtimeError(PERMISSION_DENIED, refused);
+  if (!canCreate(nk, userId)) throw runtimeError(PERMISSION_DENIED, CREATE_REFUSED);
   ensureClock(nk);
   requireOfficialRight(nk, userId, input);
   spendTournamentCreate(nk, userId, real);
@@ -14545,6 +14555,10 @@ function rpcTournamentCreate(ctx, logger, nk, payload) {
   insertTournament(nk, created.value);
   logger.info("Tournament %s created by %s", id, userId);
   return respond(created.value, userId, real);
+}
+function rpcTournamentCanCreate(ctx, logger, nk, payload) {
+  requireEnabled(nk);
+  return JSON.stringify({ canCreate: canCreate(nk, requireUser(ctx)) });
 }
 function rpcTournamentPreview(ctx, logger, nk, payload) {
   requireEnabled(nk);
@@ -14981,6 +14995,7 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("tournament_leave", rpcTournamentLeave);
   initializer.registerRpc("tournament_check_in", rpcTournamentCheckIn);
   initializer.registerRpc("tournament_create", rpcTournamentCreate);
+  initializer.registerRpc("tournament_can_create", rpcTournamentCanCreate);
   initializer.registerRpc("tournament_update", rpcTournamentUpdate);
   initializer.registerRpc("tournament_open", rpcTournamentOpen);
   initializer.registerRpc("tournament_registration_set", rpcTournamentRegistrationSet);
