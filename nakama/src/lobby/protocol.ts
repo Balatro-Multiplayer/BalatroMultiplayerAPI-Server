@@ -549,6 +549,9 @@ export type LobbySignal =
 	// match loop: check the sender may talk and fetch the context, then post.
 	| { type: 'chat_check'; userId: string }
 	| { type: 'chat_post'; userId: string; text: string }
+	// A tournament organiser's message (tournament/rpc.ts): to everyone
+	// seated, from someone who isn't.
+	| { type: 'organiser_post'; name: string; text: string }
 	// A profile change (player/rpc.ts) reaching the player's lobby.
 	| { type: 'player_info'; userId: string; info: Partial<PlayerInfo> }
 	// Admin actions and bans (moderation/enforce.ts, admin.ts).

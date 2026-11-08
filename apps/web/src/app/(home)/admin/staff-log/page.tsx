@@ -41,6 +41,7 @@ const ACTION_LABELS: Record<string, string> = {
   role_remove: 'Remove role',
   lobby_kick: 'Kick from lobby',
   lobby_close: 'Close lobby',
+  tournament_close: 'Close tournament',
   config_change: 'Change server config',
   allowlist_add: 'Add allowlist message',
   allowlist_remove: 'Remove allowlist message',

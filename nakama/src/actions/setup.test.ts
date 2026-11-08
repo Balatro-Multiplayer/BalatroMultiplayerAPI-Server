@@ -178,6 +178,19 @@ describe('the Draft', () => {
 		expect((broadcastSetup(step)?.open as OpenDraftView).actor).toBe('b')
 	})
 
+	it("lets a tournament lobby's ban order pick the first actor", () => {
+		const lobby = started('a', 'b')
+		const tournament = { tournamentId: 't', matchId: 'W1-1', draft: { first: 'b' } }
+		// The roll would say 'a' (0); the tournament says 'b'.
+		random = randoms(0, 0, 0, 0)
+		const step = send({ ...lobby, tournament }, 'a', 'mpapi_setup_draft', { id: 'draft', candidates: decks('x', 'y', 'z'), poolSize: 3 })
+		expect(openDraft(step.lobby).first).toBe(1)
+		// Someone not in the game: rolled as usual.
+		random = randoms(0, 0, 0, 0)
+		const other = send({ ...lobby, tournament: { ...tournament, draft: { first: 'zz' } } }, 'a', 'mpapi_setup_draft', { id: 'draft', candidates: decks('x', 'y', 'z'), poolSize: 3 })
+		expect(openDraft(other.lobby).first).toBe(0)
+	})
+
 	it('rotates single bans until `keep` tiles are left', () => {
 		let lobby = started('a', 'b', 'c')
 		lobby = send(lobby, 'a', 'mpapi_setup_draft', {

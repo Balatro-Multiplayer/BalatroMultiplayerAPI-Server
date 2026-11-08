@@ -12,6 +12,19 @@ export interface FakeNk {
 	[key: string]: any
 }
 
+// A value as Nakama stores it: a copy where every undefined property is null
+// (the Goja runtime hands undefined to Go as nil, saved as JSON null), so
+// code that clears a field with undefined reads null back. Opt in with
+// storeLikeNakama(nk).
+export function asNakamaStores(value: unknown): unknown {
+	if (value === undefined) return null
+	if (value === null || typeof value !== 'object') return value
+	if (Array.isArray(value)) return value.map(asNakamaStores)
+	const out: { [key: string]: unknown } = {}
+	for (const key of Object.keys(value)) out[key] = asNakamaStores((value as { [key: string]: unknown })[key])
+	return out
+}
+
 export function fakeNk(overrides: { [key: string]: unknown } = {}): FakeNk {
 	const objects = new Map<string, { value: any; version: number }>()
 	const k = (c: string, u: string, key: string) => `${c}/${u}/${key}`
@@ -79,3 +92,11 @@ export const playerCtx = (userId: string, env: { [key: string]: string } = {}) =
 // The settings of a server of this kind (BMP_SERVER_KIND), for the functions
 // that take them instead of a ctx.
 export const settingsFor = (kind: ServerKind = 'official'): ServerSettings => settingsOf(serverCtx({ BMP_SERVER_KIND: kind }))
+
+// Makes a fake's storage save values the way Nakama does (asNakamaStores).
+export function storeLikeNakama(nk: FakeNk): FakeNk {
+	const store = nk as unknown as { storageWrite: (writes: any[]) => void }
+	const write = store.storageWrite
+	store.storageWrite = (writes: any[]) => write(writes.map((w) => ({ ...w, value: asNakamaStores(w.value) })))
+	return nk
+}

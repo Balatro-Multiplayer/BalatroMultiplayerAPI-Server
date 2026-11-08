@@ -52,7 +52,7 @@ import { applyRatings } from '../rating/apply'
 import { logBounds } from '../rating/metrics'
 import { currentSeason } from '../rating/season'
 import { enqueue } from '../mirror/outbox'
-import { chatCheck, chatPost, reportEvidence } from './chat'
+import { chatCheck, chatPost, organiserPost, reportEvidence } from './chat'
 import {
 	SPECTATOR_ROLE,
 	addSpectator,
@@ -75,6 +75,9 @@ import { readModReport } from '../standing/storage'
 import { hasFailedVerdict, readIntegrity } from '../integrity'
 import { rejoinRefusal, rejoinRejectMessage } from '../standing/rejoin'
 import type { RequiredStanding } from '../standing/standing'
+import type { TournamentLobbyRef } from '../tournament/model'
+import { tournamentGameEnded } from '../tournament/effects'
+import { afterTournamentGame, parseLobbyRef } from '../tournament/lobby_draft'
 import { settingsOf, type ServerSettings } from '../server_kind'
 
 const TICK_RATE = 5
@@ -288,6 +291,16 @@ function runEffect(
 					logger.error('Lobby %s: could not record achievements for run %s: %v', lobby.code, stored.runId, e)
 				}
 			}
+			// A tournament lobby's game is a game of its match.
+			if (stored && lobby.tournament) {
+				// "Last game's loser bans first": remember who that is.
+				lobby.tournament = afterTournamentGame(lobby.tournament, stored.placements)
+				try {
+					tournamentGameEnded(nk, logger, lobby.tournament, stored)
+				} catch (e) {
+					logger.error('Lobby %s: could not record run %s for its tournament: %v', lobby.code, stored.runId, e)
+				}
+			}
 			return
 		}
 		case 'forfeited':
@@ -379,6 +392,17 @@ function requiredStandingParam(params: { [key: string]: unknown }): RequiredStan
 	return value === 'valid' || value === 'verified' ? value : undefined
 }
 
+// The tournament module's params (tournament/effects.ts): which match of
+// which tournament this lobby plays, and its first metadata (round settings).
+function tournamentParam(params: { [key: string]: unknown }): TournamentLobbyRef | undefined {
+	return parseLobbyRef(jsonParam(params, 'tournament'))
+}
+
+function metadataParam(params: { [key: string]: unknown }): { [key: string]: unknown } | undefined {
+	const value = jsonParam(params, 'metadata')
+	return value && typeof value === 'object' && !Array.isArray(value) ? (value as { [key: string]: unknown }) : undefined
+}
+
 export function lobbyMatchInit(
 	ctx: nkruntime.Context,
 	logger: nkruntime.Logger,
@@ -400,6 +424,8 @@ export function lobbyMatchInit(
 		groups: groupsParam(params),
 		teamPlan: teamPlanParam(params),
 		requiredStanding: requiredStandingParam(params),
+		tournament: tournamentParam(params),
+		metadata: metadataParam(params),
 		now: Date.now(),
 		graceMs: secondsFromEnv(ctx, 'LOBBY_GRACE_SECONDS', DEFAULT_GRACE_MS),
 		catchUpLimitMs: catchUpLimitMsFor(stringParam(params, 'modId'), Number(ctx.env.LOBBY_CATCH_UP_LIMIT_SECONDS) || undefined),
@@ -838,6 +864,10 @@ export function lobbyMatchSignal(
 			state,
 			chatPost(state.lobby, signal.userId, signal.text, Date.now()),
 		)
+		return { state: next || state, data: 'ok' }
+	}
+	if (signal.type === 'organiser_post') {
+		const next = apply(ctx, logger, nk, dispatcher, state, organiserPost(state.lobby, signal.name, signal.text, Date.now()))
 		return { state: next || state, data: 'ok' }
 	}
 	if (signal.type === 'player_info') {

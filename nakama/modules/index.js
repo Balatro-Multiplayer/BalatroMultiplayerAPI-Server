@@ -1601,6 +1601,8 @@ var DEFAULT_CONFIG = {
   testingMode: false,
   integrityEnforced: false,
   achievementsEnabled: true,
+  tournamentsEnabled: false,
+  tournamentCreationRestricted: true,
   chatAllowlist: [],
   season: 0,
   queueAllowedModIds: [],
@@ -1625,7 +1627,9 @@ function mergeConfig(current, update) {
     "lobbyCreationEnabled",
     "testingMode",
     "integrityEnforced",
-    "achievementsEnabled"
+    "achievementsEnabled",
+    "tournamentsEnabled",
+    "tournamentCreationRestricted"
   ];
   for (const flag2 of flags) {
     const value = update[flag2];
@@ -2240,6 +2244,49 @@ function releaseCode(nk, code, matchId) {
   }
 }
 
+// src/tournament/lobby_draft.ts
+function draftOrderFor(settings, seeds, players) {
+  const deck = settings.deck;
+  if (!deck || deck.kind !== "draft") return void 0;
+  const seed = (id) => {
+    const i = seeds.indexOf(id);
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  const [better, worse] = seed(players[0]) <= seed(players[1]) ? players : [players[1], players[0]];
+  if (deck.banOrder === "lower_seed_first") return { first: worse };
+  if (deck.banOrder === "lower_seed_last") return { first: better };
+  if (deck.banOrder === "previous_loser_first") return { loserFirst: true };
+  return void 0;
+}
+function afterTournamentGame(ref, placements) {
+  if (!ref.draft || !ref.draft.loserFirst || placements.length < 2) return ref;
+  let loser = null;
+  for (const p of placements) if (!loser || p.place > loser.place) loser = p;
+  const best = Math.min(...placements.map((p) => p.place));
+  if (!loser || loser.place === best) return ref;
+  return __spreadProps(__spreadValues({}, ref), { draft: __spreadProps(__spreadValues({}, ref.draft), { first: loser.playerId }) });
+}
+function parseLobbyRef(value) {
+  if (!value || typeof value !== "object") return void 0;
+  const { tournamentId, matchId, draft } = value;
+  if (typeof tournamentId !== "string" || typeof matchId !== "string") return void 0;
+  const ref = { tournamentId, matchId };
+  if (draft && typeof draft === "object") {
+    const d = draft;
+    const order = {};
+    if (typeof d.first === "string") order.first = d.first;
+    if (d.loserFirst === true) order.loserFirst = true;
+    if (order.first !== void 0 || order.loserFirst) ref.draft = order;
+  }
+  return ref;
+}
+function draftFirstIndex(ref, order) {
+  const first = ref && ref.draft ? ref.draft.first : void 0;
+  if (!first) return null;
+  const i = order.indexOf(first);
+  return i === -1 ? null : i;
+}
+
 // src/actions/setup.ts
 var STEP_ID_PATTERN = /^[a-z0-9_]{1,32}$/;
 var MAX_CANDIDATES = 64;
@@ -2425,6 +2472,7 @@ function changed(game, now) {
 var startDraft = {
   key: "mpapi_setup_draft",
   reduce(lobby, ctx, params) {
+    var _a;
     const p = isPlainObject(params) ? params : {};
     const refusal = startRefusal(lobby, ctx, p.id);
     if (refusal) return { reject: refusal };
@@ -2455,7 +2503,8 @@ var startDraft = {
       pool,
       banned: [],
       order,
-      first: pickIndex(order.length, ctx.random),
+      // A tournament lobby's ban order decides; any other lobby rolls.
+      first: (_a = draftFirstIndex(lobby.tournament, order)) != null ? _a : pickIndex(order.length, ctx.random),
       schedule: turns,
       turn: 0,
       remaining: turns.length > 0 ? turns[0].count : 0,
@@ -3344,7 +3393,7 @@ function newLobby(params) {
     rankedMode: params.rankedMode,
     allowedIds: params.allowedIds,
     gameMode: params.gameMode,
-    metadata: {},
+    metadata: params.metadata ? __spreadValues({}, params.metadata) : {},
     players: [],
     kickedIds: [],
     createdAt: params.now,
@@ -3356,7 +3405,8 @@ function newLobby(params) {
     actionBudget: {},
     groups: params.groups,
     teamPlan: params.teamPlan,
-    requiredStanding: params.requiredStanding
+    requiredStanding: params.requiredStanding,
+    tournament: params.tournament
   };
 }
 function emptyGame() {
@@ -3373,6 +3423,7 @@ function lobbyType(lobby) {
   return lobby.allowedIds ? "public" : "private";
 }
 function isSpectatable(lobby) {
+  if (lobby.tournament) return false;
   return lobbyType(lobby) === "public" || lobby.metadata.spectatable === true;
 }
 function labelOf(lobby) {
@@ -4215,7 +4266,18 @@ var NotifyCode = {
   // {runId, code, modId, status, place, tied, players, rating}: a ranked run settled
   // (lobby/late_result.ts). Sent to every player of it, leavers included.
   // Transient: the match history shows the same result.
-  RESULT_RANKED: 111
+  RESULT_RANKED: 111,
+  // In-client tournaments (tournament/effects.ts). Transient: the client
+  // reads tournament_mine at login for anything it missed.
+  // {tournamentId, name, matchId, kind: 'open' | 'series' | 'reminder',
+  // deadline, minutesLeft, opponent: {id, name}}: ready up for a match.
+  TOURNAMENT_MATCH: 112,
+  // {tournamentId, name, matchId, code, game}: the lobby for your game is
+  // ready; join it by code.
+  TOURNAMENT_LOBBY: 113,
+  // {tournamentId, name, kind, matchId?}: something changed (check-in open,
+  // started, a result, a dispute, finished, ...); refresh the view.
+  TOURNAMENT_UPDATED: 114
 };
 var CODES = Object.keys(NotifyCode).map((k) => NotifyCode[k]);
 function isNotifyCode(code) {
@@ -8641,6 +8703,24 @@ function chatPost(lobby, userId, text, now) {
     ]
   };
 }
+var ORGANISER_SENDER = "tournament_organiser";
+function organiserPost(lobby, name, text, now) {
+  if (lobby.closed) return { lobby, out: [] };
+  const displayName = "[Organiser] " + name;
+  const line = { senderId: ORGANISER_SENDER, text, displayName, at: now };
+  const chat = (lobby.chat || []).concat([line]).slice(-CHAT_TAIL);
+  return {
+    lobby: __spreadProps(__spreadValues({}, lobby), { chat }),
+    out: [
+      {
+        kind: "send",
+        op: ServerOp.CHAT,
+        payload: { senderId: ORGANISER_SENDER, displayName, message: text },
+        to: lobby.players.map((p) => p.id)
+      }
+    ]
+  };
+}
 function reportEvidence(lobby, reporterId, reportedId) {
   if (!findPlayer(lobby, reporterId) || lobby.closed) return { ok: false, reason: "not_in_lobby" };
   if (reporterId === reportedId) return { ok: false, reason: "self" };
@@ -8717,6 +8797,2998 @@ function rejoinRejectMessage(refusal) {
     message: messageOf(refusal)
   };
   return REJOIN_REFUSED_PREFIX + JSON.stringify(view);
+}
+
+// src/tournament/engine/resolve.ts
+function drawsCount(stage) {
+  return stage === "RR" || stage === "SW";
+}
+function winsNeeded(bestOf) {
+  return Math.floor(bestOf / 2) + 1;
+}
+function gameWins(games) {
+  const wins = [0, 0];
+  for (const g of games) if (g !== "draw") wins[g]++;
+  return wins;
+}
+function seriesResult(games, bestOf, stage) {
+  const wins = gameWins(games);
+  const need = winsNeeded(bestOf);
+  if (wins[0] >= need) return 0;
+  if (wins[1] >= need) return 1;
+  if (drawsCount(stage) && games.length >= bestOf) {
+    if (wins[0] > wins[1]) return 0;
+    if (wins[1] > wins[0]) return 1;
+    return "draw";
+  }
+  return null;
+}
+function outcomeFor(players, result, reason) {
+  if (result === "draw") return { winner: null, loser: null, winnerSide: null, draw: true, reason };
+  if (result === "none") return { winner: null, loser: null, winnerSide: null, draw: false, reason };
+  return { winner: players[result], loser: players[result === 0 ? 1 : 0], winnerSide: result, draw: false, reason };
+}
+function samePair(a, b) {
+  return a !== void 0 && a[0] === b[0] && a[1] === b[1];
+}
+function decisionResult(decision) {
+  if (decision.kind === "forfeit") return decision.winner;
+  if (decision.kind === "double_forfeit") return "none";
+  return decision.outcome;
+}
+function slotPlayer(source, seeds, byId) {
+  switch (source.kind) {
+    case "seed":
+      return source.seed >= 1 && source.seed <= seeds.length ? seeds[source.seed - 1] : null;
+    case "entrant":
+      return source.id;
+    case "bye":
+      return null;
+    case "winner":
+    case "loser": {
+      const from = byId[source.matchId];
+      if (!from || !from.outcome) return void 0;
+      if (from.outcome.draw) return null;
+      return source.kind === "winner" ? from.outcome.winner : from.outcome.loser;
+    }
+  }
+}
+function resolveMatch(def, bracket, dropped, byId) {
+  const base = { def, players: [void 0, void 0], status: "waiting", wins: [0, 0], outcome: null, stale: false };
+  if (def.onlyIf) {
+    const gate = byId[def.onlyIf.matchId];
+    if (!gate || !gate.outcome) return base;
+    if (gate.outcome.winnerSide !== def.onlyIf.winner) return __spreadProps(__spreadValues({}, base), { status: "void" });
+    if (gate.outcome.reason === "dropped") return __spreadProps(__spreadValues({}, base), { status: "void" });
+  }
+  const players = [slotPlayer(def.slots[0], bracket.seeds, byId), slotPlayer(def.slots[1], bracket.seeds, byId)];
+  base.players = players;
+  const recorded = def.games.length > 0 || def.decision !== void 0;
+  const current = samePair(def.playedBy, players);
+  const stale = recorded && !current;
+  base.stale = stale;
+  if (players[0] === void 0 || players[1] === void 0) return base;
+  const known = [players[0], players[1]];
+  if (known[0] === null || known[1] === null) {
+    const result = known[0] !== null ? 0 : known[1] !== null ? 1 : "none";
+    return __spreadProps(__spreadValues({}, base), { status: "done", outcome: outcomeFor(known, result, "bye") });
+  }
+  const games = current ? def.games : [];
+  const wins = gameWins(games);
+  base.wins = wins;
+  if (current && def.decision) {
+    const reason = def.decision.kind === "override" ? "override" : def.decision.kind;
+    return __spreadProps(__spreadValues({}, base), { status: "done", outcome: outcomeFor(known, decisionResult(def.decision), reason) });
+  }
+  const series = seriesResult(games, def.bestOf, def.stage);
+  if (series !== null) return __spreadProps(__spreadValues({}, base), { status: "done", outcome: outcomeFor(known, series, "played") });
+  const gone = [dropped.has(known[0]), dropped.has(known[1])];
+  if (gone[0] || gone[1]) {
+    const result = gone[0] && gone[1] ? "none" : gone[0] ? 1 : 0;
+    return __spreadProps(__spreadValues({}, base), { status: "done", outcome: outcomeFor(known, result, "dropped") });
+  }
+  return __spreadProps(__spreadValues({}, base), { status: games.length > 0 ? "in_progress" : "ready" });
+}
+function resolveBracket(bracket, dropped = []) {
+  const droppedSet = new Set(dropped);
+  const byId = {};
+  const matches = [];
+  for (const def of bracket.matches) {
+    const resolved = resolveMatch(def, bracket, droppedSet, byId);
+    byId[def.id] = resolved;
+    matches.push(resolved);
+  }
+  return { matches, byId };
+}
+
+// src/tournament/engine/elimination.ts
+function bracketSize(entrants) {
+  let size = 2;
+  while (size < entrants) size *= 2;
+  return size;
+}
+function seedOrder(size) {
+  let order = [1];
+  for (let length = 1; length < size; length *= 2) {
+    const next = [];
+    const sum = length * 2 + 1;
+    for (const seed of order) next.push(seed, sum - seed);
+    order = next;
+  }
+  return order;
+}
+function matchDef(id, stage, round, order, slots, bestOf) {
+  return { id, stage, round, order, slots, bestOf, games: [] };
+}
+function winnersId(round, order) {
+  return `W${round}-${order}`;
+}
+function losersId(round, order) {
+  return `L${round}-${order}`;
+}
+function winnersBracket(entrants, bestOf) {
+  const size = bracketSize(entrants);
+  const order = seedOrder(size);
+  const matches = [];
+  let rounds = 0;
+  for (let n = size; n > 1; n /= 2) rounds++;
+  for (let i = 0; i < size / 2; i++) {
+    matches.push(matchDef(winnersId(1, i + 1), "W", 1, i + 1, [{ kind: "seed", seed: order[2 * i] }, { kind: "seed", seed: order[2 * i + 1] }], bestOf));
+  }
+  for (let round = 2; round <= rounds; round++) {
+    const count2 = size / __pow(2, round);
+    for (let i = 1; i <= count2; i++) {
+      matches.push(
+        matchDef(
+          winnersId(round, i),
+          "W",
+          round,
+          i,
+          [
+            { kind: "winner", matchId: winnersId(round - 1, 2 * i - 1) },
+            { kind: "winner", matchId: winnersId(round - 1, 2 * i) }
+          ],
+          bestOf
+        )
+      );
+    }
+  }
+  return { matches, rounds, size };
+}
+function singleElimination(entrants, bestOf = 1) {
+  return winnersBracket(entrants, bestOf).matches;
+}
+function dropIn(winnersRound, position, count2) {
+  const j = winnersRound - 1;
+  return j % 2 === 1 ? count2 + 1 - position : position;
+}
+function doubleElimination(entrants, options = {}) {
+  var _a, _b;
+  const bestOf = (_a = options.bestOf) != null ? _a : 1;
+  const { matches, rounds, size } = winnersBracket(entrants, bestOf);
+  const winnersFinal = winnersId(rounds, 1);
+  let losersFinal = null;
+  if (rounds >= 2) {
+    const firstCount = size / 4;
+    for (let i = 1; i <= firstCount; i++) {
+      matches.push(
+        matchDef(
+          losersId(1, i),
+          "L",
+          1,
+          i,
+          [
+            { kind: "loser", matchId: winnersId(1, 2 * i - 1) },
+            { kind: "loser", matchId: winnersId(1, 2 * i) }
+          ],
+          bestOf
+        )
+      );
+    }
+    for (let j = 1; j <= rounds - 1; j++) {
+      const evenRound = 2 * j;
+      const count2 = size / __pow(2, j + 1);
+      for (let i = 1; i <= count2; i++) {
+        matches.push(
+          matchDef(
+            losersId(evenRound, i),
+            "L",
+            evenRound,
+            i,
+            [
+              { kind: "winner", matchId: losersId(evenRound - 1, i) },
+              { kind: "loser", matchId: winnersId(j + 1, dropIn(j + 1, i, count2)) }
+            ],
+            bestOf
+          )
+        );
+      }
+      if (j < rounds - 1) {
+        const oddRound = evenRound + 1;
+        for (let i = 1; i <= count2 / 2; i++) {
+          matches.push(
+            matchDef(
+              losersId(oddRound, i),
+              "L",
+              oddRound,
+              i,
+              [
+                { kind: "winner", matchId: losersId(evenRound, 2 * i - 1) },
+                { kind: "winner", matchId: losersId(evenRound, 2 * i) }
+              ],
+              bestOf
+            )
+          );
+        }
+      }
+    }
+    losersFinal = losersId(2 * (rounds - 1), 1);
+  }
+  const challenger = losersFinal ? { kind: "winner", matchId: losersFinal } : { kind: "loser", matchId: winnersFinal };
+  matches.push(matchDef("GF1", "GF", 1, 1, [{ kind: "winner", matchId: winnersFinal }, challenger], bestOf));
+  if ((_b = options.grandFinalReset) != null ? _b : true) {
+    const reset = matchDef("GF2", "GF", 2, 1, [{ kind: "loser", matchId: "GF1" }, { kind: "winner", matchId: "GF1" }], bestOf);
+    reset.onlyIf = { matchId: "GF1", winner: 1 };
+    matches.push(reset);
+  }
+  return matches;
+}
+
+// src/tournament/engine/round_robin.ts
+function roundRobinId(group, round, order) {
+  return `RR-g${group}-r${round}-${order}`;
+}
+function splitGroups(seeded, groupSize) {
+  const count2 = Math.max(1, Math.ceil(seeded.length / Math.max(2, groupSize)));
+  const groups = [];
+  for (let g = 0; g < count2; g++) groups.push([]);
+  seeded.forEach((id, index) => {
+    const row = Math.floor(index / count2);
+    const position = index % count2;
+    groups[row % 2 === 0 ? position : count2 - 1 - position].push(id);
+  });
+  return groups;
+}
+function circlePairings(players) {
+  const ring = players.slice();
+  if (ring.length % 2 === 1) ring.push(null);
+  const n = ring.length;
+  const rounds = [];
+  for (let r = 0; r < n - 1; r++) {
+    const pairs = [];
+    for (let i = 0; i < n / 2; i++) {
+      const a = ring[i];
+      const b = ring[n - 1 - i];
+      if (a === null || b === null) continue;
+      const ia = players.indexOf(a);
+      const ib = players.indexOf(b);
+      pairs.push(ia < ib ? [a, b] : [b, a]);
+    }
+    rounds.push(pairs);
+    const last = ring.pop();
+    ring.splice(1, 0, last);
+  }
+  return rounds;
+}
+function roundRobin(seeded, options = {}) {
+  var _a, _b;
+  const bestOf = (_a = options.bestOf) != null ? _a : 1;
+  const groups = splitGroups(seeded, (_b = options.groupSize) != null ? _b : seeded.length);
+  const matches = [];
+  groups.forEach((members, g) => {
+    circlePairings(members).forEach((pairs, r) => {
+      pairs.forEach(([a, b], i) => {
+        matches.push({
+          id: roundRobinId(g + 1, r + 1, i + 1),
+          stage: "RR",
+          round: r + 1,
+          order: i + 1,
+          group: g + 1,
+          slots: [
+            { kind: "entrant", id: a },
+            { kind: "entrant", id: b }
+          ],
+          bestOf,
+          games: []
+        });
+      });
+    });
+  });
+  return matches;
+}
+
+// src/tournament/engine/standings.ts
+var DEFAULT_TIEBREAKERS = {
+  round_robin: ["game_wins", "head_to_head", "seed"],
+  swiss: ["buchholz", "head_to_head", "seed"]
+};
+function pointsFor(match, side) {
+  const o = match.outcome;
+  if (!o) return 0;
+  if (o.draw) return 0.5;
+  return o.winnerSide === side ? 1 : 0;
+}
+function headToHead(id, group, matches) {
+  let points = 0;
+  for (const m of matches) {
+    if (m.status !== "done" || !m.outcome) continue;
+    const [a, b] = m.players;
+    if (a === id && typeof b === "string" && group.has(b)) points += pointsFor(m, 0);
+    if (b === id && typeof a === "string" && group.has(a)) points += pointsFor(m, 1);
+  }
+  return points;
+}
+function tiebreakKey(row, tiebreaker, group, matches) {
+  switch (tiebreaker) {
+    case "buchholz":
+      return row.buchholz;
+    case "game_wins":
+      return row.gameWins;
+    case "game_diff":
+      return row.gameWins - row.gameLosses;
+    case "head_to_head":
+      return headToHead(row.id, group, matches);
+    case "seed":
+      return -row.seed;
+  }
+}
+function computeStandings(seeded, matches, tiebreakers, dropped = []) {
+  const droppedSet = new Set(dropped);
+  const rows = {};
+  seeded.forEach((id, index) => {
+    rows[id] = {
+      id,
+      rank: 0,
+      seed: index + 1,
+      points: 0,
+      played: 0,
+      matchWins: 0,
+      draws: 0,
+      losses: 0,
+      byes: 0,
+      gameWins: 0,
+      gameLosses: 0,
+      buchholz: 0,
+      dropped: droppedSet.has(id),
+      opponents: []
+    };
+  });
+  for (const m of matches) {
+    if (m.status !== "done" || !m.outcome) continue;
+    const [a, b] = m.players;
+    for (const side of [0, 1]) {
+      const me = side === 0 ? a : b;
+      const them = side === 0 ? b : a;
+      if (typeof me !== "string" || !rows[me]) continue;
+      const row = rows[me];
+      if (them === null) {
+        if (m.outcome.reason === "bye") {
+          row.byes++;
+          row.matchWins++;
+          row.points += 1;
+        }
+        continue;
+      }
+      row.played++;
+      row.gameWins += m.wins[side];
+      row.gameLosses += m.wins[side === 0 ? 1 : 0];
+      if (typeof them === "string") row.opponents.push(them);
+      const p = pointsFor(m, side);
+      row.points += p;
+      if (p === 1) row.matchWins++;
+      else if (p === 0.5) row.draws++;
+      else row.losses++;
+    }
+  }
+  for (const id of Object.keys(rows)) {
+    const row = rows[id];
+    row.buchholz = row.opponents.reduce((sum, o) => sum + (rows[o] ? rows[o].points : 0), 0);
+  }
+  let groups = [seeded.map((id) => rows[id])];
+  const order = [() => (row) => row.points];
+  for (const t of tiebreakers) order.push((group) => (row) => tiebreakKey(row, t, group, matches));
+  if (tiebreakers.indexOf("seed") === -1) order.push(() => (row) => -row.seed);
+  for (const makeKey of order) {
+    const next = [];
+    for (const group of groups) {
+      if (group.length === 1) {
+        next.push(group);
+        continue;
+      }
+      const key = makeKey(new Set(group.map((r) => r.id)));
+      const keyed = group.map((row) => ({ row, k: key(row) }));
+      keyed.sort((x, y) => y.k - x.k);
+      let current = [];
+      let last = null;
+      for (const { row, k } of keyed) {
+        if (last !== null && k !== last) {
+          next.push(current);
+          current = [];
+        }
+        current.push(row);
+        last = k;
+      }
+      next.push(current);
+    }
+    groups = next;
+  }
+  const result = [];
+  for (const group of groups) {
+    for (const row of group) {
+      const _a = row, { opponents } = _a, rest = __objRest(_a, ["opponents"]);
+      result.push(__spreadProps(__spreadValues({}, rest), { rank: result.length + 1 }));
+    }
+  }
+  return result;
+}
+
+// src/tournament/engine/swiss.ts
+function swissId(round, order) {
+  return `SW${round}-${order}`;
+}
+function defaultSwissRounds(entrants) {
+  let rounds = 0;
+  while (__pow(2, rounds) < entrants) rounds++;
+  return Math.max(1, rounds);
+}
+function preferenceOrder(players) {
+  const sorted = players.slice().sort((a, b) => b.points - a.points || a.seed - b.seed);
+  const out = [];
+  let i = 0;
+  let carried = [];
+  while (i < sorted.length) {
+    const points = sorted[i].points;
+    const group = carried.slice();
+    while (i < sorted.length && sorted[i].points === points) group.push(sorted[i++]);
+    carried = [];
+    if (group.length % 2 === 1 && i < sorted.length) carried.push(group.pop());
+    const half = Math.ceil(group.length / 2);
+    for (let k = 0; k < half; k++) {
+      out.push(group[k]);
+      if (k + half < group.length) out.push(group[k + half]);
+    }
+  }
+  return out.concat(carried);
+}
+var SEARCH_LIMIT = 2e5;
+function pairWithoutRematches(players) {
+  const used = new Array(players.length).fill(false);
+  const pairs = [];
+  let steps = 0;
+  const search = () => {
+    if (++steps > SEARCH_LIMIT) return false;
+    const i = used.indexOf(false);
+    if (i === -1) return true;
+    used[i] = true;
+    for (let j = i + 1; j < players.length; j++) {
+      if (used[j]) continue;
+      if (players[i].opponents.indexOf(players[j].id) !== -1) continue;
+      used[j] = true;
+      pairs.push([players[i], players[j]]);
+      if (search()) return true;
+      pairs.pop();
+      used[j] = false;
+    }
+    used[i] = false;
+    return false;
+  };
+  return search() ? pairs : null;
+}
+function pairSwissRound(players, round, bestOf = 1) {
+  let pool = preferenceOrder(players);
+  const matches = [];
+  let bye = null;
+  if (pool.length % 2 === 1) {
+    for (let k = pool.length - 1; k >= 0; k--) {
+      if (!pool[k].hadBye) {
+        bye = pool[k];
+        break;
+      }
+    }
+    if (!bye) bye = pool[pool.length - 1];
+    pool = pool.filter((p) => p !== bye);
+  }
+  let pairs = pairWithoutRematches(pool);
+  if (!pairs) {
+    pairs = [];
+    for (let k = 0; k + 1 < pool.length; k += 2) pairs.push([pool[k], pool[k + 1]]);
+  }
+  pairs.forEach(([a, b], index) => {
+    const [left, right] = a.points > b.points || a.points === b.points && a.seed < b.seed ? [a, b] : [b, a];
+    matches.push({
+      id: swissId(round, index + 1),
+      stage: "SW",
+      round,
+      order: index + 1,
+      slots: [
+        { kind: "entrant", id: left.id },
+        { kind: "entrant", id: right.id }
+      ],
+      bestOf,
+      games: []
+    });
+  });
+  if (bye) {
+    matches.push({
+      id: swissId(round, matches.length + 1),
+      stage: "SW",
+      round,
+      order: matches.length + 1,
+      slots: [{ kind: "entrant", id: bye.id }, { kind: "bye" }],
+      bestOf,
+      games: []
+    });
+  }
+  return matches;
+}
+
+// src/tournament/engine/bracket.ts
+var MIN_ENTRANTS = 2;
+var MAX_ENTRANTS = 128;
+var BEST_OF_CHOICES = [1, 3, 5, 7];
+function tiebreakersFor(bracket) {
+  if (bracket.options.tiebreakers) return bracket.options.tiebreakers;
+  return bracket.format === "swiss" ? DEFAULT_TIEBREAKERS.swiss : DEFAULT_TIEBREAKERS.round_robin;
+}
+function createBracket(format, seeded, options = {}, bestOf = 1) {
+  var _a, _b, _c;
+  if (seeded.length < MIN_ENTRANTS) return err({ code: "too_few_entrants", message: `At least ${MIN_ENTRANTS} entrants are needed` });
+  if (seeded.length > MAX_ENTRANTS) return err({ code: "invalid", message: `At most ${MAX_ENTRANTS} entrants` });
+  if (new Set(seeded).size !== seeded.length) return err({ code: "invalid", message: "Entrants must be unique" });
+  if (BEST_OF_CHOICES.indexOf(bestOf) === -1) return err({ code: "invalid", message: "bestOf must be 1, 3, 5 or 7" });
+  const seeds = seeded.slice();
+  switch (format) {
+    case "single_elim":
+      return ok({ format, seeds, options: __spreadValues({}, options), matches: singleElimination(seeds.length, bestOf) });
+    case "double_elim": {
+      const opts = __spreadProps(__spreadValues({}, options), { grandFinalReset: (_a = options.grandFinalReset) != null ? _a : true });
+      return ok({ format, seeds, options: opts, matches: doubleElimination(seeds.length, { bestOf, grandFinalReset: opts.grandFinalReset }) });
+    }
+    case "round_robin": {
+      const groupSize = (_b = options.groupSize) != null ? _b : seeds.length;
+      if (groupSize < 2) return err({ code: "invalid", message: "Groups need at least 2 players" });
+      const groups = splitGroups(seeds, groupSize);
+      if (groups.some((g) => g.length < 2)) return err({ code: "invalid", message: "That group size leaves a group with one player" });
+      return ok({ format, seeds, options: __spreadProps(__spreadValues({}, options), { groupSize }), matches: roundRobin(seeds, { groupSize, bestOf }) });
+    }
+    case "swiss": {
+      const swissRounds = (_c = options.swissRounds) != null ? _c : defaultSwissRounds(seeds.length);
+      if (swissRounds < 1 || swissRounds >= seeds.length) {
+        return err({ code: "invalid", message: "Swiss needs at least 1 round and fewer rounds than players" });
+      }
+      const players = seeds.map((id, i) => ({ id, seed: i + 1, points: 0, hadBye: false, opponents: [] }));
+      return ok({ format, seeds, options: __spreadProps(__spreadValues({}, options), { swissRounds }), matches: pairSwissRound(players, 1, bestOf) });
+    }
+  }
+}
+function replaceMatch(bracket, def) {
+  return __spreadProps(__spreadValues({}, bracket), { matches: bracket.matches.map((m) => m.id === def.id ? def : m) });
+}
+function playable(resolved) {
+  return (resolved.status === "ready" || resolved.status === "in_progress") && typeof resolved.players[0] === "string" && typeof resolved.players[1] === "string";
+}
+function findMatch(bracket, matchId, dropped) {
+  const resolved = resolveBracket(bracket, dropped);
+  const match = resolved.byId[matchId];
+  if (!match) return err({ code: "unknown_match", message: `No match ${matchId}` });
+  return ok({ resolved, match });
+}
+function recordGame(bracket, matchId, outcome, dropped = []) {
+  const found = findMatch(bracket, matchId, dropped);
+  if (!found.ok) return found;
+  const m = found.value.match;
+  if (!playable(m)) return err({ code: "not_playable", message: `Match ${matchId} is ${m.status}` });
+  const def = m.def;
+  const fresh = m.stale || !def.playedBy;
+  const games = fresh ? [] : def.games;
+  return ok(
+    replaceMatch(bracket, __spreadProps(__spreadValues({}, def), {
+      playedBy: [m.players[0], m.players[1]],
+      games: games.concat([outcome]),
+      decision: fresh ? void 0 : def.decision
+    }))
+  );
+}
+function validDecision(decision, stage) {
+  if (decision.kind === "override" && decision.outcome === "draw") return drawsCount(stage);
+  return true;
+}
+function disturbed(before, after) {
+  const ids = [];
+  for (const m of after.matches) {
+    const def = m.def;
+    if (def.games.length === 0 && !def.decision) continue;
+    const was = before.byId[def.id];
+    if (!was) continue;
+    if (was.players[0] !== m.players[0] || was.players[1] !== m.players[1]) ids.push(def.id);
+  }
+  return ids;
+}
+function clearResults(def) {
+  const _a = def, { playedBy, decision } = _a, rest = __objRest(_a, ["playedBy", "decision"]);
+  return __spreadProps(__spreadValues({}, rest), { games: [] });
+}
+function decideMatch(bracket, matchId, decision, options = {}) {
+  var _a;
+  const dropped = (_a = options.dropped) != null ? _a : [];
+  const found = findMatch(bracket, matchId, dropped);
+  if (!found.ok) return found;
+  const m = found.value.match;
+  if (m.status === "waiting" || m.status === "void") return err({ code: "not_playable", message: `Match ${matchId} is ${m.status}` });
+  if (typeof m.players[0] !== "string" || typeof m.players[1] !== "string") {
+    return err({ code: "not_playable", message: `Match ${matchId} is a bye` });
+  }
+  if (!validDecision(decision, m.def.stage)) return err({ code: "invalid", message: "Draws only exist in round robin and Swiss" });
+  const keepGames = !m.stale && m.def.playedBy !== void 0;
+  let next = replaceMatch(bracket, __spreadProps(__spreadValues({}, m.def), {
+    playedBy: [m.players[0], m.players[1]],
+    games: keepGames ? m.def.games : [],
+    decision
+  }));
+  const before = found.value.resolved;
+  for (let guard = 0; guard < next.matches.length + 1; guard++) {
+    const after = resolveBracket(next, dropped);
+    const hit = disturbed(before, after).filter((id) => id !== matchId);
+    if (hit.length === 0) return ok(next);
+    if (!options.resetDownstream) {
+      return err({ code: "downstream_played", message: "Later matches already have results", matchIds: hit });
+    }
+    for (const id of hit) {
+      const def = next.matches.find((x) => x.id === id);
+      next = replaceMatch(next, clearResults(def));
+    }
+  }
+  return ok(next);
+}
+function clearMatch(bracket, matchId, options = {}) {
+  var _a;
+  const dropped = (_a = options.dropped) != null ? _a : [];
+  const found = findMatch(bracket, matchId, dropped);
+  if (!found.ok) return found;
+  let next = replaceMatch(bracket, clearResults(found.value.match.def));
+  const before = found.value.resolved;
+  for (let guard = 0; guard < next.matches.length + 1; guard++) {
+    const hit = disturbed(before, resolveBracket(next, dropped)).filter((id) => id !== matchId);
+    if (hit.length === 0) return ok(next);
+    if (!options.resetDownstream) return err({ code: "downstream_played", message: "Later matches already have results", matchIds: hit });
+    for (const id of hit) next = replaceMatch(next, clearResults(next.matches.find((x) => x.id === id)));
+  }
+  return ok(next);
+}
+function setRoundBestOf(bracket, stage, round, bestOf) {
+  if (BEST_OF_CHOICES.indexOf(bestOf) === -1) return err({ code: "invalid", message: "bestOf must be 1, 3, 5 or 7" });
+  return ok(__spreadProps(__spreadValues({}, bracket), {
+    matches: bracket.matches.map((m) => m.stage === stage && m.round === round && m.games.length === 0 && !m.decision ? __spreadProps(__spreadValues({}, m), { bestOf }) : m)
+  }));
+}
+function swissRoundsPlayed(bracket) {
+  return bracket.matches.reduce((max, m) => m.stage === "SW" ? Math.max(max, m.round) : max, 0);
+}
+function nextSwissRound(bracket, dropped = [], bestOf = 1) {
+  var _a;
+  if (bracket.format !== "swiss") return err({ code: "invalid", message: "Not a Swiss bracket" });
+  const played = swissRoundsPlayed(bracket);
+  if (played >= ((_a = bracket.options.swissRounds) != null ? _a : 0)) return err({ code: "no_more_rounds", message: "Every Swiss round has been paired" });
+  const resolved = resolveBracket(bracket, dropped);
+  if (resolved.matches.some((m) => m.def.round === played && m.status !== "done")) {
+    return err({ code: "round_unfinished", message: `Round ${played} is not finished` });
+  }
+  const standings = computeStandings(bracket.seeds, resolved.matches, ["seed"], dropped);
+  const droppedSet = new Set(dropped);
+  const players = standings.filter((row) => !droppedSet.has(row.id)).map((row) => {
+    const opponents = [];
+    let hadBye = false;
+    for (const m of resolved.matches) {
+      const [a, b] = m.players;
+      if (a === row.id && b === null) hadBye = true;
+      if (a === row.id && typeof b === "string") opponents.push(b);
+      if (b === row.id && typeof a === "string") opponents.push(a);
+    }
+    return { id: row.id, seed: row.seed, points: row.points, hadBye, opponents };
+  });
+  if (players.length < 2) return err({ code: "too_few_entrants", message: "Fewer than 2 players are left" });
+  return ok(__spreadProps(__spreadValues({}, bracket), { matches: bracket.matches.concat(pairSwissRound(players, played + 1, bestOf)) }));
+}
+function isFinished(bracket, dropped = []) {
+  var _a;
+  if (bracket.format === "swiss" && swissRoundsPlayed(bracket) < ((_a = bracket.options.swissRounds) != null ? _a : 0)) return false;
+  return resolveBracket(bracket, dropped).matches.every((m) => m.status === "done" || m.status === "void");
+}
+function finalPlacements(bracket, dropped = []) {
+  var _a, _b;
+  const resolved = resolveBracket(bracket, dropped);
+  if (bracket.format === "round_robin" || bracket.format === "swiss") {
+    const tiebreakers = tiebreakersFor(bracket);
+    if (bracket.format === "swiss") {
+      return computeStandings(bracket.seeds, resolved.matches, tiebreakers, dropped).map((r) => ({ id: r.id, place: r.rank }));
+    }
+    const groups = splitGroups(bracket.seeds, (_a = bracket.options.groupSize) != null ? _a : bracket.seeds.length);
+    const tables = groups.map(
+      (members, g) => computeStandings(
+        members,
+        resolved.matches.filter((m) => m.def.group === g + 1),
+        tiebreakers,
+        dropped
+      )
+    );
+    const out2 = [];
+    const longest = Math.max(...tables.map((t) => t.length));
+    for (let rank = 0; rank < longest; rank++) {
+      const place = out2.length + 1;
+      for (const table of tables) if (table[rank]) out2.push({ id: table[rank].id, place });
+    }
+    return out2;
+  }
+  const lives = bracket.format === "double_elim" ? 2 : 1;
+  const losses = {};
+  const lastLoss = {};
+  const out = {};
+  let champion = null;
+  for (let index = 0; index < resolved.matches.length; index++) {
+    const m = resolved.matches[index];
+    if (m.status !== "done" || !m.outcome || m.outcome.draw) continue;
+    const [a, b] = m.players;
+    const losers = [];
+    if (m.outcome.loser) losers.push(m.outcome.loser);
+    else if (m.outcome.winner === null && typeof a === "string" && typeof b === "string") losers.push(a, b);
+    for (const id of losers) {
+      losses[id] = ((_b = losses[id]) != null ? _b : 0) + 1;
+      lastLoss[id] = index;
+      if (losses[id] >= lives) out[id] = index;
+    }
+    if (m.outcome.winner) champion = m.outcome.winner;
+  }
+  const finished = isFinished(bracket, dropped);
+  if (finished) {
+    for (const id of bracket.seeds) if (id !== champion && out[id] === void 0 && lastLoss[id] !== void 0) out[id] = lastLoss[id];
+  }
+  const alive = bracket.seeds.filter((id) => out[id] === void 0);
+  const ranked = bracket.seeds.filter((id) => out[id] !== void 0).sort((x, y) => out[y] - out[x] || bracket.seeds.indexOf(x) - bracket.seeds.indexOf(y));
+  const roundKey = (id) => {
+    const def = resolved.matches[out[id]].def;
+    return `${def.stage}${def.round}`;
+  };
+  const result = [];
+  if (finished && champion !== null) result.push({ id: champion, place: 1 });
+  const ahead = finished ? result.length : alive.length;
+  ranked.forEach((id, i) => {
+    const prev = ranked[i - 1];
+    const place = prev !== void 0 && roundKey(prev) === roundKey(id) ? result[result.length - 1].place : ahead + i + 1;
+    result.push({ id, place });
+  });
+  return result;
+}
+
+// src/tournament/lobby_state.ts
+function lobbiesToClose(t) {
+  const out = [];
+  if (!t.lobbies) return out;
+  for (const matchId of Object.keys(t.lobbies)) {
+    const lobby = t.lobbies[matchId];
+    if (lobby.status !== "open" && lobby.status !== "disputed") continue;
+    const clock = t.clock ? t.clock.matches[matchId] : void 0;
+    if (t.status !== "running" || !clock || clock.phase === "closed") out.push({ matchId, code: lobby.code });
+  }
+  return out;
+}
+
+// src/tournament/engine/schedule.ts
+var MINUTE_MS = 60 * 1e3;
+var HOUR_MS = 60 * MINUTE_MS;
+function roundSteps(bracket) {
+  var _a;
+  const maxRound = (stage) => bracket.matches.reduce((max, m) => m.stage === stage ? Math.max(max, m.round) : max, 0);
+  switch (bracket.format) {
+    case "single_elim": {
+      const steps = [];
+      for (let r = 1; r <= maxRound("W"); r++) steps.push([{ stage: "W", round: r }]);
+      return steps;
+    }
+    case "double_elim": {
+      const k = maxRound("W");
+      const steps = [[{ stage: "W", round: 1 }]];
+      for (let j = 1; j <= k - 1; j++) {
+        steps.push([
+          { stage: "W", round: j + 1 },
+          { stage: "L", round: 2 * j - 1 }
+        ]);
+        steps.push([{ stage: "L", round: 2 * j }]);
+      }
+      steps.push([{ stage: "GF", round: 1 }]);
+      if (bracket.matches.some((m) => m.id === "GF2")) steps.push([{ stage: "GF", round: 2 }]);
+      return steps;
+    }
+    case "round_robin": {
+      const steps = [];
+      for (let r = 1; r <= maxRound("RR"); r++) steps.push([{ stage: "RR", round: r }]);
+      return steps;
+    }
+    case "swiss": {
+      const steps = [];
+      for (let r = 1; r <= ((_a = bracket.options.swissRounds) != null ? _a : 0); r++) steps.push([{ stage: "SW", round: r }]);
+      return steps;
+    }
+  }
+}
+function validateSchedule(bracket, schedule) {
+  const steps = roundSteps(bracket).length;
+  if (schedule.length === 0) return err({ code: "invalid", message: "The schedule needs at least one block" });
+  let previous = 0;
+  for (let i = 0; i < schedule.length; i++) {
+    const b = schedule[i];
+    if (b.untilStep <= previous) return err({ code: "invalid", message: `Block ${i + 1} covers no rounds` });
+    previous = b.untilStep;
+    if (b.play.kind === "live" && (b.play.readyUpMinutes < 2 || b.play.readyUpMinutes > 30)) {
+      return err({ code: "invalid", message: "Ready-up time must be 2-30 minutes" });
+    }
+    if (b.play.kind === "window" && b.play.closesAt === void 0 && !(b.play.durationMinutes && b.play.durationMinutes > 0)) {
+      return err({ code: "invalid", message: "A play window needs a closing time or a duration" });
+    }
+    if (b.seriesReadyUpMinutes < 2 || b.seriesReadyUpMinutes > 30) {
+      return err({ code: "invalid", message: "Series ready-up time must be 2-30 minutes" });
+    }
+    if (b.unplayed.fallbackAfterHours < 0 || b.unplayed.fallbackAfterHours > 12) {
+      return err({ code: "invalid", message: "Fallback delay must be 0-12 hours" });
+    }
+    if (i === 0 && b.start.kind === "after_previous" && b.start.breakMinutes !== 0) {
+      return err({ code: "invalid", message: "The first block starts with the tournament" });
+    }
+    if (bracket.format === "swiss" && b.opening === "rolling") {
+      return err({ code: "invalid", message: "Swiss rounds always open together" });
+    }
+    if (b.checkInMinutes !== void 0) {
+      if (b.start.kind !== "at") return err({ code: "invalid", message: "Only a round that starts at a set time can have a check-in" });
+      if (!Number.isInteger(b.checkInMinutes) || b.checkInMinutes < 10 || b.checkInMinutes > 60) {
+        return err({ code: "invalid", message: "A round check-in must be 10-60 minutes" });
+      }
+    }
+  }
+  if (previous !== steps) return err({ code: "invalid", message: `The schedule must cover all ${steps} rounds` });
+  return ok(true);
+}
+function presetSchedule(bracket, preset, options = {}) {
+  var _a, _b, _c, _d;
+  const steps = roundSteps(bracket).length;
+  const base = { seriesReadyUpMinutes: 3, unplayed: { fallbackAfterHours: 0, fallback: "higher_seed" } };
+  const live = { kind: "live", readyUpMinutes: (_a = options.readyUpMinutes) != null ? _a : 10 };
+  if (preset === "live_event") {
+    const breakMinutes = (_b = options.breakMinutes) != null ? _b : 0;
+    if (breakMinutes === 0) {
+      return [__spreadProps(__spreadValues({}, base), { untilStep: steps, start: { kind: "after_previous", breakMinutes: 0 }, opening: bracket.format === "swiss" ? "synchronized" : "rolling", play: live })];
+    }
+    const blocks2 = [];
+    for (let s = 1; s <= steps; s++) {
+      blocks2.push(__spreadProps(__spreadValues({}, base), { untilStep: s, start: { kind: "after_previous", breakMinutes: s === 1 ? 0 : breakMinutes }, opening: "synchronized", play: live }));
+    }
+    return blocks2;
+  }
+  if (preset === "live_fixed_rounds") {
+    const starts = (_c = options.roundStarts) != null ? _c : [];
+    const blocks2 = [];
+    for (let s = 1; s <= steps; s++) {
+      const at = starts[s - 1];
+      blocks2.push(__spreadProps(__spreadValues({}, base), {
+        untilStep: s,
+        start: at !== void 0 ? { kind: "at", at } : s === 1 ? { kind: "after_previous", breakMinutes: 0 } : { kind: "manual" },
+        opening: "synchronized",
+        play: live
+      }));
+    }
+    return blocks2;
+  }
+  const window = { kind: "window", durationMinutes: (_d = options.windowMinutes) != null ? _d : 7 * 24 * 60 };
+  const blocks = [];
+  for (let s = 1; s <= steps; s++) {
+    blocks.push(__spreadProps(__spreadValues({}, base), {
+      unplayed: { fallbackAfterHours: 12, fallback: "higher_seed" },
+      untilStep: s,
+      start: { kind: "after_previous", breakMinutes: 0 },
+      opening: "synchronized",
+      play: window,
+      reminders: [24 * 60, 60]
+    }));
+  }
+  return blocks;
+}
+function newTimetable(startedAt, schedule) {
+  return { startedAt, blocks: schedule.map(() => ({})), matches: {} };
+}
+function locate(bracket, schedule) {
+  const steps = roundSteps(bracket);
+  const out = {};
+  let block = 0;
+  steps.forEach((step, index) => {
+    while (block < schedule.length - 1 && index >= schedule[block].untilStep) block++;
+    for (const r of step) out[`${r.stage}${r.round}`] = { block, step: index };
+  });
+  return out;
+}
+function blockOfRound(bracket, schedule, stage, round) {
+  const loc = locate(bracket, schedule)[`${stage}${round}`];
+  return loc ? schedule[loc.block] : null;
+}
+function blockStartTime(i, schedule, state) {
+  const clock = state.blocks[i];
+  if (clock.startRequestedAt !== void 0) return clock.startRequestedAt;
+  const rule = schedule[i].start;
+  if (rule.kind === "at") return rule.at;
+  if (rule.kind === "manual") return null;
+  if (i === 0) return state.startedAt + rule.breakMinutes * MINUTE_MS;
+  const previous = state.blocks[i - 1].finishedAt;
+  return previous === void 0 ? null : previous + rule.breakMinutes * MINUTE_MS;
+}
+function deadlineFor(play, opened) {
+  if (play.kind === "live") return opened + play.readyUpMinutes * MINUTE_MS;
+  if (play.closesAt !== void 0) return play.closesAt;
+  return play.durationMinutes ? opened + play.durationMinutes * MINUTE_MS : null;
+}
+function cloneState(state) {
+  const matches = {};
+  for (const id of Object.keys(state.matches)) {
+    const m = state.matches[id];
+    matches[id] = __spreadProps(__spreadValues({}, m), { ready: [m.ready[0], m.ready[1]], readiedAt: [m.readiedAt[0], m.readiedAt[1]], readyLog: m.readyLog.slice(), remindersSent: m.remindersSent.slice() });
+  }
+  return __spreadProps(__spreadValues({}, state), { blocks: state.blocks.map((b) => __spreadValues({}, b)), matches });
+}
+function seedOf(bracket, id) {
+  const i = bracket.seeds.indexOf(id);
+  return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+}
+function isSettled(m) {
+  return !m || m.status === "done" || m.status === "void";
+}
+function playersOf(m) {
+  const [a, b] = m.players;
+  return typeof a === "string" && typeof b === "string" ? [a, b] : null;
+}
+function unwrap(r) {
+  if (!r.ok) throw new Error(`timetable: ${r.error.code}: ${r.error.message}`);
+  return r.value;
+}
+function tickTimetable(input) {
+  var _a, _b, _c, _d, _e, _f;
+  const dropped = (_a = input.dropped) != null ? _a : [];
+  const { schedule, now } = input;
+  let bracket = input.bracket;
+  const state = cloneState(input.state);
+  const events = [];
+  const wake = [];
+  const out = () => ({ bracket, state, events, nextWakeAt: wake.length ? Math.max(now + 1, Math.min(...wake)) : null });
+  if (state.finishedAt !== void 0 || state.pausedSince !== void 0) return { bracket, state, events, nextWakeAt: null };
+  const where = locate(bracket, schedule);
+  const stepCount = roundSteps(bracket).length;
+  for (let pass = 0; pass < 1e3; pass++) {
+    let changed2 = false;
+    wake.length = 0;
+    let resolved = resolveBracket(bracket, dropped);
+    if (bracket.format === "swiss") {
+      const played = swissRoundsPlayed(bracket);
+      const current = resolved.matches.filter((m) => m.def.round === played);
+      if (played < ((_b = bracket.options.swissRounds) != null ? _b : 0) && current.every(isSettled)) {
+        const next = nextSwissRound(bracket, dropped, input.bestOfFor ? input.bestOfFor("SW", played + 1) : 1);
+        if (next.ok) {
+          bracket = next.value;
+          events.push({ kind: "swiss_round_paired", round: played + 1 });
+          continue;
+        }
+      }
+    }
+    const swissPaired = bracket.format === "swiss" ? swissRoundsPlayed(bracket) : Number.MAX_SAFE_INTEGER;
+    const stepDone = roundSteps(bracket).map(
+      (step) => step.every((r) => r.stage === "SW" && r.round > swissPaired ? false : resolved.matches.filter((m) => m.def.stage === r.stage && m.def.round === r.round).every(isSettled))
+    );
+    let firstStep = 0;
+    for (let i = 0; i < schedule.length; i++) {
+      const clock = state.blocks[i];
+      const lastStep = schedule[i].untilStep;
+      if (clock.startedAt !== void 0 && clock.finishedAt === void 0 && stepDone.slice(firstStep, lastStep).every(Boolean)) {
+        clock.finishedAt = now;
+        events.push({ kind: "block_finished", block: i });
+        changed2 = true;
+      }
+      if (clock.startedAt === void 0) {
+        const block = schedule[i];
+        if (block.start.kind === "at" && block.checkInMinutes && clock.checkInOpenedAt === void 0 && clock.startRequestedAt === void 0) {
+          const opens = block.start.at - block.checkInMinutes * MINUTE_MS;
+          if (opens <= now) {
+            clock.checkInOpenedAt = now;
+            clock.checkedIn = (_c = clock.checkedIn) != null ? _c : [];
+            events.push({ kind: "round_check_in_opened", block: i, startsAt: block.start.at });
+            changed2 = true;
+          } else wake.push(opens);
+        }
+        const at = blockStartTime(i, schedule, state);
+        if (at !== null && at <= now) {
+          clock.startedAt = now;
+          clock.checkInApplies = !!block.checkInMinutes && block.start.kind === "at" && clock.startRequestedAt === void 0;
+          events.push({ kind: "block_started", block: i });
+          changed2 = true;
+        } else if (at !== null) wake.push(at);
+      }
+      firstStep = lastStep;
+    }
+    if (changed2) continue;
+    for (const m of resolved.matches) {
+      const loc = where[`${m.def.stage}${m.def.round}`];
+      if (!loc) continue;
+      const block = schedule[loc.block];
+      const blockClock = state.blocks[loc.block];
+      const clock = state.matches[m.def.id];
+      const pair = playersOf(m);
+      if (!clock) {
+        if (blockClock.startedAt === void 0 || m.status !== "ready" || !pair) continue;
+        if (block.opening === "synchronized" && !stepDone.slice(0, loc.step).every(Boolean)) continue;
+        if (blockClock.checkInApplies && blockClock.startedAt === now) {
+          const checkedIn = (_d = blockClock.checkedIn) != null ? _d : [];
+          const here = [checkedIn.indexOf(pair[0]) !== -1, checkedIn.indexOf(pair[1]) !== -1];
+          if (!here[0] || !here[1]) {
+            const missing = pair.filter((_, side) => !here[side]);
+            events.push({ kind: "check_in_missed", matchId: m.def.id, missing });
+            const base = {
+              openedAt: now,
+              phase: "closed",
+              deadline: null,
+              ready: [false, false],
+              readiedAt: [null, null],
+              readyLog: [],
+              gamesSeen: m.def.games.length,
+              remindersSent: [],
+              players: pair
+            };
+            if (here[0] || here[1]) {
+              const winner = here[0] ? 0 : 1;
+              bracket = unwrap(decideMatch(bracket, m.def.id, { kind: "forfeit", winner }, { dropped }));
+              state.matches[m.def.id] = base;
+              events.push({ kind: "match_forfeited", matchId: m.def.id, winner });
+            } else {
+              state.matches[m.def.id] = __spreadProps(__spreadValues({}, base), { phase: "unplayed", unplayedSince: now });
+              events.push({ kind: "unplayed", matchId: m.def.id, fallbackAt: now + block.unplayed.fallbackAfterHours * HOUR_MS });
+            }
+            changed2 = true;
+            break;
+          }
+        }
+        const deadline = deadlineFor(block.play, now);
+        state.matches[m.def.id] = {
+          openedAt: now,
+          phase: "ready_up",
+          deadline,
+          ready: [false, false],
+          readiedAt: [null, null],
+          readyLog: [],
+          gamesSeen: m.def.games.length,
+          remindersSent: [],
+          players: pair
+        };
+        events.push({ kind: "match_opened", matchId: m.def.id, players: pair, deadline });
+        changed2 = true;
+        continue;
+      }
+      const reopened = clock.phase === "closed" && m.status !== "done" && m.status !== "void";
+      const repaired = clock.players !== void 0 && pair !== null && (clock.players[0] !== pair[0] || clock.players[1] !== pair[1]);
+      if (reopened || repaired) {
+        delete state.matches[m.def.id];
+        events.push({ kind: "match_reset", matchId: m.def.id });
+        changed2 = true;
+        continue;
+      }
+      if (clock.phase === "closed") continue;
+      if (m.status === "done" || m.status === "void" || !pair) {
+        clock.phase = "closed";
+        clock.deadline = null;
+        changed2 = true;
+        continue;
+      }
+      if (m.def.games.length !== clock.gamesSeen) {
+        clock.gamesSeen = m.def.games.length;
+        clock.phase = "ready_up";
+        clock.ready = [false, false];
+        clock.readiedAt = [null, null];
+        clock.deadline = now + block.seriesReadyUpMinutes * MINUTE_MS;
+        clock.remindersSent = [];
+        events.push({ kind: "series_ready_up", matchId: m.def.id, deadline: clock.deadline });
+        changed2 = true;
+        continue;
+      }
+      if (clock.phase === "ready_up") {
+        if (clock.ready[0] && clock.ready[1]) {
+          clock.phase = "in_game";
+          clock.deadline = null;
+          clock.inGameSince = now;
+          clock.handoff = ((_e = clock.handoff) != null ? _e : 0) + 1;
+          events.push({ kind: "lobby_needed", matchId: m.def.id, players: pair, game: m.def.games.length + 1 });
+          changed2 = true;
+          continue;
+        }
+        if (clock.deadline === null) continue;
+        for (const minutes of (_f = block.reminders) != null ? _f : []) {
+          const at = clock.deadline - minutes * MINUTE_MS;
+          if (clock.remindersSent.indexOf(minutes) !== -1 || at <= clock.openedAt) continue;
+          if (now >= at && now < clock.deadline) {
+            clock.remindersSent.push(minutes);
+            events.push({ kind: "reminder", matchId: m.def.id, minutesLeft: minutes });
+          } else if (now < at) wake.push(at);
+        }
+        if (now < clock.deadline) {
+          wake.push(clock.deadline);
+          continue;
+        }
+        const showed = [clock.readiedAt[0] !== null, clock.readiedAt[1] !== null];
+        const oneSide = showed[0] && !showed[1] ? 0 : showed[1] && !showed[0] ? 1 : null;
+        const firstGame = m.def.games.length === 0;
+        if (oneSide !== null && block.play.kind === "window" && firstGame) {
+          bracket = unwrap(decideMatch(bracket, m.def.id, { kind: "forfeit", winner: oneSide }, { dropped }));
+          clock.phase = "closed";
+          clock.deadline = null;
+          events.push({ kind: "match_forfeited", matchId: m.def.id, winner: oneSide });
+        } else if (oneSide !== null) {
+          bracket = unwrap(recordGame(bracket, m.def.id, oneSide, dropped));
+          clock.deadline = null;
+          events.push({ kind: "game_forfeited", matchId: m.def.id, winner: oneSide });
+        } else {
+          clock.phase = "unplayed";
+          clock.deadline = null;
+          clock.unplayedSince = now;
+          events.push({ kind: "unplayed", matchId: m.def.id, fallbackAt: now + block.unplayed.fallbackAfterHours * HOUR_MS });
+        }
+        changed2 = true;
+        break;
+      }
+      if (clock.phase === "unplayed" && clock.unplayedSince !== void 0) {
+        const at = clock.unplayedSince + block.unplayed.fallbackAfterHours * HOUR_MS;
+        if (now < at) {
+          wake.push(at);
+          continue;
+        }
+        if (block.unplayed.fallback === "both_lose") {
+          bracket = unwrap(decideMatch(bracket, m.def.id, { kind: "double_forfeit" }, { dropped }));
+        } else {
+          const winner = seedOf(bracket, pair[0]) <= seedOf(bracket, pair[1]) ? 0 : 1;
+          bracket = unwrap(decideMatch(bracket, m.def.id, { kind: "forfeit", winner }, { dropped }));
+        }
+        clock.phase = "closed";
+        events.push({ kind: "fallback_applied", matchId: m.def.id, fallback: block.unplayed.fallback });
+        changed2 = true;
+        break;
+      }
+    }
+    if (changed2) continue;
+    resolved = resolveBracket(bracket, dropped);
+    if (stepCount > 0 && isFinished(bracket, dropped) && state.finishedAt === void 0) {
+      state.finishedAt = now;
+      events.push({ kind: "finished" });
+      wake.length = 0;
+    }
+    return out();
+  }
+  throw new Error("timetable: tick did not settle");
+}
+function openClock(state, matchId, phase) {
+  const next = cloneState(state);
+  const clock = next.matches[matchId];
+  if (!clock) return err({ code: "not_playable", message: `Match ${matchId} is not open` });
+  if (phase && clock.phase !== phase) return err({ code: "not_playable", message: `Match ${matchId} is ${clock.phase}` });
+  return ok({ state: next, clock });
+}
+function checkInToRounds(state, playerId) {
+  var _a;
+  const open = state.blocks.filter((b) => b.checkInOpenedAt !== void 0 && b.startedAt === void 0);
+  if (open.length === 0) return err({ code: "not_playable", message: "No round check-in is open" });
+  const next = cloneState(state);
+  for (const b of next.blocks) {
+    if (b.checkInOpenedAt === void 0 || b.startedAt !== void 0) continue;
+    const ids = (_a = b.checkedIn) != null ? _a : [];
+    if (ids.indexOf(playerId) === -1) b.checkedIn = ids.concat([playerId]);
+  }
+  return ok(next);
+}
+function setReady(state, matchId, side, ready2, now) {
+  if (state.pausedSince !== void 0) return err({ code: "not_playable", message: "The tournament is paused" });
+  const r = openClock(state, matchId, "ready_up");
+  if (!r.ok) return r;
+  const { clock } = r.value;
+  clock.ready[side] = ready2;
+  if (ready2) {
+    if (clock.readiedAt[side] === null) clock.readiedAt[side] = now;
+    clock.readyLog.push({ side, at: now });
+  }
+  return ok(r.value.state);
+}
+function extendMatch(state, matchId, minutes, now) {
+  if (!(minutes > 0)) return err({ code: "invalid", message: "Extend by a positive number of minutes" });
+  const r = openClock(state, matchId);
+  if (!r.ok) return r;
+  const { clock } = r.value;
+  if (clock.phase === "ready_up" && clock.deadline !== null) clock.deadline = Math.max(clock.deadline, now) + minutes * MINUTE_MS;
+  else if (clock.phase === "unplayed") {
+    clock.phase = "ready_up";
+    clock.deadline = now + minutes * MINUTE_MS;
+    clock.unplayedSince = void 0;
+    clock.ready = [false, false];
+    clock.readiedAt = [null, null];
+  } else return err({ code: "not_playable", message: `Match ${matchId} is ${clock.phase}` });
+  clock.remindersSent = [];
+  return ok(r.value.state);
+}
+function startBlock(state, block, now) {
+  if (!state.blocks[block]) return err({ code: "invalid", message: `No block ${block + 1}` });
+  if (state.blocks[block].startedAt !== void 0) return err({ code: "invalid", message: "That block has already started" });
+  const next = cloneState(state);
+  next.blocks[block].startRequestedAt = now;
+  return ok(next);
+}
+function pause(state, now) {
+  if (state.pausedSince !== void 0) return err({ code: "invalid", message: "Already paused" });
+  return ok(__spreadProps(__spreadValues({}, cloneState(state)), { pausedSince: now }));
+}
+function resume(state, now) {
+  if (state.pausedSince === void 0) return err({ code: "invalid", message: "Not paused" });
+  const shift = now - state.pausedSince;
+  const next = cloneState(state);
+  next.pausedSince = void 0;
+  for (const id of Object.keys(next.matches)) {
+    const m = next.matches[id];
+    if (m.deadline !== null) m.deadline += shift;
+    if (m.unplayedSince !== void 0) m.unplayedSince += shift;
+  }
+  for (const b of next.blocks) if (b.finishedAt !== void 0) b.finishedAt += shift;
+  return ok(next);
+}
+function reopenReadyUp(state, matchId, now, minutes) {
+  const r = openClock(state, matchId, "in_game");
+  if (!r.ok) return r;
+  const { clock } = r.value;
+  clock.phase = "ready_up";
+  clock.deadline = now + minutes * MINUTE_MS;
+  clock.ready = [false, false];
+  clock.readiedAt = [null, null];
+  clock.inGameSince = void 0;
+  clock.remindersSent = [];
+  return ok(r.value.state);
+}
+
+// src/tournament/engine/seeding.ts
+function seededRng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = a + 1831565813 >>> 0;
+    let t = a;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function shuffle(items, rng) {
+  const out = items.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
+  }
+  return out;
+}
+function seedEntrants(entrants, kind, options = {}) {
+  const ids = entrants.map((e) => e.id);
+  if (new Set(ids).size !== ids.length) {
+    return err({ code: "invalid", message: "Entrants must be unique" });
+  }
+  if (kind === "rating") {
+    const indexed = entrants.map((e, index) => ({ e, index }));
+    indexed.sort((a, b) => {
+      const ra = typeof a.e.rating === "number" ? a.e.rating : null;
+      const rb = typeof b.e.rating === "number" ? b.e.rating : null;
+      if (ra !== null && rb !== null && ra !== rb) return rb - ra;
+      if (ra !== null && rb === null) return -1;
+      if (ra === null && rb !== null) return 1;
+      return a.index - b.index;
+    });
+    return ok(indexed.map((x) => x.e.id));
+  }
+  if (kind === "random") {
+    if (!options.rng) return err({ code: "invalid", message: "Random seeding needs an rng" });
+    return ok(shuffle(ids, options.rng));
+  }
+  const order = options.order;
+  if (!order) return err({ code: "invalid", message: "Manual seeding needs an order" });
+  const known = new Set(ids);
+  const seen = /* @__PURE__ */ new Set();
+  for (const id of order) {
+    if (!known.has(id)) return err({ code: "invalid", message: `Unknown entrant in seeding: ${id}` });
+    if (seen.has(id)) return err({ code: "invalid", message: `Entrant seeded twice: ${id}` });
+    seen.add(id);
+  }
+  if (seen.size !== known.size) {
+    return err({ code: "invalid", message: "Manual seeding must list every entrant" });
+  }
+  return ok(order.slice());
+}
+
+// src/tournament/model.ts
+var TOURNAMENT_MOD_ID = "MultiplayerPvP";
+var FAKE_ENTRANT_PREFIX = "dev-bot-";
+function isFakeEntrant(id) {
+  return id.indexOf(FAKE_ENTRANT_PREFIX) === 0;
+}
+var COCKTAIL_DECK = "b_mp_cocktail";
+var COCKTAIL_NAME_MAX = 32;
+var COCKTAIL_DECKS_MAX = 3;
+var POOL_COCKTAILS_MAX = 8;
+var OFFICIAL_PRIVILEGE = "tournament_official";
+var CREATE_PRIVILEGE = "tournament_create";
+var NAME_MAX = 48;
+var DESCRIPTION_MAX = 500;
+var NOTICE_MAX = 300;
+var ORGANISER_MESSAGE_MAX = 200;
+var CO_ORGANISERS_MAX = 5;
+var EVENTS_KEPT = 200;
+var KEY_PATTERN = /^[A-Za-z0-9_:.-]{1,64}$/;
+var ROUND_KEY_PATTERN = /^((W|L|GF|RR|SW|R)[0-9]{1,3}|FINAL|SEMI|QUARTER|WINNERS_FINAL|LOSERS_FINAL)$/;
+var LOBBY_OPTIONS_MAX_BYTES = 4096;
+var MIN_LEAD_MS = 5 * 60 * 1e3;
+var MAX_LEAD_MS = 90 * 24 * 60 * 60 * 1e3;
+function isInputObject(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function int(v) {
+  return typeof v === "number" && Number.isInteger(v);
+}
+function validCocktail(value) {
+  if (!isInputObject(value)) return err("The Cocktail needs its decks (cocktail: {decks})");
+  const decks = value.decks;
+  if (!Array.isArray(decks) || decks.length < 1 || decks.length > COCKTAIL_DECKS_MAX) return err(`A Cocktail mixes 1-${COCKTAIL_DECKS_MAX} decks`);
+  for (let i = 0; i < decks.length; i++) {
+    const d = decks[i];
+    if (typeof d !== "string" || !KEY_PATTERN.test(d) || d === COCKTAIL_DECK || decks.indexOf(d) !== i) return err("A Cocktail mixes different decks (not the Cocktail itself)");
+  }
+  const out = { decks };
+  if (value.name !== void 0) {
+    if (typeof value.name !== "string" || value.name.trim().length > COCKTAIL_NAME_MAX) return err(`The Cocktail's name can be at most ${COCKTAIL_NAME_MAX} characters`);
+    if (value.name.trim().length > 0) out.name = value.name.trim();
+  }
+  return ok(out);
+}
+function validRoundSettings(value, partial) {
+  if (!isInputObject(value)) return err("Round settings must be an object");
+  const out = {};
+  for (const key of ["gameMode", "ruleset"]) {
+    const v = value[key];
+    if (v === void 0 && partial) continue;
+    if (typeof v !== "string" || !KEY_PATTERN.test(v)) return err(`${key} is required`);
+    out[key] = v;
+  }
+  if (value.bestOf !== void 0 || !partial) {
+    if (!int(value.bestOf) || BEST_OF_CHOICES.indexOf(value.bestOf) === -1) return err("bestOf must be 1, 3, 5 or 7");
+    out.bestOf = value.bestOf;
+  }
+  const deck = value.deck;
+  if (deck !== void 0 && deck !== null) {
+    if (!isInputObject(deck)) return err("deck must be an object");
+    if (deck.kind === "locked") {
+      if (typeof deck.deck !== "string" || !KEY_PATTERN.test(deck.deck) || !int(deck.stake) || deck.stake < 1 || deck.stake > MAX_STAKE) {
+        return err(`A locked deck needs a deck key and a stake from 1 to ${MAX_STAKE}`);
+      }
+      out.deck = { kind: "locked", deck: deck.deck, stake: deck.stake };
+      if (deck.deck === COCKTAIL_DECK) {
+        const recipe = validCocktail(deck.cocktail);
+        if (!recipe.ok) return recipe;
+        out.deck.cocktail = recipe.value;
+      }
+    } else if (deck.kind === "draft") {
+      const decks = deck.decks;
+      const stakes = deck.stakes;
+      if (!Array.isArray(decks) || decks.length > 64 || !decks.every((d) => typeof d === "string" && KEY_PATTERN.test(d) && d !== COCKTAIL_DECK)) {
+        return err("A draft pool lists up to 64 deck keys (Cocktails go in cocktails)");
+      }
+      const cocktails = [];
+      if (deck.cocktails !== void 0) {
+        if (!Array.isArray(deck.cocktails) || deck.cocktails.length > POOL_COCKTAILS_MAX) return err(`A pool holds at most ${POOL_COCKTAILS_MAX} Cocktails`);
+        for (const c of deck.cocktails) {
+          const recipe = validCocktail(c);
+          if (!recipe.ok) return recipe;
+          cocktails.push(recipe.value);
+        }
+      }
+      if (decks.length + cocktails.length < 1) return err("A draft pool needs at least one deck or Cocktail");
+      if (!Array.isArray(stakes) || stakes.length < 1 || !stakes.every((s) => int(s) && s >= 1 && s <= MAX_STAKE)) {
+        return err(`A draft needs stakes from 1 to ${MAX_STAKE}`);
+      }
+      const orders = ["lower_seed_first", "lower_seed_last", "random", "previous_loser_first"];
+      if (orders.indexOf(deck.banOrder) === -1) return err("Unknown ban order");
+      out.deck = { kind: "draft", decks, stakes, banOrder: deck.banOrder };
+      if (cocktails.length > 0) out.deck.cocktails = cocktails;
+    } else return err("deck.kind must be locked or draft");
+  }
+  if (value.lobbyOptions !== void 0) {
+    if (!isInputObject(value.lobbyOptions)) return err("lobbyOptions must be an object");
+    if (JSON.stringify(value.lobbyOptions).length > LOBBY_OPTIONS_MAX_BYTES) return err("lobbyOptions is too large");
+    out.lobbyOptions = value.lobbyOptions;
+  }
+  return ok(out);
+}
+function validPresetOptions(value) {
+  if (value === void 0) return ok({});
+  if (!isInputObject(value)) return err("Timetable options must be an object");
+  const out = {};
+  const minutes = (key, min, max) => {
+    const v = value[key];
+    if (v === void 0) return null;
+    if (!int(v) || v < min || v > max) return `${key} must be ${min}-${max}`;
+    out[key] = v;
+    return null;
+  };
+  const problem = minutes("breakMinutes", 0, 7 * 24 * 60) || minutes("readyUpMinutes", 2, 30) || minutes("seriesReadyUpMinutes", 2, 30) || minutes("windowMinutes", 10, 30 * 24 * 60);
+  if (problem) return err(problem);
+  if (value.roundStarts !== void 0) {
+    if (!Array.isArray(value.roundStarts) || value.roundStarts.length > 64 || !value.roundStarts.every(int)) return err("roundStarts must be times");
+    out.roundStarts = value.roundStarts;
+  }
+  if (value.fallbackAfterHours !== void 0) {
+    if (typeof value.fallbackAfterHours !== "number" || value.fallbackAfterHours < 0 || value.fallbackAfterHours > 12) return err("fallbackAfterHours must be 0-12");
+    out.fallbackAfterHours = value.fallbackAfterHours;
+  }
+  if (value.fallback !== void 0) {
+    if (value.fallback !== "higher_seed" && value.fallback !== "both_lose") return err("fallback must be higher_seed or both_lose");
+    out.fallback = value.fallback;
+  }
+  return ok(out);
+}
+function validTimetable(value) {
+  if (!isInputObject(value)) return err("timetable is required");
+  if (value.kind === "preset") {
+    const presets = ["live_event", "live_fixed_rounds", "league"];
+    if (presets.indexOf(value.preset) === -1) return err("Unknown timetable preset");
+    const options = validPresetOptions(value.options);
+    if (!options.ok) return options;
+    if (value.rounds === void 0) return ok({ kind: "preset", preset: value.preset, options: options.value });
+    const rounds = validRoundTimings(value.rounds);
+    if (!rounds.ok) return rounds;
+    return ok({ kind: "preset", preset: value.preset, options: options.value, rounds: rounds.value });
+  }
+  if (value.kind === "custom") {
+    if (!Array.isArray(value.blocks) || value.blocks.length < 1 || value.blocks.length > 64) return err("A custom timetable needs 1-64 blocks");
+    if (JSON.stringify(value.blocks).length > 16384) return err("The timetable is too large");
+    return ok({ kind: "custom", blocks: value.blocks });
+  }
+  return err("timetable.kind must be preset or custom");
+}
+function validSettings(input, now, partial) {
+  var _a, _b, _c, _d, _e;
+  const out = {};
+  const has = (key) => input[key] !== void 0;
+  if (has("name") || !partial) {
+    const name = typeof input.name === "string" ? input.name.trim() : "";
+    if (name.length < 3 || name.length > NAME_MAX) return err(`name must be 3-${NAME_MAX} characters`);
+    out.name = name;
+  }
+  if (has("description")) {
+    if (typeof input.description !== "string" || input.description.length > DESCRIPTION_MAX) return err(`description must be at most ${DESCRIPTION_MAX} characters`);
+    out.description = input.description;
+  } else if (!partial) out.description = "";
+  if (has("official") || !partial) {
+    const official = (_a = input.official) != null ? _a : false;
+    if (typeof official !== "boolean") return err("official must be true or false");
+    out.official = official;
+  }
+  if (has("requireRanked") || !partial) {
+    const required = (_b = input.requireRanked) != null ? _b : false;
+    if (typeof required !== "boolean") return err("requireRanked must be true or false");
+    out.requireRanked = required;
+  }
+  if (has("visibility") || !partial) {
+    const v = (_c = input.visibility) != null ? _c : "public";
+    if (v !== "public" && v !== "private") return err("visibility must be public or private");
+    out.visibility = v;
+  }
+  if (has("format") || !partial) {
+    const formats = ["single_elim", "double_elim", "round_robin", "swiss"];
+    if (formats.indexOf(input.format) === -1) return err("Unknown format");
+    out.format = input.format;
+  }
+  if (has("formatOptions")) {
+    const fo = Array.isArray(input.formatOptions) && input.formatOptions.length === 0 ? {} : input.formatOptions;
+    if (!isInputObject(fo)) return err("formatOptions must be an object");
+    const options = {};
+    if (fo.grandFinalReset !== void 0) {
+      if (typeof fo.grandFinalReset !== "boolean") return err("grandFinalReset must be true or false");
+      options.grandFinalReset = fo.grandFinalReset;
+    }
+    if (fo.groupSize !== void 0) {
+      if (!int(fo.groupSize) || fo.groupSize < 2 || fo.groupSize > MAX_ENTRANTS) return err("groupSize must be 2 or more");
+      options.groupSize = fo.groupSize;
+    }
+    if (fo.swissRounds !== void 0) {
+      if (!int(fo.swissRounds) || fo.swissRounds < 1 || fo.swissRounds > 20) return err("swissRounds must be 1-20");
+      options.swissRounds = fo.swissRounds;
+    }
+    out.formatOptions = options;
+  } else if (!partial) out.formatOptions = {};
+  if (has("maxPlayers") || !partial) {
+    if (!int(input.maxPlayers) || input.maxPlayers < MIN_ENTRANTS || input.maxPlayers > MAX_ENTRANTS) return err(`maxPlayers must be ${MIN_ENTRANTS}-${MAX_ENTRANTS}`);
+    out.maxPlayers = input.maxPlayers;
+  }
+  if (has("startsAt") || !partial) {
+    if (!int(input.startsAt) || input.startsAt < now + MIN_LEAD_MS || input.startsAt > now + MAX_LEAD_MS) {
+      return err("startsAt must be at least 5 minutes and at most 90 days away");
+    }
+    out.startsAt = input.startsAt;
+  }
+  if (has("checkInMinutes") || !partial) {
+    const c = input.checkInMinutes === false ? null : (_d = input.checkInMinutes) != null ? _d : null;
+    if (c !== null && (!int(c) || c < 10 || c > 60)) return err("checkInMinutes must be 10-60, or null for no check-in");
+    out.checkInMinutes = c;
+  }
+  if (has("seeding") || !partial) {
+    const s = (_e = input.seeding) != null ? _e : { kind: "rating" };
+    if (!isInputObject(s) || ["rating", "random", "manual"].indexOf(s.kind) === -1) return err("seeding.kind must be rating, random or manual");
+    if (s.board !== void 0 && (typeof s.board !== "string" || !KEY_PATTERN.test(s.board))) return err("seeding.board is not a board key");
+    out.seeding = { kind: s.kind, board: s.board };
+  }
+  if (has("rounds") || !partial) {
+    const r = input.rounds;
+    if (!isInputObject(r)) return err("rounds is required");
+    const defaults = validRoundSettings(r.defaults, false);
+    if (!defaults.ok) return err(`rounds.defaults: ${defaults.error}`);
+    const overrides = {};
+    if (r.overrides !== void 0) {
+      if (!isInputObject(r.overrides)) return err("rounds.overrides must be an object");
+      for (const key of Object.keys(r.overrides)) {
+        if (!ROUND_KEY_PATTERN.test(key)) return err(`Unknown round ${key}`);
+        const o = validRoundSettings(r.overrides[key], true);
+        if (!o.ok) return err(`rounds.overrides.${key}: ${o.error}`);
+        overrides[key] = o.value;
+      }
+    }
+    out.rounds = { defaults: defaults.value, overrides };
+  }
+  if (has("timetable") || !partial) {
+    const t = validTimetable(input.timetable);
+    if (!t.ok) return t;
+    out.timetable = t.value;
+  }
+  return ok(out);
+}
+function roundNumberOf(bracket, stage, round) {
+  const steps = roundSteps(bracket);
+  for (let i = 0; i < steps.length; i++) if (steps[i].some((r) => r.stage === stage && r.round === round)) return i + 1;
+  return null;
+}
+function roundNamesOf(bracket, stage, round) {
+  const last = (s) => bracket.matches.reduce((max, m) => m.stage === s ? Math.max(max, m.round) : max, 0);
+  if (bracket.format === "single_elim" && stage === "W") {
+    const k = last("W");
+    if (round === k) return ["FINAL"];
+    if (round === k - 1) return ["SEMI"];
+    if (round === k - 2) return ["QUARTER"];
+  }
+  if (bracket.format === "double_elim") {
+    if (stage === "GF") return ["FINAL"];
+    if (stage === "W" && round === last("W")) return ["WINNERS_FINAL"];
+    if (stage === "L" && round === last("L")) return ["LOSERS_FINAL"];
+  }
+  return [];
+}
+function roundSettingsFor(t, stage, round, bracket = t.bracket) {
+  const o = t.rounds.overrides;
+  const layers = [t.rounds.defaults];
+  if (bracket) {
+    const n = roundNumberOf(bracket, stage, round);
+    if (n !== null && o[`R${n}`]) layers.push(o[`R${n}`]);
+    for (const name of roundNamesOf(bracket, stage, round)) if (o[name]) layers.push(o[name]);
+  }
+  if (o[`${stage}${round}`]) layers.push(o[`${stage}${round}`]);
+  return Object.assign({}, ...layers);
+}
+function nowFor(t, real) {
+  var _a;
+  return real + ((_a = t.devClockOffsetMs) != null ? _a : 0);
+}
+function roleOf(t, userId) {
+  if (t.organiserId === userId) return "organiser";
+  if (t.coOrganiserIds.indexOf(userId) !== -1) return "co_organiser";
+  if (t.entrants.some((e) => e.userId === userId)) return "entrant";
+  if (t.waitlist.some((e) => e.userId === userId)) return "waitlist";
+  return "none";
+}
+function isManager(t, userId) {
+  const role = roleOf(t, userId);
+  return role === "organiser" || role === "co_organiser";
+}
+function addEvent(t, event2) {
+  var _a;
+  const seq = ((_a = t.eventSeq) != null ? _a : 0) + 1;
+  const events = t.events.concat([__spreadProps(__spreadValues({}, event2), { seq })]);
+  return __spreadProps(__spreadValues({}, t), { eventSeq: seq, events: events.length > EVENTS_KEPT ? events.slice(events.length - EVENTS_KEPT) : events });
+}
+
+// src/tournament/round_timing.ts
+var ROUND_TIMING_KEY = /^(R[0-9]{1,3}|FINAL|SEMI|QUARTER|WINNERS_FINAL|LOSERS_FINAL)$/;
+var BREAK_MAX = 7 * 24 * 60;
+var WINDOW_MAX = 30 * 24 * 60;
+function isObject2(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function validRoundTimings(value) {
+  if (!isObject2(value)) return err("timetable.rounds must be an object");
+  const out = {};
+  for (const key of Object.keys(value)) {
+    if (!ROUND_TIMING_KEY.test(key)) return err(`timetable.rounds: unknown round ${key}`);
+    const v = value[key];
+    if (!isObject2(v)) return err(`timetable.rounds.${key} must be an object`);
+    const t = {};
+    if (v.breakBefore !== void 0) {
+      if (typeof v.breakBefore !== "number" || !Number.isInteger(v.breakBefore) || v.breakBefore < 0 || v.breakBefore > BREAK_MAX) return err(`timetable.rounds.${key}: breakBefore must be 0-${BREAK_MAX} minutes`);
+      t.breakBefore = v.breakBefore;
+    }
+    if (v.manualStart !== void 0) {
+      if (typeof v.manualStart !== "boolean") return err(`timetable.rounds.${key}: manualStart must be true or false`);
+      t.manualStart = v.manualStart;
+    }
+    if (v.startAt !== void 0) {
+      if (typeof v.startAt !== "number" || !Number.isInteger(v.startAt) || v.startAt <= 0) return err(`timetable.rounds.${key}: startAt must be a time`);
+      t.startAt = v.startAt;
+    }
+    if (v.checkInMinutes !== void 0 && v.checkInMinutes !== false && v.checkInMinutes !== null) {
+      if (t.startAt === void 0) return err(`timetable.rounds.${key}: checkInMinutes needs startAt`);
+      if (typeof v.checkInMinutes !== "number" || !Number.isInteger(v.checkInMinutes) || v.checkInMinutes < 10 || v.checkInMinutes > 60) return err(`timetable.rounds.${key}: checkInMinutes must be 10-60`);
+      t.checkInMinutes = v.checkInMinutes;
+    }
+    if (v.onward !== void 0) {
+      if (typeof v.onward !== "boolean") return err(`timetable.rounds.${key}: onward must be true or false`);
+      t.onward = v.onward;
+    }
+    if (v.play !== void 0) {
+      const p = v.play;
+      if (!isObject2(p)) return err(`timetable.rounds.${key}.play must be an object`);
+      if (p.kind === "live") {
+        if (typeof p.readyUpMinutes !== "number" || !Number.isInteger(p.readyUpMinutes) || p.readyUpMinutes < 2 || p.readyUpMinutes > 30) return err(`timetable.rounds.${key}: readyUpMinutes must be 2-30`);
+        t.play = { kind: "live", readyUpMinutes: p.readyUpMinutes };
+      } else if (p.kind === "window") {
+        if (typeof p.durationMinutes !== "number" || !Number.isInteger(p.durationMinutes) || p.durationMinutes < 10 || p.durationMinutes > WINDOW_MAX) return err(`timetable.rounds.${key}: durationMinutes must be 10-${WINDOW_MAX}`);
+        t.play = { kind: "window", durationMinutes: p.durationMinutes };
+      } else return err(`timetable.rounds.${key}.play.kind must be live or window`);
+    }
+    out[key] = t;
+  }
+  return ok(out);
+}
+function sameRule(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+function merged(a, b) {
+  return __spreadValues(__spreadValues({}, a), b);
+}
+function applyRoundTimings(bracket, blocks, timings) {
+  if (!timings || Object.keys(timings).length === 0) return blocks;
+  const steps = roundSteps(bracket);
+  const perStep = [];
+  let b = 0;
+  let first = 1;
+  for (let s = 1; s <= steps.length; s++) {
+    while (b < blocks.length - 1 && s > blocks[b].untilStep) {
+      first = blocks[b].untilStep + 1;
+      b++;
+    }
+    const start2 = s === first ? blocks[b].start : { kind: "after_previous", breakMinutes: 0 };
+    perStep.push({ origin: b, changed: false, block: __spreadProps(__spreadValues({}, blocks[b]), { untilStep: s, start: start2 }) });
+  }
+  let carried = {};
+  let carrying = false;
+  const namesSeen = [];
+  for (let s = 1; s <= steps.length; s++) {
+    const names = [];
+    for (const r of steps[s - 1]) for (const n of roundNamesOf(bracket, r.stage, r.round)) if (names.indexOf(n) === -1) names.push(n);
+    let here = carrying ? __spreadValues({}, carried) : {};
+    let touched = carrying;
+    for (const key of [`R${s}`].concat(names)) {
+      const t = timings[key];
+      if (!t) continue;
+      touched = true;
+      if (t.onward && t.play) {
+        carried = merged(carried, { play: t.play });
+        carrying = true;
+      }
+      const repeat = namesSeen.indexOf(key) !== -1;
+      here = merged(here, repeat ? t.play ? { play: t.play } : {} : t);
+    }
+    for (const n of names) if (namesSeen.indexOf(n) === -1) namesSeen.push(n);
+    if (!touched) continue;
+    const entry = perStep[s - 1];
+    const block = __spreadValues({}, entry.block);
+    if (here.play) {
+      const play = here.play.kind === "live" ? { kind: "live", readyUpMinutes: here.play.readyUpMinutes } : { kind: "window", durationMinutes: here.play.durationMinutes };
+      if (!sameRule(play, block.play)) {
+        block.play = play;
+        if (play.kind === "window") block.opening = "synchronized";
+        entry.changed = true;
+      }
+    }
+    if (s > 1 && here.startAt !== void 0) {
+      block.start = { kind: "at", at: here.startAt };
+      if (here.checkInMinutes !== void 0) block.checkInMinutes = here.checkInMinutes;
+      else delete block.checkInMinutes;
+      entry.changed = true;
+    } else if (s > 1 && here.manualStart) {
+      block.start = { kind: "manual" };
+      entry.changed = true;
+    } else if (s > 1 && here.breakBefore !== void 0 && here.breakBefore > 0) {
+      block.start = { kind: "after_previous", breakMinutes: here.breakBefore };
+      entry.changed = true;
+    }
+    entry.block = block;
+  }
+  const out = [];
+  let last = null;
+  for (const entry of perStep) {
+    const joins = last !== null && last.origin === entry.origin && entry.block.start.kind === "after_previous" && entry.block.start.breakMinutes === 0 && sameRule(entry.block.play, out[out.length - 1].play) && entry.block.opening === out[out.length - 1].opening;
+    if (joins) {
+      out[out.length - 1] = __spreadProps(__spreadValues({}, out[out.length - 1]), { untilStep: entry.block.untilStep });
+    } else {
+      out.push(__spreadValues({}, entry.block));
+    }
+    last = entry;
+  }
+  return out;
+}
+
+// src/tournament/lifecycle.ts
+function fail(code, message) {
+  return err({ code, message });
+}
+function touch(t, now) {
+  return __spreadProps(__spreadValues({}, t), { updatedAt: now });
+}
+function withEvent(t, now, kind, fields = {}) {
+  return addEvent(t, __spreadValues({ at: now, kind }, fields));
+}
+function createTournament(id, organiser, input, inviteCode, now) {
+  const settings = validSettings(input, now, false);
+  if (!settings.ok) return fail(INVALID_ARGUMENT, settings.error);
+  const t = __spreadProps(__spreadValues({}, settings.value), {
+    id,
+    schema: 1,
+    modId: TOURNAMENT_MOD_ID,
+    organiserId: organiser.id,
+    organiserName: organiser.name,
+    coOrganiserIds: [],
+    inviteCode,
+    status: "draft",
+    registrationClosed: false,
+    entrants: [],
+    waitlist: [],
+    dropped: [],
+    events: [],
+    createdAt: now,
+    updatedAt: now
+  });
+  const fits = checkTimetable(t);
+  if (!fits.ok) return fits;
+  return ok(withEvent(t, now, "created"));
+}
+function sampleBracket(t, players) {
+  const ids = [];
+  for (let i = 0; i < players; i++) ids.push(`s${i}`);
+  const r = createBracket(t.format, ids, fittedFormatOptions(t.format, t.formatOptions, players), 1);
+  return r.ok ? r.value : null;
+}
+function fittedFormatOptions(format, options, players) {
+  var _a;
+  const out = __spreadValues({}, options);
+  if (format === "swiss" && out.swissRounds !== void 0) out.swissRounds = Math.max(1, Math.min(out.swissRounds, players - 1));
+  if (format === "round_robin") {
+    let size = Math.max(2, (_a = out.groupSize) != null ? _a : players);
+    while (size < players && splitGroups(new Array(players).fill("x"), size).some((g) => g.length < 2)) size++;
+    out.groupSize = Math.min(size, players);
+  }
+  return out;
+}
+function scheduleFor(t, bracket) {
+  const steps = roundSteps(bracket).length;
+  let blocks;
+  if (t.timetable.kind === "preset") {
+    const o = t.timetable.options;
+    blocks = presetSchedule(bracket, t.timetable.preset, o).map((b) => {
+      var _a, _b, _c;
+      return __spreadProps(__spreadValues({}, b), {
+        seriesReadyUpMinutes: (_a = o.seriesReadyUpMinutes) != null ? _a : b.seriesReadyUpMinutes,
+        unplayed: {
+          fallbackAfterHours: (_b = o.fallbackAfterHours) != null ? _b : b.unplayed.fallbackAfterHours,
+          fallback: (_c = o.fallback) != null ? _c : b.unplayed.fallback
+        }
+      });
+    });
+    blocks = applyRoundTimings(bracket, blocks, t.timetable.rounds);
+  } else {
+    blocks = [];
+    for (const b of t.timetable.blocks) {
+      blocks.push(__spreadValues({}, b));
+      if (b.untilStep >= steps) break;
+    }
+  }
+  if (blocks.length > 0) blocks[blocks.length - 1] = __spreadProps(__spreadValues({}, blocks[blocks.length - 1]), { untilStep: steps });
+  for (let i = 0; i < blocks.length - 1; i++) blocks[i] = __spreadProps(__spreadValues({}, blocks[i]), { untilStep: Math.min(blocks[i].untilStep, steps) });
+  return blocks;
+}
+function checkTimetable(t) {
+  for (const n of [2, t.maxPlayers]) {
+    const bracket = sampleBracket(t, n);
+    if (!bracket) return fail(INVALID_ARGUMENT, `The format options don't work with ${n} players`);
+    const schedule = scheduleFor(t, bracket);
+    const valid = validateSchedule(bracket, schedule);
+    if (!valid.ok) return fail(INVALID_ARGUMENT, `timetable: ${valid.error.message}`);
+    const timed = timedRoundsFit(t, schedule);
+    if (!timed.ok) return timed;
+  }
+  return ok(true);
+}
+function timedRoundsFit(t, schedule) {
+  let previous = t.startsAt;
+  for (const b of schedule) {
+    if (b.start.kind !== "at") continue;
+    if (b.start.at < t.startsAt) return fail(INVALID_ARGUMENT, "A round set to continue at a date and time must be after the tournament starts");
+    if (b.checkInMinutes && b.start.at - b.checkInMinutes * MINUTE_MS < t.startsAt) {
+      return fail(INVALID_ARGUMENT, "A round's check-in can't open before the tournament starts");
+    }
+    if (b.start.at < previous) return fail(INVALID_ARGUMENT, "Rounds set to continue at a date and time must be in round order");
+    previous = b.start.at;
+  }
+  return ok(true);
+}
+function managerOnly(t, userId) {
+  if (!isManager(t, userId)) return fail(PERMISSION_DENIED, "Only the organisers can do that");
+  return ok(true);
+}
+function organiserOnly(t, userId) {
+  if (t.organiserId !== userId) return fail(PERMISSION_DENIED, "Only the organiser can do that");
+  return ok(true);
+}
+function notOver(t) {
+  if (t.status === "finished" || t.status === "cancelled") return fail(FAILED_PRECONDITION, `The tournament is ${t.status}`);
+  return ok(true);
+}
+function updateSettings(t, userId, input, now) {
+  const allowed = organiserOnly(t, userId);
+  if (!allowed.ok) return allowed;
+  const over = notOver(t);
+  if (!over.ok) return over;
+  const settings = validSettings(input, now, true);
+  if (!settings.ok) return fail(INVALID_ARGUMENT, settings.error);
+  const fields = settings.value;
+  if (t.status === "running") {
+    const locked = Object.keys(fields).filter((k) => ["name", "description", "rounds"].indexOf(k) === -1);
+    if (locked.length > 0) return fail(FAILED_PRECONDITION, `Can't change ${locked.join(", ")} after the start`);
+  }
+  if (fields.maxPlayers !== void 0 && fields.maxPlayers < t.entrants.length) {
+    return fail(FAILED_PRECONDITION, `${t.entrants.length} players have already joined`);
+  }
+  let next = __spreadValues(__spreadValues({}, t), fields);
+  if (t.status !== "running") {
+    const fits = checkTimetable(next);
+    if (!fits.ok) return fits;
+  }
+  if (t.status === "running" && fields.rounds && next.bracket) {
+    let bracket = next.bracket;
+    for (const step of roundSteps(bracket)) {
+      for (const r of step) {
+        const changed2 = setRoundBestOf(bracket, r.stage, r.round, roundSettingsFor(next, r.stage, r.round).bestOf);
+        if (changed2.ok) bracket = changed2.value;
+      }
+    }
+    next = __spreadProps(__spreadValues({}, next), { bracket });
+  }
+  return ok(touch(withEvent(next, now, "settings_changed"), now));
+}
+function openRegistration(t, userId, now) {
+  const allowed = organiserOnly(t, userId);
+  if (!allowed.ok) return allowed;
+  if (t.status !== "draft") return fail(FAILED_PRECONDITION, "Registration is already open");
+  if (t.startsAt <= now) return fail(FAILED_PRECONDITION, "The start time has passed; move it first");
+  return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { status: "registration" }), now, "registration_opened"), now));
+}
+function setRegistrationClosed(t, userId, closed, now) {
+  const allowed = organiserOnly(t, userId);
+  if (!allowed.ok) return allowed;
+  if (t.status !== "registration") return fail(FAILED_PRECONDITION, "Registration is not open");
+  return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { registrationClosed: closed }), now, closed ? "registration_closed" : "registration_reopened"), now));
+}
+function joinTournament(t, user, now) {
+  if (t.status !== "registration" || t.registrationClosed) return fail(FAILED_PRECONDITION, "Registration is closed");
+  const role = roleOf(t, user.id);
+  if (role === "entrant" || role === "waitlist" || t.entrants.some((e) => e.userId === user.id)) {
+    return fail(FAILED_PRECONDITION, "You have already joined");
+  }
+  const entrant = { userId: user.id, name: user.name, joinedAt: now };
+  if (t.entrants.length < t.maxPlayers) {
+    return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { entrants: t.entrants.concat([entrant]) }), now, "joined", { userId: user.id }), now));
+  }
+  return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { waitlist: t.waitlist.concat([entrant]) }), now, "waitlisted", { userId: user.id }), now));
+}
+function leaveTournament(t, userId, now) {
+  const over = notOver(t);
+  if (!over.ok) return over;
+  if (t.waitlist.some((e) => e.userId === userId)) {
+    return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { waitlist: t.waitlist.filter((e) => e.userId !== userId) }), now, "left", { userId }), now));
+  }
+  if (!t.entrants.some((e) => e.userId === userId)) return fail(FAILED_PRECONDITION, "You are not in this tournament");
+  if (t.status === "running") {
+    if (t.dropped.indexOf(userId) !== -1) return fail(FAILED_PRECONDITION, "You have already left");
+    return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { dropped: t.dropped.concat([userId]) }), now, "dropped", { userId }), now));
+  }
+  return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { entrants: t.entrants.filter((e) => e.userId !== userId) }), now, "left", { userId }), now));
+}
+function removePlayer(t, managerId, userId, now) {
+  const allowed = managerOnly(t, managerId);
+  if (!allowed.ok) return allowed;
+  const r = leaveTournament(t, userId, now);
+  if (!r.ok) return r;
+  return ok(withEvent(r.value, now, "removed_by_organiser", { userId, by: managerId }));
+}
+function checkInEntrant(t, userId, now) {
+  if (t.status === "running") return checkInToRound(t, userId, now);
+  if (t.status !== "check_in") return fail(FAILED_PRECONDITION, "Check-in is not open");
+  const index = t.entrants.findIndex((e) => e.userId === userId);
+  if (index === -1) return fail(FAILED_PRECONDITION, "You are not in this tournament");
+  if (t.entrants[index].checkedInAt !== void 0) return ok(t);
+  const entrants = t.entrants.slice();
+  entrants[index] = __spreadProps(__spreadValues({}, entrants[index]), { checkedInAt: now });
+  return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { entrants }), now, "checked_in", { userId }), now));
+}
+function stillIn(t, userId) {
+  if (!t.bracket || t.bracket.seeds.indexOf(userId) === -1 || t.dropped.indexOf(userId) !== -1) return false;
+  if (t.format !== "single_elim" && t.format !== "double_elim") return true;
+  return !finalPlacements(t.bracket, t.dropped).some((p) => p.id === userId);
+}
+function checkInToRound(t, userId, now) {
+  if (!t.clock) return fail(FAILED_PRECONDITION, "Check-in is not open");
+  if (!stillIn(t, userId)) return fail(FAILED_PRECONDITION, "You are no longer in this tournament");
+  const r = checkInToRounds(t.clock, userId);
+  if (!r.ok) return fail(FAILED_PRECONDITION, "Check-in is not open");
+  if (JSON.stringify(r.value.blocks) === JSON.stringify(t.clock.blocks)) return ok(t);
+  return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { clock: r.value }), now, "round_checked_in", { userId }), now));
+}
+function promote(t, managerId, userId, now) {
+  const allowed = managerOnly(t, managerId);
+  if (!allowed.ok) return allowed;
+  if (t.status !== "registration" && t.status !== "check_in" && t.status !== "draft") return fail(FAILED_PRECONDITION, "The tournament has started");
+  const waiting = t.waitlist.find((e) => e.userId === userId);
+  if (!waiting) return fail(NOT_FOUND, "That player is not on the waitlist");
+  if (t.entrants.length >= t.maxPlayers) return fail(FAILED_PRECONDITION, "The tournament is full; raise the player limit first");
+  const promoted = t.status === "check_in" ? __spreadProps(__spreadValues({}, waiting), { checkedInAt: now }) : waiting;
+  return ok(
+    touch(
+      withEvent(__spreadProps(__spreadValues({}, t), { entrants: t.entrants.concat([promoted]), waitlist: t.waitlist.filter((e) => e.userId !== userId) }), now, "promoted", { userId }),
+      now
+    )
+  );
+}
+function setCoOrganisers(t, userId, ids, now) {
+  const allowed = organiserOnly(t, userId);
+  if (!allowed.ok) return allowed;
+  const unique = ids.filter((id, i) => ids.indexOf(id) === i && id !== t.organiserId);
+  if (unique.length > CO_ORGANISERS_MAX) return fail(INVALID_ARGUMENT, `At most ${CO_ORGANISERS_MAX} co-organisers`);
+  const names = {};
+  for (const id of unique) if (t.coOrganiserNames && t.coOrganiserNames[id]) names[id] = t.coOrganiserNames[id];
+  return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { coOrganiserIds: unique, coOrganiserNames: names }), now, "co_organisers_set"), now));
+}
+function setNotice(t, userId, text, now) {
+  const allowed = managerOnly(t, userId);
+  if (!allowed.ok) return allowed;
+  const over = notOver(t);
+  if (!over.ok) return over;
+  const notice = text.trim();
+  if (notice.length > NOTICE_MAX) return fail(INVALID_ARGUMENT, `The notice can be at most ${NOTICE_MAX} characters`);
+  const next = __spreadProps(__spreadValues({}, t), { notice: notice || void 0 });
+  if (!notice) delete next.notice;
+  return ok(touch(withEvent(next, now, "notice_set", { by: userId }), now));
+}
+function setCoOrganiserCode(t, userId, code, now) {
+  const allowed = organiserOnly(t, userId);
+  if (!allowed.ok) return allowed;
+  const over = notOver(t);
+  if (!over.ok) return over;
+  return ok(touch(__spreadProps(__spreadValues({}, t), { coOrganiserCode: code }), now));
+}
+function joinAsCoOrganiser(t, user, code, now) {
+  var _a;
+  const over = notOver(t);
+  if (!over.ok) return over;
+  if (!t.coOrganiserCode || t.coOrganiserCode !== code.toUpperCase()) return fail(NOT_FOUND, "That code is no longer valid");
+  if (t.organiserId === user.id) return fail(FAILED_PRECONDITION, "You already run this tournament");
+  if (t.coOrganiserIds.indexOf(user.id) !== -1) return ok(t);
+  if (t.coOrganiserIds.length >= CO_ORGANISERS_MAX) return fail(FAILED_PRECONDITION, `It already has ${CO_ORGANISERS_MAX} co-organisers`);
+  const names = __spreadProps(__spreadValues({}, (_a = t.coOrganiserNames) != null ? _a : {}), { [user.id]: user.name });
+  const next = __spreadProps(__spreadValues({}, t), { coOrganiserIds: t.coOrganiserIds.concat([user.id]), coOrganiserNames: names });
+  return ok(touch(withEvent(next, now, "co_organiser_joined", { userId: user.id }), now));
+}
+function setManualSeeding(t, userId, order, now) {
+  const allowed = organiserOnly(t, userId);
+  if (!allowed.ok) return allowed;
+  if (t.status === "running" || t.status === "finished" || t.status === "cancelled") return fail(FAILED_PRECONDITION, "Seeding is locked once the tournament starts");
+  const known = new Set(t.entrants.map((e) => e.userId));
+  if (order.some((id) => !known.has(id)) || new Set(order).size !== order.length) {
+    return fail(INVALID_ARGUMENT, "The seeding must list entrants, each once");
+  }
+  return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { seeding: __spreadProps(__spreadValues({}, t.seeding), { kind: "manual", order }) }), now, "seeding_set"), now));
+}
+function cancel(t, userId, now, reason = "organiser") {
+  const allowed = organiserOnly(t, userId);
+  if (!allowed.ok) return allowed;
+  const over = notOver(t);
+  if (!over.ok) return over;
+  return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { status: "cancelled", finishedAt: now }), now, "cancelled", { reason }), now));
+}
+function closeByModerator(t, reason, now) {
+  const over = notOver(t);
+  if (!over.ok) return over;
+  return ok(touch(withEvent(__spreadProps(__spreadValues({}, t), { status: "cancelled", finishedAt: now }), now, "cancelled", { reason: "moderator", message: reason.slice(0, 200) }), now));
+}
+function start(t, now, ratingsFor, rng, play = true) {
+  var _a, _b;
+  if (t.status !== "registration" && t.status !== "check_in") return fail(FAILED_PRECONDITION, "The tournament cannot start from here");
+  const checkedIn = t.checkInMinutes === null || t.status !== "check_in" ? t.entrants : t.entrants.filter((e) => e.checkedInAt !== void 0);
+  const noShows = t.entrants.filter((e) => checkedIn.indexOf(e) === -1).map((e) => e.userId);
+  let next = __spreadProps(__spreadValues({}, t), { entrants: checkedIn });
+  if (noShows.length > 0) next = withEvent(next, now, "no_shows_removed", { userIds: noShows });
+  if (checkedIn.length < 2) {
+    return ok(touch(withEvent(__spreadProps(__spreadValues({}, next), { status: "cancelled", finishedAt: now }), now, "cancelled", { reason: "not_enough_players" }), now));
+  }
+  const board = (_a = t.seeding.board) != null ? _a : `ranked:${t.rounds.defaults.ruleset}`;
+  const ratings = t.seeding.kind === "rating" ? ratingsFor(checkedIn.map((e) => e.userId), board) : {};
+  const rated = checkedIn.map((e) => {
+    var _a2;
+    return __spreadProps(__spreadValues({}, e), { rating: (_a2 = ratings[e.userId]) != null ? _a2 : null });
+  });
+  let order;
+  if (t.seeding.kind === "manual") {
+    const placed = ((_b = t.seeding.order) != null ? _b : []).filter((id) => rated.some((e) => e.userId === id));
+    order = placed.concat(rated.map((e) => e.userId).filter((id) => placed.indexOf(id) === -1));
+  }
+  const seeded = seedEntrants(
+    rated.map((e) => ({ id: e.userId, rating: e.rating })),
+    t.seeding.kind,
+    { rng, order }
+  );
+  if (!seeded.ok) return fail(INVALID_ARGUMENT, seeded.error.message);
+  const formatOptions = fittedFormatOptions(t.format, t.formatOptions, seeded.value.length);
+  const built = createBracket(t.format, seeded.value, formatOptions, t.rounds.defaults.bestOf);
+  if (!built.ok) return fail(INVALID_ARGUMENT, built.error.message);
+  let bracket = built.value;
+  for (const step of roundSteps(bracket)) {
+    for (const r of step) {
+      const changed2 = setRoundBestOf(bracket, r.stage, r.round, roundSettingsFor(t, r.stage, r.round, bracket).bestOf);
+      if (changed2.ok) bracket = changed2.value;
+    }
+  }
+  const schedule = scheduleFor(__spreadProps(__spreadValues({}, t), { formatOptions }), bracket);
+  const valid = validateSchedule(bracket, schedule);
+  if (!valid.ok) return fail(INVALID_ARGUMENT, `timetable: ${valid.error.message}`);
+  next = __spreadProps(__spreadValues({}, next), {
+    entrants: rated,
+    formatOptions,
+    status: "running",
+    registrationClosed: true,
+    startedAt: now,
+    bracket,
+    schedule,
+    clock: newTimetable(now, schedule)
+  });
+  next = withEvent(next, now, "started", { players: seeded.value.length });
+  return ok(touch(play ? advanceRunning(next, now) : next, now));
+}
+function tickOnce(t, now) {
+  if (!t.bracket || !t.schedule || !t.clock) return t;
+  const out = tickTimetable({
+    bracket: t.bracket,
+    schedule: t.schedule,
+    state: t.clock,
+    now,
+    dropped: t.dropped,
+    bestOfFor: (stage, round) => roundSettingsFor(t, stage, round).bestOf
+  });
+  let next = __spreadProps(__spreadValues({}, t), { bracket: out.bracket, clock: out.state, nextWakeAt: out.nextWakeAt });
+  for (const e of out.events) {
+    const _a = e, { kind } = _a, fields = __objRest(_a, ["kind"]);
+    next = withEvent(next, now, kind, fields);
+  }
+  if (out.state.finishedAt !== void 0 && next.status === "running") {
+    next = withEvent(__spreadProps(__spreadValues({}, next), { status: "finished", finishedAt: now, nextWakeAt: null }), now, "tournament_finished");
+  }
+  return next;
+}
+function botsAct(t, now) {
+  if (!t.bracket || !t.clock) return null;
+  let clock = t.clock;
+  let bracket = t.bracket;
+  let acted = false;
+  const resolved = resolveBracket(bracket, t.dropped);
+  for (const matchId of Object.keys(clock.matches)) {
+    const m = resolved.byId[matchId];
+    const c = clock.matches[matchId];
+    if (!m || typeof m.players[0] !== "string" || typeof m.players[1] !== "string") continue;
+    const pair = [m.players[0], m.players[1]];
+    const bots = [isFakeEntrant(pair[0]), isFakeEntrant(pair[1])];
+    if (!bots[0] && !bots[1]) continue;
+    if (c.phase === "ready_up") {
+      for (const side of [0, 1]) {
+        if (!bots[side] || c.ready[side]) continue;
+        const r = setReady(clock, matchId, side, true, now);
+        if (r.ok) {
+          clock = r.value;
+          acted = true;
+        }
+      }
+    } else if (c.phase === "in_game") {
+      const coin = (matchId.length * 7 + m.def.games.length * 13 + now) % 2 === 0 ? 0 : 1;
+      const winner = bots[0] && bots[1] ? coin : bots[0] ? 1 : 0;
+      const r = recordGame(bracket, matchId, winner, t.dropped);
+      if (r.ok) {
+        bracket = r.value;
+        acted = true;
+      }
+    }
+  }
+  return acted ? __spreadProps(__spreadValues({}, t), { bracket, clock }) : null;
+}
+function advanceRunning(t, now) {
+  let next = tickOnce(t, now);
+  for (let i = 0; i < 1e3 && next.status === "running"; i++) {
+    const acted = botsAct(next, now);
+    if (!acted) break;
+    next = tickOnce(acted, now);
+  }
+  return next;
+}
+function wakeAt(t) {
+  var _a;
+  if (lobbiesToClose(t).length > 0) return t.updatedAt;
+  if (t.status === "registration") {
+    const checkInAt = t.checkInMinutes === null ? null : t.startsAt - t.checkInMinutes * MINUTE_MS;
+    return checkInAt !== null && checkInAt < t.startsAt ? checkInAt : t.startsAt;
+  }
+  if (t.status === "check_in") return t.startsAt;
+  if (t.status === "running") return (_a = t.nextWakeAt) != null ? _a : null;
+  return null;
+}
+function advance(t, now, ratingsFor, rng) {
+  let next = t;
+  if (next.status === "registration" && next.checkInMinutes !== null && now >= next.startsAt - next.checkInMinutes * MINUTE_MS && now < next.startsAt) {
+    next = touch(withEvent(__spreadProps(__spreadValues({}, next), { status: "check_in", registrationClosed: true }), now, "check_in_opened"), now);
+  }
+  if ((next.status === "registration" || next.status === "check_in") && now >= next.startsAt) {
+    const started = start(next, now, ratingsFor, rng);
+    next = started.ok ? started.value : touch(withEvent(__spreadProps(__spreadValues({}, next), { status: "cancelled", finishedAt: now }), now, "cancelled", { reason: "start_failed", message: started.error.message }), now);
+  } else if (next.status === "running") {
+    const wake = next.nextWakeAt;
+    if (wake !== null && wake !== void 0 && wake <= now) next = touch(advanceRunning(next, now), now);
+  }
+  return next === t ? null : next;
+}
+function settleTimetable(t, now) {
+  return t.status === "running" ? touch(advanceRunning(t, now), now) : t;
+}
+
+// src/tournament/matches.ts
+function matchFail(code, message) {
+  return err({ code, message });
+}
+function engineFail(e) {
+  const code = e.code === "unknown_match" ? NOT_FOUND : e.code === "invalid" ? INVALID_ARGUMENT : FAILED_PRECONDITION;
+  return matchFail(code, e.message);
+}
+function isRunning(t) {
+  return t.status === "running" && !!t.bracket && !!t.schedule && !!t.clock;
+}
+function pairOf(m) {
+  const [a, b] = m.players;
+  return typeof a === "string" && typeof b === "string" ? [a, b] : null;
+}
+function currentMatchOf(t, userId) {
+  if (!isRunning(t)) return null;
+  const resolved = resolveBracket(t.bracket, t.dropped);
+  for (const id of Object.keys(t.clock.matches)) {
+    const c = t.clock.matches[id];
+    if (c.phase !== "ready_up" && c.phase !== "in_game") continue;
+    const pair = pairOf(resolved.byId[id]);
+    if (pair && pair.indexOf(userId) !== -1) return id;
+  }
+  return null;
+}
+function readyUp(t, userId, matchId, ready2, now) {
+  if (!isRunning(t)) return matchFail(FAILED_PRECONDITION, "The tournament is not running");
+  if (t.clock.pausedSince !== void 0) return matchFail(FAILED_PRECONDITION, "The tournament is paused");
+  const id = matchId != null ? matchId : currentMatchOf(t, userId);
+  if (!id) return matchFail(FAILED_PRECONDITION, "You have no match to ready up for");
+  const m = resolveBracket(t.bracket, t.dropped).byId[id];
+  const pair = m ? pairOf(m) : null;
+  if (!pair || pair.indexOf(userId) === -1) return matchFail(PERMISSION_DENIED, "That is not your match");
+  const clock = t.clock.matches[id];
+  if (!clock || clock.phase !== "ready_up") return matchFail(FAILED_PRECONDITION, "That match is not waiting for ready-up");
+  const side = pair.indexOf(userId);
+  const r = setReady(t.clock, id, side, ready2, now);
+  if (!r.ok) return engineFail(r.error);
+  return ok(settleTimetable(touch(__spreadProps(__spreadValues({}, t), { clock: r.value }), now), now));
+}
+function lobbiesNeeded(t) {
+  if (!isRunning(t)) return [];
+  const resolved = resolveBracket(t.bracket, t.dropped);
+  const out = [];
+  for (const id of Object.keys(t.clock.matches)) {
+    const c = t.clock.matches[id];
+    if (c.phase !== "in_game" || c.handoff === void 0) continue;
+    const lobby = t.lobbies ? t.lobbies[id] : void 0;
+    if (lobby && lobby.handoff === c.handoff) continue;
+    const m = resolved.byId[id];
+    const pair = m ? pairOf(m) : null;
+    if (!pair) continue;
+    out.push({
+      matchId: id,
+      game: m.def.games.length + 1,
+      handoff: c.handoff,
+      players: pair,
+      settings: roundSettingsFor(t, m.def.stage, m.def.round),
+      stage: m.def.stage,
+      round: m.def.round
+    });
+  }
+  return out;
+}
+function claimLobby(t, need, code, now) {
+  var _a;
+  if (!isRunning(t)) return matchFail(FAILED_PRECONDITION, "The tournament is not running");
+  const c = t.clock.matches[need.matchId];
+  if (!c || c.phase !== "in_game" || c.handoff !== need.handoff) return matchFail(FAILED_PRECONDITION, "The game is no longer waiting for a lobby");
+  const existing = t.lobbies ? t.lobbies[need.matchId] : void 0;
+  if (existing && existing.handoff === need.handoff) return matchFail(FAILED_PRECONDITION, "Already claimed");
+  const lobby = { code, game: need.game, handoff: need.handoff, status: "creating", createdAt: now };
+  return ok(touch(__spreadProps(__spreadValues({}, t), { lobbies: __spreadProps(__spreadValues({}, (_a = t.lobbies) != null ? _a : {}), { [need.matchId]: lobby }) }), now));
+}
+function setLobby(t, matchId, patch) {
+  var _a;
+  const lobbies = (_a = t.lobbies) != null ? _a : {};
+  if (!lobbies[matchId]) return t;
+  return __spreadProps(__spreadValues({}, t), { lobbies: __spreadProps(__spreadValues({}, lobbies), { [matchId]: __spreadValues(__spreadValues({}, lobbies[matchId]), patch) }) });
+}
+function winsOf(t, matchId) {
+  const m = t.bracket ? resolveBracket(t.bracket, t.dropped).byId[matchId] : void 0;
+  return m ? m.wins : [0, 0];
+}
+function lobbyOpened(t, matchId, handoff, now) {
+  const lobby = t.lobbies ? t.lobbies[matchId] : void 0;
+  if (!lobby || lobby.handoff !== handoff) return matchFail(FAILED_PRECONDITION, "Not this lobby");
+  const next = withEvent(setLobby(t, matchId, { status: "open" }), now, "lobby_opened", { matchId, code: lobby.code, game: lobby.game, wins: winsOf(t, matchId) });
+  return ok(touch(next, now));
+}
+function lobbyReused(t, need, now) {
+  if (!isRunning(t)) return matchFail(FAILED_PRECONDITION, "The tournament is not running");
+  const c = t.clock.matches[need.matchId];
+  const lobby = t.lobbies ? t.lobbies[need.matchId] : void 0;
+  if (!c || c.phase !== "in_game" || c.handoff !== need.handoff) return matchFail(FAILED_PRECONDITION, "The game is no longer waiting for a lobby");
+  if (!lobby || lobby.status !== "open" || lobby.handoff === need.handoff) return matchFail(FAILED_PRECONDITION, "No lobby to reuse");
+  const next = withEvent(setLobby(t, need.matchId, { handoff: need.handoff, game: need.game }), now, "lobby_opened", {
+    matchId: need.matchId,
+    code: lobby.code,
+    game: need.game,
+    wins: winsOf(t, need.matchId),
+    reused: true
+  });
+  return ok(touch(next, now));
+}
+function outcomeFromRun(run, pair) {
+  if (run.status === "disputed" || run.status === "contested") return "dispute";
+  if (run.status === "abandoned" || run.status === "restarted") return "none";
+  const place = (id) => {
+    const p = run.placements.find((x) => x.playerId === id);
+    return p ? p.place : null;
+  };
+  const a = place(pair[0]);
+  const b = place(pair[1]);
+  if (a === null && b === null) return "none";
+  if (a === null) return 1;
+  if (b === null) return 0;
+  if (a === b) return "draw";
+  return a < b ? 0 : 1;
+}
+function gameEnded(t, ref, run, now) {
+  if (!isRunning(t) || run.status === "restarted") return null;
+  const c = t.clock.matches[ref.matchId];
+  const lobby = t.lobbies ? t.lobbies[ref.matchId] : void 0;
+  if (!lobby || lobby.code !== run.code || lobby.status !== "open") return null;
+  if (!c || c.phase !== "in_game" || c.handoff !== lobby.handoff) return null;
+  const m = resolveBracket(t.bracket, t.dropped).byId[ref.matchId];
+  const pair = m ? pairOf(m) : null;
+  if (!pair) return null;
+  const outcome = outcomeFromRun(run, pair);
+  const fields = { matchId: ref.matchId, game: lobby.game, runId: run.runId };
+  if (outcome === "dispute") {
+    const next2 = withEvent(setLobby(t, ref.matchId, { status: "disputed", runId: run.runId }), now, "result_disputed", __spreadProps(__spreadValues({}, fields), { status: run.status }));
+    return ok(touch(next2, now));
+  }
+  if (outcome === "none") {
+    const reopened = reopenReadyUp(t.clock, ref.matchId, now, seriesMinutesFor(t, ref.matchId));
+    if (!reopened.ok) return engineFail(reopened.error);
+    const next2 = withEvent(setLobby(__spreadProps(__spreadValues({}, t), { clock: reopened.value }), ref.matchId, { runId: run.runId }), now, "game_abandoned", fields);
+    return ok(settleTimetable(touch(next2, now), now));
+  }
+  const recorded = recordGame(t.bracket, ref.matchId, outcome, t.dropped);
+  if (!recorded.ok) return engineFail(recorded.error);
+  const winner = outcome === "draw" ? null : pair[outcome];
+  const next = withEvent(setLobby(__spreadProps(__spreadValues({}, t), { bracket: recorded.value }), ref.matchId, { runId: run.runId }), now, "game_recorded", __spreadProps(__spreadValues({}, fields), { winner, draw: outcome === "draw" }));
+  return ok(settleTimetable(touch(next, now), now));
+}
+function seriesMinutesFor(t, matchId) {
+  const DEFAULT_MINUTES = 3;
+  if (!t.bracket || !t.schedule) return DEFAULT_MINUTES;
+  const m = t.bracket.matches.find((x) => x.id === matchId);
+  const block = m ? blockOfRound(t.bracket, t.schedule, m.stage, m.round) : null;
+  return block ? block.seriesReadyUpMinutes : DEFAULT_MINUTES;
+}
+function lobbyLost(t, matchId, handoff, now) {
+  if (!isRunning(t)) return null;
+  const c = t.clock.matches[matchId];
+  const lobby = t.lobbies ? t.lobbies[matchId] : void 0;
+  if (!c || c.phase !== "in_game" || c.handoff !== handoff || !lobby || lobby.handoff !== handoff) return null;
+  if (lobby.status !== "open" && lobby.status !== "creating") return null;
+  const reopened = reopenReadyUp(t.clock, matchId, now, seriesMinutesFor(t, matchId));
+  if (!reopened.ok) return engineFail(reopened.error);
+  const next = withEvent(setLobby(__spreadProps(__spreadValues({}, t), { clock: reopened.value }), matchId, { status: "lost" }), now, "lobby_lost", { matchId, game: lobby.game });
+  return ok(settleTimetable(touch(next, now), now));
+}
+function lobbyClosed(t, matchId, code, now) {
+  const lobby = t.lobbies ? t.lobbies[matchId] : void 0;
+  if (!lobby || lobby.code !== code || lobby.status === "closed") return null;
+  return ok(touch(withEvent(setLobby(t, matchId, { status: "closed" }), now, "lobby_closed", { matchId, code }), now));
+}
+function requireManager(t, userId) {
+  return isManager(t, userId) ? null : matchFail(PERMISSION_DENIED, "Only the organisers can do that");
+}
+function setResult(t, userId, input, now) {
+  const refused = requireManager(t, userId);
+  if (refused) return refused;
+  if (!isRunning(t)) return matchFail(FAILED_PRECONDITION, "The tournament is not running");
+  const m = resolveBracket(t.bracket, t.dropped).byId[input.matchId];
+  if (!m) return matchFail(NOT_FOUND, "No such match");
+  const pair = pairOf(m);
+  if (!pair) return matchFail(FAILED_PRECONDITION, "Both players of that match are not known yet");
+  let side;
+  if (input.none) side = "none";
+  else if (input.draw) side = "draw";
+  else if (input.winner !== void 0 && pair.indexOf(input.winner) !== -1) side = pair.indexOf(input.winner);
+  else return matchFail(INVALID_ARGUMENT, "Give the winner (one of the two players), draw or none");
+  let bracket = t.bracket;
+  if (input.scope === "game") {
+    if (side === "none") return matchFail(INVALID_ARGUMENT, "A game has a winner or is a draw");
+    const r = recordGame(bracket, input.matchId, side, t.dropped);
+    if (!r.ok) return engineFail(r.error);
+    bracket = r.value;
+  } else {
+    const decision = { kind: "override", outcome: side };
+    const r = decideMatch(bracket, input.matchId, decision, { dropped: t.dropped, resetDownstream: input.resetDownstream });
+    if (!r.ok) {
+      if (r.error.code === "downstream_played") {
+        return matchFail(FAILED_PRECONDITION, `Later matches already have results: ${r.error.matchIds.join(", ")}. Send resetDownstream to clear them.`);
+      }
+      return engineFail(r.error);
+    }
+    bracket = r.value;
+  }
+  let next = __spreadProps(__spreadValues({}, t), { bracket });
+  const lobby = t.lobbies ? t.lobbies[input.matchId] : void 0;
+  if (lobby && lobby.status === "disputed") next = setLobby(next, input.matchId, { status: "open" });
+  next = withEvent(next, now, "result_set", { matchId: input.matchId, by: userId, scope: input.scope, winner: side === "none" || side === "draw" ? null : pair[side], draw: side === "draw", none: side === "none" });
+  return ok(settleTimetable(touch(next, now), now));
+}
+function clearResult(t, userId, matchId, resetDownstream, now) {
+  const refused = requireManager(t, userId);
+  if (refused) return refused;
+  if (!isRunning(t)) return matchFail(FAILED_PRECONDITION, "The tournament is not running");
+  const r = clearMatch(t.bracket, matchId, { dropped: t.dropped, resetDownstream });
+  if (!r.ok) {
+    if (r.error.code === "downstream_played") {
+      return matchFail(FAILED_PRECONDITION, `Later matches already have results: ${r.error.matchIds.join(", ")}. Send resetDownstream to clear them.`);
+    }
+    return engineFail(r.error);
+  }
+  const next = withEvent(__spreadProps(__spreadValues({}, t), { bracket: r.value }), now, "result_cleared", { matchId, by: userId });
+  return ok(settleTimetable(touch(next, now), now));
+}
+function extend(t, userId, matchId, minutes, now) {
+  const refused = requireManager(t, userId);
+  if (refused) return refused;
+  if (!isRunning(t)) return matchFail(FAILED_PRECONDITION, "The tournament is not running");
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 7 * 24 * 60) return matchFail(INVALID_ARGUMENT, "minutes must be 1 to 10080");
+  const r = extendMatch(t.clock, matchId, minutes, now);
+  if (!r.ok) return engineFail(r.error);
+  const next = withEvent(__spreadProps(__spreadValues({}, t), { clock: r.value }), now, "deadline_extended", { matchId, minutes, by: userId });
+  return ok(settleTimetable(touch(next, now), now));
+}
+function setPaused(t, userId, paused, now) {
+  const refused = requireManager(t, userId);
+  if (refused) return refused;
+  if (!isRunning(t)) return matchFail(FAILED_PRECONDITION, "The tournament is not running");
+  const r = paused ? pause(t.clock, now) : resume(t.clock, now);
+  if (!r.ok) return engineFail(r.error);
+  const next = withEvent(__spreadProps(__spreadValues({}, t), { clock: r.value }), now, paused ? "paused" : "resumed", { by: userId });
+  return ok(settleTimetable(touch(next, now), now));
+}
+function startNextRound(t, userId, now) {
+  const refused = requireManager(t, userId);
+  if (refused) return refused;
+  if (!isRunning(t)) return matchFail(FAILED_PRECONDITION, "The tournament is not running");
+  const block = t.clock.blocks.findIndex((b) => b.startedAt === void 0);
+  if (block === -1) return matchFail(FAILED_PRECONDITION, "Every round has started");
+  const r = startBlock(t.clock, block, now);
+  if (!r.ok) return engineFail(r.error);
+  const next = withEvent(__spreadProps(__spreadValues({}, t), { clock: r.value }), now, "round_started_early", { block, by: userId });
+  return ok(settleTimetable(touch(next, now), now));
+}
+function minutesLeft(deadline, now) {
+  return deadline === null ? null : Math.max(0, Math.ceil((deadline - now) / MINUTE_MS));
+}
+
+// src/tournament/view.ts
+var EVENTS_SHOWN = 50;
+function summaryOf(t) {
+  return {
+    id: t.id,
+    name: t.name,
+    format: t.format,
+    status: t.status,
+    visibility: t.visibility,
+    organiserName: t.organiserName,
+    players: t.entrants.length,
+    maxPlayers: t.maxPlayers,
+    waitlist: t.waitlist.length,
+    startsAt: t.startsAt,
+    checkInAt: t.checkInMinutes === null ? null : t.startsAt - t.checkInMinutes * MINUTE_MS,
+    gameMode: t.rounds.defaults.gameMode,
+    ruleset: t.rounds.defaults.ruleset,
+    registrationOpen: t.status === "registration" && !t.registrationClosed,
+    official: t.official === true,
+    requireRanked: t.requireRanked === true
+  };
+}
+function nextRoundCheckIn(t, viewerId) {
+  var _a;
+  if (!t.schedule || !t.clock) return null;
+  for (let i = 0; i < t.schedule.length; i++) {
+    const b = t.schedule[i];
+    const c = t.clock.blocks[i];
+    if (!c || b.start.kind !== "at" || !b.checkInMinutes || c.startedAt !== void 0 || c.startRequestedAt !== void 0) continue;
+    return {
+      block: i,
+      firstRound: i === 0 ? 1 : t.schedule[i - 1].untilStep + 1,
+      opensAt: b.start.at - b.checkInMinutes * MINUTE_MS,
+      startsAt: b.start.at,
+      open: c.checkInOpenedAt !== void 0,
+      checkedIn: ((_a = c.checkedIn) != null ? _a : []).indexOf(viewerId) !== -1
+    };
+  }
+  return null;
+}
+function nameMap(t) {
+  const names = {};
+  for (const e of t.entrants.concat(t.waitlist)) names[e.userId] = e.name;
+  return names;
+}
+function lobbyOf(t, matchId) {
+  const lobby = t.lobbies ? t.lobbies[matchId] : void 0;
+  if (!lobby || lobby.status !== "open" && lobby.status !== "disputed") return null;
+  return { code: lobby.code, game: lobby.game, status: lobby.status };
+}
+function tournamentView(t, viewerId, now) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  const role = roleOf(t, viewerId);
+  const names = nameMap(t);
+  const ref = (p) => {
+    var _a2;
+    return p === void 0 ? "tbd" : p === null ? null : { id: p, name: (_a2 = names[p]) != null ? _a2 : "?" };
+  };
+  const seeds = t.bracket ? t.bracket.seeds : [];
+  let bracket = null;
+  let standings = null;
+  let places = null;
+  let you = null;
+  if (t.bracket) {
+    const resolved = resolveBracket(t.bracket, t.dropped);
+    const clock = t.clock ? t.clock.matches : {};
+    bracket = resolved.matches.map((m) => {
+      var _a2, _b2;
+      const c = clock[m.def.id];
+      const settings = roundSettingsFor(t, m.def.stage, m.def.round);
+      return {
+        id: m.def.id,
+        stage: m.def.stage,
+        round: m.def.round,
+        order: m.def.order,
+        group: (_a2 = m.def.group) != null ? _a2 : null,
+        players: [ref(m.players[0]), ref(m.players[1])],
+        status: m.status,
+        bestOf: m.def.bestOf,
+        wins: m.wins,
+        games: m.stale ? [] : m.def.games,
+        outcome: m.outcome ? { winner: m.outcome.winner, draw: m.outcome.draw, reason: m.outcome.reason } : null,
+        gameMode: settings.gameMode,
+        ruleset: settings.ruleset,
+        // The round's deck rule (locked deck + stake, or a ban-and-pick pool).
+        deck: (_b2 = settings.deck) != null ? _b2 : null,
+        clock: c ? { phase: c.phase, deadline: c.deadline, ready: c.ready, openedAt: c.openedAt } : null,
+        // The lobby for the current game (only seats its two players).
+        lobby: lobbyOf(t, m.def.id)
+      };
+    });
+    const tiebreakers = tiebreakersFor(t.bracket);
+    if (t.format === "swiss") standings = [computeStandings(seeds, resolved.matches, tiebreakers, t.dropped)];
+    if (t.format === "round_robin") {
+      const groups = splitGroups(seeds, (_a = t.bracket.options.groupSize) != null ? _a : seeds.length);
+      standings = groups.map(
+        (members, g) => computeStandings(
+          members,
+          resolved.matches.filter((m) => m.def.group === g + 1),
+          tiebreakers,
+          t.dropped
+        )
+      );
+    }
+    places = finalPlacements(t.bracket, t.dropped);
+    if (role === "entrant" || seeds.indexOf(viewerId) !== -1) {
+      const mine = resolved.matches.filter((m) => m.players[0] === viewerId || m.players[1] === viewerId);
+      const next = (_b = mine.find((m) => m.status === "ready" || m.status === "in_progress")) != null ? _b : mine.find((m) => m.status === "waiting");
+      const elimination = t.format === "single_elim" || t.format === "double_elim";
+      const out = elimination && t.status === "running" && places.some((p) => p.id === viewerId);
+      const dropped = t.dropped.indexOf(viewerId) !== -1;
+      you = { nextMatchId: next ? next.def.id : null, eliminated: out || dropped, dropped };
+      if (!you.eliminated && t.status === "running") you.roundCheckIn = nextRoundCheckIn(t, viewerId);
+    }
+  }
+  const manager = isManager(t, viewerId);
+  return {
+    serverNow: now,
+    role,
+    summary: summaryOf(t),
+    description: t.description,
+    organiserId: t.organiserId,
+    coOrganiserIds: t.coOrganiserIds,
+    notice: (_c = t.notice) != null ? _c : null,
+    coOrganisers: t.coOrganiserIds.map((id) => ({ id, name: t.coOrganiserNames && t.coOrganiserNames[id] || "?" })),
+    // Only the organiser shares it.
+    coOrganiserCode: t.organiserId === viewerId ? (_d = t.coOrganiserCode) != null ? _d : null : void 0,
+    inviteCode: manager ? t.inviteCode : void 0,
+    formatOptions: t.formatOptions,
+    // The saved manual order goes to the organisers (their seeding editor).
+    seeding: { kind: t.seeding.kind, board: (_e = t.seeding.board) != null ? _e : `ranked:${t.rounds.defaults.ruleset}`, order: isManager(t, viewerId) ? (_f = t.seeding.order) != null ? _f : null : void 0 },
+    rounds: t.rounds,
+    timetable: t.timetable,
+    schedule: (_g = t.schedule) != null ? _g : null,
+    blocks: t.clock ? t.clock.blocks : null,
+    paused: t.clock ? t.clock.pausedSince !== void 0 : false,
+    entrants: t.entrants.map((e) => {
+      var _a2;
+      return {
+        id: e.userId,
+        name: e.name,
+        seed: seeds.indexOf(e.userId) === -1 ? null : seeds.indexOf(e.userId) + 1,
+        checkedIn: e.checkedInAt !== void 0,
+        dropped: t.dropped.indexOf(e.userId) !== -1,
+        rating: manager ? (_a2 = e.rating) != null ? _a2 : null : void 0
+      };
+    }),
+    waitlist: t.waitlist.map((e) => ({ id: e.userId, name: e.name })),
+    bracket,
+    standings,
+    placements: places,
+    you,
+    events: t.events.slice(-EVENTS_SHOWN),
+    startedAt: (_h = t.startedAt) != null ? _h : null,
+    finishedAt: (_i = t.finishedAt) != null ? _i : null
+  };
+}
+
+// src/tournament/storage.ts
+var TOURNAMENTS = "tournaments";
+var TOURNAMENT_INDEX = "tournament_index";
+var TOURNAMENT_CODES = "tournament_codes";
+var TOURNAMENT_COORG_CODES = "tournament_coorg_codes";
+var TOURNAMENT_DUE = "tournament_due";
+var TOURNAMENT_MINE = "tournament_mine";
+var MINE_KEY = "list";
+var MINE_MAX = 100;
+var SAVE_ATTEMPTS = 4;
+function readTournament(nk, id) {
+  var _a;
+  const objects = nk.storageRead([{ collection: TOURNAMENTS, key: id, userId: SYSTEM_USER_ID }]);
+  if (objects.length === 0) return null;
+  return { t: objects[0].value, version: (_a = objects[0].version) != null ? _a : "" };
+}
+function tournamentMemberIds(t) {
+  if (!t) return [];
+  const ids = [t.organiserId].concat(t.coOrganiserIds, t.entrants.map((e) => e.userId), t.waitlist.map((e) => e.userId));
+  return ids.filter((id, i) => ids.indexOf(id) === i && !isFakeEntrant(id));
+}
+function readMine(nk, userIds) {
+  const out = {};
+  for (const id of userIds) out[id] = { ids: [], version: void 0 };
+  if (userIds.length === 0) return out;
+  for (const o of nk.storageRead(userIds.map((userId) => ({ collection: TOURNAMENT_MINE, key: MINE_KEY, userId })))) {
+    const ids = o.value.ids;
+    out[o.userId] = { ids: Array.isArray(ids) ? ids : [], version: o.version };
+  }
+  return out;
+}
+function readMineIds(nk, userId) {
+  return readMine(nk, [userId])[userId].ids;
+}
+function indexEntry(t) {
+  var _a;
+  return __spreadProps(__spreadValues({}, summaryOf(t)), { organiserId: t.organiserId, updatedAt: t.updatedAt, finishedAt: (_a = t.finishedAt) != null ? _a : null });
+}
+function isVersionConflict(e) {
+  const message = e instanceof Error ? e.message : typeof e === "object" && e !== null ? String(e.message) : String(e);
+  return /version/i.test(message);
+}
+function storable(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+function writeTournament(nk, previous, next, version) {
+  var _a, _b;
+  const before = tournamentMemberIds(previous);
+  const after = tournamentMemberIds(next);
+  const joined = after.filter((id) => before.indexOf(id) === -1);
+  const left = before.filter((id) => after.indexOf(id) === -1);
+  const lists = readMine(nk, joined.concat(left));
+  const writes = [
+    {
+      collection: TOURNAMENTS,
+      key: next.id,
+      userId: SYSTEM_USER_ID,
+      value: storable(next),
+      version: version != null ? version : "*",
+      permissionRead: 0,
+      permissionWrite: 0
+    },
+    {
+      collection: TOURNAMENT_INDEX,
+      key: next.id,
+      userId: SYSTEM_USER_ID,
+      value: storable(indexEntry(next)),
+      permissionRead: 0,
+      permissionWrite: 0
+    }
+  ];
+  for (const userId of joined.concat(left)) {
+    const list = lists[userId];
+    let ids = list.ids.filter((id) => id !== next.id);
+    if (joined.indexOf(userId) !== -1) ids = [next.id].concat(ids).slice(0, MINE_MAX);
+    writes.push({
+      collection: TOURNAMENT_MINE,
+      key: MINE_KEY,
+      userId,
+      value: { ids },
+      version: (_a = list.version) != null ? _a : "*",
+      permissionRead: 1,
+      permissionWrite: 0
+    });
+  }
+  const wake = wakeAt(next);
+  const due = wake === null ? null : wake - ((_b = next.devClockOffsetMs) != null ? _b : 0);
+  if (due !== null) {
+    writes.push({ collection: TOURNAMENT_DUE, key: next.id, userId: SYSTEM_USER_ID, value: { at: due }, permissionRead: 0, permissionWrite: 0 });
+  }
+  nk.storageWrite(writes);
+  if (due === null) nk.storageDelete([{ collection: TOURNAMENT_DUE, key: next.id, userId: SYSTEM_USER_ID }]);
+}
+function insertTournament(nk, t) {
+  writeTournament(nk, null, t, void 0);
+}
+function mutate(nk, id, change) {
+  for (let attempt = 1; ; attempt++) {
+    const current = readTournament(nk, id);
+    if (!current) throw runtimeError(NOT_FOUND, "No such tournament");
+    const result = change(current.t);
+    if (result === null) return current.t;
+    if (!result.ok) throw runtimeError(result.error.code, result.error.message);
+    if (result.value === current.t) return current.t;
+    try {
+      writeTournament(nk, current.t, result.value, current.version);
+      return result.value;
+    } catch (e) {
+      if (attempt >= SAVE_ATTEMPTS || !isVersionConflict(e)) throw e;
+    }
+  }
+}
+var CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+var INVITE_CODE_LENGTH = 6;
+function reserveCodeIn(nk, collection, id, random) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    let code = "";
+    for (let i = 0; i < INVITE_CODE_LENGTH; i++) code += CODE_ALPHABET[Math.floor(random() * CODE_ALPHABET.length)];
+    try {
+      nk.storageWrite([{ collection, key: code, userId: SYSTEM_USER_ID, value: { id }, version: "*", permissionRead: 0, permissionWrite: 0 }]);
+      return code;
+    } catch (e) {
+    }
+  }
+  throw runtimeError(ALREADY_EXISTS, "Could not reserve a code");
+}
+function reserveInviteCode(nk, id, random = Math.random) {
+  return reserveCodeIn(nk, TOURNAMENT_CODES, id, random);
+}
+function reserveCoOrganiserCode(nk, id, old, random = Math.random) {
+  if (old) nk.storageDelete([{ collection: TOURNAMENT_COORG_CODES, key: old, userId: SYSTEM_USER_ID }]);
+  return reserveCodeIn(nk, TOURNAMENT_COORG_CODES, id, random);
+}
+function tournamentIdForCoOrganiserCode(nk, code) {
+  const objects = nk.storageRead([{ collection: TOURNAMENT_COORG_CODES, key: code.toUpperCase(), userId: SYSTEM_USER_ID }]);
+  if (objects.length === 0) return null;
+  const id = objects[0].value.id;
+  return typeof id === "string" ? id : null;
+}
+function tournamentIdForCode(nk, code) {
+  const objects = nk.storageRead([{ collection: TOURNAMENT_CODES, key: code.toUpperCase(), userId: SYSTEM_USER_ID }]);
+  if (objects.length === 0) return null;
+  const id = objects[0].value.id;
+  return typeof id === "string" ? id : null;
+}
+function readIndexEntries(nk, ids) {
+  if (ids.length === 0) return [];
+  const objects = nk.storageRead(ids.map((key) => ({ collection: TOURNAMENT_INDEX, key, userId: SYSTEM_USER_ID })));
+  const byId = {};
+  for (const o of objects) byId[o.key] = o.value;
+  return ids.filter((id) => byId[id]).map((id) => byId[id]);
+}
+function scanIndex(nk, keep, limit) {
+  const out = [];
+  forEachStored(nk, SYSTEM_USER_ID, TOURNAMENT_INDEX, (o) => {
+    const e = o.value;
+    if (keep(e)) out.push(e);
+    return out.length >= limit ? "stop" : void 0;
+  });
+  return out;
+}
+function dueIds(nk, now) {
+  const ids = [];
+  forEachStored(nk, SYSTEM_USER_ID, TOURNAMENT_DUE, (o) => {
+    const at = o.value.at;
+    if (typeof at === "number" && at <= now) ids.push(o.key);
+  });
+  return ids;
+}
+var CREATE_LIMIT_PER_DAY = 10;
+var ACTIVE_LIMIT = 5;
+var CREATE_LIMIT_COLLECTION = "limits";
+var CREATE_LIMIT_KEY = "tournament_create_times";
+var DAY = 24 * 60 * 60 * 1e3;
+function spendTournamentCreate(nk, userId, now) {
+  const objects = nk.storageRead([{ collection: CREATE_LIMIT_COLLECTION, key: CREATE_LIMIT_KEY, userId }]);
+  const stored = objects.length > 0 ? objects[0].value.times : null;
+  const recent = (Array.isArray(stored) ? stored : []).filter((t) => typeof t === "number" && now - t < DAY);
+  if (recent.length >= CREATE_LIMIT_PER_DAY) throw runtimeError(RESOURCE_EXHAUSTED, `You can create at most ${CREATE_LIMIT_PER_DAY} tournaments a day`);
+  const active = readIndexEntries(nk, readMineIds(nk, userId)).filter((e) => e.organiserId === userId && e.status !== "finished" && e.status !== "cancelled");
+  if (active.length >= ACTIVE_LIMIT) throw runtimeError(RESOURCE_EXHAUSTED, `You can run at most ${ACTIVE_LIMIT} tournaments at once`);
+  nk.storageWrite([{ collection: CREATE_LIMIT_COLLECTION, key: CREATE_LIMIT_KEY, userId, value: { times: recent.concat([now]) }, permissionRead: 0, permissionWrite: 0 }]);
+}
+
+// src/tournament/effects.ts
+var LOBBY_LOST_AFTER_MS = 60 * 1e3;
+function commit(nk, logger, id, change) {
+  const seen = { before: null };
+  const after = mutate(nk, id, (t) => {
+    seen.before = t;
+    return change(t);
+  });
+  if (seen.before && after !== seen.before) return afterSave(nk, logger, seen.before, after);
+  return after;
+}
+function afterSave(nk, logger, before, after) {
+  var _a;
+  let latest = after;
+  try {
+    sendNotifications(nk, before, after);
+  } catch (e) {
+    logger.warn("Tournament %s: could not send notifications: %s", after.id, String(e));
+  }
+  for (const need of lobbiesNeeded(after)) {
+    try {
+      const current = after.lobbies ? after.lobbies[need.matchId] : void 0;
+      if (current && current.status === "open" && lookupCode(nk, current.code)) {
+        latest = commit(nk, logger, after.id, (cur) => {
+          const r = lobbyReused(cur, need, nowFor(cur, Date.now()));
+          return r.ok ? r : null;
+        });
+        continue;
+      }
+      latest = (_a = createLobby(nk, logger, after, need)) != null ? _a : latest;
+    } catch (e) {
+      logger.error("Tournament %s: could not make a lobby for %s: %s", after.id, need.matchId, String(e));
+    }
+  }
+  return latest;
+}
+function lobbyMetadata(t, need) {
+  var _a, _b;
+  const m = t.bracket ? resolveBracket(t.bracket, t.dropped).byId[need.matchId] : void 0;
+  const names = {};
+  for (const e of t.entrants) names[e.userId] = e.name;
+  return {
+    // PvP reads the round's settings from here (Phase 8 wires the client).
+    tournament: {
+      id: t.id,
+      name: t.name,
+      matchId: need.matchId,
+      stage: need.stage,
+      round: need.round,
+      game: need.game,
+      bestOf: need.settings.bestOf,
+      wins: m ? m.wins : [0, 0],
+      players: need.players.map((id) => {
+        var _a2;
+        return { id, name: (_a2 = names[id]) != null ? _a2 : "?", seed: t.bracket ? t.bracket.seeds.indexOf(id) + 1 : null };
+      }),
+      gameMode: need.settings.gameMode,
+      ruleset: need.settings.ruleset,
+      deck: (_a = need.settings.deck) != null ? _a : null,
+      lobbyOptions: (_b = need.settings.lobbyOptions) != null ? _b : {}
+    }
+  };
+}
+function createLobby(nk, logger, t, need) {
+  for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
+    const code = generateCode(MATCHMADE_CODE_LENGTH);
+    if (!reserveCode(nk, code, TOURNAMENT_MOD_ID)) continue;
+    const real = Date.now();
+    let claimed;
+    try {
+      claimed = commit(nk, logger, t.id, (cur) => claimLobby(cur, need, code, nowFor(cur, real)));
+    } catch (e) {
+      releaseCode(nk, code, "");
+      return null;
+    }
+    const draft = draftOrderFor(need.settings, claimed.bracket ? claimed.bracket.seeds : [], need.players);
+    const ref = draft ? { tournamentId: t.id, matchId: need.matchId, draft } : { tournamentId: t.id, matchId: need.matchId };
+    let matchId;
+    try {
+      matchId = nk.matchCreate(LOBBY_MATCH, {
+        code,
+        modId: TOURNAMENT_MOD_ID,
+        maxPlayers: 2,
+        creatorId: need.players[0],
+        rankedMode: "",
+        allowedIds: need.players.join(","),
+        gameMode: "",
+        // A ranked-profile tournament's games hold players to it too.
+        requiredStanding: requiredStandingFor(claimed.requireRanked === true, readConfig(nk).integrityEnforced),
+        tournament: JSON.stringify(ref),
+        metadata: JSON.stringify(lobbyMetadata(claimed, need))
+      });
+    } catch (e) {
+      releaseCode(nk, code, "");
+      logger.error("Tournament %s: lobby for %s failed to start: %s", t.id, need.matchId, String(e));
+      return commit(nk, logger, t.id, (cur) => lobbyLost(cur, need.matchId, need.handoff, nowFor(cur, Date.now())));
+    }
+    bindCode(nk, code, matchId, TOURNAMENT_MOD_ID);
+    logger.info("Tournament %s: lobby %s for %s game %d", t.id, code, need.matchId, need.game);
+    return commit(nk, logger, t.id, (cur) => {
+      const r = lobbyOpened(cur, need.matchId, need.handoff, nowFor(cur, Date.now()));
+      return r.ok ? r : null;
+    });
+  }
+  throw new Error("Could not allocate a lobby code");
+}
+function tournamentGameEnded(nk, logger, ref, run) {
+  commit(nk, logger, ref.tournamentId, (t) => gameEnded(t, ref, run, nowFor(t, Date.now())));
+}
+function checkLobbies(nk, logger, t, real) {
+  let latest = closeFinishedLobbies(nk, logger, t, real);
+  if (latest.status !== "running" || !latest.lobbies || !latest.clock) return latest;
+  t = latest;
+  const now = nowFor(t, real);
+  if (!t.lobbies || !t.clock) return t;
+  for (const matchId of Object.keys(t.lobbies)) {
+    const lobby = t.lobbies[matchId];
+    const c = t.clock.matches[matchId];
+    if (lobby.status !== "open" && lobby.status !== "creating") continue;
+    if (!c || c.phase !== "in_game" || c.handoff !== lobby.handoff) continue;
+    if (now - lobby.createdAt < LOBBY_LOST_AFTER_MS) continue;
+    if (lookupCode(nk, lobby.code)) continue;
+    latest = commit(nk, logger, t.id, (cur) => lobbyLost(cur, matchId, lobby.handoff, nowFor(cur, real)));
+  }
+  return latest;
+}
+function closeFinishedLobbies(nk, logger, t, real) {
+  let latest = t;
+  for (const { matchId, code } of lobbiesToClose(t)) {
+    try {
+      const live = lookupCode(nk, code);
+      if (live) nk.matchSignal(live.matchId, JSON.stringify({ type: "admin_close" }));
+    } catch (e) {
+      logger.warn("Tournament %s: could not close lobby %s: %s", t.id, code, String(e));
+    }
+    latest = commit(nk, logger, t.id, (cur) => lobbyClosed(cur, matchId, code, nowFor(cur, real)));
+  }
+  return latest;
+}
+function realPlayers(ids) {
+  const out = [];
+  for (const id of ids) if (typeof id === "string" && !isFakeEntrant(id) && out.indexOf(id) === -1) out.push(id);
+  return out;
+}
+var MATCH_UPDATES = [
+  "game_forfeited",
+  "match_forfeited",
+  "fallback_applied",
+  "game_recorded",
+  "game_abandoned",
+  "lobby_lost",
+  "result_set",
+  "result_cleared",
+  "deadline_extended",
+  "match_reset",
+  "lobby_closed",
+  "check_in_missed"
+];
+var EVERYONE_UPDATES = ["check_in_opened", "started", "tournament_finished", "cancelled", "paused", "resumed", "round_started_early", "settings_changed", "notice_set"];
+var MANAGER_UPDATES = ["unplayed", "result_disputed"];
+function sendNotifications(nk, before, after) {
+  var _a;
+  const fresh = after.events.filter((e) => {
+    var _a2, _b;
+    return ((_a2 = e.seq) != null ? _a2 : 0) > ((_b = before.eventSeq) != null ? _b : 0);
+  });
+  if (fresh.length === 0) return;
+  const names = {};
+  for (const e of after.entrants.concat(after.waitlist)) names[e.userId] = e.name;
+  const resolved = after.bracket ? resolveBracket(after.bracket, after.dropped) : null;
+  const matchPlayers = (matchId) => {
+    if (!resolved || typeof matchId !== "string" || !resolved.byId[matchId]) return [];
+    return realPlayers(resolved.byId[matchId].players);
+  };
+  const everyone2 = realPlayers(after.entrants.map((e) => e.userId).concat(after.waitlist.map((e) => e.userId)));
+  const managers = realPlayers([after.organiserId].concat(after.coOrganiserIds));
+  const base = { tournamentId: after.id, name: after.name };
+  const now = fresh[fresh.length - 1].at;
+  for (const e of fresh) {
+    const matchId = typeof e.matchId === "string" ? e.matchId : void 0;
+    const players = matchPlayers(matchId);
+    if (e.kind === "match_opened" || e.kind === "series_ready_up" || e.kind === "reminder") {
+      const clock = after.clock && matchId ? after.clock.matches[matchId] : void 0;
+      const deadline = clock ? clock.deadline : null;
+      const pair = resolved && matchId ? resolved.byId[matchId].players : [];
+      for (const userId of players) {
+        const opponentId = pair[0] === userId ? pair[1] : pair[0];
+        notify(nk, userId, NotifyCode.TOURNAMENT_MATCH, `${after.name}: ready up`, __spreadProps(__spreadValues({}, base), {
+          matchId,
+          kind: e.kind === "match_opened" ? "open" : e.kind === "series_ready_up" ? "series" : "reminder",
+          deadline,
+          minutesLeft: minutesLeft(deadline, now),
+          opponent: typeof opponentId === "string" ? { id: opponentId, name: (_a = names[opponentId]) != null ? _a : "?" } : null
+        }));
+      }
+    } else if (e.kind === "round_check_in_opened") {
+      for (const userId of realPlayers(after.entrants.map((x) => x.userId).filter((id) => stillIn(after, id)))) {
+        notify(nk, userId, NotifyCode.TOURNAMENT_UPDATED, `${after.name}: check in for the next round`, __spreadProps(__spreadValues({}, base), { kind: "round_check_in", startsAt: e.startsAt, matchId: null }));
+      }
+      for (const userId of managers) notify(nk, userId, NotifyCode.TOURNAMENT_UPDATED, after.name, __spreadProps(__spreadValues({}, base), { kind: e.kind, matchId: null }));
+    } else if (e.kind === "lobby_opened") {
+      for (const userId of players) {
+        notify(nk, userId, NotifyCode.TOURNAMENT_LOBBY, `${after.name}: your game is ready`, __spreadProps(__spreadValues({}, base), { matchId, code: e.code, game: e.game, wins: e.wins, reused: e.reused === true }));
+      }
+    } else {
+      let to = [];
+      if (MATCH_UPDATES.indexOf(e.kind) !== -1) to = players;
+      else if (EVERYONE_UPDATES.indexOf(e.kind) !== -1) to = everyone2.concat(managers);
+      else if (MANAGER_UPDATES.indexOf(e.kind) !== -1) to = managers.concat(players);
+      else if (e.kind === "promoted" && typeof e.userId === "string") to = realPlayers([e.userId]);
+      for (const userId of to.filter((id, i) => to.indexOf(id) === i)) {
+        notify(nk, userId, NotifyCode.TOURNAMENT_UPDATED, after.name, __spreadProps(__spreadValues({}, base), { kind: e.kind, matchId: matchId != null ? matchId : null }));
+      }
+    }
+    if (e.kind === "check_in_opened" && after.requireRanked === true) {
+      const config = readConfig(nk);
+      for (const userId of realPlayers(after.entrants.map((x) => x.userId))) {
+        if (!integrityRefusal(config, readIntegrity(nk, userId), now)) continue;
+        notify(nk, userId, NotifyCode.TOURNAMENT_UPDATED, `${after.name}: switch to your ranked profile to check in`, __spreadProps(__spreadValues({}, base), { kind: "ranked_profile_needed", matchId: null }));
+      }
+    }
+  }
 }
 
 // src/lobby/match.ts
@@ -8852,6 +11924,14 @@ function runEffect(ctx, logger, nk, dispatcher, lobby, presences, effect) {
           logger.error("Lobby %s: could not record achievements for run %s: %v", lobby.code, stored.runId, e);
         }
       }
+      if (stored && lobby.tournament) {
+        lobby.tournament = afterTournamentGame(lobby.tournament, stored.placements);
+        try {
+          tournamentGameEnded(nk, logger, lobby.tournament, stored);
+        } catch (e) {
+          logger.error("Lobby %s: could not record run %s for its tournament: %v", lobby.code, stored.runId, e);
+        }
+      }
       return;
     }
     case "forfeited":
@@ -8934,6 +12014,13 @@ function requiredStandingParam(params) {
   const value = stringParam(params, "requiredStanding");
   return value === "valid" || value === "verified" ? value : void 0;
 }
+function tournamentParam(params) {
+  return parseLobbyRef(jsonParam(params, "tournament"));
+}
+function metadataParam(params) {
+  const value = jsonParam(params, "metadata");
+  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
 function lobbyMatchInit(ctx, logger, nk, params) {
   const resumeCode = stringParam(params, "resumeCode");
   const found = resumeCode ? readCheckpoint(nk, resumeCode) : null;
@@ -8948,6 +12035,8 @@ function lobbyMatchInit(ctx, logger, nk, params) {
     groups: groupsParam(params),
     teamPlan: teamPlanParam(params),
     requiredStanding: requiredStandingParam(params),
+    tournament: tournamentParam(params),
+    metadata: metadataParam(params),
     now: Date.now(),
     graceMs: secondsFromEnv(ctx, "LOBBY_GRACE_SECONDS", DEFAULT_GRACE_MS),
     catchUpLimitMs: catchUpLimitMsFor(stringParam(params, "modId"), Number(ctx.env.LOBBY_CATCH_UP_LIMIT_SECONDS) || void 0),
@@ -9280,6 +12369,10 @@ function lobbyMatchSignal(ctx, logger, nk, dispatcher, tickNumber, state, data) 
       state,
       chatPost(state.lobby, signal2.userId, signal2.text, Date.now())
     );
+    return { state: next || state, data: "ok" };
+  }
+  if (signal2.type === "organiser_post") {
+    const next = apply(ctx, logger, nk, dispatcher, state, organiserPost(state.lobby, signal2.name, signal2.text, Date.now()));
     return { state: next || state, data: "ok" };
   }
   if (signal2.type === "player_info") {
@@ -11125,6 +14218,743 @@ function rpcAdminIpHashesPurge(ctx, logger, nk, payload) {
   return JSON.stringify(result);
 }
 
+// src/tournament/clock.ts
+var CLOCK_MATCH = "bmp_tournament_clock";
+var TOURNAMENT_SWEEP_MAX = 50;
+function ensureClock(nk) {
+  try {
+    const running = nk.matchList(1, true, CLOCK_MATCH, null, null, "");
+    if (running && running.length > 0) return;
+    nk.matchCreate(CLOCK_MATCH, {});
+  } catch (e) {
+  }
+}
+function sweep(nk, logger, real, advanceOne) {
+  if (!readConfig(nk).tournamentsEnabled) return 0;
+  const ids = dueIds(nk, real).slice(0, TOURNAMENT_SWEEP_MAX);
+  for (const id of ids) {
+    try {
+      advanceOne(nk, logger, id, real);
+    } catch (e) {
+      logger.error("Tournament clock: %s failed: %s", id, e instanceof Error ? e.message : JSON.stringify(e));
+    }
+  }
+  return ids.length;
+}
+
+// src/tournament/preview.ts
+var ORGANISER = { id: "preview-organiser", name: "Organiser" };
+var MINUTE_MS2 = 60 * 1e3;
+var FAVOURITE_WINS = 0.7;
+var MAX_GAMES = 16;
+var previewPlayerId = (n) => `preview-${n}`;
+function simulate(t, upTo, rng) {
+  let bracket = t.bracket;
+  for (let s = 1; s <= upTo; s++) {
+    if (bracket.format === "swiss" && swissRoundsPlayed(bracket) < s) {
+      const paired = nextSwissRound(bracket, [], roundSettingsFor(t, "SW", s, bracket).bestOf);
+      if (!paired.ok) break;
+      bracket = paired.value;
+    }
+    const step = roundSteps(bracket)[s - 1];
+    if (!step) break;
+    const inStep = (stage, round) => step.some((r) => r.stage === stage && r.round === round);
+    for (let game = 0; game < MAX_GAMES; game++) {
+      const open = resolveBracket(bracket, []).matches.filter((m) => inStep(m.def.stage, m.def.round) && (m.status === "ready" || m.status === "in_progress"));
+      if (open.length === 0) break;
+      for (const m of open) {
+        const [a, b] = m.players;
+        const favourite = bracket.seeds.indexOf(a) <= bracket.seeds.indexOf(b) ? 0 : 1;
+        const winner = rng() < FAVOURITE_WINS ? favourite : 1 - favourite;
+        const r = recordGame(bracket, m.def.id, winner, []);
+        if (r.ok) bracket = r.value;
+      }
+    }
+  }
+  return bracket;
+}
+var OPEN_SPOT_PREFIX = "open-spot-";
+function provisionalOf(t, viewerId, now, ratingsFor) {
+  var _a;
+  if (t.bracket || t.status !== "draft" && t.status !== "registration" && t.status !== "check_in") return null;
+  let seed = 7;
+  for (let i = 0; i < t.id.length; i++) seed = seed * 31 + t.id.charCodeAt(i) >>> 0;
+  const players = t.status === "check_in" ? t.entrants.filter((e) => e.checkedInAt !== void 0) : t.entrants;
+  const open = [];
+  for (let n = players.length + 1; n <= t.maxPlayers; n++) open.push({ userId: `${OPEN_SPOT_PREFIX}${n}`, name: "Open spot", joinedAt: now, checkedInAt: now });
+  const ratings = (ids, board) => ratingsFor(ids.filter((id) => id.indexOf(OPEN_SPOT_PREFIX) !== 0), board);
+  const drawn = __spreadProps(__spreadValues({}, t), { entrants: players.concat(open), status: t.status === "check_in" ? "check_in" : "registration" });
+  const started = start(drawn, now, ratings, seededRng(seed), false);
+  if (!started.ok || !started.value.bracket) return null;
+  const shown = __spreadProps(__spreadValues({}, started.value), { clock: void 0, lobbies: void 0 });
+  const view = tournamentView(shown, viewerId, now);
+  return { bracket: view.bracket, standings: view.standings, schedule: (_a = started.value.schedule) != null ? _a : null };
+}
+function previewTournament(settings, players, step, now) {
+  if (!Number.isInteger(players) || players < MIN_ENTRANTS || players > MAX_ENTRANTS) return err(`players must be ${MIN_ENTRANTS}-${MAX_ENTRANTS}`);
+  if (!Number.isInteger(step) || step < 0) return err("step must be 0 or more");
+  const input = __spreadProps(__spreadValues({}, settings), { name: "Preview", description: "", official: false, visibility: "private", maxPlayers: players, startsAt: now + 60 * MINUTE_MS2, checkInMinutes: null });
+  const created = createTournament("preview", ORGANISER, input, "PREVIEW", now);
+  if (!created.ok) return err(created.error.message);
+  const opened = openRegistration(created.value, ORGANISER.id, now);
+  if (!opened.ok) return err(opened.error.message);
+  let t = opened.value;
+  for (let n = 1; n <= players; n++) {
+    const joined = joinTournament(t, { id: previewPlayerId(n), name: `Player ${n}` }, now);
+    if (!joined.ok) return err(joined.error.message);
+    t = joined.value;
+  }
+  const ratings = (ids) => {
+    const out = {};
+    for (const id of ids) out[id] = 3e3 - Number(id.slice("preview-".length));
+    return out;
+  };
+  const started = start(t, now, ratings, seededRng(players));
+  if (!started.ok) return err(started.error.message);
+  t = started.value;
+  const steps = roundSteps(t.bracket).length;
+  const played = Math.min(step, steps);
+  const bracket = simulate(t, played, seededRng(1e3 + players));
+  const shown = __spreadProps(__spreadValues({}, t), { bracket, clock: void 0, lobbies: void 0 });
+  return ok({ tournament: tournamentView(shown, ORGANISER.id, now), steps, step: played });
+}
+
+// src/tournament/organiser_message.ts
+function messageTargets(t, matchId) {
+  if (!t.bracket || !t.lobbies) return [];
+  const resolved = resolveBracket(t.bracket, t.dropped);
+  const out = [];
+  for (const id of Object.keys(t.lobbies)) {
+    if (matchId !== null && id !== matchId) continue;
+    const lobby = t.lobbies[id];
+    if (lobby.status !== "open" && lobby.status !== "disputed") continue;
+    const m = resolved.matches.find((x) => x.def.id === id);
+    const players = m ? m.players.filter((p) => typeof p === "string" && !isFakeEntrant(p)) : [];
+    out.push({ matchId: id, code: lobby.code, players });
+  }
+  return out;
+}
+
+// src/tournament/rpc.ts
+var TOURNAMENT_ID_PATTERN = /^[0-9a-f-]{36}$/;
+var LIST_LIMIT = 100;
+function tournamentsEnabled(nk) {
+  return readConfig(nk).tournamentsEnabled;
+}
+function requireEnabled(nk) {
+  if (!tournamentsEnabled(nk)) throw runtimeError(FAILED_PRECONDITION, "Tournaments are not enabled on this server");
+}
+function ratingsLookup(nk, now) {
+  return (userIds, board) => {
+    const out = {};
+    const real = userIds.filter((id) => !isFakeEntrant(id));
+    if (real.length > 0) {
+      const { current } = loadRatings(nk, TOURNAMENT_MOD_ID, board, real, now, currentSeason(nk));
+      for (const id of Object.keys(current)) out[id] = current[id].rating;
+    }
+    return out;
+  };
+}
+function inputString(input, key, pattern2) {
+  const v = input[key];
+  if (typeof v !== "string" || pattern2 && !pattern2.test(v)) throw runtimeError(INVALID_ARGUMENT, `${key} is required`);
+  return v;
+}
+function tournamentIdOf(input) {
+  return inputString(input, "id", TOURNAMENT_ID_PATTERN);
+}
+var RANKED_PROFILE_NEEDED = "Ranked profile required: launch a ranked profile through the BET launcher and keep the launcher open, then try again.";
+function rankedProfileRefusal(nk, ctx, userId, now) {
+  const entry = entryRefusal(nk, ctx, userId, now);
+  if (entry) return entry;
+  return integrityRefusal(readConfig(nk), readIntegrity(nk, userId), now) ? RANKED_PROFILE_NEEDED : null;
+}
+function requireRankedProfile(nk, ctx, id, userId, now) {
+  const stored = readTournament(nk, id);
+  if (!stored || stored.t.requireRanked !== true) return;
+  const refused = rankedProfileRefusal(nk, ctx, userId, now);
+  if (refused) throw runtimeError(PERMISSION_DENIED, refused);
+}
+function entryRefusal(nk, ctx, userId, now) {
+  const config = readConfig(nk);
+  const ban = activeBan(readBans(nk, userId), "queue", now);
+  if (ban) return banMessage("You are banned from matchmaking", ban);
+  const play = playRefusal(config, profileFor(nk, userId).privileges);
+  if (play) return play;
+  const standing = standingRefusal(standingFor(nk, settingsOf(ctx), userId, now, config));
+  return standing ? queueRefusalMessage(standing) : null;
+}
+function catchUpTournament(nk, logger, id, real) {
+  const t = commit(nk, logger, id, (cur) => {
+    const now = nowFor(cur, real);
+    const next = advance(cur, now, ratingsLookup(nk, now), seededRng(real));
+    return next ? { ok: true, value: next } : null;
+  });
+  return checkLobbies(nk, logger, t, real);
+}
+function rankedProfileOf(nk, ctx, t, userId, real) {
+  if (t.requireRanked !== true) return void 0;
+  const refused = rankedProfileRefusal(nk, ctx, userId, real);
+  return { ok: refused === null, message: refused };
+}
+function respond(t, viewerId, real, nk, ctx) {
+  const view = tournamentView(t, viewerId, nowFor(t, real));
+  const ranked = nk && ctx ? rankedProfileOf(nk, ctx, t, viewerId, real) : void 0;
+  return JSON.stringify({ tournament: ranked ? __spreadProps(__spreadValues({}, view), { rankedProfile: ranked }) : view });
+}
+function changeTournament(nk, logger, ctx, payload, apply2) {
+  requireEnabled(nk);
+  const userId = requireUser(ctx);
+  const input = parsePayload(payload);
+  const id = tournamentIdOf(input);
+  const real = Date.now();
+  ensureClock(nk);
+  catchUpTournament(nk, logger, id, real);
+  const saved = commit(nk, logger, id, (t) => {
+    const now = nowFor(t, real);
+    const r = apply2(t, userId, now, input);
+    return r.ok ? { ok: true, value: settleTimetable(r.value, now) } : r;
+  });
+  return respond(saved, userId, real, nk, ctx);
+}
+function requireOfficialRight(nk, userId, input) {
+  if (input.official !== true) return;
+  if (profileFor(nk, userId).privileges.indexOf(OFFICIAL_PRIVILEGE) === -1) {
+    throw runtimeError(PERMISSION_DENIED, "Only players with official rights can run official tournaments");
+  }
+}
+var CREATE_REFUSED = "Only privileged users can create tournaments currently.";
+function canCreate(nk, userId) {
+  if (!readConfig(nk).tournamentCreationRestricted) return true;
+  const privileges = profileFor(nk, userId).privileges;
+  return privileges.indexOf(CREATE_PRIVILEGE) !== -1 || privileges.indexOf(OFFICIAL_PRIVILEGE) !== -1;
+}
+function displayNameFor(nk, ctx, userId) {
+  return displayNameOf(profileFor(nk, userId, ctx.username));
+}
+function rpcTournamentList(ctx, logger, nk, payload) {
+  var _a;
+  requireEnabled(nk);
+  requireUser(ctx);
+  const input = parsePayload(payload);
+  const want = (_a = input.status) != null ? _a : "upcoming";
+  const statuses = {
+    upcoming: ["registration", "check_in"],
+    running: ["running"],
+    finished: ["finished"]
+  };
+  const keep = statuses[want];
+  if (!keep) throw runtimeError(INVALID_ARGUMENT, "status must be upcoming, running or finished");
+  ensureClock(nk);
+  const entries = scanIndex(nk, (e) => e.visibility === "public" && keep.indexOf(e.status) !== -1, LIST_LIMIT);
+  entries.sort((a, b) => {
+    var _a2, _b;
+    if (!!a.official !== !!b.official) return a.official ? -1 : 1;
+    return want === "finished" ? ((_a2 = b.finishedAt) != null ? _a2 : 0) - ((_b = a.finishedAt) != null ? _b : 0) : a.startsAt - b.startsAt;
+  });
+  return JSON.stringify({ serverNow: Date.now(), tournaments: entries.map(publicSummary) });
+}
+function publicSummary(e) {
+  const _a = e, { organiserId, updatedAt, finishedAt } = _a, summary = __objRest(_a, ["organiserId", "updatedAt", "finishedAt"]);
+  return summary;
+}
+function rpcTournamentGet(ctx, logger, nk, payload) {
+  requireEnabled(nk);
+  const userId = requireUser(ctx);
+  const input = parsePayload(payload);
+  let id = typeof input.id === "string" ? input.id : null;
+  if (!id && typeof input.code === "string") id = tournamentIdForCode(nk, input.code);
+  if (!id || !TOURNAMENT_ID_PATTERN.test(id)) throw runtimeError(NOT_FOUND, "No such tournament");
+  const real = Date.now();
+  ensureClock(nk);
+  if (!readTournament(nk, id)) throw runtimeError(NOT_FOUND, "No such tournament");
+  const t = catchUpTournament(nk, logger, id, real);
+  const member = readMineIds(nk, userId).indexOf(id) !== -1 || isManager(t, userId);
+  const viaCode = typeof input.code === "string" && input.code.toUpperCase() === t.inviteCode;
+  if (t.visibility === "private" && !member && !viaCode) throw runtimeError(NOT_FOUND, "No such tournament");
+  if (t.status === "draft" && !isManager(t, userId)) throw runtimeError(NOT_FOUND, "No such tournament");
+  if (input.provisional !== true || t.bracket) return respond(t, userId, real, nk, ctx);
+  const now = nowFor(t, real);
+  const view = tournamentView(t, userId, now);
+  const drawn = provisionalOf(t, userId, now, ratingsLookup(nk, now));
+  const ranked = rankedProfileOf(nk, ctx, t, userId, real);
+  const withRanked = ranked ? __spreadProps(__spreadValues({}, view), { rankedProfile: ranked }) : view;
+  if (!drawn) return JSON.stringify({ tournament: withRanked });
+  return JSON.stringify({ tournament: __spreadProps(__spreadValues({}, withRanked), { bracket: drawn.bracket, standings: drawn.standings, schedule: drawn.schedule, provisional: true }) });
+}
+function rpcTournamentMine(ctx, logger, nk, payload) {
+  requireEnabled(nk);
+  const userId = requireUser(ctx);
+  const real = Date.now();
+  ensureClock(nk);
+  const ids = readMineIds(nk, userId);
+  const entries = readIndexEntries(nk, ids);
+  let rankedOk = null;
+  const rankedOkNow = () => {
+    if (rankedOk === null) rankedOk = rankedProfileRefusal(nk, ctx, userId, real) === null;
+    return rankedOk;
+  };
+  const out = entries.map((e) => {
+    const over = e.status === "finished" || e.status === "cancelled" || e.status === "draft";
+    const t = over ? (readTournament(nk, e.id) || { t: null }).t : catchUpTournament(nk, logger, e.id, real);
+    if (!t) return __spreadProps(__spreadValues({}, publicSummary(e)), { organiser: e.organiserId === userId, role: "none" });
+    const role = roleOf(t, userId);
+    const playing = role === "entrant" || role === "waitlist";
+    const live = t.status === "registration" || t.status === "check_in" || t.status === "running";
+    return __spreadProps(__spreadValues({}, publicSummary(__spreadProps(__spreadValues({}, e), { status: t.status, players: t.entrants.length, startsAt: t.startsAt }))), {
+      organiser: e.organiserId === userId,
+      role,
+      rankedOk: t.requireRanked === true && playing && live ? rankedOkNow() : void 0
+    });
+  });
+  return JSON.stringify({ serverNow: real, tournaments: out });
+}
+function rpcTournamentJoin(ctx, logger, nk, payload) {
+  requireEnabled(nk);
+  const userId = requireUser(ctx);
+  const input = parsePayload(payload);
+  let id = typeof input.id === "string" ? input.id : null;
+  const viaCode = typeof input.code === "string";
+  if (viaCode) id = tournamentIdForCode(nk, input.code);
+  if (!id || !TOURNAMENT_ID_PATTERN.test(id)) throw runtimeError(NOT_FOUND, "No such tournament");
+  const real = Date.now();
+  const refused = entryRefusal(nk, ctx, userId, real);
+  if (refused) throw runtimeError(PERMISSION_DENIED, refused);
+  requireRankedProfile(nk, ctx, id, userId, real);
+  const name = displayNameFor(nk, ctx, userId);
+  ensureClock(nk);
+  catchUpTournament(nk, logger, id, real);
+  const saved = commit(nk, logger, id, (t) => {
+    if (t.visibility === "private" && !viaCode) return { ok: false, error: { code: NOT_FOUND, message: "No such tournament" } };
+    return joinTournament(t, { id: userId, name }, nowFor(t, real));
+  });
+  return respond(saved, userId, real, nk, ctx);
+}
+function rpcTournamentLeave(ctx, logger, nk, payload) {
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now) => leaveTournament(t, userId, now));
+}
+function rpcTournamentCheckIn(ctx, logger, nk, payload) {
+  requireRankedProfile(nk, ctx, tournamentIdOf(parsePayload(payload)), requireUser(ctx), Date.now());
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now) => checkInEntrant(t, userId, now));
+}
+function rpcTournamentCreate(ctx, logger, nk, payload) {
+  requireEnabled(nk);
+  const userId = requireUser(ctx);
+  const input = parsePayload(payload);
+  const real = Date.now();
+  const refused = entryRefusal(nk, ctx, userId, real);
+  if (refused) throw runtimeError(PERMISSION_DENIED, refused);
+  if (!canCreate(nk, userId)) throw runtimeError(PERMISSION_DENIED, CREATE_REFUSED);
+  ensureClock(nk);
+  requireOfficialRight(nk, userId, input);
+  spendTournamentCreate(nk, userId, real);
+  const id = nk.uuidv4();
+  const code = reserveInviteCode(nk, id);
+  const created = createTournament(id, { id: userId, name: displayNameFor(nk, ctx, userId) }, input, code, real);
+  if (!created.ok) throw runtimeError(created.error.code, created.error.message);
+  insertTournament(nk, created.value);
+  logger.info("Tournament %s created by %s", id, userId);
+  return respond(created.value, userId, real);
+}
+function rpcTournamentCanCreate(ctx, logger, nk, payload) {
+  requireEnabled(nk);
+  return JSON.stringify({ canCreate: canCreate(nk, requireUser(ctx)) });
+}
+function rpcTournamentPreview(ctx, logger, nk, payload) {
+  requireEnabled(nk);
+  requireUser(ctx);
+  const input = parsePayload(payload);
+  const settings = input.settings;
+  if (typeof settings !== "object" || settings === null || Array.isArray(settings)) throw runtimeError(INVALID_ARGUMENT, "settings must be an object");
+  const players = typeof input.players === "number" ? input.players : Number.NaN;
+  const step = typeof input.step === "number" ? input.step : 0;
+  const r = previewTournament(settings, players, step, Date.now());
+  if (!r.ok) throw runtimeError(INVALID_ARGUMENT, r.error);
+  return JSON.stringify(r.value);
+}
+function rpcTournamentUpdate(ctx, logger, nk, payload) {
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
+    const _a = input, { id } = _a, settings = __objRest(_a, ["id"]);
+    requireOfficialRight(nk, userId, settings);
+    return updateSettings(t, userId, settings, now);
+  });
+}
+function rpcTournamentOpen(ctx, logger, nk, payload) {
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now) => openRegistration(t, userId, now));
+}
+function rpcTournamentRegistrationSet(ctx, logger, nk, payload) {
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
+    if (typeof input.closed !== "boolean") return { ok: false, error: { code: INVALID_ARGUMENT, message: "closed must be true or false" } };
+    return setRegistrationClosed(t, userId, input.closed, now);
+  });
+}
+function rpcTournamentPromote(ctx, logger, nk, payload) {
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => promote(t, userId, inputString(input, "userId"), now));
+}
+function rpcTournamentRemovePlayer(ctx, logger, nk, payload) {
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => removePlayer(t, userId, inputString(input, "userId"), now));
+}
+function rpcTournamentCoOrganisersSet(ctx, logger, nk, payload) {
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
+    const ids = input.userIds;
+    if (!Array.isArray(ids) || !ids.every((i) => typeof i === "string" && TOURNAMENT_ID_PATTERN.test(i))) {
+      return { ok: false, error: { code: INVALID_ARGUMENT, message: "userIds must be player ids" } };
+    }
+    return setCoOrganisers(t, userId, ids, now);
+  });
+}
+function rpcTournamentNoticeSet(ctx, logger, nk, payload) {
+  return changeTournament(
+    nk,
+    logger,
+    ctx,
+    payload,
+    (t, userId, now, input) => setNotice(t, userId, typeof input.text === "string" ? input.text : "", now)
+  );
+}
+function rpcTournamentMessage(ctx, logger, nk, payload) {
+  requireEnabled(nk);
+  const userId = requireUser(ctx);
+  const input = parsePayload(payload);
+  const id = tournamentIdOf(input);
+  const text = typeof input.text === "string" ? input.text.trim() : "";
+  if (!text) throw runtimeError(INVALID_ARGUMENT, "The message is empty");
+  if (text.length > ORGANISER_MESSAGE_MAX) throw runtimeError(INVALID_ARGUMENT, `The message can be at most ${ORGANISER_MESSAGE_MAX} characters`);
+  if (obscenityMatches(text).length > 0) throw runtimeError(INVALID_ARGUMENT, "Message blocked by the word filter");
+  const stored = readTournament(nk, id);
+  if (!stored) throw runtimeError(NOT_FOUND, "No such tournament");
+  const t = stored.t;
+  if (!isManager(t, userId)) throw runtimeError(PERMISSION_DENIED, "Only the organisers can do that");
+  const matchId = typeof input.matchId === "string" && input.matchId ? input.matchId : null;
+  const targets = messageTargets(t, matchId);
+  if (targets.length === 0) throw runtimeError(FAILED_PRECONDITION, matchId ? "That match has no lobby open" : "No match lobby is open");
+  const name = displayNameFor(nk, ctx, userId);
+  let sent = 0;
+  for (const target of targets) {
+    try {
+      const live = lookupCode(nk, target.code);
+      if (live) {
+        nk.matchSignal(live.matchId, JSON.stringify({ type: "organiser_post", name, text }));
+        sent++;
+      }
+    } catch (e) {
+      logger.warn("Tournament %s: message to lobby %s failed: %s", id, target.code, String(e));
+    }
+    for (const player of target.players) {
+      notify(nk, player, NotifyCode.TOURNAMENT_UPDATED, `${t.name}: message from the organiser`, {
+        tournamentId: id,
+        name: t.name,
+        kind: "organiser_message",
+        matchId: target.matchId,
+        from: name,
+        text
+      });
+    }
+  }
+  logger.info("Tournament %s: organiser message to %d lobbies", id, sent);
+  return JSON.stringify({ sent });
+}
+function rpcTournamentCoOrganiserCode(ctx, logger, nk, payload) {
+  requireEnabled(nk);
+  const userId = requireUser(ctx);
+  const id = tournamentIdOf(parsePayload(payload));
+  const stored = readTournament(nk, id);
+  if (!stored) throw runtimeError(NOT_FOUND, "No such tournament");
+  if (stored.t.organiserId !== userId) throw runtimeError(PERMISSION_DENIED, "Only the organiser can do that");
+  const code = reserveCoOrganiserCode(nk, id, stored.t.coOrganiserCode);
+  return changeTournament(nk, logger, ctx, payload, (t, uid, now) => setCoOrganiserCode(t, uid, code, now));
+}
+function rpcTournamentCoOrganiserJoin(ctx, logger, nk, payload) {
+  requireEnabled(nk);
+  const userId = requireUser(ctx);
+  const input = parsePayload(payload);
+  const code = typeof input.code === "string" ? input.code.trim().toUpperCase() : "";
+  const id = code ? tournamentIdForCoOrganiserCode(nk, code) : null;
+  if (!id) throw runtimeError(NOT_FOUND, "That code is not valid");
+  const name = displayNameFor(nk, ctx, userId);
+  const real = Date.now();
+  ensureClock(nk);
+  catchUpTournament(nk, logger, id, real);
+  const saved = commit(nk, logger, id, (t) => joinAsCoOrganiser(t, { id: userId, name }, code, nowFor(t, real)));
+  return respond(saved, userId, real, nk, ctx);
+}
+function rpcTournamentSeedingSet(ctx, logger, nk, payload) {
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
+    const order = input.order;
+    if (!Array.isArray(order) || !order.every((i) => typeof i === "string")) {
+      return { ok: false, error: { code: INVALID_ARGUMENT, message: "order must be a list of entrant ids" } };
+    }
+    return setManualSeeding(t, userId, order, now);
+  });
+}
+function rpcTournamentStart(ctx, logger, nk, payload) {
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now) => {
+    if (t.organiserId !== userId) return { ok: false, error: { code: PERMISSION_DENIED, message: "Only the organiser can do that" } };
+    return start(t, now, ratingsLookup(nk, now), seededRng(Date.now()));
+  });
+}
+function rpcTournamentCancel(ctx, logger, nk, payload) {
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now) => cancel(t, userId, now));
+}
+function rpcTournamentReady(ctx, logger, nk, payload) {
+  const asked = parsePayload(payload);
+  if (asked.ready !== false) requireRankedProfile(nk, ctx, tournamentIdOf(asked), requireUser(ctx), Date.now());
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
+    const matchId = typeof input.matchId === "string" ? input.matchId : null;
+    return readyUp(t, userId, matchId, input.ready !== false, now);
+  });
+}
+function rpcTournamentResultSet(ctx, logger, nk, payload) {
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now, input) => {
+    const scope = input.scope;
+    if (scope !== "game" && scope !== "match") return { ok: false, error: { code: INVALID_ARGUMENT, message: "scope must be game or match" } };
+    const result = {
+      matchId: inputString(input, "matchId"),
+      scope,
+      winner: typeof input.winner === "string" ? input.winner : void 0,
+      draw: input.draw === true,
+      none: input.none === true,
+      resetDownstream: input.resetDownstream === true
+    };
+    return setResult(t, userId, result, now);
+  });
+}
+function rpcTournamentResultClear(ctx, logger, nk, payload) {
+  return changeTournament(
+    nk,
+    logger,
+    ctx,
+    payload,
+    (t, userId, now, input) => clearResult(t, userId, inputString(input, "matchId"), input.resetDownstream === true, now)
+  );
+}
+function rpcTournamentExtend(ctx, logger, nk, payload) {
+  return changeTournament(
+    nk,
+    logger,
+    ctx,
+    payload,
+    (t, userId, now, input) => extend(t, userId, inputString(input, "matchId"), typeof input.minutes === "number" ? input.minutes : Number.NaN, now)
+  );
+}
+function rpcTournamentPause(ctx, logger, nk, payload) {
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now) => setPaused(t, userId, true, now));
+}
+function rpcTournamentResume(ctx, logger, nk, payload) {
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now) => setPaused(t, userId, false, now));
+}
+function rpcTournamentRoundStart(ctx, logger, nk, payload) {
+  return changeTournament(nk, logger, ctx, payload, (t, userId, now) => startNextRound(t, userId, now));
+}
+function rpcAdminTournamentClose(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  const input = parsePayload(payload);
+  const id = tournamentIdOf(input);
+  const reason = typeof input.reason === "string" ? input.reason : "";
+  const real = Date.now();
+  const saved = commit(nk, logger, id, (t) => closeByModerator(t, reason, nowFor(t, real)));
+  logger.info("Tournament %s closed by a moderator", id);
+  return JSON.stringify({ id: saved.id, status: saved.status });
+}
+
+// src/tournament/admin.ts
+var ADMIN_LIST_LIMIT = 500;
+var ACTIVE = ["draft", "registration", "check_in", "running"];
+var OVER = ["finished", "cancelled"];
+function rpcAdminTournamentList(ctx, logger, nk, payload) {
+  var _a, _b;
+  requireServer(ctx);
+  const input = parsePayload(payload);
+  const status = (_a = input.status) != null ? _a : "active";
+  if (status !== "active" && status !== "over" && status !== "all") throw runtimeError(INVALID_ARGUMENT, "status must be active, over or all");
+  if (input.search !== void 0 && typeof input.search !== "string") throw runtimeError(INVALID_ARGUMENT, "search must be a string");
+  const search = ((_b = input.search) != null ? _b : "").trim().toLowerCase();
+  const byCode = search.length > 0 ? tournamentIdForCode(nk, search) : null;
+  const statuses = status === "active" ? ACTIVE : status === "over" ? OVER : ACTIVE.concat(OVER);
+  const matches = (e) => !search || e.id === byCode || e.name.toLowerCase().indexOf(search) !== -1 || e.organiserName.toLowerCase().indexOf(search) !== -1 || e.id.indexOf(search) !== -1;
+  const entries = scanIndex(nk, (e) => statuses.indexOf(e.status) !== -1 && matches(e), ADMIN_LIST_LIMIT);
+  entries.sort((a, b) => {
+    var _a2, _b2;
+    const aOver = OVER.indexOf(a.status) !== -1;
+    const bOver = OVER.indexOf(b.status) !== -1;
+    if (aOver !== bOver) return aOver ? 1 : -1;
+    return aOver ? ((_a2 = b.finishedAt) != null ? _a2 : 0) - ((_b2 = a.finishedAt) != null ? _b2 : 0) : a.startsAt - b.startsAt;
+  });
+  return JSON.stringify({ tournaments: entries });
+}
+function closedBy(t) {
+  if (t.status !== "cancelled") return null;
+  for (let i = t.events.length - 1; i >= 0; i--) {
+    const e = t.events[i];
+    if (e.kind === "cancelled") {
+      return { reason: typeof e.reason === "string" ? e.reason : "unknown", message: typeof e.message === "string" ? e.message : null, at: e.at };
+    }
+  }
+  return null;
+}
+function rpcAdminTournamentGet(ctx, logger, nk, payload) {
+  var _a, _b, _c, _d;
+  requireServer(ctx);
+  const input = parsePayload(payload);
+  const id = input.id;
+  if (typeof id !== "string" || !TOURNAMENT_ID_PATTERN.test(id)) throw runtimeError(INVALID_ARGUMENT, "id is not valid");
+  const read2 = readTournament(nk, id);
+  if (!read2) throw runtimeError(NOT_FOUND, "No such tournament");
+  const t = read2.t;
+  const names = (_a = t.coOrganiserNames) != null ? _a : {};
+  const dropped = t.dropped;
+  return JSON.stringify({
+    tournament: {
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      notice: (_b = t.notice) != null ? _b : "",
+      status: t.status,
+      visibility: t.visibility,
+      official: t.official === true,
+      requireRanked: t.requireRanked === true,
+      inviteCode: t.inviteCode,
+      format: t.format,
+      maxPlayers: t.maxPlayers,
+      gameMode: t.rounds.defaults.gameMode,
+      ruleset: t.rounds.defaults.ruleset,
+      organiser: { id: t.organiserId, name: t.organiserName },
+      coOrganisers: t.coOrganiserIds.map((userId) => {
+        var _a2;
+        return { id: userId, name: (_a2 = names[userId]) != null ? _a2 : "" };
+      }),
+      entrants: t.entrants.map((e) => ({ id: e.userId, name: e.name, checkedIn: e.checkedInAt !== void 0, dropped: dropped.indexOf(e.userId) !== -1 })),
+      waitlist: t.waitlist.map((e) => ({ id: e.userId, name: e.name })),
+      createdAt: t.createdAt,
+      startsAt: t.startsAt,
+      startedAt: (_c = t.startedAt) != null ? _c : null,
+      finishedAt: (_d = t.finishedAt) != null ? _d : null,
+      closed: closedBy(t)
+    }
+  });
+}
+function rpcAdminTournamentSettings(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  return JSON.stringify({ creationRestricted: readConfig(nk).tournamentCreationRestricted });
+}
+
+// src/tournament/dev.ts
+function requireDev(ctx, nk) {
+  if (!settingsOf(ctx).testingRpcs) throw runtimeError(PERMISSION_DENIED, "Testing RPCs are off on this server");
+  if (!tournamentsEnabled(nk)) throw runtimeError(FAILED_PRECONDITION, "Tournaments are not enabled on this server");
+  return requireUser(ctx);
+}
+function rpcTournamentDevFill(ctx, logger, nk, payload) {
+  const userId = requireDev(ctx, nk);
+  const input = parsePayload(payload);
+  const id = tournamentIdOf(input);
+  const count2 = input.count;
+  if (typeof count2 !== "number" || !Number.isInteger(count2) || count2 < 1 || count2 > 128) throw runtimeError(INVALID_ARGUMENT, "count must be 1-128");
+  const checkIn = input.checkIn !== false;
+  const real = Date.now();
+  ensureClock(nk);
+  const saved = commit(nk, logger, id, (t) => {
+    if (t.status !== "draft" && t.status !== "registration" && t.status !== "check_in") {
+      return { ok: false, error: { code: FAILED_PRECONDITION, message: "Only before the start" } };
+    }
+    const now = nowFor(t, real);
+    const taken = new Set(t.entrants.map((e) => e.userId));
+    const bots = [];
+    for (let n = 1; bots.length < count2 && t.entrants.length + bots.length < t.maxPlayers; n++) {
+      const botId = `${FAKE_ENTRANT_PREFIX}${n}`;
+      if (taken.has(botId)) continue;
+      bots.push({
+        userId: botId,
+        name: `Bot ${n}`,
+        joinedAt: now,
+        // Counted as checked in even before check-in opens (they can't press it).
+        checkedInAt: checkIn ? now : void 0,
+        rating: 400 + Math.floor(Math.random() * 1200)
+      });
+    }
+    const next = addEvent(__spreadProps(__spreadValues({}, t), { entrants: t.entrants.concat(bots), updatedAt: now }), { at: now, kind: "dev_fill", count: bots.length });
+    return { ok: true, value: next };
+  });
+  return JSON.stringify({ tournament: tournamentView(saved, userId, nowFor(saved, real)) });
+}
+var EPOCH_MS_MIN = 1e12;
+var EPOCH_MS_MAX = 1e14;
+function shiftTimes(value, by) {
+  if (typeof value === "number") return value >= EPOCH_MS_MIN && value < EPOCH_MS_MAX ? value - by : value;
+  if (Array.isArray(value)) return value.map((v) => shiftTimes(v, by));
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const key of Object.keys(value)) out[key] = shiftTimes(value[key], by);
+    return out;
+  }
+  return value;
+}
+function skipAhead(t, ms) {
+  var _a;
+  const by = ms + ((_a = t.devClockOffsetMs) != null ? _a : 0);
+  const shifted = shiftTimes(__spreadProps(__spreadValues({}, t), { devClockOffsetMs: void 0 }), by);
+  delete shifted.devClockOffsetMs;
+  return shifted;
+}
+function rpcTournamentDevTime(ctx, logger, nk, payload) {
+  const userId = requireDev(ctx, nk);
+  const input = parsePayload(payload);
+  const id = tournamentIdOf(input);
+  const minutes = input.minutes;
+  if (typeof minutes !== "number" || !(minutes >= 0) || minutes > 60 * 24 * 60) throw runtimeError(INVALID_ARGUMENT, "minutes must be 0 or more");
+  if (!readTournament(nk, id)) throw runtimeError(INVALID_ARGUMENT, "No such tournament");
+  const real = Date.now();
+  ensureClock(nk);
+  commit(nk, logger, id, (t) => ({ ok: true, value: skipAhead(t, minutes * 60 * 1e3) }));
+  const saved = catchUpTournament(nk, logger, id, real);
+  logger.info("Tournament %s: dev skip %d min", id, minutes);
+  return JSON.stringify({ tournament: tournamentView(saved, userId, nowFor(saved, real)) });
+}
+
+// src/tournament/clock_match.ts
+var SWEEP_EVERY_TICKS = 5;
+var DUPLICATE_CHECK_EVERY_TICKS = 60;
+function tournamentClockInit(ctx, logger, nk, params) {
+  logger.info("Tournament clock started");
+  return { state: { ticks: 0 }, tickRate: 1, label: CLOCK_MATCH };
+}
+function tournamentClockJoinAttempt(ctx, logger, nk, dispatcher, tickNumber, state, presence, metadata) {
+  return { state, accept: false, rejectMessage: "Not a lobby" };
+}
+function tournamentClockJoin(ctx, logger, nk, dispatcher, tickNumber, state, presences) {
+  return { state };
+}
+function tournamentClockLeave(ctx, logger, nk, dispatcher, tickNumber, state, presences) {
+  return { state };
+}
+function tournamentClockLoop(ctx, logger, nk, dispatcher, tickNumber, state, messages) {
+  const ticks = state.ticks + 1;
+  if (ticks % DUPLICATE_CHECK_EVERY_TICKS === 0) {
+    try {
+      const clocks = nk.matchList(10, true, CLOCK_MATCH, null, null, "");
+      if (clocks.some((m) => m.matchId < ctx.matchId)) {
+        logger.info("Tournament clock %s: another clock is running, stopping", ctx.matchId);
+        return null;
+      }
+    } catch (e) {
+    }
+  }
+  if (ticks % SWEEP_EVERY_TICKS === 0) {
+    try {
+      sweep(nk, logger, Date.now(), catchUpTournament);
+    } catch (e) {
+      logger.error("Tournament clock sweep failed: %s", e instanceof Error ? e.message : JSON.stringify(e));
+    }
+  }
+  return { state: { ticks } };
+}
+function tournamentClockSignal(ctx, logger, nk, dispatcher, tickNumber, state, data) {
+  return { state, data: "" };
+}
+function tournamentClockTerminate(ctx, logger, nk, dispatcher, tickNumber, state, graceSeconds) {
+  return { state };
+}
+
 // src/main.ts
 function InitModule(ctx, logger, nk, initializer) {
   const settings = checkServerKind(ctx.env, logger);
@@ -11229,5 +15059,51 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("admin_run_set_result", rpcAdminRunSetResult);
   initializer.registerRpc("admin_match_edit", rpcAdminMatchEdit);
   logger.info("BMP lobby module loaded");
+  initializer.registerMatch("bmp_tournament_clock", {
+    matchInit: tournamentClockInit,
+    matchJoinAttempt: tournamentClockJoinAttempt,
+    matchJoin: tournamentClockJoin,
+    matchLeave: tournamentClockLeave,
+    matchLoop: tournamentClockLoop,
+    matchSignal: tournamentClockSignal,
+    matchTerminate: tournamentClockTerminate
+  });
+  initializer.registerRpc("tournament_list", rpcTournamentList);
+  initializer.registerRpc("tournament_get", rpcTournamentGet);
+  initializer.registerRpc("tournament_preview", rpcTournamentPreview);
+  initializer.registerRpc("tournament_mine", rpcTournamentMine);
+  initializer.registerRpc("tournament_join", rpcTournamentJoin);
+  initializer.registerRpc("tournament_leave", rpcTournamentLeave);
+  initializer.registerRpc("tournament_check_in", rpcTournamentCheckIn);
+  initializer.registerRpc("tournament_create", rpcTournamentCreate);
+  initializer.registerRpc("tournament_can_create", rpcTournamentCanCreate);
+  initializer.registerRpc("tournament_update", rpcTournamentUpdate);
+  initializer.registerRpc("tournament_open", rpcTournamentOpen);
+  initializer.registerRpc("tournament_registration_set", rpcTournamentRegistrationSet);
+  initializer.registerRpc("tournament_promote", rpcTournamentPromote);
+  initializer.registerRpc("tournament_remove_player", rpcTournamentRemovePlayer);
+  initializer.registerRpc("tournament_co_organisers_set", rpcTournamentCoOrganisersSet);
+  initializer.registerRpc("tournament_co_organiser_code", rpcTournamentCoOrganiserCode);
+  initializer.registerRpc("tournament_co_organiser_join", rpcTournamentCoOrganiserJoin);
+  initializer.registerRpc("tournament_notice_set", rpcTournamentNoticeSet);
+  initializer.registerRpc("tournament_message", rpcTournamentMessage);
+  initializer.registerRpc("tournament_seeding_set", rpcTournamentSeedingSet);
+  initializer.registerRpc("tournament_start", rpcTournamentStart);
+  initializer.registerRpc("tournament_cancel", rpcTournamentCancel);
+  initializer.registerRpc("tournament_ready", rpcTournamentReady);
+  initializer.registerRpc("tournament_result_set", rpcTournamentResultSet);
+  initializer.registerRpc("tournament_result_clear", rpcTournamentResultClear);
+  initializer.registerRpc("tournament_extend", rpcTournamentExtend);
+  initializer.registerRpc("tournament_pause", rpcTournamentPause);
+  initializer.registerRpc("tournament_resume", rpcTournamentResume);
+  initializer.registerRpc("tournament_round_start", rpcTournamentRoundStart);
+  initializer.registerRpc("admin_tournament_close", rpcAdminTournamentClose);
+  initializer.registerRpc("admin_tournament_list", rpcAdminTournamentList);
+  initializer.registerRpc("admin_tournament_get", rpcAdminTournamentGet);
+  initializer.registerRpc("admin_tournament_settings", rpcAdminTournamentSettings);
+  initializer.registerRpc("tournament_dev_fill", rpcTournamentDevFill);
+  initializer.registerRpc("tournament_dev_time", rpcTournamentDevTime);
+  ensureClock(nk);
+  logger.info("BMP tournament module loaded");
 }
 !InitModule && InitModule.bind(null);

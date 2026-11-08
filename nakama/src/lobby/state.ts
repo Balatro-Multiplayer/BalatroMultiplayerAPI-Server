@@ -5,6 +5,7 @@
 // silently not stick, so the state holds only plain objects and arrays.
 import type { TeamPlan } from '../matchmaking/group/teams'
 import type { RequiredStanding } from '../standing/standing'
+import type { TournamentLobbyRef } from '../tournament/model'
 import { type LobbyKind, lobbyKindOf } from '../review/ranked'
 import { replayTailOf } from './active'
 import { CATCH_UP_LIMIT_REASON } from './catch_up'
@@ -118,6 +119,9 @@ export interface Lobby {
 	// The seat is gone, but the player must not be seated again as a fresh
 	// joiner (joinRejection), so the record stays after the game ends.
 	forfeitedSeats?: { [userId: string]: string }
+	// A lobby the tournament module made for one game of a match
+	// (tournament/effects.ts): its stored run is that game's result.
+	tournament?: TournamentLobbyRef
 }
 
 export type Outbound =
@@ -153,6 +157,9 @@ export function newLobby(params: {
 	groups?: MatchedGroup[]
 	teamPlan?: TeamPlan | null
 	requiredStanding?: RequiredStanding
+	tournament?: TournamentLobbyRef
+	// The lobby's first metadata (a tournament lobby's round settings).
+	metadata?: { [key: string]: unknown }
 	now: number
 	graceMs: number
 	catchUpLimitMs?: number | null
@@ -167,7 +174,7 @@ export function newLobby(params: {
 		rankedMode: params.rankedMode,
 		allowedIds: params.allowedIds,
 		gameMode: params.gameMode,
-		metadata: {},
+		metadata: params.metadata ? { ...params.metadata } : {},
 		players: [],
 		kickedIds: [],
 		createdAt: params.now,
@@ -180,6 +187,7 @@ export function newLobby(params: {
 		groups: params.groups,
 		teamPlan: params.teamPlan,
 		requiredStanding: params.requiredStanding,
+		tournament: params.tournament,
 	}
 }
 
@@ -204,6 +212,8 @@ export function lobbyType(lobby: Lobby): 'public' | 'private' {
 // Public lobbies can always be watched; a private one when its host has set
 // metadata.spectatable (as the API's /lobbies/spectatable decides).
 export function isSpectatable(lobby: Lobby): boolean {
+	// Tournament games are not open to spectators (not yet a feature).
+	if (lobby.tournament) return false
 	return lobbyType(lobby) === 'public' || lobby.metadata.spectatable === true
 }
 

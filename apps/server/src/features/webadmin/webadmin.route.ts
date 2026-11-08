@@ -22,6 +22,7 @@ import seasonReplayRouter from './season-replay.route.js'
 import seasonsRouter from './seasons.route.js'
 import serviceQueueRouter from './service-queue.route.js'
 import staffLogRouter from './staff-log.route.js'
+import tournamentsRouter from './tournaments.route.js'
 
 const router = Router()
 
@@ -69,5 +70,6 @@ router.use('/achievements', admin)
 router.use(achievementsRouter)
 router.use('/ratings', admin)
 router.use(seasonReplayRouter)
+router.use(tournamentsRouter)
 
 export default router
