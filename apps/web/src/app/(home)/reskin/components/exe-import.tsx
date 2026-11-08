@@ -21,7 +21,7 @@ export function ExeImport({
   borderReady: boolean
 }) {
   return (
-    <div className='space-y-2 rounded-lg border bg-card p-3'>
+    <div className='space-y-2 rounded-lg border border-border bg-card/80 p-3'>
       <div className='flex flex-wrap items-center gap-3'>
         <Label htmlFor='reskin-exe' className='font-medium'>
           Import Balatro.exe (optional)

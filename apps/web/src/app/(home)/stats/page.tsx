@@ -1,10 +1,15 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
-import { apiFetch } from '@/lib/api'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import type { QueueStatsResponse } from '@bmp/types'
-import { QUEUE_MODS, pillarCounts, type QueueMod } from '@/lib/queue-pillars'
+import { useQuery } from '@tanstack/react-query'
+import {
+  ContentCard,
+  EmptyLine,
+  PageHeader,
+  PageShell,
+} from '@/components/page-kit'
+import { apiFetch } from '@/lib/api'
+import { pillarCounts, QUEUE_MODS, type QueueMod } from '@/lib/queue-pillars'
 
 interface GlobalStats {
   // null: the server could not read Nakama's open-socket count.
@@ -41,17 +46,28 @@ export default function StatsPage() {
   })
 
   return (
-    <div className='container py-8 space-y-8'>
-      <div className='space-y-1'>
-        <h1 className='text-3xl font-bold tracking-tight'>Statistics</h1>
-        <p className='text-muted-foreground'>Global statistics for Balatro Multiplayer.</p>
-      </div>
+    <PageShell>
+      <PageHeader
+        title='Statistics'
+        meta='Global statistics for Balatro Multiplayer.'
+      />
 
-      {/* Global counters */}
       <div className='grid grid-cols-1 gap-4 sm:grid-cols-3'>
-        <StatCard label='Total Matches' value={stats?.totalMatches} color='text-bal-blue' />
-        <StatCard label='Unique Players' value={stats?.uniquePlayers} color='text-bal-green' />
-        <StatCard label='Online Players' value={onlinePlayers} color='text-primary' />
+        <StatCard
+          label='Total Matches'
+          value={stats?.totalMatches}
+          color='text-bal-blue'
+        />
+        <StatCard
+          label='Unique Players'
+          value={stats?.uniquePlayers}
+          color='text-bal-green'
+        />
+        <StatCard
+          label='Online Players'
+          value={onlinePlayers}
+          color='text-primary'
+        />
       </div>
 
       {QUEUE_MODS.map((mod) => (
@@ -64,20 +80,28 @@ export default function StatsPage() {
       ))}
 
       <ActivityChartCard data={activityData} />
-    </div>
+    </PageShell>
   )
 }
 
-function StatCard({ label, value, color }: { label: string; value: number | null | undefined; color: string }) {
+function StatCard({
+  label,
+  value,
+  color,
+}: {
+  label: string
+  value: number | null | undefined
+  color: string
+}) {
   return (
-    <Card>
-      <CardContent className='pt-6 text-center'>
-        <div className={`font-pixel text-4xl font-black ${color}`}>
-          {value != null ? value.toLocaleString() : '-'}
-        </div>
-        <div className='mt-1.5 text-xs uppercase tracking-wider text-muted-foreground'>{label}</div>
-      </CardContent>
-    </Card>
+    <section className='rounded-lg border border-border bg-card/80 p-4 text-center'>
+      <div className={`font-pixel text-4xl ${color}`}>
+        {value != null ? value.toLocaleString() : '-'}
+      </div>
+      <h2 className='mt-1.5 font-pixel text-lg text-muted-foreground uppercase tracking-wide'>
+        {label}
+      </h2>
+    </section>
   )
 }
 
@@ -95,46 +119,52 @@ function QueueStatsCard({
   const unavailable = counts === null || failed
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{mod.label} Queues</CardTitle>
-        <CardDescription>Players in each Find Game queue and in its games now.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {unavailable ? (
-          <p className='text-sm text-muted-foreground'>Queue stats are unavailable right now.</p>
-        ) : (
-          <div className='grid grid-cols-1 gap-6 md:grid-cols-2'>
-            {mod.groups.map((group) => (
-              <div key={group.label} className='space-y-2'>
-                <h3 className='text-xs uppercase tracking-wider text-muted-foreground'>{group.label}</h3>
-                <table className='w-full text-sm'>
-                  <thead>
-                    <tr className='text-left text-xs text-muted-foreground'>
-                      <th className='py-1 font-medium'>Mode</th>
-                      <th className='py-1 text-right font-medium'>In Queue</th>
-                      <th className='py-1 text-right font-medium'>In Game</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.pillars.map((pillar) => {
-                      const pillarStats = counts ? pillarCounts(counts, pillar) : undefined
-                      return (
-                        <tr key={pillar.label} className='border-t border-border/50'>
-                          <td className='py-1.5'>{pillar.label}</td>
-                          <td className='py-1.5 text-right tabular-nums'>{pillarStats?.queued ?? '-'}</td>
-                          <td className='py-1.5 text-right tabular-nums'>{pillarStats?.inMatch ?? '-'}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <ContentCard title={`${mod.label} Queues`}>
+      <p className='text-muted-foreground text-sm'>
+        Players in each Find Game queue and in its games now.
+      </p>
+      {unavailable ? (
+        <EmptyLine>Queue stats are unavailable right now.</EmptyLine>
+      ) : (
+        <div className='grid grid-cols-1 gap-6 md:grid-cols-2'>
+          {mod.groups.map((group) => (
+            <div key={group.label} className='min-w-0 space-y-1'>
+              <h3 className='font-pixel text-base text-muted-foreground uppercase tracking-wide'>
+                {group.label}
+              </h3>
+              <ul className='text-sm'>
+                <li className='grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] gap-2 py-1 text-muted-foreground text-xs'>
+                  <span>Mode</span>
+                  <span className='text-right'>In Queue</span>
+                  <span className='text-right'>In Game</span>
+                </li>
+                {group.pillars.map((pillar) => {
+                  const pillarStats = counts
+                    ? pillarCounts(counts, pillar)
+                    : undefined
+                  return (
+                    <li
+                      key={pillar.label}
+                      className='grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] gap-2 border-border/50 border-t py-1.5'
+                    >
+                      <span className='min-w-0 break-words'>
+                        {pillar.label}
+                      </span>
+                      <span className='text-right tabular-nums'>
+                        {pillarStats?.queued ?? '-'}
+                      </span>
+                      <span className='text-right tabular-nums'>
+                        {pillarStats?.inMatch ?? '-'}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+    </ContentCard>
   )
 }
 
@@ -143,27 +173,24 @@ function ActivityChartCard({ data }: { data: ActivityResponse | undefined }) {
   const max = Math.max(1, ...buckets.map((b) => b.count))
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Activity</CardTitle>
-        <CardDescription>Matches formed per hour, last 7 days.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {buckets.length === 0 ? (
-          <p className='text-sm text-muted-foreground'>No recent activity.</p>
-        ) : (
-          <div className='flex h-32 items-end gap-px'>
-            {buckets.map((b) => (
-              <div
-                key={b.hour}
-                title={`${new Date(b.hour).toLocaleString()}: ${b.count}`}
-                className='flex-1 rounded-t bg-primary/70 transition-colors hover:bg-primary'
-                style={{ height: `${Math.max(2, (b.count / max) * 100)}%` }}
-              />
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <ContentCard title='Activity'>
+      <p className='text-muted-foreground text-sm'>
+        Matches formed per hour, last 7 days.
+      </p>
+      {buckets.length === 0 ? (
+        <EmptyLine>No recent activity.</EmptyLine>
+      ) : (
+        <div className='flex h-32 items-end gap-px'>
+          {buckets.map((b) => (
+            <div
+              key={b.hour}
+              title={`${new Date(b.hour).toLocaleString()}: ${b.count}`}
+              className='flex-1 rounded-t bg-primary/70 transition-colors hover:bg-primary'
+              style={{ height: `${Math.max(2, (b.count / max) * 100)}%` }}
+            />
+          ))}
+        </div>
+      )}
+    </ContentCard>
   )
 }
