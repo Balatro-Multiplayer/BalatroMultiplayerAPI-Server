@@ -7,8 +7,8 @@ import {
 } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
+import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 export const metadata = {
   title: 'Play Balatro Against Your Friends',
@@ -16,281 +16,234 @@ export const metadata = {
     'Download the Balatro Multiplayer mod, join ranked queues, and play direct matches with your friends.',
 }
 
+const FEATURES: Array<[title: string, text: string]> = [
+  ['Real-time matches', 'Challenge friends to head-to-head Balatro matches.'],
+  [
+    'Tournaments',
+    'Join our weekly tournaments and compete against other players.',
+  ],
+  [
+    'Global leaderboards',
+    'Compete for the highest scores and track your progress against players worldwide.',
+  ],
+  [
+    'Active community',
+    'Join our Discord server to find matches, share strategies, and take part in community events.',
+  ],
+  [
+    'Custom game modes',
+    'Play with modified rules and unique challenges created by the community.',
+  ],
+  ['Cross-platform', 'Play with friends on Windows, Mac, or Linux.'],
+]
+
+const STEPS: Array<[title: string, text: string]> = [
+  [
+    'Install the mod',
+    'Download and install the multiplayer mod by following the instructions on our download page.',
+  ],
+  [
+    'Start a match',
+    'Host your own game or join an existing one with a simple game code.',
+  ],
+  [
+    'Play together',
+    'Compete in real time with synchronized gameplay and live scoring.',
+  ],
+]
+
+function Card({
+  title,
+  icon,
+  children,
+  className = '',
+}: {
+  title: string
+  icon?: ReactNode
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <section
+      className={`space-y-2 rounded-lg border border-border bg-card/80 p-4 ${className}`}
+    >
+      <h3 className='flex items-center gap-2 font-pixel text-lg uppercase tracking-wide'>
+        {icon && <span className='text-primary'>{icon}</span>}
+        {title}
+      </h3>
+      {children}
+    </section>
+  )
+}
+
+function SectionHead({ title, text }: { title: string; text?: string }) {
+  return (
+    <div className='mb-4 space-y-1'>
+      <h2 className='font-pixel text-2xl sm:text-3xl'>{title}</h2>
+      {text && <p className='text-muted-foreground'>{text}</p>}
+    </div>
+  )
+}
+
+function Bullets({ items }: { items: string[] }) {
+  return (
+    <ul className='space-y-1.5 text-sm'>
+      {items.map((t) => (
+        <li key={t} className='flex gap-2'>
+          <span className='text-primary'>•</span>
+          <span>{t}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export default function Home() {
   return (
-    <div className='flex min-h-screen flex-col'>
-      <main className='flex-1'>
-        <section className='space-y-6 pt-6 pb-8 md:pt-10 md:pb-12 lg:py-32'>
-          <div className='container mx-auto flex flex-col items-center gap-4 text-center'>
-            <Link
-              href='https://github.com/Balatro-Multiplayer'
-              className='rounded-2xl bg-muted px-4 py-1.5 font-medium text-sm'
-              target='_blank'
-            >
-              Follow along on GitHub
+    <div className='flex flex-col'>
+      <section className='space-y-6 pt-6 pb-8 md:pt-10 md:pb-12 lg:py-24'>
+        <div className='container mx-auto flex flex-col items-center gap-4 text-center'>
+          <Link
+            href='https://github.com/Balatro-Multiplayer'
+            className='rounded-2xl border border-border bg-card/80 px-4 py-1.5 font-medium text-sm'
+            target='_blank'
+          >
+            Follow along on GitHub
+          </Link>
+          <h1 className='font-pixel text-4xl leading-tight md:text-6xl'>
+            Play Balatro Against Your Friends
+          </h1>
+          <p className='max-w-[42rem] text-muted-foreground leading-normal sm:text-xl sm:leading-8'>
+            The unofficial multiplayer mod for Balatro. Challenge your friends,
+            compete in tournaments, and climb the global leaderboards.
+          </p>
+          <Button asChild size='lg' className='w-full sm:w-auto'>
+            <Link href='/download'>
+              Get Started
+              <ChevronRight className='ml-2 h-4 w-4' />
             </Link>
-            <h1 className='font-bold text-3xl leading-tight tracking-tighter md:text-5xl lg:text-6xl'>
-              Play Balatro Against Your Friends
-            </h1>
-            <p className='max-w-[42rem] text-muted-foreground leading-normal sm:text-xl sm:leading-8'>
-              The unofficial multiplayer mod for Balatro. Challenge your
-              friends, compete in tournaments, and climb the global
-              leaderboards.
-            </p>
-            <div className='flex flex-col gap-4 sm:flex-row sm:space-x-4'>
-              <Button
-                asChild
-                size='lg'
-                className='w-full bg-red-600 text-white hover:bg-red-700 sm:w-auto'
-              >
-                <Link href='/download'>
-                  Get Started
-                  <ChevronRight className='ml-2 h-4 w-4' />
-                </Link>
-              </Button>
-            </div>
-            <div className='mt-8 w-full max-w-5xl rounded-lg border bg-card p-4 shadow-xl'>
-              <Image
-                src='/multiplayer-screenshot.jpeg'
-                width={1200}
-                height={600}
-                alt='Balatro Multiplayer Screenshot'
-                className='rounded-md'
-              />
-            </div>
+          </Button>
+          <div className='mt-8 w-full max-w-5xl rounded-lg border border-border bg-card/80 p-4 shadow-xl'>
+            <Image
+              src='/multiplayer-screenshot.jpeg'
+              width={1200}
+              height={600}
+              alt='Balatro Multiplayer Screenshot'
+              className='rounded-md'
+            />
           </div>
-        </section>
-        <section className='container mx-auto py-8 md:py-12 lg:py-16'>
-          <div className='mx-auto max-w-2xl space-y-4 text-center'>
-            <p className='font-medium text-muted-foreground text-sm uppercase tracking-wider'>
+        </div>
+      </section>
+
+      <div className='container mx-auto max-w-6xl space-y-12 pb-12'>
+        <section className='grid items-center gap-4 md:grid-cols-2'>
+          <div className='space-y-3'>
+            <p className='font-pixel text-muted-foreground uppercase tracking-wide'>
               Officially unofficial&trade;
             </p>
-            <h2 className='font-bold text-2xl leading-tight tracking-tighter md:text-3xl'>
+            <h2 className='font-pixel text-2xl sm:text-3xl'>
               &ldquo;There&rsquo;s a cool mod if you want that&rdquo;
             </h2>
-            <p className='text-muted-foreground leading-normal sm:text-lg'>
+            <p className='text-muted-foreground'>
               That&rsquo;s the closest thing to a blessing we&rsquo;ll ever get
               from localthunk, and we&rsquo;re running with it.
             </p>
-            <div className='mx-auto mt-6 max-w-md overflow-hidden rounded-lg border bg-card shadow-lg'>
-              <Image
-                src='/localthunk_on_multiplayer.png'
-                width={800}
-                height={400}
-                alt='localthunk on Discord: no balatro multiplayer, there is a cool mod if you want that'
-                className='w-full'
+          </div>
+          <div className='overflow-hidden rounded-lg border border-border bg-card/80'>
+            <Image
+              src='/localthunk_on_multiplayer.png'
+              width={800}
+              height={400}
+              alt='localthunk on Discord: no balatro multiplayer, there is a cool mod if you want that'
+              className='w-full'
+            />
+          </div>
+        </section>
+
+        <section>
+          <SectionHead
+            title='Features'
+            text='Play with friends, compete globally, join tournaments.'
+          />
+          <div className='grid gap-4 sm:grid-cols-2 md:grid-cols-3'>
+            {FEATURES.map(([title, text]) => (
+              <Card key={title} title={title}>
+                <p className='text-muted-foreground text-sm'>{text}</p>
+              </Card>
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <SectionHead
+            title='Ways to play'
+            text='Choose how you want to experience Balatro Multiplayer.'
+          />
+          <div className='grid gap-4 md:grid-cols-3'>
+            <Card title='Direct play' icon={<Users className='size-5' />}>
+              <p className='text-muted-foreground text-sm'>
+                Challenge friends in private matches.
+              </p>
+              <Bullets
+                items={[
+                  'No matchmaking or ratings',
+                  'Customize all lobby options',
+                  'Play with friends directly',
+                  'Perfect for casual games',
+                ]}
               />
-            </div>
-          </div>
-        </section>
-
-        <section className='container mx-auto space-y-6 py-8 md:py-12 lg:py-24'>
-          <div className='mx-auto flex max-w-[58rem] flex-col items-center space-y-4 text-center'>
-            <h2 className='font-bold text-3xl leading-tight tracking-tighter md:text-4xl'>
-              Features
-            </h2>
-            <p className='max-w-[85%] text-muted-foreground leading-normal sm:text-lg sm:leading-7'>
-              Play with friends, compete globally, join tournaments
-            </p>
-          </div>
-          <div className='mx-auto grid justify-center gap-4 sm:grid-cols-2 md:max-w-[64rem] md:grid-cols-3'>
-            <Card>
-              <CardHeader>
-                <CardTitle>Real-time Matches</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p>Challenge friends to head-to-head Balatro matches.</p>
-              </CardContent>
             </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Tournaments</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p>
-                  Join our weekly tournaments and compete against other players.
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Global Leaderboards</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p>
-                  Compete for the highest scores and track your progress against
-                  players worldwide.
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Active Community</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p>
-                  Join our Discord server to find matches, share strategies, and
-                  participate in community events.
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Custom Game Modes</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p>
-                  Play with modified rules and unique challenges created by the
-                  community.
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Cross-Platform</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p>
-                  Play with friends regardless of their platform - Windows, Mac,
-                  or Linux.
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-        </section>
-
-        <section className='container mx-auto border-t border-b py-12 md:py-16'>
-          <div className='mx-auto mb-10 flex max-w-[58rem] flex-col items-center space-y-4 text-center'>
-            <h2 className='font-bold text-3xl leading-tight tracking-tighter md:text-4xl'>
-              Ways to Play
-            </h2>
-            <p className='max-w-[85%] text-muted-foreground leading-normal sm:text-lg sm:leading-7'>
-              Choose how you want to experience Balatro Multiplayer
-            </p>
-          </div>
-
-          <div className='mx-auto grid max-w-6xl gap-8 sm:grid-cols-2 lg:grid-cols-3'>
-            <Card className='flex h-full flex-col'>
-              <CardHeader className='pb-2'>
-                <div className='mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-red-100'>
-                  <Users className='h-6 w-6 text-red-600' />
-                </div>
-                <CardTitle>Direct Play</CardTitle>
-              </CardHeader>
-              <CardContent className='flex-grow'>
-                <p className='mb-4 text-muted-foreground'>
-                  Challenge friends in private matches
-                </p>
-                <ul className='space-y-2 text-sm'>
-                  <li className='flex items-start gap-2'>
-                    <span className='font-medium'>
-                      • No matchmaking or ratings
-                    </span>
-                  </li>
-                  <li className='flex items-start gap-2'>
-                    <span className='font-medium'>
-                      • Customize all lobby options
-                    </span>
-                  </li>
-                  <li className='flex items-start gap-2'>
-                    <span className='font-medium'>
-                      • Play with friends directly
-                    </span>
-                  </li>
-                  <li className='flex items-start gap-2'>
-                    <span className='font-medium'>
-                      • Perfect for casual games
-                    </span>
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card className='flex h-full flex-col'>
-              <CardHeader className='pb-2'>
-                <div className='mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-red-100'>
-                  <Trophy className='h-6 w-6 text-red-600' />
-                </div>
-                <CardTitle>Matchmaking Queues</CardTitle>
-              </CardHeader>
-              <CardContent className='flex-grow'>
-                <p className='mb-4 text-muted-foreground'>
-                  Compete in multiple queues for MMR on the Discord:
-                </p>
-                <div className='space-y-4'>
-                  <div className='space-y-2 text-sm'>
-                    <h4 className='font-semibold'>Ranked Queue:</h4>
-                    <ul className='space-y-1'>
-                      <li>
-                        • Rebalanced cards and mechanics, new jokers, and more
-                        to create a competitive experience.
-                      </li>
-                    </ul>
-                  </div>
-                  <div className='space-y-2 text-sm'>
-                    <h4 className='font-semibold'>Smallworld:</h4>
-                    <ul className='space-y-1'>
-                      <li>
-                        • A whole new style of play, with only 25% of everything
-                        at your disposal, and showman is ALWAYS active. How will
-                        you build?
-                      </li>
-                    </ul>
-                  </div>
-                  <div className='space-y-2 text-sm'>
-                    <h4 className='font-semibold'>Vanilla Queue:</h4>
-                    <ul className='space-y-1'>
-                      <li>
-                        • Uses the original game balance with no special changes
-                        besides same seed.
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className='flex h-full flex-col'>
-              <CardHeader className='pb-2'>
-                <div className='mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-red-100'>
-                  <MessageSquare className='h-6 w-6 text-red-600' />
-                </div>
-                <CardTitle>Custom LFG</CardTitle>
-              </CardHeader>
-              <CardContent className='flex-grow'>
-                <p className='mb-4 text-muted-foreground'>
-                  Organize custom matches with unique rules and mods
-                </p>
-                <ul className='space-y-2 text-sm'>
-                  <li className='flex items-start gap-2'>
-                    <span className='font-medium'>
-                      • Any ruleset or lobby options
-                    </span>
-                  </li>
-                  <li className='flex items-start gap-2'>
-                    <span className='font-medium'>
-                      • Compatible with mods (with agreement)
-                    </span>
-                  </li>
-                  <li className='flex items-start gap-2'>
-                    <span className='font-medium'>• No MMR or rankings</span>
-                  </li>
-                  <li className='flex items-start gap-2'>
-                    <span className='font-medium'>
-                      • Great for experimenting with new formats
-                    </span>
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className='mt-10 flex flex-col gap-4 text-center sm:flex-row sm:justify-center'>
-            <Button
-              asChild
-              size='lg'
-              className='w-full bg-red-600 text-white hover:bg-red-700 sm:w-auto'
+            <Card
+              title='Matchmaking queues'
+              icon={<Trophy className='size-5' />}
             >
+              <p className='text-muted-foreground text-sm'>
+                Compete in multiple queues for MMR on the Discord.
+              </p>
+              <dl className='space-y-2 text-sm'>
+                <div>
+                  <dt className='font-semibold'>Ranked Queue</dt>
+                  <dd className='text-muted-foreground'>
+                    Rebalanced cards and mechanics, new jokers, and more to
+                    create a competitive experience.
+                  </dd>
+                </div>
+                <div>
+                  <dt className='font-semibold'>Smallworld</dt>
+                  <dd className='text-muted-foreground'>
+                    A whole new style of play, with only 25% of everything at
+                    your disposal, and showman is ALWAYS active. How will you
+                    build?
+                  </dd>
+                </div>
+                <div>
+                  <dt className='font-semibold'>Vanilla Queue</dt>
+                  <dd className='text-muted-foreground'>
+                    Uses the original game balance with no special changes
+                    besides same seed.
+                  </dd>
+                </div>
+              </dl>
+            </Card>
+            <Card
+              title='Custom LFG'
+              icon={<MessageSquare className='size-5' />}
+            >
+              <p className='text-muted-foreground text-sm'>
+                Organize custom matches with unique rules and mods.
+              </p>
+              <Bullets
+                items={[
+                  'Any ruleset or lobby options',
+                  'Compatible with mods (with agreement)',
+                  'No MMR or rankings',
+                  'Great for experimenting with new formats',
+                ]}
+              />
+            </Card>
+          </div>
+          <div className='mt-4 flex flex-col gap-3 sm:flex-row'>
+            <Button asChild size='lg' className='w-full sm:w-auto'>
               <Link href='/leaderboards'>
                 View Leaderboards
                 <Trophy className='ml-2 h-4 w-4' />
@@ -299,7 +252,8 @@ export default function Home() {
             <Button
               asChild
               size='lg'
-              className='w-full bg-red-600 text-white hover:bg-red-700 sm:w-auto'
+              variant='outline'
+              className='w-full sm:w-auto'
             >
               <Link href='https://discord.gg/bBb5eU2gWc' target='_blank'>
                 Join Our Discord
@@ -309,97 +263,38 @@ export default function Home() {
           </div>
         </section>
 
-        <section className='container mx-auto py-8 md:py-12 lg:py-24'>
-          <div className='mx-auto max-w-[85rem]'>
-            <div className='mx-auto grid max-w-6xl gap-8 md:grid-cols-2'>
-              <div className='flex flex-col justify-center space-y-4'>
-                <div className='space-y-2'>
-                  <h2 className='font-bold text-3xl tracking-tighter sm:text-4xl'>
-                    How It Works
-                  </h2>
-                  <p className='max-w-[600px] text-muted-foreground md:text-xl/relaxed'>
-                    Getting started with Balatro Multiplayer is simple. Install
-                    the mod, connect with friends, and start playing.
-                  </p>
-                </div>
-                <ul className='grid gap-6'>
-                  <li className='flex items-start gap-4'>
-                    <div className='flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600'>
-                      1
-                    </div>
-                    <div className='space-y-1'>
-                      <h3 className='font-bold text-xl'>Install the Mod</h3>
-                      <p className='text-muted-foreground'>
-                        Download and install the multiplayer mod by following
-                        the instructions on our download page.
-                      </p>
-                    </div>
-                  </li>
-                  <li className='flex items-start gap-4'>
-                    <div className='flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600'>
-                      2
-                    </div>
-                    <div className='space-y-1'>
-                      <h3 className='font-bold text-xl'>Start a match</h3>
-                      <p className='text-muted-foreground'>
-                        Host your own game or join an existing one with a simple
-                        game code.
-                      </p>
-                    </div>
-                  </li>
-                  <li className='flex items-start gap-4'>
-                    <div className='flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600'>
-                      3
-                    </div>
-                    <div className='space-y-1'>
-                      <h3 className='font-bold text-xl'>Play Together</h3>
-                      <p className='text-muted-foreground'>
-                        Compete in real-time with synchronized gameplay and live
-                        scoring.
-                      </p>
-                    </div>
-                  </li>
-                </ul>
-                <div className='flex flex-col gap-2 min-[400px]:flex-row'>
-                  <Button
-                    size='lg'
-                    className='w-full bg-red-600 text-white hover:bg-red-700 sm:w-auto'
-                    asChild
-                  >
-                    <Link href='/download'>Install Now</Link>
-                  </Button>
-                </div>
-              </div>
-              <div className='flex items-center justify-center'>
-                <Image
-                  src='/multiplayer-screenshot.jpeg'
-                  width={500}
-                  height={500}
-                  alt='Balatro Multiplayer Gameplay'
-                  className='rounded-lg shadow-xl'
-                />
-              </div>
-            </div>
-          </div>
+        <section>
+          <SectionHead
+            title='How it works'
+            text='Getting started is simple. Install the mod, connect with friends, and start playing.'
+          />
+          <ol className='grid gap-4 md:grid-cols-3'>
+            {STEPS.map(([title, text], i) => (
+              <li key={title}>
+                <Card title={title} className='h-full'>
+                  <span className='font-pixel text-3xl text-primary'>
+                    {i + 1}
+                  </span>
+                  <p className='text-muted-foreground text-sm'>{text}</p>
+                </Card>
+              </li>
+            ))}
+          </ol>
+          <Button asChild size='lg' className='mt-4 w-full sm:w-auto'>
+            <Link href='/download'>Install Now</Link>
+          </Button>
         </section>
-        <section className='bg-muted py-12 md:py-16'>
-          <div className='container mx-auto flex flex-col items-center justify-center gap-4 text-center'>
-            <h2 className='font-bold text-3xl tracking-tighter sm:text-4xl'>
-              Ready to Play?
-            </h2>
-            <p className='max-w-[600px] text-muted-foreground md:text-xl/relaxed'>
-              Join our competitive community of 3,000+ ranked players.
-            </p>
-            <Button
-              size='lg'
-              className='mt-4 w-full bg-red-600 text-white hover:bg-red-700 sm:w-auto'
-              asChild
-            >
-              <Link href='/download'>Get Started Now</Link>
-            </Button>
-          </div>
+
+        <section className='space-y-3 rounded-lg border border-border bg-card/80 p-6 text-center'>
+          <h2 className='font-pixel text-2xl sm:text-3xl'>Ready to play?</h2>
+          <p className='text-muted-foreground'>
+            Join our competitive community of 3,000+ ranked players.
+          </p>
+          <Button asChild size='lg' className='w-full sm:w-auto'>
+            <Link href='/download'>Get Started Now</Link>
+          </Button>
         </section>
-      </main>
+      </div>
     </div>
   )
 }
