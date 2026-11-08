@@ -9,6 +9,8 @@ vi.mock(
 		listNakamaTournaments: vi.fn(),
 		getNakamaTournament: vi.fn(),
 		closeNakamaTournament: vi.fn(),
+		getTournamentCreationRestricted: vi.fn(),
+		setTournamentCreationRestricted: vi.fn(),
 	}),
 )
 
@@ -20,7 +22,9 @@ import {
 	type NakamaTournamentSummary,
 	closeNakamaTournament,
 	getNakamaTournament,
+	getTournamentCreationRestricted,
 	listNakamaTournaments,
+	setTournamentCreationRestricted,
 } from '../../infrastructure/nakama/tournament-sync.js'
 import { createSession } from '../../state/index.js'
 import { createTestApp } from './app.js'
@@ -222,5 +226,70 @@ describe('POST /api/webadmin/tournaments/:id/close', () => {
 			.set('Authorization', authWith(['admin'], 'admin-1', 'Admin'))
 			.send({ reason: 'test' })
 		expect(res.status).toBe(404)
+	})
+})
+
+describe('/api/webadmin/tournaments/settings', () => {
+	beforeEach(() => {
+		vi.mocked(getTournamentCreationRestricted).mockResolvedValue({
+			ok: true,
+			value: true,
+		})
+		vi.mocked(setTournamentCreationRestricted).mockReset()
+		vi.mocked(setTournamentCreationRestricted).mockResolvedValue({
+			ok: true,
+			value: null,
+		})
+	})
+
+	it('shows moderators whether creation is restricted', async () => {
+		const res = await request(app)
+			.get('/api/webadmin/tournaments/settings')
+			.set('Authorization', authWith(['moderator'], 'mod-1', 'Mod'))
+		expect(res.status).toBe(200)
+		expect(res.body).toEqual({ creationRestricted: true })
+	})
+
+	it('lets only admins change it', async () => {
+		const res = await request(app)
+			.put('/api/webadmin/tournaments/settings')
+			.set('Authorization', authWith(['moderator'], 'mod-1', 'Mod'))
+			.send({ creationRestricted: false, reason: 'open it up' })
+		expect(res.status).toBe(403)
+		expect(setTournamentCreationRestricted).not.toHaveBeenCalled()
+	})
+
+	it('changes it with a reason and writes the staff log', async () => {
+		const res = await request(app)
+			.put('/api/webadmin/tournaments/settings')
+			.set('Authorization', authWith(['admin'], 'admin-1', 'Admin'))
+			.send({ creationRestricted: false, reason: 'Stable now' })
+		expect(res.status).toBe(200)
+		expect(setTournamentCreationRestricted).toHaveBeenCalledWith(false)
+		expect(recordStaffAction).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				action: 'config_change',
+				reason: 'Stable now',
+				detail: {
+					old: { tournamentCreationRestricted: true },
+					new: { tournamentCreationRestricted: false },
+				},
+			}),
+		)
+	})
+
+	it('needs a reason and a true or false', async () => {
+		const auth = authWith(['admin'], 'admin-1', 'Admin')
+		const put = (body: object) =>
+			request(app)
+				.put('/api/webadmin/tournaments/settings')
+				.set('Authorization', auth)
+				.send(body)
+		expect((await put({ creationRestricted: false })).status).toBe(400)
+		expect((await put({ creationRestricted: 'no', reason: 'x' })).status).toBe(
+			400,
+		)
+		expect(setTournamentCreationRestricted).not.toHaveBeenCalled()
 	})
 })

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_CONFIG, writeConfig } from '../config'
 import { writeModReport } from '../standing/storage'
 import { type FakeNk, fakeLogger, fakeNk, playerCtx, serverCtx } from '../testing/fake_nk'
-import { rpcAdminTournamentGet, rpcAdminTournamentList } from './admin'
+import { rpcAdminTournamentGet, rpcAdminTournamentList, rpcAdminTournamentSettings } from './admin'
 import { rpcAdminTournamentClose, rpcTournamentCreate, rpcTournamentJoin, rpcTournamentNoticeSet, rpcTournamentOpen } from './rpc'
 
 const MIN = 60 * 1000
@@ -19,7 +19,7 @@ const NK = () => nk as unknown as nkruntime.Nakama
 beforeEach(() => {
 	ids = 0
 	nk = fakeNk({ uuidv4: () => `cccccccc-0000-4000-8000-${String(++ids).padStart(12, '0')}` })
-	writeConfig(NK(), { ...DEFAULT_CONFIG, tournamentsEnabled: true })
+	writeConfig(NK(), { ...DEFAULT_CONFIG, tournamentsEnabled: true, tournamentCreationRestricted: false })
 	for (const id of [ORG, P1]) writeModReport(NK(), id, { mods: [], reportedAt: Date.now() })
 })
 
@@ -106,5 +106,17 @@ describe('admin_tournament_get', () => {
 		const t = create('Spring Open', 'public')
 		expect(() => call(rpcAdminTournamentGet, ORG, { id: t.id })).toThrow()
 		expect(() => admin(rpcAdminTournamentGet, { id: 'dddddddd-0000-4000-8000-000000000009' })).toThrow('No such tournament')
+	})
+})
+
+describe('admin_tournament_settings', () => {
+	it('says whether creation is restricted', () => {
+		expect(admin(rpcAdminTournamentSettings)).toEqual({ creationRestricted: false })
+		writeConfig(NK(), { ...DEFAULT_CONFIG, tournamentsEnabled: true })
+		expect(admin(rpcAdminTournamentSettings)).toEqual({ creationRestricted: true })
+	})
+
+	it('is for the server only', () => {
+		expect(() => call(rpcAdminTournamentSettings, ORG)).toThrow()
 	})
 })

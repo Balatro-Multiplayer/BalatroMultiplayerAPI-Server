@@ -2,6 +2,7 @@
 // (the API calls them for admins and moderators). Closing one is
 // admin_tournament_close in rpc.ts. Read-only: they never catch a
 // tournament up, so a status can be a clock tick behind.
+import { readConfig } from '../config'
 import { INVALID_ARGUMENT, NOT_FOUND, runtimeError } from '../errors'
 import { parsePayload, requireServer } from '../rpc'
 import type { Tournament } from './model'
@@ -89,4 +90,11 @@ export function rpcAdminTournamentGet(ctx: nkruntime.Context, logger: nkruntime.
 			closed: closedBy(t),
 		},
 	})
+}
+
+// {} -> {creationRestricted}: the tournament switches the web admin shows.
+// They are set through admin_config_set.
+export function rpcAdminTournamentSettings(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string) {
+	requireServer(ctx)
+	return JSON.stringify({ creationRestricted: readConfig(nk).tournamentCreationRestricted })
 }

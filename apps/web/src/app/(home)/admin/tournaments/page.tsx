@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ApiError, apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { CloseTournamentDialog } from './components/close-tournament-dialog'
+import { CreationSwitch } from './components/creation-switch'
 import { TournamentList } from './components/tournament-list'
 import {
   type AdminTournamentDetail,
@@ -102,19 +103,22 @@ export default function AdminTournamentsPage() {
 
   return (
     <div className='container space-y-6 py-8'>
-      <div>
-        <h1 className='font-bold text-2xl tracking-tight'>Tournaments</h1>
-        <p className='text-muted-foreground text-sm'>
-          Every player-run tournament, private ones and drafts included. Check
-          what players see and close a tournament that breaks the rules.
-        </p>
-        {listError && (
-          <p className='mt-2 text-destructive text-sm'>
-            {listError instanceof ApiError
-              ? listError.message
-              : 'Could not load tournaments.'}
+      <div className='flex flex-wrap items-start justify-between gap-4'>
+        <div>
+          <h1 className='font-bold text-2xl tracking-tight'>Tournaments</h1>
+          <p className='text-muted-foreground text-sm'>
+            Every player-run tournament, private ones and drafts included. Check
+            what players see and close a tournament that breaks the rules.
           </p>
-        )}
+          {listError && (
+            <p className='mt-2 text-destructive text-sm'>
+              {listError instanceof ApiError
+                ? listError.message
+                : 'Could not load tournaments.'}
+            </p>
+          )}
+        </div>
+        <CreationSwitch isAdmin={isAdmin} />
       </div>
 
       <div className='grid grid-cols-1 gap-6 font-readable lg:grid-cols-[340px_1fr]'>

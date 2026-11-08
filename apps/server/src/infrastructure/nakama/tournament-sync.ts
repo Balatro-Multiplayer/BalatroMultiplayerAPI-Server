@@ -95,3 +95,25 @@ export async function closeNakamaTournament(
 	if (result.error === 'not_found') return err('not_found')
 	return err(result.error === 'rejected' ? 'refused' : 'unavailable')
 }
+
+// Whether only privileged players (tournament_create or tournament_official)
+// may create tournaments. Nakama owns the switch (its server config).
+export async function getTournamentCreationRestricted(): Promise<
+	Result<boolean, 'unavailable'>
+> {
+	const result = await callNakamaRpc<{ creationRestricted: boolean }>(
+		'admin_tournament_settings',
+		{},
+	)
+	return result.ok ? ok(result.value.creationRestricted) : err('unavailable')
+}
+
+export async function setTournamentCreationRestricted(
+	restricted: boolean,
+): Promise<Result<null, 'unavailable'>> {
+	if (!isNakamaAdminEnabled()) return err('unavailable')
+	const result = await callNakamaRpc('admin_config_set', {
+		tournamentCreationRestricted: restricted,
+	})
+	return result.ok ? ok(null) : err('unavailable')
+}

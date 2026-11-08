@@ -3,10 +3,13 @@ import {
 	type TournamentListStatus,
 	closeNakamaTournament,
 	getNakamaTournament,
+	getTournamentCreationRestricted,
 	listNakamaTournaments,
+	setTournamentCreationRestricted,
 } from '../../infrastructure/nakama/tournament-sync.js'
 import { AppError } from '../../shared/utils/errors.js'
 import { MAX_PAGE, queryInt } from '../../shared/utils/query-int.js'
+import { requireAdmin } from '../../shared/utils/require-admin.js'
 import { logStaffAction, requireReason } from './staff-action.js'
 
 // The webadmin Tournaments page: every tournament (private ones and drafts
@@ -42,6 +45,42 @@ router.get('/tournaments', async (req, res, next) => {
 			page,
 			limit,
 		})
+	} catch (err) {
+		next(err)
+	}
+})
+
+// Whether creating a tournament needs a privilege. Before /tournaments/:id.
+router.get('/tournaments/settings', async (_req, res, next) => {
+	try {
+		const result = await getTournamentCreationRestricted()
+		if (!result.ok) throw unavailable()
+		res.json({ creationRestricted: result.value })
+	} catch (err) {
+		next(err)
+	}
+})
+
+// Admins only, like the other server switches (config.route.ts).
+router.put('/tournaments/settings', async (req, res, next) => {
+	try {
+		await requireAdmin(req)
+		const { creationRestricted } = req.body as { creationRestricted?: unknown }
+		if (typeof creationRestricted !== 'boolean')
+			throw new AppError('creationRestricted must be true or false', 400)
+		const reason = requireReason(req)
+		const before = await getTournamentCreationRestricted()
+		const result = await setTournamentCreationRestricted(creationRestricted)
+		if (!result.ok) throw unavailable()
+		await logStaffAction(req, {
+			action: 'config_change',
+			reason,
+			detail: {
+				old: before.ok ? { tournamentCreationRestricted: before.value } : null,
+				new: { tournamentCreationRestricted: creationRestricted },
+			},
+		})
+		res.json({ creationRestricted })
 	} catch (err) {
 		next(err)
 	}

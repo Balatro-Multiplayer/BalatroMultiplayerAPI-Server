@@ -14833,6 +14833,10 @@ function rpcAdminTournamentGet(ctx, logger, nk, payload) {
     }
   });
 }
+function rpcAdminTournamentSettings(ctx, logger, nk, payload) {
+  requireServer(ctx);
+  return JSON.stringify({ creationRestricted: readConfig(nk).tournamentCreationRestricted });
+}
 
 // src/tournament/dev.ts
 function requireDev(ctx, nk) {
@@ -15096,6 +15100,7 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("admin_tournament_close", rpcAdminTournamentClose);
   initializer.registerRpc("admin_tournament_list", rpcAdminTournamentList);
   initializer.registerRpc("admin_tournament_get", rpcAdminTournamentGet);
+  initializer.registerRpc("admin_tournament_settings", rpcAdminTournamentSettings);
   initializer.registerRpc("tournament_dev_fill", rpcTournamentDevFill);
   initializer.registerRpc("tournament_dev_time", rpcTournamentDevTime);
   ensureClock(nk);
