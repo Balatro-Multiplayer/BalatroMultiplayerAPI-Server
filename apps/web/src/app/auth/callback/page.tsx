@@ -2,17 +2,12 @@
 
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useRef } from 'react'
+import { FlowCard, FlowPage } from '@/app/_components/flow-card'
 import { setToken } from '@/lib/auth'
 
 export default function AuthCallbackPage() {
   return (
-    <Suspense
-      fallback={
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-          <p style={{ color: 'var(--bal-teal-gray)' }}>Signing you in…</p>
-        </div>
-      }
-    >
+    <Suspense fallback={<Waiting />}>
       <AuthCallbackContent />
     </Suspense>
   )
@@ -49,9 +44,13 @@ function AuthCallbackContent() {
     router.replace('/login?error=no_token')
   }, [searchParams, router])
 
+  return <Waiting />
+}
+
+function Waiting() {
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-      <p style={{ color: 'var(--bal-teal-gray)' }}>Signing you in…</p>
-    </div>
+    <FlowPage>
+      <FlowCard title='Signing you in' intro='One moment.' />
+    </FlowPage>
   )
 }

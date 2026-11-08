@@ -3,11 +3,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { FlowCard, FlowPage } from '@/app/_components/flow-card'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import { ApiError, apiFetch } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Textarea } from '@/components/ui/textarea'
 
 type PageState = 'open' | 'decided' | 'withdrawn'
 
@@ -65,7 +65,8 @@ export default function ContestPageView() {
     enabled: isLoggedIn,
     retry: false,
     // A "pending" answer uses nothing up, so ask again until the Contest is stored.
-    refetchInterval: (query) => (query.state.data && 'pending' in query.state.data ? 2000 : false),
+    refetchInterval: (query) =>
+      query.state.data && 'pending' in query.state.data ? 2000 : false,
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
@@ -75,7 +76,9 @@ export default function ContestPageView() {
 
   const setState = (state: PageState) =>
     qc.setQueryData<ContestPage>(pageKey, (page) =>
-      page && 'contest' in page ? { ...page, contest: { ...page.contest, state } } : page
+      page && 'contest' in page
+        ? { ...page, contest: { ...page.contest, state } }
+        : page
     )
 
   const refused = (err: unknown) => {
@@ -95,7 +98,8 @@ export default function ContestPageView() {
   })
 
   const withdrawMutation = useMutation({
-    mutationFn: () => apiFetch(`/contests/${runId}/withdraw`, { method: 'POST' }),
+    mutationFn: () =>
+      apiFetch(`/contests/${runId}/withdraw`, { method: 'POST' }),
     onSuccess: () => setState('withdrawn'),
     onError: (err) => {
       setConfirming(false)
@@ -103,22 +107,36 @@ export default function ContestPageView() {
     },
   })
 
-  if (pending) return <div className='container max-w-lg py-8'>Loading…</div>
+  if (pending)
+    return (
+      <FlowPage>
+        <FlowCard title='Loading' intro='One moment.' />
+      </FlowPage>
+    )
   if (!isLoggedIn) return null
 
-  if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+  if (
+    error instanceof ApiError &&
+    (error.status === 403 || error.status === 404)
+  ) {
     return (
-      <div className='container max-w-lg py-8'>
-        <p className='text-muted-foreground'>You can't view this Contest.</p>
-      </div>
+      <FlowPage>
+        <FlowCard
+          title='Contest unavailable'
+          intro={"You can't view this Contest."}
+        />
+      </FlowPage>
     )
   }
 
   if (data && 'submitted' in data && data.submitted) {
     return (
-      <div className='container max-w-lg py-8'>
-        <h1 className='text-2xl font-bold tracking-tight'>{SUBMITTED_TEXT}</h1>
-      </div>
+      <FlowPage>
+        <FlowCard
+          title={SUBMITTED_TEXT}
+          intro='This page opens once. You already used it.'
+        />
+      </FlowPage>
     )
   }
 
@@ -126,96 +144,102 @@ export default function ContestPageView() {
   const currentReason = reason ?? contest?.reason ?? null
 
   return (
-    <div className='container max-w-lg py-8 space-y-6'>
-      <h1 className='text-2xl font-bold tracking-tight'>Contest sent</h1>
-
+    <FlowPage>
       {!contest ? (
-        <p className='text-muted-foreground'>Loading…</p>
+        <FlowCard title='Loading' intro='One moment.' />
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Your Contest</CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-4'>
-            {contest.state === 'open' && (
-              <>
-                <p className='text-sm text-muted-foreground'>
-                  A moderator will review your Contest. Tell us why, and add any detail. This page opens once, so do
-                  it now.
-                </p>
-                <div className='flex flex-wrap gap-2'>
-                  {REASONS.map((r) => (
-                    <Button
-                      key={r.key}
-                      variant={currentReason === r.key ? 'default' : 'outline'}
-                      onClick={() => {
-                        setReason(r.key)
-                        setSaved(false)
-                      }}
-                    >
-                      {r.label}
-                    </Button>
-                  ))}
-                </div>
-                <Textarea
-                  aria-label='Added detail'
-                  placeholder='Add any further detail about what happened…'
-                  defaultValue={contest.detail ?? ''}
-                  onChange={(e) => {
-                    setDetail(e.target.value)
-                    setSaved(false)
-                  }}
-                  maxLength={2000}
-                  rows={5}
-                />
-                <div className='flex flex-wrap items-center gap-2'>
-                  <Button
-                    onClick={() => saveMutation.mutate()}
-                    disabled={saveMutation.isPending || (reason === null && detail === null)}
-                  >
-                    Save
-                  </Button>
-                  {saved && <span className='text-sm text-muted-foreground'>Saved.</span>}
-                  {confirming ? (
-                    <>
-                      <Button
-                        variant='destructive'
-                        onClick={() => withdrawMutation.mutate()}
-                        disabled={withdrawMutation.isPending}
-                      >
-                        Confirm withdraw
-                      </Button>
-                      <Button variant='ghost' onClick={() => setConfirming(false)}>
-                        Keep Contest
-                      </Button>
-                    </>
-                  ) : (
-                    <Button variant='outline' onClick={() => setConfirming(true)}>
-                      Withdraw
-                    </Button>
-                  )}
-                </div>
-                <p className='text-xs text-muted-foreground'>
-                  {contest.kind === 'website'
-                    ? 'Withdraw removes your Contest. The match result does not change.'
-                    : "Withdraw counts as a forfeit for you. Your opponent's result stands."}
-                </p>
-                {notOver && <p className='text-sm text-destructive'>{notOver}</p>}
-              </>
-            )}
-            {contest.state === 'withdrawn' && (
-              <p className='text-sm text-muted-foreground'>
-                {contest.kind === 'website'
-                  ? 'You withdrew this Contest. The match result did not change.'
-                  : 'You withdrew this Contest. The match counts as a forfeit.'}
+        <FlowCard
+          title='Contest sent'
+          intro={'We sent your Contest to the moderators.'}
+        >
+          {contest.state === 'open' && (
+            <>
+              <p className='text-muted-foreground text-sm'>
+                A moderator will review your Contest. Tell us why, and add any
+                detail. This page opens once, so do it now.
               </p>
-            )}
-            {contest.state === 'decided' && (
-              <p className='text-sm text-muted-foreground'>Staff have already decided this match.</p>
-            )}
-          </CardContent>
-        </Card>
+              <div className='flex flex-wrap gap-2'>
+                {REASONS.map((r) => (
+                  <Button
+                    key={r.key}
+                    variant={currentReason === r.key ? 'default' : 'outline'}
+                    onClick={() => {
+                      setReason(r.key)
+                      setSaved(false)
+                    }}
+                  >
+                    {r.label}
+                  </Button>
+                ))}
+              </div>
+              <Textarea
+                aria-label='Added detail'
+                placeholder='Add any further detail about what happened…'
+                defaultValue={contest.detail ?? ''}
+                onChange={(e) => {
+                  setDetail(e.target.value)
+                  setSaved(false)
+                }}
+                maxLength={2000}
+                rows={5}
+              />
+              <div className='flex flex-wrap items-center gap-2'>
+                <Button
+                  onClick={() => saveMutation.mutate()}
+                  disabled={
+                    saveMutation.isPending ||
+                    (reason === null && detail === null)
+                  }
+                >
+                  Save
+                </Button>
+                {saved && (
+                  <span className='text-muted-foreground text-sm'>Saved.</span>
+                )}
+                {confirming ? (
+                  <>
+                    <Button
+                      variant='destructive'
+                      onClick={() => withdrawMutation.mutate()}
+                      disabled={withdrawMutation.isPending}
+                    >
+                      Confirm withdraw
+                    </Button>
+                    <Button
+                      variant='ghost'
+                      onClick={() => setConfirming(false)}
+                    >
+                      Keep Contest
+                    </Button>
+                  </>
+                ) : (
+                  <Button variant='outline' onClick={() => setConfirming(true)}>
+                    Withdraw
+                  </Button>
+                )}
+              </div>
+              <p className='text-muted-foreground text-xs'>
+                {contest.kind === 'website'
+                  ? 'Withdraw removes your Contest. The match result does not change.'
+                  : "Withdraw counts as a forfeit for you. Your opponent's result stands."}
+              </p>
+              {notOver && <p className='text-destructive text-sm'>{notOver}</p>}
+            </>
+          )}
+          {contest.state === 'withdrawn' && (
+            <p className='text-muted-foreground text-sm'>
+              {contest.kind === 'website'
+                ? 'You withdrew this Contest. The match result did not change.'
+                : 'You withdrew this Contest. The match counts as a forfeit.'}
+            </p>
+          )}
+          {contest.state === 'decided' && (
+            <p className='text-muted-foreground text-sm'>
+              Staff have already decided this match.
+            </p>
+          )}
+        </FlowCard>
       )}
-    </div>
+    </FlowPage>
   )
 }
