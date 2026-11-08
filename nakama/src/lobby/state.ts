@@ -68,6 +68,7 @@ export interface LobbyPlayer {
 export interface Lobby {
 	// Private match state; omitted from snapshotFor, retained by checkpoints.
 	sharedRules?: SharedRules
+	almanac?: import('./almanac').Almanac
 	code: string
 	modId: string
 	maxPlayers: number
@@ -318,7 +319,7 @@ export function isCatchingUp(player: LobbyPlayer): boolean {
 export function snapshotFor(lobby: Lobby, userId: string, now: number = Date.now()): Snapshot {
 	const self = findPlayer(lobby, userId)
 	return {
-		serverFeatures: { shared_pvp_rules: 1 },
+		serverFeatures: { shared_pvp_rules: 2, almanac_draft: 1 },
 		code: lobby.code,
 		modId: lobby.modId,
 		hostId: lobby.hostId,

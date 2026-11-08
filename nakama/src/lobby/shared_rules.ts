@@ -1,6 +1,7 @@
 // PvP's simultaneous rule draft. Private picks live only in match state;
 // never in public metadata/snapshots. The host requests a draft after ready-up,
 // but the server owns its deadline, timeout rolls, resolution and recovery.
+import { isAlmanac } from './almanac'
 import { ServerOp } from './protocol'
 import type { Lobby, Outbound, Step } from './state'
 
@@ -35,6 +36,8 @@ export interface SharedRules {
 	deadline: number
 	rng: number
 	rules?: string[]
+	// Round IDs are opaque; retain retired IDs so delayed opens cannot replay them.
+	retiredIds?: string[]
 }
 
 function message(
@@ -169,9 +172,10 @@ export function sharedRulesAction(
 	if (
 		lobby.modId !== 'MultiplayerPvP' ||
 		!started ||
-		lobby.rankedMode ||
-		lobby.gameMode ||
-		lobby.metadata.shared_pvp_rules !== true ||
+		(!isAlmanac(lobby) &&
+			(lobby.rankedMode ||
+				lobby.gameMode ||
+				lobby.metadata.shared_pvp_rules !== true)) ||
 		started.players.length !== 2 ||
 		lobby.players.length !== 2 ||
 		!started.players.some((player) => player.id === from)
@@ -194,23 +198,33 @@ export function sharedRulesAction(
 			!started.players.some((player) => player.id === params.first_player)
 		)
 			return refuse('bad_params')
-		if (current && ante <= current.ante) {
-			if (ante !== current.ante) return refuse('stale_encounter')
+		const roundId =
+			typeof params.round_id === 'string' && params.round_id.length > 0
+				? params.round_id
+				: undefined
+		if (isAlmanac(lobby) && !roundId) return refuse('bad_round')
+		const id = `${started.runId}:${roundId || ante}`
+		if (current && (ante < current.ante || current.retiredIds?.includes(id)))
+			return refuse('stale_encounter')
+		if (current && id === current.id) {
 			return {
 				lobby,
 				out: current.players.map((id) => view(lobby, current, id, now)),
 			}
 		}
+		if (current && ante === current.ante && !roundId)
+			return refuse('stale_encounter')
 		if (current && !current.rules) return refuse('draft_in_progress')
 		const players = started.players.map((player) => player.id).sort()
-		const id = `${started.runId}:${ante}`
 		let rng = 1
 		for (let i = 0; i < id.length; i++)
 			rng = (rng * 31 + id.charCodeAt(i)) % 2147483647
 		const startingHands: { [id: string]: number } = {}
 		if (params.starting_hands && typeof params.starting_hands === 'object') {
 			for (const player of players) {
-				const hands = (params.starting_hands as { [id: string]: unknown })[player]
+				const hands = (params.starting_hands as { [id: string]: unknown })[
+					player
+				]
 				if (typeof hands === 'number' && Number.isFinite(hands))
 					startingHands[player] = hands
 			}
@@ -220,7 +234,8 @@ export function sharedRulesAction(
 			id,
 			ante,
 			firstPlayer: params.first_player,
-			roundId: typeof params.round_id === 'string' ? params.round_id : undefined,
+			roundId,
+			retiredIds: current ? [...(current.retiredIds || []), current.id] : [],
 			startingHands,
 			players,
 			offers: {},
@@ -231,7 +246,7 @@ export function sharedRulesAction(
 		for (const player of players) {
 			const pool = eligible(ante)
 			state.offers[player] = []
-			for (let i = 0; i < 3; i++)
+			for (let i = 0; i < 4; i++)
 				state.offers[player].push(pool.splice(roll(state, pool.length), 1)[0])
 		}
 		const next = { ...lobby, sharedRules: state }

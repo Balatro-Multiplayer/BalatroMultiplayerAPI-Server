@@ -103,19 +103,22 @@ function pick(lobby: Lobby, player: string, key?: string, now = 200): Step {
 describe('shared PvP rules through the real relay', () => {
 	it('retains the release round envelope across timeout, checkpoint and rejoin', () => {
 		const opened = send(fixture(), 'a', 'pvp_rules_open', {
-			ante: 3, first_player: 'b', round_id: 'RUN:round:2',
+			ante: 3,
+			first_player: 'b',
+			round_id: 'RUN:round:2',
 			starting_hands: { a: 5, b: 3 },
 		}).lobby
 		const restored = resumeFrom(present(checkpointOf(opened, 1_000)), 5_000)
 		const done = sharedRulesTick(restored, 15_000)
 		expect(params(done)).toMatchObject({
-			round_id: 'RUN:round:2', starting_hands: { a: 5, b: 3 },
+			round_id: 'RUN:round:2',
+			starting_hands: { a: 5, b: 3 },
 		})
 		expect(params(done)).toEqual(params(done, 1))
 		const sync = send(done.lobby, 'b', 'pvp_rules_sync', {}, 16_000)
 		expect(params(sync)).toEqual(params(done))
 	})
-	it('offers three distinct ante-eligible rules to each player privately', () => {
+	it('offers four distinct ante-eligible rules to each player privately', () => {
 		const step = open()
 		expect(step.out).toHaveLength(2)
 		expect(step.out.map((out) => out.kind === 'send' && out.to)).toEqual([
@@ -123,13 +126,33 @@ describe('shared PvP rules through the real relay', () => {
 			['b'],
 		])
 		for (const offer of Object.values(state(step.lobby).offers)) {
-			expect(new Set(offer).size).toBe(3)
+			expect(new Set(offer).size).toBe(4)
 			expect(offer.every((key) => RULE_ANTES[key] === 3)).toBe(true)
 		}
 		expect(params(step).ms_left).toBe(10_000)
 		expect(JSON.stringify(snapshotFor(step.lobby, 'a'))).not.toContain(
 			'sharedRules',
 		)
+	})
+	it('drafts twice in one ante using round identity and rejects retired rounds', () => {
+		const request = (lobby: Lobby, round: string) =>
+			send(lobby, 'a', 'pvp_rules_open', {
+				ante: 3,
+				first_player: 'a',
+				round_id: round,
+			})
+		let lobby = request(fixture(), 'round-one').lobby
+		const first = state(lobby).id
+		lobby = sharedRulesTick(lobby, 11_000).lobby
+		const second = request(lobby, 'round-two').lobby
+		expect(state(second).id).not.toBe(first)
+		expect(state(second).rules).toBeUndefined()
+		expect(request(second, 'round-two').lobby.sharedRules).toEqual(
+			second.sharedRules,
+		)
+		const stale = request(second, 'round-one')
+		expect(stale.out[0]).toMatchObject({ op: ServerOp.ACTION_REJECTED })
+		expect(stale.lobby.sharedRules).toEqual(second.sharedRules)
 	})
 	it('does not leak a locked pick or start either blind early', () => {
 		const step = pick(open().lobby, 'a')

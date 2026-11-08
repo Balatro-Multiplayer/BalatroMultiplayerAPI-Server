@@ -3187,8 +3187,8 @@ function everyone(lobby) {
   return lobby.players.map((p) => p.id);
 }
 function announce(lobby, reason, requeue = false) {
-  const view2 = viewOf(lobby);
-  const payload = view2 && __spreadProps(__spreadValues({}, view2), { reason, requeue });
+  const view3 = viewOf(lobby);
+  const payload = view3 && __spreadProps(__spreadValues({}, view3), { reason, requeue });
   return { kind: "send", op: ServerOp.GROUP_QUEUE, payload, to: everyone(lobby) };
 }
 function withGroup(lobby, groupQueue) {
@@ -3450,7 +3450,7 @@ function isCatchingUp(player) {
 function snapshotFor(lobby, userId, now = Date.now()) {
   const self = findPlayer(lobby, userId);
   return {
-    serverFeatures: { shared_pvp_rules: 1 },
+    serverFeatures: { shared_pvp_rules: 2, almanac_draft: 1 },
     code: lobby.code,
     modId: lobby.modId,
     hostId: lobby.hostId,
@@ -5853,19 +5853,19 @@ function rpcAvatarCatalog(ctx, logger, nk, payload) {
 function rpcAdminAvatarsFor(ctx, logger, nk, payload) {
   requireServer(ctx);
   const input = parsePayload(payload);
-  let view2;
+  let view3;
   if (input.userId !== void 0) {
     if (typeof input.userId !== "string" || !USER_ID2.test(input.userId)) throw runtimeError(INVALID_ARGUMENT, "Invalid userId");
     if (!readProfile(nk, input.userId)) throw runtimeError(NOT_FOUND, "No such player");
-    view2 = viewOf3(nk, input.userId, "");
+    view3 = viewOf3(nk, input.userId, "");
   } else {
     const privileges = input.privileges;
     if (!Array.isArray(privileges) || !privileges.every((p) => typeof p === "string" && PRIVILEGE.test(p)))
       throw runtimeError(INVALID_ARGUMENT, "userId or privileges is required");
     const progress = emptyProgress();
-    view2 = catalogView(progress, { privileges, unlocked: [] }, "j_joker", readConfig(nk).achievementsEnabled);
+    view3 = catalogView(progress, { privileges, unlocked: [] }, "j_joker", readConfig(nk).achievementsEnabled);
   }
-  return JSON.stringify(__spreadProps(__spreadValues({}, view2), { jokers: view2.avatars.filter((a) => a.unlocked).map((a) => a.id) }));
+  return JSON.stringify(__spreadProps(__spreadValues({}, view3), { jokers: view3.avatars.filter((a) => a.unlocked).map((a) => a.id) }));
 }
 function testingRpcsAllowed(ctx) {
   return settingsOf(ctx).testingRpcs;
@@ -6933,9 +6933,9 @@ function announceStandings(nk, settings, now) {
   let told = 0;
   for (const userId of reporterIds(nk)) {
     if (!isOnline(nk, userId)) continue;
-    const view2 = standingFor(nk, settings, userId, now, config);
-    notify(nk, userId, NotifyCode.STANDING_CHANGED, "standing_changed", __spreadValues({}, view2));
-    pushToLobby(nk, userId, { standing: view2.standing });
+    const view3 = standingFor(nk, settings, userId, now, config);
+    notify(nk, userId, NotifyCode.STANDING_CHANGED, "standing_changed", __spreadValues({}, view3));
+    pushToLobby(nk, userId, { standing: view3.standing });
     told++;
   }
   return told;
@@ -7211,9 +7211,9 @@ function rpcAdminLobbyGet(ctx, logger, nk, payload) {
   requireServer(ctx);
   const lobby = lobbyByCode(nk, parsePayload(payload).code);
   const signal2 = { type: "admin_view" };
-  const view2 = nk.matchSignal(lobby.matchId, JSON.stringify(signal2));
-  if (!view2) throw runtimeError(NOT_FOUND, "No such lobby");
-  return JSON.stringify({ lobby: __spreadProps(__spreadValues({}, JSON.parse(view2)), { matchId: lobby.matchId }) });
+  const view3 = nk.matchSignal(lobby.matchId, JSON.stringify(signal2));
+  if (!view3) throw runtimeError(NOT_FOUND, "No such lobby");
+  return JSON.stringify({ lobby: __spreadProps(__spreadValues({}, JSON.parse(view3)), { matchId: lobby.matchId }) });
 }
 function rpcAdminLobbyKick(ctx, logger, nk, payload) {
   requireServer(ctx);
@@ -8362,8 +8362,8 @@ function answerGroupSignal(lobby, signal2, switches, now) {
     case "group_members":
       return unchanged(lobby, homeFactsOf(lobby));
     case "group_status": {
-      const view2 = viewOf(lobby);
-      return unchanged(lobby, view2 && view2.partyId === signal2.partyId ? view2 : null);
+      const view3 = viewOf(lobby);
+      return unchanged(lobby, view3 && view3.partyId === signal2.partyId ? view3 : null);
     }
     case "group_open":
       return answered(
@@ -8446,6 +8446,129 @@ function senderRefusal(lobby, from, key, params) {
   return claimed === from ? null : { kind: "not_self", key: ruled, from, hostId, claimed };
 }
 
+// src/lobby/almanac.ts
+var ALMANAC_RULESET = "ruleset_mp_almanac";
+var ALMANAC_RANKED_MODE = "pvp_ranked_almanac";
+var DECK_ANTES = {
+  b_red: 2,
+  b_blue: 2,
+  b_yellow: 2,
+  b_green: 2,
+  b_black: 3,
+  b_magic: 2,
+  b_nebula: 2,
+  b_ghost: 3,
+  b_abandoned: 3,
+  b_checkered: 3,
+  b_zodiac: 2,
+  b_painted: 3,
+  b_anaglyph: 2,
+  b_erratic: 2,
+  b_mp_violet: 2,
+  b_mp_indigo: 5,
+  b_mp_orange: 2,
+  b_mp_oracle: 5,
+  b_mp_gradient: 5,
+  b_mp_heidelberg: 7,
+  b_mp_echodeck: 7
+};
+var MILESTONES2 = [2, 3, 5, 7];
+function isAlmanac(lobby) {
+  return lobby.modId === "MultiplayerPvP" && (lobby.rankedMode === ALMANAC_RANKED_MODE || !lobby.rankedMode && !lobby.gameMode && (lobby.metadata.ruleset === ALMANAC_RULESET || lobby.metadata.deck === "Almanac"));
+}
+function view(lobby, offer, player) {
+  return {
+    kind: "send",
+    op: ServerOp.ACTION,
+    to: [player],
+    payload: {
+      cid: "",
+      action: "pvp_almanac_offer",
+      from: lobby.hostId,
+      to: "*",
+      params: {
+        id: offer.id,
+        ante: offer.ante,
+        choices: offer.choices,
+        picked: offer.picks[player]
+      }
+    }
+  };
+}
+function almanacAction(lobby, from, key, input) {
+  var _a;
+  if (!["pvp_almanac_open", "pvp_almanac_pick", "pvp_almanac_offer"].includes(key))
+    return null;
+  const refuse3 = (reason) => ({
+    lobby,
+    out: [
+      {
+        kind: "send",
+        op: ServerOp.ACTION_REJECTED,
+        to: [from],
+        payload: { action: key, reason }
+      }
+    ]
+  });
+  if (key === "pvp_almanac_offer") return refuse3("server_only");
+  const started = lobby.game.started;
+  if (!isAlmanac(lobby) || !started || started.players.length !== 2 || lobby.players.length !== 2 || !started.players.some((p) => p.id === from))
+    return refuse3("unavailable");
+  const params = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const ante = params.ante;
+  if (typeof ante !== "number" || !MILESTONES2.includes(ante))
+    return refuse3("bad_ante");
+  const players = started.players.map((p) => p.id).sort();
+  const current = ((_a = lobby.almanac) == null ? void 0 : _a.run) === started.runId ? lobby.almanac : {
+    run: started.runId,
+    players,
+    acquired: { [players[0]]: [], [players[1]]: [] },
+    offers: {}
+  };
+  const existing = current.offers[ante];
+  if (key === "pvp_almanac_open") {
+    if (existing) return { lobby, out: [view(lobby, existing, from)] };
+    const previous = MILESTONES2[MILESTONES2.indexOf(ante) - 1];
+    if (previous && !players.every((p) => {
+      var _a2;
+      return !!((_a2 = current.offers[previous]) == null ? void 0 : _a2.picks[p]);
+    }))
+      return refuse3("previous_pending");
+    const pool = Object.keys(DECK_ANTES).filter(
+      (deck) => DECK_ANTES[deck] <= ante && players.every((p) => !current.acquired[p].includes(deck))
+    ).sort();
+    let rng = 1;
+    const id = `${started.runId}:decks:${ante}`;
+    for (let i = 0; i < id.length; i++)
+      rng = (rng * 31 + id.charCodeAt(i)) % 2147483647;
+    const choices = [];
+    while (choices.length < 3 && pool.length > 0) {
+      rng = rng * 16807 % 2147483647;
+      choices.push(pool.splice(rng % pool.length, 1)[0]);
+    }
+    const offer2 = { id, ante, choices, picks: {} };
+    const next2 = __spreadProps(__spreadValues({}, lobby), {
+      almanac: __spreadProps(__spreadValues({}, current), { offers: __spreadProps(__spreadValues({}, current.offers), { [ante]: offer2 }) })
+    });
+    return { lobby: next2, out: [view(next2, offer2, from)] };
+  }
+  if (!existing || params.id !== existing.id) return refuse3("stale_offer");
+  if (existing.picks[from]) return { lobby, out: [view(lobby, existing, from)] };
+  if (typeof params.deck !== "string" || !existing.choices.includes(params.deck))
+    return refuse3("not_offered");
+  const offer = __spreadProps(__spreadValues({}, existing), {
+    picks: __spreadProps(__spreadValues({}, existing.picks), { [from]: params.deck })
+  });
+  const state = __spreadProps(__spreadValues({}, current), {
+    offers: __spreadProps(__spreadValues({}, current.offers), { [ante]: offer }),
+    acquired: __spreadProps(__spreadValues({}, current.acquired), {
+      [from]: [...current.acquired[from], params.deck]
+    })
+  });
+  const next = __spreadProps(__spreadValues({}, lobby), { almanac: state });
+  return { lobby: next, out: [view(next, offer, from)] };
+}
+
 // src/lobby/shared_rules.ts
 var RULE_ANTES = {
   manacle: 3,
@@ -8480,7 +8603,7 @@ function roll(state, count2) {
 function eligible(ante) {
   return Object.keys(RULE_ANTES).filter((key) => RULE_ANTES[key] <= ante).sort();
 }
-function view(lobby, state, id, now) {
+function view2(lobby, state, id, now) {
   if (state.rules) {
     return message(
       lobby,
@@ -8534,11 +8657,11 @@ function sharedRulesTick(lobby, now) {
   const next = __spreadProps(__spreadValues({}, lobby), { sharedRules: state });
   return {
     lobby: next,
-    out: state.players.map((id) => view(next, state, id, now))
+    out: state.players.map((id) => view2(next, state, id, now))
   };
 }
 function sharedRulesAction(lobby, from, key, input, now) {
-  var _a;
+  var _a, _b;
   if (![
     "pvp_rules_open",
     "pvp_rules_pick",
@@ -8559,7 +8682,7 @@ function sharedRulesAction(lobby, from, key, input, now) {
   });
   if (key === "pvp_rules_offer") return refuse3("server_only");
   const started = lobby.game.started;
-  if (lobby.modId !== "MultiplayerPvP" || !started || lobby.rankedMode || lobby.gameMode || lobby.metadata.shared_pvp_rules !== true || started.players.length !== 2 || lobby.players.length !== 2 || !started.players.some((player) => player.id === from))
+  if (lobby.modId !== "MultiplayerPvP" || !started || !isAlmanac(lobby) && (lobby.rankedMode || lobby.gameMode || lobby.metadata.shared_pvp_rules !== true) || started.players.length !== 2 || lobby.players.length !== 2 || !started.players.some((player) => player.id === from))
     return refuse3("unavailable");
   const params = input && typeof input === "object" && !Array.isArray(input) ? input : {};
   const current = ((_a = lobby.sharedRules) == null ? void 0 : _a.run) === started.runId ? lobby.sharedRules : void 0;
@@ -8568,16 +8691,21 @@ function sharedRulesAction(lobby, from, key, input, now) {
     const ante = params.ante;
     if (typeof ante !== "number" || !Number.isInteger(ante) || ante < 3 || typeof params.first_player !== "string" || !started.players.some((player) => player.id === params.first_player))
       return refuse3("bad_params");
-    if (current && ante <= current.ante) {
-      if (ante !== current.ante) return refuse3("stale_encounter");
+    const roundId = typeof params.round_id === "string" && params.round_id.length > 0 ? params.round_id : void 0;
+    if (isAlmanac(lobby) && !roundId) return refuse3("bad_round");
+    const id = `${started.runId}:${roundId || ante}`;
+    if (current && (ante < current.ante || ((_b = current.retiredIds) == null ? void 0 : _b.includes(id))))
+      return refuse3("stale_encounter");
+    if (current && id === current.id) {
       return {
         lobby,
-        out: current.players.map((id2) => view(lobby, current, id2, now))
+        out: current.players.map((id2) => view2(lobby, current, id2, now))
       };
     }
+    if (current && ante === current.ante && !roundId)
+      return refuse3("stale_encounter");
     if (current && !current.rules) return refuse3("draft_in_progress");
     const players = started.players.map((player) => player.id).sort();
-    const id = `${started.runId}:${ante}`;
     let rng = 1;
     for (let i = 0; i < id.length; i++)
       rng = (rng * 31 + id.charCodeAt(i)) % 2147483647;
@@ -8594,7 +8722,8 @@ function sharedRulesAction(lobby, from, key, input, now) {
       id,
       ante,
       firstPlayer: params.first_player,
-      roundId: typeof params.round_id === "string" ? params.round_id : void 0,
+      roundId,
+      retiredIds: current ? [...current.retiredIds || [], current.id] : [],
       startingHands,
       players,
       offers: {},
@@ -8605,13 +8734,13 @@ function sharedRulesAction(lobby, from, key, input, now) {
     for (const player of players) {
       const pool = eligible(ante);
       state2.offers[player] = [];
-      for (let i = 0; i < 3; i++)
+      for (let i = 0; i < 4; i++)
         state2.offers[player].push(pool.splice(roll(state2, pool.length), 1)[0]);
     }
     const next2 = __spreadProps(__spreadValues({}, lobby), { sharedRules: state2 });
     return {
       lobby: next2,
-      out: players.map((player) => view(next2, state2, player, now))
+      out: players.map((player) => view2(next2, state2, player, now))
     };
   }
   if (!current)
@@ -8619,7 +8748,7 @@ function sharedRulesAction(lobby, from, key, input, now) {
   if (key === "pvp_rules_sync") {
     const ticked = sharedRulesTick(lobby, now);
     if (ticked.out.length) return ticked;
-    return { lobby, out: [view(lobby, current, from, now)] };
+    return { lobby, out: [view2(lobby, current, from, now)] };
   }
   if (params.id !== current.id) return refuse3("stale_encounter");
   if (now >= current.deadline) return sharedRulesTick(lobby, now);
@@ -8631,7 +8760,7 @@ function sharedRulesAction(lobby, from, key, input, now) {
   const next = __spreadProps(__spreadValues({}, lobby), { sharedRules: state });
   return {
     lobby: next,
-    out: state.rules ? state.players.map((id) => view(next, state, id, now)) : [view(next, state, from, now)]
+    out: state.rules ? state.players.map((id) => view2(next, state, id, now)) : [view2(next, state, from, now)]
   };
 }
 
@@ -8720,6 +8849,8 @@ function relayAction(lobby, senderId, data, ctx) {
     return refuse3("too_large");
   const budgeted = spend(lobby, senderId, key, ctx.now, spendCost(key, params));
   if (!budgeted) return refuse3("rate_limited");
+  const almanac = almanacAction(budgeted, senderId, key, params);
+  if (almanac) return almanac;
   const sharedRules = sharedRulesAction(
     budgeted,
     senderId,
@@ -8912,12 +9043,12 @@ function messageOf(refusal) {
   }
 }
 function rejoinRejectMessage(refusal) {
-  const view2 = {
+  const view3 = {
     reason: refusal.reason,
     mods: refusal.reason === "mods_not_allowed" ? refusal.mods : [],
     message: messageOf(refusal)
   };
-  return REJOIN_REFUSED_PREFIX + JSON.stringify(view2);
+  return REJOIN_REFUSED_PREFIX + JSON.stringify(view3);
 }
 
 // src/lobby/match.ts
