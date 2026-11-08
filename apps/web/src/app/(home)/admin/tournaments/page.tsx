@@ -235,7 +235,6 @@ export default function AdminTournamentsPage() {
                     <Field label='Format'>
                       {FORMAT_LABEL[t.format] ?? t.format}
                     </Field>
-                    <Field label='Game mode'>{t.gameMode}</Field>
                     <Field label='Ruleset'>{t.ruleset}</Field>
                     <Field label='Players'>
                       {t.entrants.length}/{t.maxPlayers}
