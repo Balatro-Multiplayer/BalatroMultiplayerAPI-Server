@@ -250,3 +250,101 @@ describe('buildGameLog with a reduced side', () => {
     expect(log.pvp[0]?.winnerId).toBe('a')
   })
 })
+
+describe('final jokers', () => {
+  test('use the last play snapshot, not only buys and sells', () => {
+    const log = buildGameLog([
+      player('a', [
+        [10, 'select_blind', 0],
+        [11, 'buy', [4, 0, joker(1, 'j_joker'), 2]],
+        [12, 'buy', [4, 0, joker(2, 'j_ankh'), 2]],
+        // Ankh destroyed the joker and copied the other; the log has no event.
+        [13, 'play', [[1], [[-1, 'pc', 'Hearts', 'King']], ['j_ankh|foil']]],
+      ]),
+    ])
+    expect(
+      log.players[0]?.finalJokers.map((j) =>
+        j.type === 'other_card' ? `${j.ident}:${j.tags.join()}` : ''
+      )
+    ).toEqual(['j_ankh:ed:foil'])
+    expect(log.players[0]?.reconstructed).toBe(false)
+  })
+
+  test('apply shop changes after the last play to the snapshot', () => {
+    const log = buildGameLog([
+      player('a', [
+        [10, 'select_blind', 0],
+        [
+          11,
+          'play',
+          [[1], [[-1, 'pc', 'Hearts', 'King']], ['j_joker', 'j_joker']],
+        ],
+        [12, 'sell', [4, 0, joker(1, 'j_joker')]],
+        [13, 'buy', [4, 0, joker(2, 'j_blueprint'), 5]],
+      ]),
+    ])
+    expect(
+      log.players[0]?.finalJokers.map((j) =>
+        j.type === 'other_card' ? j.ident : ''
+      )
+    ).toEqual(['j_joker', 'j_blueprint'])
+    expect(log.players[0]?.reconstructed).toBe(true)
+  })
+
+  test('prefer the final_jokers line the run recorded', () => {
+    const log = buildGameLog([
+      player('a', [
+        [10, 'select_blind', 0],
+        [11, 'play', [[1], [[-1, 'pc', 'Hearts', 'King']], ['j_joker']]],
+        [12, 'final_jokers', [['j_ankh|negative', 'j_joker|eternal']]],
+      ]),
+    ])
+    const p = log.players[0]
+    expect(
+      p?.finalJokers.map((j) =>
+        j.type === 'other_card' ? `${j.ident}:${j.tags.join()}` : ''
+      )
+    ).toEqual(['j_ankh:ed:negative', 'j_joker:st:eternal'])
+    expect(p?.reconstructed).toBe(false)
+  })
+
+  test('read stickers from a snapshot token', () => {
+    const log = buildGameLog([
+      player('a', [
+        [10, 'select_blind', 0],
+        [
+          11,
+          'play',
+          [
+            [1],
+            [[-1, 'pc', 'Hearts', 'King']],
+            ['j_joker|foil|eternal|st:rental'],
+          ],
+        ],
+      ]),
+    ])
+    const j = log.players[0]?.finalJokers[0]
+    expect(j?.type === 'other_card' && j.tags).toEqual([
+      'ed:foil',
+      'st:eternal',
+      'st:rental',
+    ])
+  })
+})
+
+describe('final vouchers', () => {
+  test('use the final_vouchers line over the vouchers bought', () => {
+    const log = buildGameLog([
+      player('a', [
+        [10, 'select_blind', 0],
+        [11, 'voucher', [5, 0, [-1, 'Voucher', 'v_hone'], 10]],
+        [12, 'final_vouchers', [['v_hone', 'v_overstock_norm']]],
+      ]),
+    ])
+    expect(
+      log.players[0]?.vouchers.map((v) =>
+        v.type === 'other_card' ? v.ident : ''
+      )
+    ).toEqual(['v_hone', 'v_overstock_norm'])
+  })
+})
