@@ -151,7 +151,7 @@ export default function PlayerPage() {
                         <StatRow label='Rating' value={Math.round(data.rating ?? 0).toString()} />
                         <StatRow label='W / L' value={`${data.wins ?? 0} / ${data.losses ?? 0}`} />
                         <StatRow label='Games' value={String(data.gamesPlayed ?? 0)} />
-                        {data.seasonBest != null && (
+                        {category.metricLabel && data.seasonBest != null && (
                           <StatRow
                             label={category.metricLabel}
                             value={formatMetric(category.metric, data.seasonBest)}

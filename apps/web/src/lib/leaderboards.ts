@@ -20,8 +20,8 @@ export interface LeaderboardCategory {
   label: string
   modId: string
   metric: MetricKind
-  /** Column header for the secondary metric. */
-  metricLabel: string
+  /** Column header for the secondary metric; null when the board shows none. */
+  metricLabel: string | null
   modes: LeaderboardMode[]
 }
 
@@ -39,7 +39,8 @@ export const LEADERBOARD_CATEGORIES: LeaderboardCategory[] = [
     label: BOARD_NAMES.MultiplayerPvP.label,
     modId: 'MultiplayerPvP',
     metric: 'score',
-    metricLabel: 'Best Score',
+    // PvP is won by beating the opponent's score, so a best score ranks nothing.
+    metricLabel: null,
     modes: Object.entries(BOARD_NAMES.MultiplayerPvP.modes).map(([id, label]) => ({ id, label })),
   },
 ]
@@ -50,6 +51,18 @@ export const LEADERBOARD_CATEGORIES: LeaderboardCategory[] = [
  */
 export function gameModeKey(modeId: string): string {
   return `ranked:${modeId}`
+}
+
+/**
+ * The name shown for a season: its own name, the same one its pill shows.
+ * Falls back to "Season N" for a season with no name or one not loaded yet.
+ */
+export function seasonLabel(
+  seasons: readonly { id: number; name: string | null }[],
+  seasonId: number | null
+): string {
+  if (seasonId === null) return 'Season …'
+  return seasons.find((s) => s.id === seasonId)?.name ?? `Season ${seasonId}`
 }
 
 /** Format ms as m:ss.mmm (speedrun completion time). */
