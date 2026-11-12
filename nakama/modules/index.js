@@ -885,8 +885,8 @@ var require_ParserError = __commonJS({
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ParserError = void 0;
     var ParserError2 = class extends Error {
-      constructor(message, line, column) {
-        super(`${line}:${column}: ${message}`);
+      constructor(message2, line, column) {
+        super(`${line}:${column}: ${message2}`);
         __publicField(this, "name", "ParserError");
         /**
          * The line on which the error occurred (one-based).
@@ -1039,8 +1039,8 @@ var require_Parser = __commonJS({
         }
         return { kind: Nodes_1.SyntaxKind.Literal, chars };
       }
-      reportError(message, { line = this.line, column = this.column } = {}) {
-        throw new ParserError_1.ParserError(message, line, column);
+      reportError(message2, { line = this.line, column = this.column } = {}) {
+        throw new ParserError_1.ParserError(message2, line, column);
       }
       // Marks the current position.
       mark() {
@@ -1488,8 +1488,8 @@ var RESOURCE_EXHAUSTED = 8;
 var FAILED_PRECONDITION = 9;
 var UNAVAILABLE = 14;
 var UNAUTHENTICATED = 16;
-function runtimeError(code, message) {
-  return { code, message };
+function runtimeError(code, message2) {
+  return { code, message: message2 };
 }
 
 // src/rpc.ts
@@ -2851,7 +2851,10 @@ function resumeFrom(checkpoint, now) {
     game: __spreadProps(__spreadValues({}, lobby.game), {
       settleFrom: settleFrom === null ? null : settleFrom + downtime,
       setup: setupAfterDowntime(lobby.game, downtime)
-    })
+    }),
+    sharedRules: lobby.sharedRules ? __spreadProps(__spreadValues({}, lobby.sharedRules), {
+      deadline: lobby.sharedRules.deadline + downtime
+    }) : void 0
   });
 }
 function seatHoldersOf(lobby) {
@@ -3468,8 +3471,8 @@ function everyone(lobby) {
   return lobby.players.map((p) => p.id);
 }
 function announce(lobby, reason, requeue = false) {
-  const view = viewOf(lobby);
-  const payload = view && __spreadProps(__spreadValues({}, view), { reason, requeue });
+  const view3 = viewOf(lobby);
+  const payload = view3 && __spreadProps(__spreadValues({}, view3), { reason, requeue });
   return { kind: "send", op: ServerOp.GROUP_QUEUE, payload, to: everyone(lobby) };
 }
 function withGroup(lobby, groupQueue) {
@@ -3693,11 +3696,11 @@ function event(lobby, type, fields, to) {
   const payload = __spreadValues({ type, lobbyCode: lobby.code }, fields);
   return { kind: "send", op: ServerOp.EVENT, payload, to };
 }
-function rejectOp(userId, message) {
+function rejectOp(userId, message2) {
   return {
     kind: "send",
     op: ServerOp.ERROR,
-    payload: { message },
+    payload: { message: message2 },
     to: [userId]
   };
 }
@@ -3735,6 +3738,7 @@ function isCatchingUp(player) {
 function snapshotFor(lobby, userId, now = Date.now()) {
   const self = findPlayer(lobby, userId);
   return {
+    serverFeatures: { shared_pvp_rules: 2, almanac_draft: 1 },
     code: lobby.code,
     modId: lobby.modId,
     hostId: lobby.hostId,
@@ -4341,9 +4345,9 @@ function serverKindErrorMessage(error) {
 function checkServerKind(env, logger) {
   const result = serverSettings(env);
   if (!result.ok) {
-    const message = serverKindErrorMessage(result.error);
-    logger.error("Refusing to start: %s", message);
-    throw new Error(message);
+    const message2 = serverKindErrorMessage(result.error);
+    logger.error("Refusing to start: %s", message2);
+    throw new Error(message2);
   }
   logger.info("BMP server kind: %s", result.value.kind);
   return result.value;
@@ -6181,7 +6185,7 @@ function rpcSessionInit(ctx, logger, nk, payload) {
 }
 function rpcTosAccept(ctx, logger, nk, payload) {
   const userId = requireUser(ctx);
-  const eligible = parsePayload(payload).chatEligible;
+  const eligible2 = parsePayload(payload).chatEligible;
   const config = readConfig(nk);
   const settings = settingsOf(ctx);
   const acceptedAt = Date.now();
@@ -6190,10 +6194,10 @@ function rpcTosAccept(ctx, logger, nk, payload) {
     userId,
     (current) => {
       const next = settings.noticeRequired ? __spreadProps(__spreadValues({}, current), { tosAcceptedVersion: NOTICE_VERSION, noticeAcceptedAt: acceptedAt }) : __spreadValues({}, current);
-      if (typeof eligible === "boolean") {
+      if (typeof eligible2 === "boolean") {
         next.ageAnswered = true;
-        next.chatEnabled = eligible;
-        next.chatBlocked = !eligible;
+        next.chatEnabled = eligible2;
+        next.chatBlocked = !eligible2;
       }
       return next;
     },
@@ -6499,19 +6503,19 @@ function rpcAvatarCatalog(ctx, logger, nk, payload) {
 function rpcAdminAvatarsFor(ctx, logger, nk, payload) {
   requireServer(ctx);
   const input = parsePayload(payload);
-  let view;
+  let view3;
   if (input.userId !== void 0) {
     if (typeof input.userId !== "string" || !USER_ID2.test(input.userId)) throw runtimeError(INVALID_ARGUMENT, "Invalid userId");
     if (!readProfile(nk, input.userId)) throw runtimeError(NOT_FOUND, "No such player");
-    view = viewOf3(nk, input.userId, "");
+    view3 = viewOf3(nk, input.userId, "");
   } else {
     const privileges = input.privileges;
     if (!Array.isArray(privileges) || !privileges.every((p) => typeof p === "string" && PRIVILEGE.test(p)))
       throw runtimeError(INVALID_ARGUMENT, "userId or privileges is required");
     const progress = emptyProgress();
-    view = catalogView(progress, { privileges, unlocked: [] }, "j_joker", readConfig(nk).achievementsEnabled);
+    view3 = catalogView(progress, { privileges, unlocked: [] }, "j_joker", readConfig(nk).achievementsEnabled);
   }
-  return JSON.stringify(__spreadProps(__spreadValues({}, view), { jokers: view.avatars.filter((a) => a.unlocked).map((a) => a.id) }));
+  return JSON.stringify(__spreadProps(__spreadValues({}, view3), { jokers: view3.avatars.filter((a) => a.unlocked).map((a) => a.id) }));
 }
 function testingRpcsAllowed(ctx) {
   return settingsOf(ctx).testingRpcs;
@@ -7555,9 +7559,9 @@ function announceStandings(nk, settings, now) {
   let told = 0;
   for (const userId of reporterIds(nk)) {
     if (!isOnline(nk, userId)) continue;
-    const view = standingFor(nk, settings, userId, now, config);
-    notify(nk, userId, NotifyCode.STANDING_CHANGED, "standing_changed", __spreadValues({}, view));
-    pushToLobby(nk, userId, { standing: view.standing });
+    const view3 = standingFor(nk, settings, userId, now, config);
+    notify(nk, userId, NotifyCode.STANDING_CHANGED, "standing_changed", __spreadValues({}, view3));
+    pushToLobby(nk, userId, { standing: view3.standing });
     told++;
   }
   return told;
@@ -7673,8 +7677,8 @@ function rpcAdminRunSetResult(ctx, logger, nk, payload) {
   if (!placements) throw runtimeError(INVALID_ARGUMENT, "placements must be a list of {playerId, place}");
   const overturn = overturnRun(run, placements, Date.now());
   if (!overturn.ok) {
-    const message = overturn.refusal.kind === "players_differ" ? "placements must place exactly the run's players" : overturn.refusal.kind === "unchanged" ? "That is already the recorded result" : "placements must be a list of {playerId, place}";
-    throw runtimeError(INVALID_ARGUMENT, message);
+    const message2 = overturn.refusal.kind === "players_differ" ? "placements must place exactly the run's players" : overturn.refusal.kind === "unchanged" ? "That is already the recorded result" : "placements must be a list of {playerId, place}";
+    throw runtimeError(INVALID_ARGUMENT, message2);
   }
   const next = overturn.run;
   const key = myRunKey(next);
@@ -7834,9 +7838,9 @@ function rpcAdminLobbyGet(ctx, logger, nk, payload) {
   requireServer(ctx);
   const lobby = lobbyByCode(nk, parsePayload(payload).code);
   const signal2 = { type: "admin_view" };
-  const view = nk.matchSignal(lobby.matchId, JSON.stringify(signal2));
-  if (!view) throw runtimeError(NOT_FOUND, "No such lobby");
-  return JSON.stringify({ lobby: __spreadProps(__spreadValues({}, JSON.parse(view)), { matchId: lobby.matchId }) });
+  const view3 = nk.matchSignal(lobby.matchId, JSON.stringify(signal2));
+  if (!view3) throw runtimeError(NOT_FOUND, "No such lobby");
+  return JSON.stringify({ lobby: __spreadProps(__spreadValues({}, JSON.parse(view3)), { matchId: lobby.matchId }) });
 }
 function rpcAdminLobbyKick(ctx, logger, nk, payload) {
   requireServer(ctx);
@@ -8923,8 +8927,8 @@ function answerGroupSignal(lobby, signal2, switches, now) {
     case "group_members":
       return unchanged(lobby, homeFactsOf(lobby));
     case "group_status": {
-      const view = viewOf(lobby);
-      return unchanged(lobby, view && view.partyId === signal2.partyId ? view : null);
+      const view3 = viewOf(lobby);
+      return unchanged(lobby, view3 && view3.partyId === signal2.partyId ? view3 : null);
     }
     case "group_open":
       return answered(
@@ -9005,6 +9009,324 @@ function senderRefusal(lobby, from, key, params) {
   if (rule === "self_or_host" && isHost) return null;
   const claimed = claimedPlayer(params);
   return claimed === from ? null : { kind: "not_self", key: ruled, from, hostId, claimed };
+}
+
+// src/lobby/almanac.ts
+var ALMANAC_RULESET = "ruleset_mp_almanac";
+var ALMANAC_RANKED_MODE = "pvp_ranked_almanac";
+var DECK_ANTES = {
+  b_red: 2,
+  b_blue: 2,
+  b_yellow: 2,
+  b_green: 2,
+  b_black: 3,
+  b_magic: 2,
+  b_nebula: 2,
+  b_ghost: 3,
+  b_abandoned: 3,
+  b_checkered: 3,
+  b_zodiac: 2,
+  b_painted: 3,
+  b_anaglyph: 2,
+  b_erratic: 2,
+  b_mp_violet: 2,
+  b_mp_indigo: 5,
+  b_mp_orange: 2,
+  b_mp_oracle: 5,
+  b_mp_gradient: 5,
+  b_mp_heidelberg: 7,
+  b_mp_echodeck: 7
+};
+var MILESTONES2 = [2, 3, 5, 7];
+function isAlmanac(lobby) {
+  return lobby.modId === "MultiplayerPvP" && (lobby.rankedMode === ALMANAC_RANKED_MODE || !lobby.rankedMode && !lobby.gameMode && (lobby.metadata.ruleset === ALMANAC_RULESET || lobby.metadata.deck === "Almanac"));
+}
+function view(lobby, offer, player) {
+  return {
+    kind: "send",
+    op: ServerOp.ACTION,
+    to: [player],
+    payload: {
+      cid: "",
+      action: "pvp_almanac_offer",
+      from: lobby.hostId,
+      to: "*",
+      params: {
+        id: offer.id,
+        ante: offer.ante,
+        choices: offer.choices,
+        picked: offer.picks[player]
+      }
+    }
+  };
+}
+function almanacAction(lobby, from, key, input) {
+  var _a;
+  if (!["pvp_almanac_open", "pvp_almanac_pick", "pvp_almanac_offer"].includes(key))
+    return null;
+  const refuse3 = (reason) => ({
+    lobby,
+    out: [
+      {
+        kind: "send",
+        op: ServerOp.ACTION_REJECTED,
+        to: [from],
+        payload: { action: key, reason }
+      }
+    ]
+  });
+  if (key === "pvp_almanac_offer") return refuse3("server_only");
+  const started = lobby.game.started;
+  if (!isAlmanac(lobby) || !started || started.players.length !== 2 || lobby.players.length !== 2 || !started.players.some((p) => p.id === from))
+    return refuse3("unavailable");
+  const params = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const ante = params.ante;
+  if (typeof ante !== "number" || !MILESTONES2.includes(ante))
+    return refuse3("bad_ante");
+  const players = started.players.map((p) => p.id).sort();
+  const current = ((_a = lobby.almanac) == null ? void 0 : _a.run) === started.runId ? lobby.almanac : {
+    run: started.runId,
+    players,
+    acquired: { [players[0]]: [], [players[1]]: [] },
+    offers: {}
+  };
+  const existing = current.offers[ante];
+  if (key === "pvp_almanac_open") {
+    if (existing) return { lobby, out: [view(lobby, existing, from)] };
+    const previous = MILESTONES2[MILESTONES2.indexOf(ante) - 1];
+    if (previous && !players.every((p) => {
+      var _a2;
+      return !!((_a2 = current.offers[previous]) == null ? void 0 : _a2.picks[p]);
+    }))
+      return refuse3("previous_pending");
+    const pool = Object.keys(DECK_ANTES).filter(
+      (deck) => DECK_ANTES[deck] <= ante && players.every((p) => !current.acquired[p].includes(deck))
+    ).sort();
+    let rng = 1;
+    const id = `${started.runId}:decks:${ante}`;
+    for (let i = 0; i < id.length; i++)
+      rng = (rng * 31 + id.charCodeAt(i)) % 2147483647;
+    const choices = [];
+    while (choices.length < 3 && pool.length > 0) {
+      rng = rng * 16807 % 2147483647;
+      choices.push(pool.splice(rng % pool.length, 1)[0]);
+    }
+    const offer2 = { id, ante, choices, picks: {} };
+    const next2 = __spreadProps(__spreadValues({}, lobby), {
+      almanac: __spreadProps(__spreadValues({}, current), { offers: __spreadProps(__spreadValues({}, current.offers), { [ante]: offer2 }) })
+    });
+    return { lobby: next2, out: [view(next2, offer2, from)] };
+  }
+  if (!existing || params.id !== existing.id) return refuse3("stale_offer");
+  if (existing.picks[from]) return { lobby, out: [view(lobby, existing, from)] };
+  if (typeof params.deck !== "string" || !existing.choices.includes(params.deck))
+    return refuse3("not_offered");
+  const offer = __spreadProps(__spreadValues({}, existing), {
+    picks: __spreadProps(__spreadValues({}, existing.picks), { [from]: params.deck })
+  });
+  const state = __spreadProps(__spreadValues({}, current), {
+    offers: __spreadProps(__spreadValues({}, current.offers), { [ante]: offer }),
+    acquired: __spreadProps(__spreadValues({}, current.acquired), {
+      [from]: [...current.acquired[from], params.deck]
+    })
+  });
+  const next = __spreadProps(__spreadValues({}, lobby), { almanac: state });
+  return { lobby: next, out: [view(next, offer, from)] };
+}
+
+// src/lobby/shared_rules.ts
+var RULE_ANTES = {
+  manacle: 3,
+  psychic: 3,
+  house: 3,
+  club: 3,
+  goad: 3,
+  window: 3,
+  head: 3,
+  glass_cannon: 3,
+  tooth: 3,
+  arm: 3,
+  leaf: 4,
+  hook: 5,
+  plant: 5,
+  water: 5
+};
+function message(lobby, key, params, to) {
+  return {
+    kind: "send",
+    op: ServerOp.ACTION,
+    to,
+    // These are host-referee protocol messages generated by the server.
+    // Client attempts to emit offers are rejected by sharedRulesAction.
+    payload: { cid: "", action: key, from: lobby.hostId, to: "*", params }
+  };
+}
+function roll(state, count2) {
+  state.rng = state.rng * 16807 % 2147483647;
+  return state.rng % count2;
+}
+function eligible(ante) {
+  return Object.keys(RULE_ANTES).filter((key) => RULE_ANTES[key] <= ante).sort();
+}
+function view2(lobby, state, id, now) {
+  if (state.rules) {
+    return message(
+      lobby,
+      "pvp_start_blind",
+      {
+        first_player: state.firstPlayer,
+        round_id: state.roundId,
+        starting_hands: state.startingHands,
+        shared_rules: { id: state.id, ante: state.ante, rules: state.rules }
+      },
+      [id]
+    );
+  }
+  return message(
+    lobby,
+    "pvp_rules_offer",
+    {
+      id: state.id,
+      ante: state.ante,
+      choices: state.offers[id],
+      locked: !!state.picks[id],
+      ms_left: Math.max(0, state.deadline - now)
+    },
+    [id]
+  );
+}
+function resolve(state) {
+  for (const id of state.players) {
+    if (!state.picks[id]) {
+      const offer = state.offers[id];
+      state.picks[id] = offer[roll(state, offer.length)];
+    }
+  }
+  const first = state.picks[state.players[0]];
+  let second = state.picks[state.players[1]];
+  if (first === second) {
+    const pool = eligible(state.ante).filter((key) => key !== first);
+    second = pool[roll(state, pool.length)];
+  }
+  state.rules = [first, second];
+}
+function sharedRulesTick(lobby, now) {
+  var _a;
+  const current = lobby.sharedRules;
+  if (!current || current.rules || lobby.closed || current.players.some(
+    (id) => !lobby.players.some((player) => player.id === id)
+  ) || current.run !== ((_a = lobby.game.started) == null ? void 0 : _a.runId) || now < current.deadline)
+    return { lobby, out: [] };
+  const state = __spreadProps(__spreadValues({}, current), { picks: __spreadValues({}, current.picks) });
+  resolve(state);
+  const next = __spreadProps(__spreadValues({}, lobby), { sharedRules: state });
+  return {
+    lobby: next,
+    out: state.players.map((id) => view2(next, state, id, now))
+  };
+}
+function sharedRulesAction(lobby, from, key, input, now) {
+  var _a, _b;
+  if (![
+    "pvp_rules_open",
+    "pvp_rules_pick",
+    "pvp_rules_sync",
+    "pvp_rules_offer"
+  ].includes(key))
+    return null;
+  const refuse3 = (reason) => ({
+    lobby,
+    out: [
+      {
+        kind: "send",
+        op: ServerOp.ACTION_REJECTED,
+        to: [from],
+        payload: { action: key, reason }
+      }
+    ]
+  });
+  if (key === "pvp_rules_offer") return refuse3("server_only");
+  const started = lobby.game.started;
+  if (lobby.modId !== "MultiplayerPvP" || !started || !isAlmanac(lobby) && (lobby.rankedMode || lobby.gameMode || lobby.metadata.shared_pvp_rules !== true) || started.players.length !== 2 || lobby.players.length !== 2 || !started.players.some((player) => player.id === from))
+    return refuse3("unavailable");
+  const params = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const current = ((_a = lobby.sharedRules) == null ? void 0 : _a.run) === started.runId ? lobby.sharedRules : void 0;
+  if (key === "pvp_rules_open") {
+    if (from !== lobby.hostId) return refuse3("not_host");
+    const ante = params.ante;
+    if (typeof ante !== "number" || !Number.isInteger(ante) || ante < 3 || typeof params.first_player !== "string" || !started.players.some((player) => player.id === params.first_player))
+      return refuse3("bad_params");
+    const roundId = typeof params.round_id === "string" && params.round_id.length > 0 ? params.round_id : void 0;
+    if (isAlmanac(lobby) && !roundId) return refuse3("bad_round");
+    const id = `${started.runId}:${roundId || ante}`;
+    if (current && (ante < current.ante || ((_b = current.retiredIds) == null ? void 0 : _b.includes(id))))
+      return refuse3("stale_encounter");
+    if (current && id === current.id) {
+      return {
+        lobby,
+        out: current.players.map((id2) => view2(lobby, current, id2, now))
+      };
+    }
+    if (current && ante === current.ante && !roundId)
+      return refuse3("stale_encounter");
+    if (current && !current.rules) return refuse3("draft_in_progress");
+    const players = started.players.map((player) => player.id).sort();
+    let rng = 1;
+    for (let i = 0; i < id.length; i++)
+      rng = (rng * 31 + id.charCodeAt(i)) % 2147483647;
+    const startingHands = {};
+    if (params.starting_hands && typeof params.starting_hands === "object") {
+      for (const player of players) {
+        const hands = params.starting_hands[player];
+        if (typeof hands === "number" && Number.isFinite(hands))
+          startingHands[player] = hands;
+      }
+    }
+    const state2 = {
+      run: started.runId,
+      id,
+      ante,
+      firstPlayer: params.first_player,
+      roundId,
+      retiredIds: current ? [...current.retiredIds || [], current.id] : [],
+      startingHands,
+      players,
+      offers: {},
+      picks: {},
+      rng: Math.max(1, rng),
+      deadline: now + 1e4
+    };
+    for (const player of players) {
+      const pool = eligible(ante);
+      state2.offers[player] = [];
+      for (let i = 0; i < 4; i++)
+        state2.offers[player].push(pool.splice(roll(state2, pool.length), 1)[0]);
+    }
+    const next2 = __spreadProps(__spreadValues({}, lobby), { sharedRules: state2 });
+    return {
+      lobby: next2,
+      out: players.map((player) => view2(next2, state2, player, now))
+    };
+  }
+  if (!current)
+    return key === "pvp_rules_sync" ? { lobby, out: [] } : refuse3("no_draft");
+  if (key === "pvp_rules_sync") {
+    const ticked = sharedRulesTick(lobby, now);
+    if (ticked.out.length) return ticked;
+    return { lobby, out: [view2(lobby, current, from, now)] };
+  }
+  if (params.id !== current.id) return refuse3("stale_encounter");
+  if (now >= current.deadline) return sharedRulesTick(lobby, now);
+  if (current.rules || current.picks[from]) return refuse3("already_locked");
+  if (typeof params.rule !== "string" || !current.offers[from].includes(params.rule))
+    return refuse3("not_offered");
+  const state = __spreadProps(__spreadValues({}, current), { picks: __spreadProps(__spreadValues({}, current.picks), { [from]: params.rule }) });
+  if (state.players.every((id) => !!state.picks[id])) resolve(state);
+  const next = __spreadProps(__spreadValues({}, lobby), { sharedRules: state });
+  return {
+    lobby: next,
+    out: state.rules ? state.players.map((id) => view2(next, state, id, now)) : [view2(next, state, from, now)]
+  };
 }
 
 // src/lobby/relay.ts
@@ -9092,6 +9414,16 @@ function relayAction(lobby, senderId, data, ctx) {
     return refuse3("too_large");
   const budgeted = spend(lobby, senderId, key, ctx.now, spendCost(key, params));
   if (!budgeted) return refuse3("rate_limited");
+  const almanac = almanacAction(budgeted, senderId, key, params);
+  if (almanac) return almanac;
+  const sharedRules = sharedRulesAction(
+    budgeted,
+    senderId,
+    key,
+    params,
+    ctx.now
+  );
+  if (sharedRules) return sharedRules;
   const authoritative = authoritativeAction(key);
   if (to === SERVER_TARGET) {
     if (!authoritative) return refuse3("not_authoritative");
@@ -9299,12 +9631,12 @@ function messageOf(refusal) {
   }
 }
 function rejoinRejectMessage(refusal) {
-  const view = {
+  const view3 = {
     reason: refusal.reason,
     mods: refusal.reason === "mods_not_allowed" ? refusal.mods : [],
     message: messageOf(refusal)
   };
-  return REJOIN_REFUSED_PREFIX + JSON.stringify(view);
+  return REJOIN_REFUSED_PREFIX + JSON.stringify(view3);
 }
 
 // src/lobby/match.ts
@@ -9732,10 +10064,10 @@ function lobbyMatchLeave(ctx, logger, nk, dispatcher, tickNumber, state, presenc
   }
   return current ? { state: current } : null;
 }
-function parseMessage(nk, message) {
-  if (message.data.byteLength > MAX_MESSAGE_BYTES) return null;
+function parseMessage(nk, message2) {
+  if (message2.data.byteLength > MAX_MESSAGE_BYTES) return null;
   try {
-    const data = JSON.parse(nk.binaryToString(message.data));
+    const data = JSON.parse(nk.binaryToString(message2.data));
     if (Array.isArray(data)) return data.length === 0 ? {} : null;
     return typeof data === "object" && data !== null ? data : null;
   } catch (e) {
@@ -9788,22 +10120,22 @@ function stepForMessage(nk, lobby, senderId, opCode, data) {
 function lobbyMatchLoop(ctx, logger, nk, dispatcher, tickNumber, state, messages) {
   if (state.stopping || state.lobby.closed) return null;
   let current = state;
-  for (const message of messages) {
+  for (const message2 of messages) {
     if (!current) break;
-    const data = parseMessage(nk, message);
+    const data = parseMessage(nk, message2);
     const step = data && stepForMessage(
       nk,
       current.lobby,
-      message.sender.userId,
-      message.opCode,
+      message2.sender.userId,
+      message2.opCode,
       data
     );
     if (!step) {
       logger.warn(
         "Lobby %s: dropped op %d from %s",
         current.lobby.code,
-        message.opCode,
-        message.sender.userId
+        message2.opCode,
+        message2.sender.userId
       );
       continue;
     }
@@ -9812,7 +10144,7 @@ function lobbyMatchLoop(ctx, logger, nk, dispatcher, tickNumber, state, messages
         "Lobby %s: refused %s from %s (%s)",
         current.lobby.code,
         step.refused.key,
-        message.sender.userId,
+        message2.sender.userId,
         step.refused.reason
       );
     }
@@ -9834,13 +10166,22 @@ function lobbyMatchLoop(ctx, logger, nk, dispatcher, tickNumber, state, messages
   const now = Date.now();
   const ticked = apply(ctx, logger, nk, dispatcher, current, tick(current.lobby, now));
   if (!ticked) return null;
-  const setupTicked = apply(
+  const rulesTicked = apply(
     ctx,
     logger,
     nk,
     dispatcher,
     ticked,
-    setupTick(ticked.lobby, now, Math.random)
+    sharedRulesTick(ticked.lobby, now)
+  );
+  if (!rulesTicked) return null;
+  const setupTicked = apply(
+    ctx,
+    logger,
+    nk,
+    dispatcher,
+    rulesTicked,
+    setupTick(rulesTicked.lobby, now, Math.random)
   );
   if (!setupTicked) return null;
   const settled = apply(
@@ -10068,22 +10409,22 @@ var skipNonAlphabeticTransformer = import_index.default.skipNonAlphabeticTransfo
 var toAsciiLowerCaseTransformer = import_index.default.toAsciiLowerCaseTransformer;
 
 // src/chat/filter.ts
-function normalizeForAllowlist(message) {
-  const trimmed = message.trim();
+function normalizeForAllowlist(message2) {
+  const trimmed = message2.trim();
   if (trimmed === "") return null;
   const lower = trimmed.toLowerCase();
   if (/^[.!?]+$/.test(lower)) return lower;
   if (lower.endsWith(".") || lower.endsWith("!") || lower.endsWith("?")) return lower.slice(0, -1);
   return lower;
 }
-function isAllowlisted(message, allowlist) {
-  const key = normalizeForAllowlist(message);
+function isAllowlisted(message2, allowlist) {
+  const key = normalizeForAllowlist(message2);
   return key !== null && allowlist.indexOf(key) !== -1;
 }
 var matcher = null;
-function obscenityMatches(message) {
+function obscenityMatches(message2) {
   if (!matcher) matcher = new RegExpMatcher(__spreadValues(__spreadValues({}, englishDataset.build()), englishRecommendedTransformers));
-  return matcher.getAllMatches(message).map((m) => {
+  return matcher.getAllMatches(message2).map((m) => {
     const metadata = englishDataset.getPayloadWithPhraseMetadata(m).phraseMetadata;
     return { word: metadata && metadata.originalWord || "", startIndex: m.startIndex, endIndex: m.endIndex };
   });
@@ -10116,10 +10457,10 @@ function rpcChatEnable(ctx, logger, nk, payload) {
 }
 function rpcChatSend(ctx, logger, nk, payload) {
   const userId = requireUser(ctx);
-  const message = parsePayload(payload).message;
-  if (typeof message !== "string" || !message.trim())
+  const message2 = parsePayload(payload).message;
+  if (typeof message2 !== "string" || !message2.trim())
     throw runtimeError(INVALID_ARGUMENT, "Message is empty");
-  if (message.length > MAX_MESSAGE_LENGTH)
+  if (message2.length > MAX_MESSAGE_LENGTH)
     throw runtimeError(INVALID_ARGUMENT, `Message is over ${MAX_MESSAGE_LENGTH} characters`);
   const config = readConfig(nk);
   if (!config.chatEnabled) throw runtimeError(UNAVAILABLE, "Chat is turned off");
@@ -10145,19 +10486,19 @@ function rpcChatSend(ctx, logger, nk, payload) {
   };
   let flagged = false;
   let verdict = null;
-  if (!isAllowlisted(message, config.chatAllowlist)) {
+  if (!isAllowlisted(message2, config.chatAllowlist)) {
     if (settingsOf(ctx).moderationRemote) {
       const outcome = decideModerationOutcome(
         callModeration(nk, logger, ctx.env, {
           playerId: userId,
           lobbyCode: check.code,
-          message,
+          message: message2,
           context: check.context
         })
       );
       if (!outcome.allowed) {
         if (outcome.reason === "moderated") {
-          logChat(nk, logger, lobby, userId, message, true, __spreadValues({
+          logChat(nk, logger, lobby, userId, message2, true, __spreadValues({
             source: "remote",
             band: outcome.band || "unknown"
           }, guardFields(outcome.guard)));
@@ -10169,29 +10510,29 @@ function rpcChatSend(ctx, logger, nk, payload) {
       if (outcome.review) verdict = __spreadValues({ source: "remote", band: REVIEW_BAND }, guardFields(outcome.guard));
       else if (outcome.guard) verdict = __spreadValues({ source: "remote", band: outcome.band || "unknown" }, guardFields(outcome.guard));
     } else {
-      const matches = obscenityMatches(message);
+      const matches = obscenityMatches(message2);
       if (matches.length > 0) {
-        logChat(nk, logger, lobby, userId, message, true, { source: "local", matches });
+        logChat(nk, logger, lobby, userId, message2, true, { source: "local", matches });
         throw runtimeError(PERMISSION_DENIED, "Message blocked by moderation");
       }
     }
   }
   nk.matchSignal(
     current.matchId,
-    JSON.stringify({ type: "chat_post", userId, text: message })
+    JSON.stringify({ type: "chat_post", userId, text: message2 })
   );
-  logChat(nk, logger, lobby, userId, message, flagged, verdict);
-  return JSON.stringify({ text: message });
+  logChat(nk, logger, lobby, userId, message2, flagged, verdict);
+  return JSON.stringify({ text: message2 });
 }
 function guardFields(guard) {
   return guard ? { guardSafety: guard.safety, guardScore: guard.score, guardContextUsed: guard.contextUsed } : {};
 }
-function logChat(nk, logger, lobby, userId, message, flagged, verdict) {
+function logChat(nk, logger, lobby, userId, message2, flagged, verdict) {
   try {
     enqueue(nk, {
       kind: "chat",
       at: Date.now(),
-      line: __spreadProps(__spreadValues({}, lobby), { userId, message, flagged, verdict })
+      line: __spreadProps(__spreadValues({}, lobby), { userId, message: message2, flagged, verdict })
     });
   } catch (e) {
     logger.error("Could not queue a chat line for the API: %v", e);
@@ -10204,8 +10545,8 @@ function field2(obj, camel, snake) {
   const o = obj;
   return o[camel] !== void 0 ? o[camel] : o[snake];
 }
-function partyIdOf(message) {
-  const id = field2(message, "partyId", "party_id");
+function partyIdOf(message2) {
+  const id = field2(message2, "partyId", "party_id");
   return typeof id === "string" ? id : "";
 }
 function refuse(refusal) {
@@ -10333,8 +10674,8 @@ function relayed(reply) {
   const parsed = JSON.parse(reply);
   return parsed && parsed.refused ? refusedReply(parsed.refused) : reply;
 }
-function signal(nk, matchId, message) {
-  return nk.matchSignal(matchId, JSON.stringify(message));
+function signal(nk, matchId, message2) {
+  return nk.matchSignal(matchId, JSON.stringify(message2));
 }
 function rpcGroupQueueOpen(ctx, logger, nk, payload) {
   const userId = requireUser(ctx);
@@ -11878,12 +12219,12 @@ var REPORT_WINDOW_MS = 10 * 6e4;
 var LIMIT_COLLECTION2 = "moderation";
 var LIMIT_KEY2 = "report_times";
 function parseReport(data) {
-  const { reportedUserId, type, message } = data;
+  const { reportedUserId, type, message: message2 } = data;
   if (typeof reportedUserId !== "string" || !reportedUserId) return "Missing or invalid reportedUserId";
   if (typeof type !== "string" || REPORT_TYPES.indexOf(type) === -1) return "Invalid report type";
-  if (message !== void 0 && message !== null && (typeof message !== "string" || message.length > MAX_REPORT_MESSAGE))
+  if (message2 !== void 0 && message2 !== null && (typeof message2 !== "string" || message2.length > MAX_REPORT_MESSAGE))
     return `Invalid message (max ${MAX_REPORT_MESSAGE} characters)`;
-  return { reportedUserId, type, message: typeof message === "string" && message ? message : void 0 };
+  return { reportedUserId, type, message: typeof message2 === "string" && message2 ? message2 : void 0 };
 }
 function reportTimesAfter(times, now) {
   const recent = times.filter((t) => now - t < REPORT_WINDOW_MS);

@@ -22,6 +22,8 @@ import {
 	type SpectateEvent,
 } from './protocol'
 import { type SenderRefusal, senderRefusal } from './sender_guard'
+import { sharedRulesAction } from './shared_rules'
+import { almanacAction } from './almanac'
 import { spectateEvent } from './spectate'
 import {
 	type Lobby,
@@ -167,6 +169,18 @@ function relayAction(
 
 	const budgeted = spend(lobby, senderId, key, ctx.now, spendCost(key, params))
 	if (!budgeted) return refuse('rate_limited')
+
+	const almanac = almanacAction(budgeted, senderId, key, params)
+	if (almanac) return almanac
+
+	const sharedRules = sharedRulesAction(
+		budgeted,
+		senderId,
+		key,
+		params,
+		ctx.now,
+	)
+	if (sharedRules) return sharedRules
 
 	const authoritative = authoritativeAction(key)
 	if (to === SERVER_TARGET) {

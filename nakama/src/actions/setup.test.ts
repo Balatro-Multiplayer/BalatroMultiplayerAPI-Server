@@ -158,6 +158,75 @@ describe('starting a Setup step', () => {
 })
 
 describe('the Draft', () => {
+	it('keeps Almanac’s five explicit stakes through recovery, three bans, a pick and reseed', () => {
+		for (const white of [1, 12]) {
+			for (const gold of [8, 11]) {
+				let lobby = started('a', 'b')
+				const candidates = [white, 3, 4, 6, gold].map((stake) => ({
+					key: `b_mp_almanac@${stake}`,
+					art: 'b_mp_almanac',
+					stake,
+				}))
+				lobby = send(lobby, 'a', 'mpapi_setup_draft', {
+					id: 'draft',
+					candidates,
+					poolSize: 5,
+					maxStake: 8, // Explicit variant indices must not be capped or rerolled.
+					schedule: [
+						{ actor: 1, action: 'ban', count: 1 },
+						{ actor: 2, action: 'ban', count: 1 },
+						{ actor: 1, action: 'ban', count: 1 },
+						{ actor: 2, action: 'pick', count: 1 },
+					],
+				}).lobby
+				expect(openDraft(lobby).pool).toHaveLength(5)
+				expect(
+					new Set(openDraft(lobby).pool.map((tile) => tile.stake)),
+				).toEqual(new Set([white, 3, 4, 6, gold]))
+				const checkpoint = checkpointOf(lobby, 1_000)
+				if (!checkpoint) throw Error('Expected draft checkpoint')
+				lobby = { ...resumeFrom(checkpoint, 5_000), hostId: 'b' }
+				expect(openDraft(lobby).pool).toEqual(openDraft(checkpoint.lobby).pool)
+				for (let turn = 0; turn < 4; turn++) {
+					const draft = openDraft(lobby)
+					const actor =
+						draft.order[
+							(draft.first + draft.schedule[draft.turn].actor - 1) %
+								draft.order.length
+						]
+					// Leave the White / White- tile available until the final pick.
+					const tile = draft.pool.find((tile) =>
+						turn === 3
+							? tile.stake === white
+							: tile.stake !== white && !draft.banned.includes(tile.key),
+					)
+					if (!tile) throw Error('Expected available stake tile')
+					const step = send(
+						lobby,
+						actor,
+						'mpapi_setup_choose',
+						{
+							key: tile.key,
+						},
+						6_000 + turn * 100,
+					)
+					expect(rejection(step)).toBeUndefined()
+					lobby = step.lobby
+				}
+				const result = setupOf(lobby.game).results.draft
+				expect(result).toMatchObject({
+					survivors: [
+						{ key: `b_mp_almanac@${white}`, art: 'b_mp_almanac', stake: white },
+					],
+				})
+				expect(lobby.game.started?.stake).toBe(white)
+				const restart = send(lobby, 'b', 'mpapi_restart_game', {}, 7_000).lobby
+				expect(restart.game.started?.stake).toBe(white)
+				expect(setupOf(restart.game).results.draft).toEqual(result)
+			}
+		}
+	})
+
 	it('samples the pool, rolls missing stakes and the first actor', () => {
 		const lobby = started('a', 'b')
 		// Shuffle of 3 (two draws), then two stakes, then the first actor.

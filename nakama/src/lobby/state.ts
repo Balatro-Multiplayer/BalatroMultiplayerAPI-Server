@@ -34,6 +34,7 @@ import {
 	ServerOp,
 	type Snapshot,
 } from './protocol'
+import type { SharedRules } from './shared_rules'
 
 export const DEFAULT_GRACE_MS = 120_000
 // How long a started game waits for the rest of its results once the first
@@ -67,6 +68,9 @@ export interface LobbyPlayer {
 }
 
 export interface Lobby {
+	// Private match state; omitted from snapshotFor, retained by checkpoints.
+	sharedRules?: SharedRules
+	almanac?: import('./almanac').Almanac
 	code: string
 	modId: string
 	maxPlayers: number
@@ -326,6 +330,7 @@ export function isCatchingUp(player: LobbyPlayer): boolean {
 export function snapshotFor(lobby: Lobby, userId: string, now: number = Date.now()): Snapshot {
 	const self = findPlayer(lobby, userId)
 	return {
+		serverFeatures: { shared_pvp_rules: 2, almanac_draft: 1 },
 		code: lobby.code,
 		modId: lobby.modId,
 		hostId: lobby.hostId,

@@ -90,6 +90,12 @@ export function resumeFrom(checkpoint: Checkpoint, now: number): Lobby {
 			settleFrom: settleFrom === null ? null : settleFrom + downtime,
 			setup: setupAfterDowntime(lobby.game, downtime),
 		},
+		sharedRules: lobby.sharedRules
+			? {
+					...lobby.sharedRules,
+					deadline: lobby.sharedRules.deadline + downtime,
+				}
+			: undefined,
 	}
 }
 
