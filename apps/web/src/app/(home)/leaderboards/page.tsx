@@ -19,6 +19,7 @@ import {
   formatMetric,
   gameModeKey,
   LEADERBOARD_CATEGORIES,
+  seasonLabel,
 } from '@/lib/leaderboards'
 
 interface Season {
@@ -210,7 +211,7 @@ function LeaderboardsContent() {
                   : 'border-border bg-muted text-muted-foreground hover:bg-accent'
               }`}
             >
-              {s.name ?? `Season ${s.id}`}
+              {seasonLabel(seasons, s.id)}
               {s.id === currentSeasonId && (
                 <span className='ml-1.5 text-[10px] text-bal-green'>LIVE</span>
               )}
@@ -231,7 +232,8 @@ function LeaderboardsContent() {
         <Card>
           <CardHeader>
             <CardTitle className='text-base'>
-              {category.label} · {mode.label} · Season {selectedSeason ?? '…'}
+              {category.label} · {mode.label} ·{' '}
+              {seasonLabel(seasons, selectedSeason)}
             </CardTitle>
           </CardHeader>
           <CardContent className='p-0'>
@@ -250,7 +252,7 @@ function LeaderboardsContent() {
                         'Rank',
                         'Player',
                         'Rating',
-                        category.metricLabel,
+                        ...(category.metricLabel ? [category.metricLabel] : []),
                         'W',
                         'L',
                         'Games',
@@ -284,9 +286,11 @@ function LeaderboardsContent() {
                         <td className='px-4 py-3 font-bold font-pixel text-bal-gold'>
                           {Math.round(entry.rating)}
                         </td>
-                        <td className='px-4 py-3 font-semibold text-bal-blue'>
-                          {formatMetric(category.metric, entry.seasonBest)}
-                        </td>
+                        {category.metricLabel && (
+                          <td className='px-4 py-3 font-semibold text-bal-blue'>
+                            {formatMetric(category.metric, entry.seasonBest)}
+                          </td>
+                        )}
                         <td className='px-4 py-3 text-bal-green'>
                           {entry.wins}
                         </td>
