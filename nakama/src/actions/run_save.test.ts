@@ -36,7 +36,7 @@ function send(
 function started(ids: string[]): Lobby {
 	let lobby = newLobby({
 		code: 'ABC123',
-		modId: 'MultiplayerPvP',
+		modId: 'm',
 		maxPlayers: 4,
 		creatorId: ids[0],
 		now: 0,
@@ -67,6 +67,9 @@ const sendPart = (lobby: Lobby, from: string, p: unknown) =>
 	send(lobby, from, RUN_SAVE_PART_KEY, p)
 const rejected = (step: Step) =>
 	step.out.filter((o) => o.kind === 'send' && o.op === ServerOp.ACTION_REJECTED)
+const reason = (step: Step) =>
+	(rejected(step)[0] as { payload: { reason: string } } | undefined)?.payload
+		.reason
 const sends = (step: Step) => step.out.filter((o) => o.kind === 'send')
 const saves = (lobby: Lobby) => lobby.game.runSaves ?? {}
 
@@ -117,14 +120,35 @@ describe('run save parts', () => {
 		expect(sends(step)).toEqual([])
 	})
 
-	it('ignores a part for another run', () => {
+	it('refuses a part for another run as wrong_run', () => {
 		const lobby = started(['a', 'b'])
 		const step = sendPart(lobby, 'a', {
 			...part('s1', 0, 1, 'X'),
 			run: 'OLDRUN',
 		})
 		expect(saves(step.lobby).a).toBeUndefined()
-		expect(rejected(step)).toEqual([])
+		expect(reason(step)).toBe('wrong_run')
+	})
+
+	it('refuses a part with no run, or a run that is not a string', () => {
+		const lobby = started(['a', 'b'])
+		const { run: _run, ...noRun } = part('s1', 0, 1, 'X')
+		expect(reason(sendPart(lobby, 'a', noRun))).toBe('bad_params')
+		expect(reason(sendPart(lobby, 'a', { ...noRun, run: 7 }))).toBe(
+			'bad_params',
+		)
+		expect(saves(sendPart(lobby, 'a', noRun).lobby).a).toBeUndefined()
+	})
+
+	it('refuses a save older than the held one as stale_save', () => {
+		let lobby = started(['a', 'b'])
+		lobby = sendPart(lobby, 'a', part('s1', 0, 1, 'NEW', 30)).lobby
+		const step = sendPart(lobby, 'a', part('s2', 0, 1, 'OLD', 25))
+		expect(reason(step)).toBe('stale_save')
+		expect(saves(step.lobby).a).toMatchObject({ id: 's1', pos: 30 })
+		const same = sendPart(lobby, 'a', part('s3', 0, 1, 'AGAIN', 30))
+		expect(rejected(same)).toEqual([])
+		expect(saves(same.lobby).a).toMatchObject({ id: 's3', pos: 30 })
 	})
 
 	it('refuses malformed parts and non-participants', () => {

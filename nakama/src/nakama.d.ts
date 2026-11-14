@@ -49,6 +49,22 @@ declare namespace nkruntime {
 		version?: string
 	}
 
+	interface StorageWriteAck {
+		collection: string
+		key: string
+		userId: string
+		// The version the write left the object at.
+		version: string
+	}
+
+	interface StorageDeleteRequest {
+		collection: string
+		key: string
+		userId: string
+		// Deletes only if the object is still at this version (throws otherwise).
+		version?: string
+	}
+
 	interface StorageWriteRequest {
 		collection: string
 		key: string
@@ -91,8 +107,8 @@ declare namespace nkruntime {
 		// member is out of the party (its tickets go) without being told.
 		streamUserKick(presence: { userId: string; sessionId: string; node: string }, stream: { mode: number; subject?: string; subcontext?: string; label?: string }): void
 		storageRead(reads: StorageReadRequest[]): StorageObject[]
-		storageWrite(writes: StorageWriteRequest[]): unknown
-		storageDelete(deletes: StorageReadRequest[]): void
+		storageWrite(writes: StorageWriteRequest[]): StorageWriteAck[]
+		storageDelete(deletes: StorageDeleteRequest[]): void
 		// userId null lists the collection across every owner ('' is refused).
 		storageList(
 			userId: string | null,

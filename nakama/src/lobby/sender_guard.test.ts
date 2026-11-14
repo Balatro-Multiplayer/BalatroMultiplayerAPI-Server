@@ -1,7 +1,15 @@
+import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
+import { withRules } from '../testing/pvp_rules'
 import { ServerOp } from './protocol'
 import { action } from './relay'
-import { SENDER_RULES, senderRefusal, senderRuleOf } from './sender_guard'
+import {
+	PVP_RELAY_KEYS,
+	SENDER_RULES,
+	senderRefusal,
+	senderRuleOf,
+} from './sender_guard'
+import { addSpectator } from './spectate'
 import {
 	type Lobby,
 	type Outbound,
@@ -17,11 +25,11 @@ const info = (name: string) => ({
 	mods: null,
 })
 
-// 'a' creates the lobby, so 'a' is its host.
-function lobbyWith(...ids: string[]): Lobby {
+// The first id creates the lobby, so it is the host.
+function lobbyOf(modId: string, ...ids: string[]): Lobby {
 	let lobby = newLobby({
 		code: 'ABC123',
-		modId: 'MultiplayerPvP',
+		modId,
 		maxPlayers: 4,
 		creatorId: ids[0],
 		now: 0,
@@ -30,8 +38,14 @@ function lobbyWith(...ids: string[]): Lobby {
 	for (const id of ids) lobby = join(lobby, id, `${id}-s1`, info(id)).lobby
 	return lobby
 }
+const lobbyWith = (...ids: string[]): Lobby => lobbyOf('MultiplayerPvP', ...ids)
 
-const ctx = { now: 1000, newSeed: () => 'SEED1234', newId: () => 'RUN1', random: () => 0 }
+const ctx = {
+	now: 1000,
+	newSeed: () => 'SEED1234',
+	newId: () => 'RUN1',
+	random: () => 0,
+}
 
 function send(
 	lobby: Lobby,
@@ -55,20 +69,121 @@ function rejected(out: Outbound[]): Send[] {
 	)
 }
 
+// The 9 keys the server-refereed client still needs (docs/pvp-match.md section 9),
+// written out here so the list in sender_guard.ts is checked against the spec.
+const KEPT = [
+	'pvp_location',
+	'pvp_player_result',
+	'pvp_log_event',
+	'pvp_get_end_game_jokers',
+	'pvp_receive_end_game_jokers',
+	'pvp_get_nemesis_deck',
+	'pvp_receive_nemesis_deck',
+	'pvp_end_game_stats_requested',
+	'pvp_nemesis_end_game_stats',
+]
+
+// What the host's client used to broadcast as the referee.
+const DROPPED_OUTPUTS = [
+	'pvp_start_game',
+	'pvp_start_blind',
+	'pvp_ready_check',
+	'pvp_end_pvp',
+	'pvp_win',
+	'pvp_player_won',
+	'pvp_round_state',
+	'pvp_player_lives',
+	'pvp_team_lives',
+	'pvp_eliminated',
+	'pvp_death_pending',
+	'pvp_timer_hand_lost',
+	'pvp_nemesis_pairing',
+	'pvp_team_card_target',
+	'pvp_team_roster',
+	'pvp_royale_target',
+	'pvp_manhunt_target',
+	'pvp_team_score_board',
+	'pvp_reseed',
+	'pvp_stop_game',
+]
+
+// What a guest's client used to send the host referee.
+const DROPPED_INPUTS = [
+	'pvp_ready',
+	'pvp_unready',
+	'pvp_ready_ack',
+	'pvp_player_ready',
+	'pvp_play_hand',
+	'pvp_skip',
+	'pvp_set_ante',
+	'pvp_set_furthest_blind',
+	'pvp_new_round',
+	'pvp_fail_round',
+	'pvp_fail_timer',
+	'pvp_fail_pvp_timer',
+	'pvp_blind_result',
+	'pvp_redeem_ante_voucher',
+	'pvp_result_request',
+	'pvp_forfeit',
+	'pvp_draw_vote',
+	'pvp_seed_vote',
+	'pvp_set_team',
+]
+
+// The three timer relays replaced by the match's `pvp.round.deadline`:
+// a forged one from any seat reaches nobody.
+const DROPPED_TIMERS = [
+	'pvp_ante_timer',
+	'pvp_restart_ante_timer',
+	'pvp_pause_ante_timer',
+]
+
+// The trap relays the server now records itself (pvp.trap_plant, pvp.trap_fire,
+// pvp.trap_lost are requests, answered by the referee).
+const DROPPED_TRAPS = ['pvp_trap_held', 'pvp_trap_plant']
+
+const DROPPED = [
+	...DROPPED_OUTPUTS,
+	...DROPPED_INPUTS,
+	...DROPPED_TIMERS,
+	...DROPPED_TRAPS,
+]
+
+// In the lobby 'a' is the host, 'b' and 'c' are guests.
+const SENDERS: [string, string][] = [
+	['the host', 'a'],
+	['a guest', 'b'],
+]
+const eachSender = (keys: string[]): [string, string, string][] =>
+	keys.flatMap((key) =>
+		SENDERS.map(([who, id]): [string, string, string] => [key, who, id]),
+	)
+
 const HOST_KEYS = Object.keys(SENDER_RULES).filter(
 	(k) => SENDER_RULES[k as keyof typeof SENDER_RULES] === 'host',
 )
 
+describe('PVP_RELAY_KEYS', () => {
+	it('is exactly the 9 keys of the spec', () => {
+		expect([...PVP_RELAY_KEYS]).toEqual([...KEPT].sort())
+		expect(KEPT).toHaveLength(9)
+	})
+
+	it('is sorted, has no duplicates, and every entry starts with pvp_', () => {
+		expect([...PVP_RELAY_KEYS]).toEqual([...PVP_RELAY_KEYS].sort())
+		expect(new Set(PVP_RELAY_KEYS).size).toBe(PVP_RELAY_KEYS.length)
+		for (const key of PVP_RELAY_KEYS) expect(key.startsWith('pvp_')).toBe(true)
+	})
+
+	it('shares no key with the two dropped lists', () => {
+		expect(DROPPED.filter((k) => PVP_RELAY_KEYS.includes(k))).toEqual([])
+		expect(new Set(DROPPED).size).toBe(44)
+	})
+})
+
 describe('SENDER_RULES', () => {
-	it('covers the outcome actions the research named', () => {
+	it('covers the Speedrunning host decisions and results', () => {
 		for (const key of [
-			'pvp_win',
-			'pvp_player_won',
-			'pvp_end_pvp',
-			'pvp_ready_check',
-			'pvp_round_state',
-			'pvp_death_pending',
-			'pvp_player_lives',
 			'spdrn_match_timeout',
 			'spdrn_seed_change_apply',
 			'spdrn_match_draw',
@@ -78,16 +193,15 @@ describe('SENDER_RULES', () => {
 		expect(senderRuleOf('spdrn_player_won')).toBe('self_or_host')
 	})
 
+	it('has no pvp_ row: the allowlist rules every pvp_ key', () => {
+		expect(
+			Object.keys(SENDER_RULES).filter((k) => k.startsWith('pvp_')),
+		).toEqual([])
+		expect(Object.keys(SENDER_RULES)).toHaveLength(5)
+	})
+
 	it('leaves claims about the sender itself unruled', () => {
-		// pvp_player_result is keyed on the sender by its handler, and every
-		// player sends its own; the rest are each player's own state.
 		for (const key of [
-			'pvp_player_result',
-			'pvp_play_hand',
-			'pvp_ready_blind',
-			'pvp_fail_round',
-			'pvp_forfeit',
-			'pvp_draw_vote',
 			'spdrn_forfeit',
 			'spdrn_draw_vote',
 			'spdrn_seed_vote',
@@ -102,53 +216,72 @@ describe('SENDER_RULES', () => {
 	})
 })
 
-describe('host-only actions', () => {
-	it.each(HOST_KEYS)('%s passes from the host', (key) => {
-		const step = send(lobbyWith('a', 'b', 'c'), 'a', key, { winner_id: 'a' })
-		expect(step.dropped).toBeUndefined()
-		const [msg] = relayed(step.out)
-		expect(msg.to).toEqual(['a', 'b', 'c'])
-		expect((msg.payload as { from: string }).from).toBe('a')
-	})
-
-	it.each(HOST_KEYS)('%s from a guest is dropped, not relayed', (key) => {
-		const step = send(lobbyWith('a', 'b', 'c'), 'b', key, { winner_id: 'b' })
-		expect(relayed(step.out)).toEqual([])
-		expect(step.dropped).toEqual({
-			kind: 'not_host',
-			key,
-			from: 'b',
-			hostId: 'a',
-		})
-		const [r] = rejected(step.out)
-		expect(r.to).toEqual(['b'])
-		expect(r.payload).toEqual({ cid: 'c1', action: key, reason: 'not_host' })
-	})
-
-	it.each(['pvp_win', 'pvp_round_state'])('drops a forged %s aimed at one player too', (key) => {
-		const step = send(
-			lobbyWith('a', 'b', 'c'),
-			'b',
-			key,
-			{ winner_id: 'b' },
-			'c',
-		)
-		expect(relayed(step.out)).toEqual([])
-		expect(step.dropped?.kind).toBe('not_host')
-	})
-
-	it('drops forged lives for anyone, the forger included', () => {
-		const lobby = lobbyWith('a', 'b')
-		for (const target of ['a', 'b', '*all*']) {
-			const step = send(lobby, 'b', 'pvp_player_lives', {
-				player_id: target,
-				lives: 99,
+describe('pvp_ keys the server referee does not need', () => {
+	it.each(eachSender(DROPPED))(
+		'%s from %s reaches nobody and the sender is told why',
+		(key, _who, from) => {
+			const step = send(lobbyWith('a', 'b', 'c'), from, key, {
+				winner_id: from,
 			})
 			expect(relayed(step.out)).toEqual([])
+			expect(step.dropped).toEqual({
+				kind: 'not_relayed',
+				key,
+				from,
+				hostId: 'a',
+			})
+			const [r] = rejected(step.out)
+			expect(step.out).toHaveLength(1)
+			expect(r.to).toEqual([from])
+			expect(r.payload).toEqual({
+				cid: 'c1',
+				action: key,
+				reason: 'not_relayed',
+			})
+		},
+	)
+
+	it.each(eachSender(['pvp_new_thing', 'pvp_', 'pvp_x']))(
+		'a made-up %s from %s is dropped too',
+		(key, _who, from) => {
+			const step = send(lobbyWith('a', 'b', 'c'), from, key, {})
+			expect(relayed(step.out)).toEqual([])
+			expect(step.dropped?.kind).toBe('not_relayed')
+		},
+	)
+
+	it.each(DROPPED)('%s aimed at one player is dropped too', (key) => {
+		const step = send(lobbyWith('a', 'b', 'c'), 'b', key, {}, 'c')
+		expect(relayed(step.out)).toEqual([])
+		expect(step.dropped?.kind).toBe('not_relayed')
+	})
+
+	it.each(['MultiplayerSPDRN', 'SomeOtherMod'])(
+		'is dropped in a %s lobby as well',
+		(modId) => {
+			const lobby = lobbyOf(modId, 'a', 'b')
+			for (const from of ['a', 'b']) {
+				const step = send(lobby, from, 'pvp_win', { winner_id: from })
+				expect(relayed(step.out)).toEqual([])
+				expect(step.dropped?.kind).toBe('not_relayed')
+				expect(relayed(send(lobby, from, 'pvp_location', {}).out)).toHaveLength(
+					1,
+				)
+			}
+		},
+	)
+
+	it('a spectator is stopped before the guard: no seat, so nothing is relayed', () => {
+		const lobby = addSpectator(lobbyWith('a', 'b'), 'z').lobby
+		for (const key of [...DROPPED, ...KEPT]) {
+			const step = send(lobby, 'z', key, {})
+			expect(step.out).toEqual([])
+			expect(step.refused).toEqual({ key, reason: 'no_seat' })
+			expect(step.dropped).toBeUndefined()
 		}
 	})
 
-	it('still spends the forger budget, so forging is rate limited', () => {
+	it('still spends the sender budget, so sending them is rate limited', () => {
 		const lobby = lobbyWith('a', 'b')
 		const step = send(lobby, 'b', 'pvp_win', { winner_id: 'b' })
 		expect(step.lobby.actionBudget.b.tokens).toBeLessThan(
@@ -166,23 +299,154 @@ describe('host-only actions', () => {
 	})
 })
 
+describe('pvp_ keys the server referee keeps relaying', () => {
+	// pvp_log_event is split into a whole copy and a slim one (relay.test.ts).
+	it.each(eachSender(KEPT.filter((k) => k !== 'pvp_log_event')))(
+		'%s from %s is delivered to every seat with the sender stamped',
+		(key, _who, from) => {
+			const step = send(lobbyWith('a', 'b', 'c'), from, key, { n: 1 })
+			expect(step.dropped).toBeUndefined()
+			const [msg] = relayed(step.out)
+			expect(relayed(step.out)).toHaveLength(1)
+			expect(msg.to).toEqual(['a', 'b', 'c'])
+			expect(msg.payload).toEqual({
+				cid: 'c1',
+				action: key,
+				from,
+				to: '*',
+				params: { n: 1 },
+			})
+		},
+	)
+
+	it('a directed one goes to its target only', () => {
+		const step = send(lobbyWith('a', 'b', 'c'), 'a', 'pvp_get_nemesis_deck', {}, 'c')
+		expect(relayed(step.out)[0].to).toEqual(['c'])
+	})
+})
+
+describe('other unruled actions', () => {
+	it.each(['spdrn_something_new', 'mpapi_chat', 'pvpx_thing', 'pvp'])(
+		'%s relays exactly as before',
+		(key) => {
+			const step = send(lobbyWith('a', 'b'), 'b', key, { text: 'hi' })
+			expect(step.dropped).toBeUndefined()
+			expect(relayed(step.out)[0].to).toEqual(['a', 'b'])
+		},
+	)
+
+	it('senderRefusal is null for them whoever sends', () => {
+		const lobby = lobbyWith('a', 'b')
+		expect(
+			senderRefusal(lobby, 'b', 'spdrn_play_hand', { score: '1e999' }),
+		).toBeNull()
+	})
+})
+
+describe('properties of the allowlist', () => {
+	const lobby = lobbyWith('a', 'b')
+	// A made-up key that is never on the list.
+	const offList = fc
+		.stringMatching(/^pvp_[a-z0-9_]{1,40}$/)
+		.map((key) => (PVP_RELAY_KEYS.includes(key) ? `${key}x` : key))
+
+	it('refuses every pvp_ key that is not on the list, for any sender', () => {
+		fc.assert(
+			fc.property(offList, fc.string(), fc.anything(), (key, from, params) => {
+				expect(senderRefusal(lobby, from, key, params)).toMatchObject({
+					kind: 'not_relayed',
+					key,
+					from,
+				})
+			}),
+			{ numRuns: 300 },
+		)
+	})
+
+	it('accepts every key on the list, for any sender', () => {
+		fc.assert(
+			fc.property(
+				fc.constantFrom(...PVP_RELAY_KEYS),
+				fc.string(),
+				fc.anything(),
+				(key, from, params) => {
+					expect(senderRefusal(lobby, from, key, params)).toBeNull()
+				},
+			),
+			{ numRuns: 300 },
+		)
+	})
+
+	it('has no opinion on a key that does not start with pvp_ and has no rule', () => {
+		fc.assert(
+			fc.property(
+				// Prefixed so it can start with neither pvp_ nor a ruled spdrn_ key.
+				fc
+					.stringMatching(/^[a-z0-9_]{1,56}$/)
+					.map((key) => `other_${key}`),
+				fc.string(),
+				(key, from) => {
+					expect(senderRefusal(lobby, from, key, {})).toBeNull()
+				},
+			),
+			{ numRuns: 300 },
+		)
+	})
+})
+
+describe('Speedrunning host-only actions', () => {
+	it.each(HOST_KEYS)('%s passes from the host', (key) => {
+		const step = send(lobbyOf('MultiplayerSPDRN', 'a', 'b', 'c'), 'a', key, {})
+		expect(step.dropped).toBeUndefined()
+		const [msg] = relayed(step.out)
+		expect(msg.to).toEqual(['a', 'b', 'c'])
+		expect((msg.payload as { from: string }).from).toBe('a')
+	})
+
+	it.each(HOST_KEYS)('%s from a guest is dropped, not relayed', (key) => {
+		const step = send(lobbyOf('MultiplayerSPDRN', 'a', 'b', 'c'), 'b', key, {})
+		expect(relayed(step.out)).toEqual([])
+		expect(step.dropped).toEqual({
+			kind: 'not_host',
+			key,
+			from: 'b',
+			hostId: 'a',
+		})
+		const [r] = rejected(step.out)
+		expect(r.to).toEqual(['b'])
+		expect(r.payload).toEqual({ cid: 'c1', action: key, reason: 'not_host' })
+	})
+
+	it('a guest aiming one at a single player is dropped too', () => {
+		const step = send(
+			lobbyOf('MultiplayerSPDRN', 'a', 'b', 'c'),
+			'b',
+			'spdrn_match_draw',
+			{},
+			'c',
+		)
+		expect(relayed(step.out)).toEqual([])
+		expect(step.dropped?.kind).toBe('not_host')
+	})
+})
+
 describe('host transfer', () => {
 	it('accepts the new host after the old one disconnects, and refuses the old one', () => {
-		let lobby = lobbyWith('a', 'b', 'c')
+		let lobby = lobbyOf('MultiplayerSPDRN', 'a', 'b', 'c')
 		lobby = disconnect(lobby, 'a', 'a-s1', 500).lobby
 		expect(lobby.hostId).toBe('b')
 
-		const fromNew = send(lobby, 'b', 'pvp_win', { winner_id: 'c' })
+		const fromNew = send(lobby, 'b', 'spdrn_match_timeout', {})
 		expect(fromNew.dropped).toBeUndefined()
 		expect(relayed(fromNew.out)).toHaveLength(1)
 
 		// The old host comes back: it is a guest now.
 		lobby = join(lobby, 'a', 'a-s2', info('a')).lobby
 		expect(lobby.hostId).toBe('b')
-		const fromOld = send(lobby, 'a', 'pvp_win', { winner_id: 'a' })
+		const fromOld = send(lobby, 'a', 'spdrn_match_timeout', {})
 		expect(fromOld.dropped).toEqual({
 			kind: 'not_host',
-			key: 'pvp_win',
+			key: 'spdrn_match_timeout',
 			from: 'a',
 			hostId: 'b',
 		})
@@ -190,15 +454,15 @@ describe('host transfer', () => {
 	})
 
 	it('accepts the new host after the old one leaves', () => {
-		let lobby = lobbyWith('a', 'b', 'c')
+		let lobby = lobbyOf('MultiplayerSPDRN', 'a', 'b', 'c')
 		lobby = leave(lobby, 'a').lobby
 		expect(lobby.hostId).toBe('b')
-		const step = send(lobby, 'b', 'pvp_player_won', { player_id: 'c' })
+		const step = send(lobby, 'b', 'spdrn_match_draw', {})
 		expect(step.dropped).toBeUndefined()
 		expect(relayed(step.out)[0].to).toEqual(['b', 'c'])
-		expect(
-			send(lobby, 'c', 'pvp_player_won', { player_id: 'c' }).dropped?.kind,
-		).toBe('not_host')
+		expect(send(lobby, 'c', 'spdrn_match_draw', {}).dropped?.kind).toBe(
+			'not_host',
+		)
 	})
 
 	it('a matchmade lobby: whoever arrived first is the host of record', () => {
@@ -297,23 +561,6 @@ describe('self-keyed results', () => {
 	})
 })
 
-describe('unruled actions', () => {
-	it('relay exactly as before', () => {
-		const step = send(lobbyWith('a', 'b'), 'b', 'pvp_player_result', {
-			jokers: [],
-		})
-		expect(step.dropped).toBeUndefined()
-		expect(relayed(step.out)[0].to).toEqual(['a', 'b'])
-	})
-
-	it('senderRefusal is null for them whoever sends', () => {
-		const lobby = lobbyWith('a', 'b')
-		expect(
-			senderRefusal(lobby, 'b', 'pvp_play_hand', { score: '1e999' }),
-		).toBeNull()
-	})
-})
-
 describe('a forged win does not reach the rated result', () => {
 	const at = (now: number) => ({
 		now,
@@ -347,46 +594,42 @@ describe('a forged win does not reach the rated result', () => {
 			graceMs: 10_000,
 			resultTimeoutMs: 60_000,
 		})
+		lobby = { ...lobby, metadata: withRules() }
 		for (const id of ['a', 'b'])
 			lobby = join(lobby, id, `${id}-s1`, info(id)).lobby
 		lobby = server(lobby, 'b', 'mpapi_ready', { ready: true }).lobby
 		return server(lobby, 'a', 'mpapi_start_game', { stake: 1 }).lobby
 	}
 
-	it('the host never sees the forgery, so the forger cannot make the report agree', () => {
+	it('a pvp_win from the host or a guest reaches nobody, and no report makes a rated result', () => {
 		let lobby = startedPvp()
-		// The guest declares itself the winner: nobody receives it.
-		const forged = send(lobby, 'b', 'pvp_win', { winner_id: 'b' })
-		expect(relayed(forged.out)).toEqual([])
-		lobby = forged.lobby
-		// The host's referee declares the real winner; both clients receive it.
-		const legit = send(lobby, 'a', 'pvp_win', { winner_id: 'a' })
-		expect(relayed(legit.out)[0].to).toEqual(['a', 'b'])
-		lobby = legit.lobby
-		// The host reports what it saw; the forger still lies in its own report.
-		lobby = server(
-			lobby,
-			'a',
-			'mpapi_report_result',
-			{ placements: places('a', 'b') },
-			2000,
-		).lobby
-		const last = server(
-			lobby,
-			'b',
-			'mpapi_report_result',
-			{ placements: places('b', 'a') },
-			2500,
-		)
-		const save = last.out.find(
-			(o): o is Extract<Outbound, { kind: 'saveRun' }> => o.kind === 'saveRun',
-		)
-		// Disputed (never rated: rating/apply.ts rates only agreed/partial),
-		// and the recorded placements are the host's.
-		expect(save?.run.status).toBe('disputed')
-		expect(save?.run.placements.map((p) => [p.playerId, p.place])).toEqual([
-			['a', 1],
-			['b', 2],
-		])
+		// Whoever declares themselves the winner: nobody receives it.
+		for (const [from, winner] of [
+			['b', 'b'],
+			['a', 'a'],
+		]) {
+			const forged = send(lobby, from, 'pvp_win', { winner_id: winner })
+			expect(relayed(forged.out)).toEqual([])
+			expect(forged.dropped?.kind).toBe('not_relayed')
+			lobby = forged.lobby
+		}
+		// A PvP game is refereed by the server: no client report is accepted, the
+		// forger's or the host's, so there is nothing for a lie to agree with.
+		for (const [id, order] of [
+			['a', places('a', 'b')],
+			['b', places('b', 'a')],
+		] as const) {
+			const step = server(
+				lobby,
+				id,
+				'mpapi_report_result',
+				{ placements: order },
+				2000,
+			)
+			expect((rejected(step.out)[0].payload as { reason: string }).reason).toBe(
+				'server_referee',
+			)
+			expect(step.out.some((o) => o.kind === 'saveRun')).toBe(false)
+		}
 	})
 })

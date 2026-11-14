@@ -16,8 +16,13 @@ import {
 import { logHeldOf } from '../lobby/log_check'
 import { startingPresence } from '../lobby/presence'
 import { lobbyKindOf } from '../review/ranked'
+import { reduceForfeit } from '../lobby/pvp/facts'
+import { settingsFromMetadata } from '../lobby/pvp/settings'
+import { type PvpMode, refereeOf, withReferee } from '../lobby/pvp/state'
+import { MODE_DISABLED, ticketModeDisabled } from '../matchmaking/mode_switch'
 import { runSavePart } from './run_save'
-import { finishGame, parsePlacements } from './results'
+import { finishGame, isRefereed, parsePlacements } from './results'
+import { setupPending } from '../lobby/pvp/freeze_env'
 import { SETUP_ACTIONS, setupForRestart } from './setup'
 import { PVP_MOD_ID, VERSION_MISMATCH, versionOutliers } from '../standing/pvp_version'
 
@@ -30,7 +35,15 @@ export interface ActionContext {
 	newId: () => string
 	// A number in [0, 1), for Setup's rolls.
 	random: () => number
+	// The PvP modes the kill switch has off (config.disabledPvpModes), read by
+	// the shell when the action arrives: the reducer never reads the config.
+	disabledPvpModes: readonly PvpMode[]
 }
+
+// What a step needs from the outside: the clock, randomness and ids, injected so
+// actions, requests and the PvP tick stay deterministic in tests (match.ts passes
+// the real ones).
+export type StepContext = Omit<ActionContext, 'from' | 'disabledPvpModes'>
 
 // A result broadcast as ACTION {from:'server'}: to every player (the
 // default), every player but the sender, or nobody. `out` are further effects
@@ -47,12 +60,23 @@ export interface ActionResult {
 	ack?: { [field: string]: unknown }
 }
 
-export type Reduction = ActionResult | { reject: string }
+// `key` rides with a bad_rules refusal: the lobby metadata key that is missing or malformed.
+export type Reduction = ActionResult | { reject: string; key?: string }
 
 export interface AuthoritativeAction {
 	key: string
 	reduce(lobby: Lobby, ctx: ActionContext, params: unknown): Reduction
 }
+
+// The refusal for the actions a refereed PvP game takes from the server alone
+// (docs/pvp-match.md section 3).
+export const SERVER_REFEREE = 'server_referee'
+
+// The key of the action that starts a game.
+export const START_GAME_KEY = 'mpapi_start_game'
+
+// The refusal of a start while any seat is away (disconnected, in grace).
+export const PLAYER_AWAY = 'player_away'
 
 const MAX_OPTIONS_BYTES = 4 * 1024
 const MIN_GAME_PLAYERS = 2
@@ -89,10 +113,38 @@ function startedParams(started: StartedGame) {
 	}
 }
 
-// A new game on the lobby's present players, with a server-picked seed.
+// The refusal for a PvP game whose ruleset has no clock rules (pvp/settings.ts).
+export const BAD_RULES = 'bad_rules'
+
+// The first lobby metadata key a PvP game cannot be frozen from (missing or malformed),
+// or null; any other mod has no PvP rules to freeze. The player count does not change the
+// answer, so the lobby's players stand in for the started ids.
+function badRulesKey(lobby: Lobby): string | null {
+	if (lobby.modId !== PVP_MOD_ID) return null
+	const result = settingsFromMetadata(
+		lobby.metadata,
+		lobby.players.map((p) => p.id),
+	)
+	return result.ok ? null : result.key
+}
+
+// Whether the lobby's PvP mode (its queue_mode, a ranked lobby being Nemesis) is
+// switched off. A lobby whose mode is not known never reaches here (bad_rules).
+function modeSwitchedOff(lobby: Lobby, disabled: readonly PvpMode[]): boolean {
+	if (lobby.modId !== PVP_MOD_ID) return false
+	return ticketModeDisabled(
+		disabled,
+		lobby.modId,
+		lobby.metadata.queue_mode,
+		(lobby.rankedMode ?? '') !== '',
+	)
+}
+
+// A new game on every seat, with a server-picked seed. A seat that is away
+// stays in it (its grace continues like any other step's).
 function newGame(
 	lobby: Lobby,
-	ctx: ActionContext,
+	ctx: StepContext,
 	stake: number | null,
 	options: unknown,
 ): StartedGame {
@@ -103,21 +155,19 @@ function newGame(
 		options,
 		startedAt: ctx.now,
 		hostId: lobby.hostId,
-		players: lobby.players
-			.filter((pl) => pl.awaySince === null)
-			.map((pl) => ({
-				id: pl.id,
-				displayName: pl.info.displayName,
-				...(pl.info.preferredJoker ? { avatar: pl.info.preferredJoker } : {}),
-			})),
+		players: lobby.players.map((pl) => ({
+			id: pl.id,
+			displayName: pl.info.displayName,
+			...(pl.info.preferredJoker ? { avatar: pl.info.preferredJoker } : {}),
+		})),
 	}
 }
 
-// {stake?, options?, minPlayers?} -- host only, once every other connected
-// player is ready. The server picks the seed, so the host can't. minPlayers
+// {stake?, options?, minPlayers?} -- host only, with no seat away and every
+// other seat ready. The server picks the seed, so the host can't. minPlayers
 // lets a gamemode ask for more than the usual two.
 const startGame: AuthoritativeAction = {
-	key: 'mpapi_start_game',
+	key: START_GAME_KEY,
 	reduce(lobby, ctx, params) {
 		const p = isPlainObject(params) ? params : {}
 		if (p.stake !== undefined && typeof p.stake !== 'number')
@@ -140,9 +190,12 @@ const startGame: AuthoritativeAction = {
 			lobby.maxPlayers,
 			MAX_PLAYERS,
 		)
-		const present = lobby.players.filter((pl) => pl.awaySince === null)
-		if (present.length < minPlayers) return { reject: 'too_few_players' }
-		for (const pl of present) {
+		// A seat that is away is still a seat (its Ready is kept until it leaves
+		// or is evicted): the game starts on every seat or not at all.
+		if (lobby.players.some((pl) => pl.awaySince !== null))
+			return { reject: PLAYER_AWAY }
+		if (lobby.players.length < minPlayers) return { reject: 'too_few_players' }
+		for (const pl of lobby.players) {
 			if (pl.id !== lobby.hostId && !lobby.game.ready[pl.id])
 				return { reject: 'not_all_ready' }
 		}
@@ -150,9 +203,15 @@ const startGame: AuthoritativeAction = {
 		// The version is the server's own record of the player's mod report.
 		if (lobby.modId === PVP_MOD_ID) {
 			const versions: { [id: string]: string } = {}
-			for (const pl of present) versions[pl.id] = pl.info.pvpVersion || ''
+			for (const pl of lobby.players) versions[pl.id] = pl.info.pvpVersion || ''
 			if (versionOutliers(versions).length > 0) return { reject: VERSION_MISMATCH }
 		}
+		// The kill switch comes before the rules: a mode that is off never starts.
+		if (modeSwitchedOff(lobby, ctx.disabledPvpModes)) return { reject: MODE_DISABLED }
+		// The rules freeze from the metadata the host published: a key the server reads that
+		// is missing or malformed never starts, and the refusal names it.
+		const badKey = badRulesKey(lobby)
+		if (badKey !== null) return { reject: BAD_RULES, key: badKey }
 		const started = newGame(
 			lobby,
 			ctx,
@@ -166,6 +225,42 @@ const startGame: AuthoritativeAction = {
 	},
 }
 
+// The restart itself: the current game stored as 'restarted', and a new one on
+// a new seed. Also the outcome of a passed PvP seed vote (lobby/pvp/referee.ts).
+export function restartedGame(
+	lobby: Lobby,
+	ctx: StepContext,
+): { game: GameState; params: unknown; out: Outbound[] } | null {
+	const current = lobby.game.started
+	if (!current) return null
+	const finished = finishGame(lobby, ctx.now, {
+		status: 'restarted',
+		announce: false,
+	})
+	// `restarted`: the Draft-dodge window (a leave before the race begins) belongs to
+	// the first run of a game only; a seat that drops across a restart is a forfeit.
+	const started: StartedGame = {
+		...newGame(finished.lobby, ctx, current.stake, current.options),
+		restarted: true,
+	}
+	return {
+		game: {
+			...emptyGame(),
+			started,
+			setup: setupForRestart(lobby.game),
+			// An away seat joined at the start like the rest, then is recorded away:
+			// the record never claims a connection that is not there.
+			presence: startingPresence(started).concat(
+				lobby.players
+					.filter((pl) => pl.awaySince !== null)
+					.map((pl) => ({ userId: pl.id, kind: 'disconnected' as const, at: ctx.now })),
+			),
+		},
+		params: startedParams(started),
+		out: finished.out,
+	}
+}
+
 // {} -- host only: a new game on a new seed, same options and stake (a
 // finished Draft has set the stake), same Setup results. The current one is
 // stored as 'restarted' (no GAME_ENDED: clients go straight into the new game,
@@ -174,18 +269,10 @@ const restartGame: AuthoritativeAction = {
 	key: 'mpapi_restart_game',
 	reduce(lobby, ctx) {
 		if (lobby.hostId !== ctx.from) return { reject: 'not_host' }
-		const current = lobby.game.started
-		if (!current) return { reject: 'not_in_game' }
-		const finished = finishGame(lobby, ctx.now, {
-			status: 'restarted',
-			announce: false,
-		})
-		const started = newGame(finished.lobby, ctx, current.stake, current.options)
-		return {
-			game: { ...emptyGame(), started, setup: setupForRestart(lobby.game), presence: startingPresence(started) },
-			params: startedParams(started),
-			out: finished.out,
-		}
+		if (!lobby.game.started) return { reject: 'not_in_game' }
+		// A refereed game restarts only through a passed seed vote.
+		if (isRefereed(lobby)) return { reject: SERVER_REFEREE }
+		return restartedGame(lobby, ctx) ?? { reject: 'not_in_game' }
 	},
 }
 
@@ -193,8 +280,28 @@ const restartGame: AuthoritativeAction = {
 const abandonGame: AuthoritativeAction = {
 	key: 'mpapi_abandon_game',
 	reduce(lobby, ctx) {
-		if (lobby.hostId !== ctx.from) return { reject: 'not_host' }
 		const current = lobby.game.started
+		// In a refereed game it is a forfeit by the requester, whoever they are;
+		// pvpTick settles the rest (docs/pvp-match.md section 3).
+		if (current && isRefereed(lobby)) {
+			if (!isParticipant(lobby, ctx.from)) return { reject: 'not_participant' }
+			const referee = refereeOf(lobby)
+			if (referee === null) return { reject: 'not_in_game' }
+			const forfeit = reduceForfeit(referee, ctx.from, { runId: current.runId })
+			// Nothing left to decide (a pending death, a finished game): accepted,
+			// no fact recorded.
+			if (
+				!forfeit.ok &&
+				(forfeit.reason === 'eliminated' || forfeit.reason === 'round_over')
+			)
+				return { game: lobby.game, params: { runId: current.runId } }
+			if (!forfeit.ok) return { reject: forfeit.reason }
+			return {
+				game: withReferee(lobby, forfeit.state).game,
+				params: { runId: current.runId },
+			}
+		}
+		if (lobby.hostId !== ctx.from) return { reject: 'not_host' }
 		if (!current) return { reject: 'not_in_game' }
 		const finished = finishGame(lobby, ctx.now, {
 			status: 'abandoned',
@@ -217,6 +324,9 @@ const reportResult: AuthoritativeAction = {
 		const started = lobby.game.started
 		if (!started) return { reject: 'not_in_game' }
 		if (!isParticipant(lobby, ctx.from)) return { reject: 'not_participant' }
+		// The referee decides the result; a report would also start the result
+		// clock (settleFrom) and abandon a live game.
+		if (isRefereed(lobby)) return { reject: SERVER_REFEREE }
 		const placements = parsePlacements(
 			isPlainObject(params) ? params.placements : null,
 			started.players,
@@ -247,6 +357,7 @@ const setResultPending: AuthoritativeAction = {
 		const started = lobby.game.started
 		if (!started) return { reject: 'not_in_game' }
 		if (!isParticipant(lobby, ctx.from)) return { reject: 'not_participant' }
+		if (isRefereed(lobby)) return { reject: SERVER_REFEREE }
 		if (!isPlainObject(params) || typeof params.pending !== 'boolean')
 			return { reject: 'bad_params' }
 		const game = {
@@ -370,9 +481,14 @@ function appendLogEvent(lobby: Lobby, from: string, now: number, params: unknown
 	}
 	// The first event of the game marks the start of the race (the match
 	// manifest is written when the racers' run begins). Single events and
-	// batches both come through here.
+	// batches both come through here. Until Setup is finished (setupPending: a step
+	// open, a ranked game's Draft result missing, a casual vote not published) the race
+	// cannot have begun, so no event stamps it: a client message must never decide that
+	// the run started (a dodge becomes a forfeit on that stamp).
 	const stamped =
-		started.raceStartedAt === undefined ? { ...started, raceStartedAt: now } : started
+		started.raceStartedAt === undefined && !setupPending(lobby)
+			? { ...started, raceStartedAt: now }
+			: started
 	return {
 		game: { ...game, started: stamped, logs: { ...game.logs, [from]: grown } },
 		relayed: { playerId: from, t: params.t, opcode: params.opcode, args },
@@ -390,8 +506,8 @@ function ackOf(game: GameState, from: string, events: unknown[]): { got: number 
 }
 
 // {t, opcode, args?, run?} -- one replay event from a participant, kept for the
-// stored run and passed on to the others (who track how far each player's
-// stream has got).
+// stored run and passed on to the others as {playerId, t} only (who track how far each
+// player's stream has got); spectators get the whole event.
 const logEvent: AuthoritativeAction = {
 	key: 'mpapi_log_event',
 	reduce(lobby, ctx, params) {
@@ -399,10 +515,13 @@ const logEvent: AuthoritativeAction = {
 		if (!isParticipant(lobby, ctx.from)) return { reject: 'not_participant' }
 		const appended = appendLogEvent(lobby, ctx.from, ctx.now, params)
 		if ('reject' in appended) return appended
+		const { relayed } = appended
+		// The others are told only who and when; a spectator gets the whole event.
 		return {
 			game: appended.game,
-			params: appended.relayed,
-			to: appended.relayed ? 'others' : 'none',
+			params: relayed ? { playerId: relayed.playerId, t: relayed.t } : null,
+			to: relayed ? 'others' : 'none',
+			spectate: relayed ? [relayed] : undefined,
 			ack: ackOf(appended.game, ctx.from, [params]),
 		}
 	},
@@ -413,8 +532,8 @@ export const MAX_LOG_BATCH = 50
 
 // {events: [{t, opcode, args?, run?}, ...]} -- up to MAX_LOG_BATCH replay
 // events, in order, each handled as mpapi_log_event would. The others are told
-// once: {playerId, t, opcode, args, count} of the last event kept, which is all
-// they track (how far the stream has got). Spectators get every event. One bad
+// once: {playerId, t, count} of the last event kept, which is all they track
+// (how far the stream has got); never the opcode or args, which carry a score. Spectators get every event. One bad
 // event refuses the whole batch, before any of it is kept.
 const logEvents: AuthoritativeAction = {
 	key: 'mpapi_log_events',
@@ -441,7 +560,7 @@ const logEvents: AuthoritativeAction = {
 		const last = relayed[relayed.length - 1]
 		return {
 			game: current.game,
-			params: { ...last, count: relayed.length },
+			params: { playerId: last.playerId, t: last.t, count: relayed.length },
 			to: 'others',
 			spectate: relayed,
 			ack,

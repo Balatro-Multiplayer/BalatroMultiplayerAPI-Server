@@ -8,6 +8,7 @@ const STATUS_VARIANT: Record<
   active: 'default',
   completed: 'secondary',
   abandoned: 'outline',
+  dodged: 'outline',
   terminated: 'destructive',
 }
 
@@ -15,6 +16,7 @@ const STATUS_LABEL: Record<RunStatus, string> = {
   active: 'Active',
   completed: 'Completed',
   abandoned: 'Abandoned',
+  dodged: 'Dodged',
   terminated: 'Terminated',
 }
 

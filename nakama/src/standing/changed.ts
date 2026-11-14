@@ -22,14 +22,14 @@ function isOnline(nk: nkruntime.Nakama, userId: string): boolean {
 	return nk.streamUserList({ mode: NOTIFICATIONS_STREAM, subject: userId }, true, true).length > 0
 }
 
-export function announceStandings(nk: nkruntime.Nakama, settings: ServerSettings, now: number): number {
+export function announceStandings(nk: nkruntime.Nakama, logger: nkruntime.Logger, settings: ServerSettings, now: number): number {
 	const config = readConfig(nk)
 	let told = 0
 	for (const userId of reporterIds(nk)) {
 		if (!isOnline(nk, userId)) continue
 		const view = standingFor(nk, settings, userId, now, config)
 		notify(nk, userId, NotifyCode.STANDING_CHANGED, 'standing_changed', { ...view })
-		pushToLobby(nk, userId, { standing: view.standing })
+		pushToLobby(nk, logger, userId, { standing: view.standing })
 		told++
 	}
 	return told
@@ -72,7 +72,7 @@ export function standingInputsUpdated(
 	logger: nkruntime.Logger,
 	now: number,
 ) {
-	const told = announceStandings(nk, settings, now)
+	const told = announceStandings(nk, logger, settings, now)
 	const cancelled = regateQueued(nk, settings, now)
 	logger.info(
 		'Standing inputs changed: told %d player(s); cancelled %d solo ticket(s), %d group(s)',

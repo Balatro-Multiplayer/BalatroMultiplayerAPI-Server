@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { authoritativeAction } from '../actions/registry'
-import { checkpointOf, isExpired, resumeFrom, seatHoldersOf } from './checkpoint'
+import { type Checkpoint, CHECKPOINT_SCHEMA, checkpointOf, isExpired, resumeFrom, seatHoldersOf } from './checkpoint'
 import {
 	GROUP_AWAY_CAP_MS,
 	awayOver,
@@ -57,7 +57,7 @@ function groupOps(step: Step): GroupQueueMessage[] {
 }
 const kinds = (step: Step) => step.out.map((o) => o.kind)
 const startGameReduction = (lobby: Lobby, from: string) =>
-	authoritativeAction('mpapi_start_game')!.reduce(lobby, { from, now: 0, newSeed: () => 'S', newId: () => 'R', random: () => 0 }, {})
+	authoritativeAction('mpapi_start_game')!.reduce(lobby, { from, now: 0, newSeed: () => 'S', newId: () => 'R', random: () => 0, disabledPvpModes: [] }, {})
 
 describe('openGroupQueue', () => {
 	it('forms the whole lobby as the group, binds the party and tells everyone', () => {
@@ -261,17 +261,23 @@ describe('restart checkpoints', () => {
 		expect(cp.expiresAt).toBe(1000 + GROUP_AWAY_CAP_MS)
 		expect(isExpired(cp, 2000 + CHECKPOINT_TTL_MS)).toBe(false)
 		expect(isExpired(cp, 1000 + GROUP_AWAY_CAP_MS)).toBe(true)
-		// Written before expiresAt was kept: the usual TTL.
-		expect(isExpired({ lobby: l, at: 0, claimedAt: null }, CHECKPOINT_TTL_MS)).toBe(true)
+		// One with no expiresAt is not one this build wrote: expired at once.
+		const unstamped = { schema: CHECKPOINT_SCHEMA, lobby: l, at: 0, claimedAt: null } as unknown as Checkpoint
+		expect(isExpired(unstamped, 0)).toBe(true)
 	})
 
 	it('a resumed lobby keeps an away group and its records; forming or queued is gone with the party', () => {
 		const l = away(home('a', 'b', 'c'))
 		const withoutC = { ...l, groupQueue: { ...l.groupQueue!, memberIds: ['a', 'b'] } } as Lobby
-		expect(resumeFrom({ lobby: withoutC, at: 0, claimedAt: null }, 5).groupQueue).toMatchObject({ phase: 'away' })
+		const stored = (lobby: Lobby): Checkpoint => {
+			const checkpoint = checkpointOf(lobby, 0)
+			if (!checkpoint) throw new Error('the lobby has players, so it checkpoints')
+			return checkpoint
+		}
+		expect(resumeFrom(stored(withoutC), 5).groupQueue).toMatchObject({ phase: 'away' })
 		expect(seatHoldersOf(withoutC)).toEqual(['c'])
 		const q = queued(home('a', 'b'))
-		expect(resumeFrom({ lobby: q, at: 0, claimedAt: null }, 5).groupQueue).toBeNull()
+		expect(resumeFrom(stored(q), 5).groupQueue).toBeNull()
 		expect(seatHoldersOf(q)).toEqual(['a', 'b'])
 	})
 })

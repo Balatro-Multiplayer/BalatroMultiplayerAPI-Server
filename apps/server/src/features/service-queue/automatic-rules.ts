@@ -5,6 +5,7 @@
 // lobby/anticheat.ts). This file holds the all-flagged rule and the one-time
 // job's version of all three: it closes the open items the rules would not
 // make. Pure; the data access is passed in.
+import type { LobbyRunStatus } from '../../contracts/IReplayLogRepository.js'
 import type { FlagReason } from '../nakama/mirror.service.js'
 import type { ItemContext } from './types.js'
 
@@ -37,7 +38,7 @@ export type ObsoleteFacts =
 			itemType: 'anti_cheat'
 			flagReason: FlagReason | null
 			// lobby_runs.status
-			runStatus: 'active' | 'completed' | 'abandoned' | 'terminated'
+			runStatus: LobbyRunStatus
 			runPlayers: number
 			// Players of the run with a flag on their log.
 			runFlagged: number
@@ -53,7 +54,7 @@ export function obsoleteRuleOf(facts: ObsoleteFacts): { rule: ObsoleteRule; note
 	if (!raisesAntiCheatItem({ playerCount: facts.runPlayers, flaggedCount: facts.runFlagged }))
 		return hit('anticheat_every_player_flagged')
 	if (facts.flagReason !== 'unverified_log') return null
-	if (facts.runStatus === 'terminated' || facts.runStatus === 'abandoned') return hit('unverified_log_game_not_played_out')
+	if (facts.runStatus === 'terminated' || facts.runStatus === 'abandoned' || facts.runStatus === 'dodged') return hit('unverified_log_game_not_played_out')
 	if (!facts.logHasEnd) return hit('unverified_log_no_result')
 	return null
 }

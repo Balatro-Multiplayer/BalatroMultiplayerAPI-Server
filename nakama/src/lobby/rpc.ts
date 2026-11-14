@@ -15,6 +15,7 @@ import {
 import { readConfig } from '../config'
 import { lobbyCreateRefusal } from '../moderation/access'
 import { profileFor } from '../player/profile'
+import { MODE_DISABLED, ticketModeDisabled } from '../matchmaking/mode_switch'
 import { parsePayload, requireUser } from '../rpc'
 import { bindCode, lookupCode, releaseCode, reserveCode } from './codes'
 import {
@@ -26,6 +27,7 @@ import {
 import { resumeLobby } from './checkpoint'
 import { spendLobbyCreate } from './create_limit'
 import { noteReturn } from './forfeits'
+import { pinFor } from './pvp/ranked_pin'
 import { DIFFERENT_MOD, MAX_PLAYERS, MIN_PLAYERS } from './state'
 import { spectatableLobbies } from './spectate'
 import { settingsOf } from '../server_kind'
@@ -61,7 +63,7 @@ export interface Seat {
 // is resumed from its restart checkpoint, if one is there.
 export function seatOf(
 	nk: nkruntime.Nakama,
-	logger: nkruntime.Logger | null,
+	logger: nkruntime.Logger,
 	userId: string,
 ): Seat | 'resuming' | null {
 	const key = {
@@ -96,8 +98,8 @@ export function seatOf(
 }
 
 // The lobby the user is still seated in, or null.
-export function currentLobby(nk: nkruntime.Nakama, userId: string): Seat | null {
-	const seat = seatOf(nk, null, userId)
+export function currentLobby(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: string): Seat | null {
+	const seat = seatOf(nk, logger, userId)
 	return seat === 'resuming' ? null : seat
 }
 
@@ -109,7 +111,8 @@ export function rpcLobbyCreate(
 ) {
 	const userId = requireUser(ctx)
 	const input = parsePayload(payload)
-	const refused = lobbyCreateRefusal(readConfig(nk), profileFor(nk, userId, ctx.username).privileges)
+	const config = readConfig(nk, logger)
+	const refused = lobbyCreateRefusal(config, profileFor(nk, userId, ctx.username).privileges)
 	if (refused) throw runtimeError(PERMISSION_DENIED, refused)
 
 	const modId = input.modId
@@ -139,11 +142,17 @@ export function rpcLobbyCreate(
 	if (rankedMode !== undefined && rankedMode !== null) {
 		if (typeof rankedMode !== 'string' || !RANKED_MODE_PATTERN.test(rankedMode))
 			throw runtimeError(INVALID_ARGUMENT, 'rankedMode is not a valid mode')
+		if (!pinFor(modId, rankedMode).ok)
+			throw runtimeError(INVALID_ARGUMENT, 'unknown_ranked_mode')
+		// A casual lobby names no mode until its host publishes the rules; its
+		// game start is refused instead (actions/registry.ts).
+		if (ticketModeDisabled(config.disabledPvpModes, modId, rankedMode, true))
+			throw runtimeError(PERMISSION_DENIED, MODE_DISABLED)
 		if (!settingsOf(ctx).rankedLobbies)
 			throw runtimeError(PERMISSION_DENIED, 'Ranked lobbies are not enabled')
 	}
 
-	const current = currentLobby(nk, userId)
+	const current = currentLobby(nk, logger, userId)
 	if (current)
 		throw runtimeError(ALREADY_EXISTS, `Already in lobby ${current.code}`)
 	if (!spendLobbyCreate(nk, userId, Date.now()))
@@ -269,7 +278,7 @@ export function rpcRunActive(
 	payload: string,
 ) {
 	const userId = requireUser(ctx)
-	const current = currentLobby(nk, userId)
+	const current = currentLobby(nk, logger, userId)
 	if (!current) return JSON.stringify({})
 	const signal: LobbySignal = { type: 'get_active', userId }
 	const active = JSON.parse(nk.matchSignal(current.matchId, JSON.stringify(signal)))
@@ -287,7 +296,7 @@ export function rpcLobbyLeave(
 	payload: string,
 ) {
 	const userId = requireUser(ctx)
-	const current = currentLobby(nk, userId)
+	const current = currentLobby(nk, logger, userId)
 	if (current) {
 		const signal: LobbySignal = { type: 'leave', userId }
 		nk.matchSignal(current.matchId, JSON.stringify(signal))

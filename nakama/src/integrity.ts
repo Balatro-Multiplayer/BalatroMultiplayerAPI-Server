@@ -176,7 +176,7 @@ export function rpcAdminIntegritySet(
 		message: optionalString(input.message),
 	})
 	// A verdict moves the standing; the lobby's snapshot follows.
-	pushToLobby(nk, userId, { standing: standingFor(nk, settingsOf(ctx), userId, Date.now()).standing })
+	pushToLobby(nk, logger, userId, { standing: standingFor(nk, settingsOf(ctx), userId, Date.now()).standing })
 	return JSON.stringify({})
 }
 

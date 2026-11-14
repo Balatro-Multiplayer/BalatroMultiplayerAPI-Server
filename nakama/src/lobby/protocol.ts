@@ -26,6 +26,8 @@ export const ClientOp = {
 	// player's Run save and the events after it (answered with SPECTATE_RUN).
 	// fromStart asks for the whole log and no Run save.
 	SPECTATE_VIEW: 7,
+	// RequestMessage -- a request the server answers exactly once (lobby/requests.ts).
+	REQUEST: 8,
 } as const
 
 export const ServerOp = {
@@ -61,7 +63,33 @@ export const ServerOp = {
 	GROUP_QUEUE: 112,
 	// SpectateRun, to the spectator that asked (ClientOp.SPECTATE_VIEW).
 	SPECTATE_RUN: 113,
+	// AnswerMessage, to the sender of a REQUEST.
+	ANSWER: 114,
+	// StateMessage, to every seated player: match state moved on.
+	STATE: 115,
 } as const
+
+// Sent to the client in every SNAPSHOT, so it knows the server speaks REQUEST.
+export const PROTOCOL_VERSION = 1
+
+// What a client sends with ClientOp.REQUEST.
+export interface RequestMessage {
+	v: number
+	reqId: string
+	type: string
+	payload: unknown
+}
+
+export type AnswerMessage =
+	| { reqId: string; ok: true; rev: number }
+	| { reqId: string; ok: false; reason: string; rev?: number; key?: string }
+
+// full: `changed` holds every match key and replaces what the client has.
+export interface StateMessage {
+	rev: number
+	changed: { [key: string]: unknown }
+	full?: true
+}
 
 // Where an ACTION goes: a player id, '*' for everyone (the sender included),
 // or SERVER_TARGET for an authoritative action.
@@ -91,6 +119,8 @@ export interface ActionRejection {
 	cid: string
 	action: string
 	reason: string
+	// bad_rules only: the lobby metadata key that is missing or malformed.
+	key?: string
 }
 
 // One player's finishing position, as every participant reports it.
@@ -122,6 +152,11 @@ export interface StartedGame {
 	// the racers' run began (a draft and countdown come between startedAt and
 	// it). Clients measure the race clock from it. Absent until that event.
 	raceStartedAt?: number
+	// True for a run that began as a restart (a passed seed vote) of the game before
+	// it. A leave before its race is a forfeit, never a dodge: the dodge window is
+	// the first run's (docs/pvp-match.md section 7). Absent for a first run. Server only:
+	// the snapshot view leaves it out (lobby/state.ts viewOfStarted).
+	restarted?: true
 	hostId: string
 	players: Participant[]
 }
@@ -255,6 +290,46 @@ export interface GameState {
 	// Who joined, left, dropped or came back while the game ran, in order
 	// (lobby/presence.ts). Absent in match state from before it was kept.
 	presence?: PresenceEvent[]
+	// Server-owned Ready for the PvP rounds (lobby/pvp/ready.ts). Absent until
+	// the game's first Ready; reset with the game.
+	pvp?: PvpState
+	// How the game that just ended ended, for each started player who was not attached
+	// when it ended (away, left or removed): the same runId and status the others got in
+	// GAME_ENDED, which that player could not receive. Set when the game ends and read
+	// back through the snapshot's `game.lastEnded`; the next game start clears it
+	// (the new game state is empty).
+	endedAway?: { [userId: string]: GameEnd }
+}
+
+// The round just started: who goes first.
+export interface PvpLastStart {
+	roundId: number
+	firstPlayer: string | null
+	// The players the round started with (the required players, in Ready order).
+	players: string[]
+	// Each starter's own blind key from their Ready (the tick's PvP guard key),
+	// one per player of `players`. Not projected to clients.
+	blindKeys: { [userId: string]: string }
+}
+
+// The Ready state of one started game. `order` is the ready players in the
+// order they readied: object key order does not survive the Go runtime, and
+// firstReady falls to the earliest of them. It is not part of the match key.
+export interface PvpState {
+	runId: string
+	// Rounds started so far in this game.
+	round: number
+	ready: { [userId: string]: boolean }
+	firstReady: string | null
+	// Each ready player's validated blindKey, set and cleared with `ready`.
+	// Never projected.
+	blindKeys: { [userId: string]: string }
+	order: string[]
+	// The players who pressed Ready at least once for the coming round: Unready does
+	// not remove them, only a round start clears the list (a Ready for round N+1 can
+	// land while round N is open). Never projected.
+	readied: string[]
+	lastStart: PvpLastStart | null
 }
 
 // How a player's seat changed during a game.
@@ -323,6 +398,9 @@ export interface GameView {
 	// from here, so the server does not skip it as a copy.
 	logSeq: number
 	setup: SetupView
+	// How the last game ended, when the viewer was not attached to hear it (away, left
+	// or removed at the time); null otherwise. Cleared by the next game start.
+	lastEnded: GameEnd | null
 }
 
 // agreed: every participant reported the same places. partial: whoever
@@ -330,7 +408,8 @@ export interface GameView {
 // majority's -- or the host's -- is recorded). abandoned: no result.
 // restarted: the host restarted the game. contested: a player contested the
 // game; placements are what was reported before, and nobody is rated until a
-// moderator decides.
+// moderator decides. dodged: a ranked game whose player left before the run began
+// (no placements, nobody rated; docs/pvp-match.md section 7).
 export type RunStatus =
 	| 'agreed'
 	| 'partial'
@@ -338,6 +417,7 @@ export type RunStatus =
 	| 'abandoned'
 	| 'restarted'
 	| 'contested'
+	| 'dodged'
 
 // What a rated game did to one player: rating change and new rating are null
 // while they are still in their placement games.
@@ -443,10 +523,15 @@ export interface ActiveRun {
 	logText: string
 }
 
-// The other participants' logs so far, each as ActiveRun's events.
+// Another participant's event as a rejoiner is told it: when it happened only.
+export interface TailEvent {
+	t: unknown
+}
+
+// The other participants' logs so far, as {t} only.
 export interface ReplayTail {
 	runId: string
-	tails: { playerId: string; events: ReplayEvent[] }[]
+	tails: { playerId: string; events: TailEvent[] }[]
 }
 
 // What a spectator joining mid-game has to start from: each participant's
@@ -494,6 +579,13 @@ export interface SpectateEvent {
 	t: unknown
 	opcode: unknown
 	args: unknown
+}
+
+// A game's end as one player is told of it after the fact: the runId and status of the
+// GAME_ENDED they missed.
+export interface GameEnd {
+	runId: string
+	status: RunStatus
 }
 
 // GAME_ENDED event data.
@@ -568,6 +660,13 @@ export interface Snapshot {
 	// game.started.raceStartedAt on its own clock without trusting the two
 	// clocks to agree.
 	serverNow: number
+	// The match revision (lobby.rev) this snapshot is taken at.
+	rev: number
+	// "c" + the lobby's connection counter, bumped on every join and rejoin.
+	connectionId: string
+	protocol: number
+	// Every match state key (lobby/match_state.ts) by name.
+	match: { [key: string]: unknown }
 }
 
 // A private lobby queueing as one group (matchmaking/group): forming while
@@ -697,11 +796,11 @@ export const LOBBY_CHECKPOINT_COLLECTION = 'lobby_checkpoints'
 // A checkpoint nobody came back for in this long is dropped.
 export const CHECKPOINT_TTL_MS = 10 * 60 * 1000
 
-// When a checkpoint ({at, expiresAt?}, as stored) is dropped unclaimed: its
-// own expiresAt (a lobby whose group is away waits longer), else the TTL.
-export function checkpointExpiry(stored: { [key: string]: unknown }): number {
-	if (typeof stored.expiresAt === 'number') return stored.expiresAt
-	return Number(stored.at) + CHECKPOINT_TTL_MS
+// Whether a checkpoint (as stored) is dropped unclaimed by `now`: its own expiresAt
+// has come (a lobby whose group is away waits longer). One with no numeric
+// expiresAt is not one this build wrote, so it counts as expired.
+export function checkpointExpired(stored: { [key: string]: unknown }, now: number): boolean {
+	return typeof stored.expiresAt !== 'number' || now >= stored.expiresAt
 }
 
 // Finished games (src/lobby/storage.ts). Runs and logs are owned by the

@@ -1,5 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import { PVP_MOD_ID, pvpVersionOf, versionOutliers } from './pvp_version'
+import { MIN_PVP_VERSION, PVP_MOD_ID, pvpJoinRefused, pvpVersionOf, versionOutliers } from './pvp_version'
+
+describe('pvpJoinRefused', () => {
+	it('pins the minimum version', () => {
+		expect(MIN_PVP_VERSION).toBe('1.1.0')
+	})
+
+	it.each([
+		['missing', undefined, true],
+		['empty (not reported)', '', true],
+		['unparseable', 'UNK', true],
+		['1.0.5', '1.0.5', true],
+		['0.9.9', '0.9.9', true],
+		['1.0.10', '1.0.10', true],
+		['1.1.0', '1.1.0', false],
+		['1.1.1', '1.1.1', false],
+		['1.2.0', '1.2.0', false],
+		['2.0.0', '2.0.0', false],
+		['1.10.0', '1.10.0', false],
+	])('PvP lobby, %s', (_name, version, refused) => {
+		expect(pvpJoinRefused(PVP_MOD_ID, version)).toBe(refused)
+	})
+
+	it.each([undefined, '', '1.0.0', '1.2.0'])('never refuses another mod (version %s)', (version) => {
+		expect(pvpJoinRefused('MultiplayerSPDRN', version)).toBe(false)
+		expect(pvpJoinRefused('', version)).toBe(false)
+	})
+})
 
 describe('pvpVersionOf', () => {
 	it('takes the X.Y.Z prefix of the PvP entry', () => {

@@ -842,7 +842,7 @@ export const lobbyRuns = pgTable(
 		modId: varchar('mod_id', { length: 128 }).notNull(),
 		lobbyType: varchar('lobby_type', { length: 16 }).notNull(), // 'public' | 'private'
 		matchmakingMatchId: varchar('matchmaking_match_id', { length: 36 }),
-		status: varchar('status', { length: 16 }).notNull().default('active'), // active | completed | abandoned | terminated
+		status: varchar('status', { length: 16 }).notNull().default('active'), // active | completed | abandoned | terminated | dodged
 		startedAt: timestamp('started_at', { withTimezone: true })
 			.notNull()
 			.defaultNow(),

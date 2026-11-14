@@ -22,7 +22,20 @@ import {
 	type GroupOutbound,
 	type GroupQueue,
 } from './group_queue'
+import { announceChange, matchKeys, maskedIn, matchStateOf } from './match_state'
+import { PVP_READY_KEY, readyAfterSeatRemoved, readyDroppedOnDisconnect } from './pvp/ready'
+import { withLiveDeadline } from './pvp/deadline'
+import { pinFor, splitPinnedPatch } from './pvp/ranked_pin'
+import { splitRulePatch } from './pvp/settings'
+import { endsAsDodge } from './pvp/dodge'
+import { awayBeforeRunOf } from './pvp/freeze_env'
+import { PVP_MOD_ID } from '../standing/pvp_version'
+import { refereeOf } from './pvp/state'
+import { withLiveClocks } from './pvp/view'
+import type { PvpTeam } from './pvp/state'
 import {
+	type AnswerMessage,
+	PROTOCOL_VERSION,
 	type GameState,
 	type LobbyEventMessage,
 	type GroupEndReason,
@@ -30,6 +43,7 @@ import {
 	type MatchedGroup,
 	type PlayerInfo,
 	type PlayerLog,
+	type StartedGame,
 	type RunRecord,
 	ServerOp,
 	type Snapshot,
@@ -111,6 +125,9 @@ export interface Lobby {
 	groupsReleased?: boolean
 	// A matchmade Teams game's teams.
 	teamPlan?: TeamPlan | null
+	// userId -> the team they picked for the next PvP game (pvp.team). Dropped
+	// with the seat; kept across a game's end and a restart.
+	teamPicks?: { [userId: string]: PvpTeam }
 	// A matchmade lobby: the standing its players queued with, which a
 	// returning player must have again (lobby/match.ts). Fixed when the match
 	// is planned, so a config change can't move the bar mid-game; absent on
@@ -120,6 +137,19 @@ export interface Lobby {
 	// The seat is gone, but the player must not be seated again as a fresh
 	// joiner (joinRejection), so the record stays after the game ends.
 	forfeitedSeats?: { [userId: string]: string }
+	// The match revision (requests.ts): up by one per batch of match-state change
+	// pushed to the players. Absent in match state from before it was kept: 1.
+	rev?: number
+	// Counts joins and rejoins; "c" + it names the connection. Absent: 0.
+	connSeq?: number
+	// userId -> the last terminal answers to their requests, oldest first
+	// (requests.ts). An array: object key order does not survive the Go runtime.
+	answered?: { [userId: string]: AnsweredEntry[] }
+}
+
+export interface AnsweredEntry {
+	reqId: string
+	answer: AnswerMessage
 }
 
 export type Outbound =
@@ -128,6 +158,11 @@ export type Outbound =
 	| { kind: 'setCurrent'; userId: string }
 	| { kind: 'clearCurrent'; userId: string }
 	// A matchmade game's participant timed out (lobby/forfeits.ts).
+	// A ranked player left (or forfeited) before the run began: the dodge record
+	// (lobby/dodges.ts) that the penalty, a follow-up, reads.
+	| { kind: 'dodged'; leaverId: string; runId: string; at: number; rankedMode: string }
+	// A line for the server log, written by the shell (the core has no logger).
+	| { kind: 'log'; message: string }
 	| { kind: 'forfeited'; userId: string; runId: string; code: string; at: number; lobbyKind: LobbyKind }
 	// A player contested the started game: the API records the Contest at once,
 	// before the run ends, so its page can open (mirror/outbox.ts).
@@ -158,6 +193,8 @@ export function newLobby(params: {
 	groups?: MatchedGroup[]
 	teamPlan?: TeamPlan | null
 	requiredStanding?: RequiredStanding
+	// The lobby's metadata at creation: a ranked PvP lobby starts on its queue's pin.
+	metadata?: { [key: string]: unknown }
 	now: number
 	graceMs: number
 	catchUpLimitMs?: number | null
@@ -172,7 +209,7 @@ export function newLobby(params: {
 		rankedMode: params.rankedMode,
 		allowedIds: params.allowedIds,
 		gameMode: params.gameMode,
-		metadata: {},
+		metadata: params.metadata ?? {},
 		players: [],
 		kickedIds: [],
 		createdAt: params.now,
@@ -275,6 +312,17 @@ function rejectOp(userId: string, message: string): Outbound {
 	}
 }
 
+// A metadata key the host may not write now (the game's rules are frozen, or the value
+// is not a valid rule): `reason` and `key` name it for the client's localized text.
+function badRulesOp(userId: string, key: string): Outbound {
+	return {
+		kind: 'send',
+		op: ServerOp.ERROR,
+		payload: { message: `bad_rules: ${key}`, reason: 'bad_rules', key },
+		to: [userId],
+	}
+}
+
 export const DIFFERENT_MOD = 'Lobby is for a different mod'
 // MPAPI matches this text to show the forfeit dialog
 // (ui/forfeited_notice_overlay.lua, MPAPI.is_forfeited_refusal): change both
@@ -323,6 +371,14 @@ export function isCatchingUp(player: LobbyPlayer): boolean {
 }
 
 // `now` times an open Setup step (its msLeft) and is the snapshot's serverNow.
+// The started game a client sees: the server's own `restarted` flag stays out (clients read a
+// `restarted` of their own on GAME_STARTED, with another owner).
+function viewOfStarted(started: StartedGame | null): StartedGame | null {
+	if (!started) return null
+	const { restarted: _restarted, ...visible } = started
+	return visible
+}
+
 export function snapshotFor(lobby: Lobby, userId: string, now: number = Date.now()): Snapshot {
 	const self = findPlayer(lobby, userId)
 	return {
@@ -344,25 +400,39 @@ export function snapshotFor(lobby: Lobby, userId: string, now: number = Date.now
 		ownState: self ? self.ownState : null,
 		game: {
 			ready: lobby.game.ready,
-			started: lobby.game.started,
+			started: viewOfStarted(lobby.game.started),
 			reported: Object.keys(lobby.game.reports),
 			resultPending: lobby.game.resultPending === true,
 			logSeq: logHeldOf(lobby.game.logs[userId]),
+			lastEnded: lobby.game.endedAway?.[userId] ?? null,
 			setup: setupView(setupOf(lobby.game), now),
 		},
 		groupQueue: viewOf(lobby),
 		teamPlan: lobby.teamPlan || null,
 		graceSeconds: Math.ceil(lobby.graceMs / 1000),
 		serverNow: now,
+		rev: lobby.rev ?? 1,
+		connectionId: `c${lobby.connSeq ?? 0}`,
+		protocol: PROTOCOL_VERSION,
+		match: withLiveClocks(
+			withLiveDeadline(
+				matchStateOf(lobby, matchKeys(), maskedIn(lobby, userId), userId),
+				refereeOf(lobby)?.facts.deadline,
+				now,
+			),
+			refereeOf(lobby),
+			now,
+		),
 	}
 }
 
-// Call after joinRejection returned null.
+// Call after joinRejection returned null. info is null only for a user who
+// already has a seat (a rejoin reads none); a new seat without it throws.
 export function join(
 	lobby: Lobby,
 	userId: string,
 	sessionId: string,
-	info: PlayerInfo,
+	info: PlayerInfo | null,
 	now: number = Date.now(),
 ): Step {
 	const existing = findPlayer(lobby, userId)
@@ -370,10 +440,21 @@ export function join(
 		const wasAway = existing.awaySince !== null
 		const wasCatchingUp = isCatchingUp(existing)
 		const back: LobbyPlayer = { ...existing, sessionId, awaySince: null, catchingUpSince: null }
-		const next = withPresence(
-			{ ...lobby, players: lobby.players.map((p) => (p.id === userId ? back : p)) },
+		const marked = withPresence(
+			{
+				...lobby,
+				connSeq: (lobby.connSeq ?? 0) + 1,
+				players: lobby.players.map((p) => (p.id === userId ? back : p)),
+			},
 			{ userId, kind: 'rejoined', at: now },
 		)
+		// The host's seat is away (nobody was here to take it over): the one who is back hosts.
+		const hostSeat = findPlayer(marked, marked.hostId)
+		const rehosted =
+			hostSeat && hostSeat.awaySince !== null && !isParked(marked)
+				? transferHostFrom(marked, marked.hostId)
+				: { lobby: marked, out: [] }
+		const next = rehosted.lobby
 		// Back from somewhere else (a group's public game) their current-lobby
 		// record names that lobby, so it is written again.
 		const out: Outbound[] = [
@@ -399,9 +480,11 @@ export function join(
 			if (tail) out.push({ kind: 'send', op: ServerOp.REPLAY_TAIL, payload: tail, to: [userId] })
 		}
 		if (wasCatchingUp) out.push(catchingUpEvent(next, userId, false))
+		out.push(...rehosted.out)
 		return then({ lobby: next, out }, groupReturned)
 	}
 
+	if (!info) throw new Error(`A new seat for ${userId} needs join info`)
 	const player: LobbyPlayer = {
 		id: userId,
 		sessionId,
@@ -414,6 +497,7 @@ export function join(
 	const next = withPresence(
 		{
 			...lobby,
+			connSeq: (lobby.connSeq ?? 0) + 1,
 			hostId:
 				lobby.allowedIds && lobby.players.length === 0 ? userId : lobby.hostId,
 			players: lobby.players.concat([player]),
@@ -515,20 +599,6 @@ export function close(lobby: Lobby): Step {
 	return { lobby: next, out: ended.out.concat(out) }
 }
 
-// A lobby nobody is connected to any more is closed straight away rather than
-// waiting out every player's grace period -- unless its group is away, which
-// is everyone gone on purpose. A started match waits instead: every seat left
-// is away, and tick evicts each one when its grace runs out, which closes the
-// lobby with the last. Until then a seat that rejoins gets the match back.
-function closeIfAbandoned(step: Step): Step {
-	const lobby = step.lobby
-	if (lobby.closed || isParked(lobby) || lobby.game.started) return step
-	const anyoneHere = lobby.players.some((p) => p.awaySince === null)
-	if (anyoneHere) return step
-	const closed = close(lobby)
-	return { lobby: closed.lobby, out: step.out.concat(closed.out) }
-}
-
 // Drops userId from the roster: `type` is the event the others get
 // (player_left, or none when the caller already announced a kick), `why`
 // what it does to the lobby's group queue.
@@ -549,12 +619,26 @@ function remove(
 	const actionBudget = { ...transferred.lobby.actionBudget }
 	delete actionBudget[userId]
 	delete actionBudget[logBudgetKey(userId)]
-	const next = {
+	let next: Lobby = {
 		...transferred.lobby,
 		players: transferred.lobby.players.filter((p) => p.id !== userId),
 		game: { ...transferred.lobby.game, ready },
 		actionBudget,
 	}
+	if (next.answered) {
+		const { [userId]: _dropped, ...answered } = next.answered
+		next.answered = answered
+	}
+	if (next.teamPicks) {
+		const { [userId]: _pick, ...teamPicks } = next.teamPicks
+		next.teamPicks = teamPicks
+	}
+	// Their Ready and `out` entry go with the seat; the round may start without them.
+	const readied = readyAfterSeatRemoved(next, userId)
+	const announced = readied.changed
+		? announceChange(readied.lobby, [PVP_READY_KEY])
+		: { lobby: next, out: [] }
+	next = announced.lobby
 	const others = allIds(next)
 	const out: Outbound[] = grouped.out.concat([{ kind: 'clearCurrent', userId }])
 	if (type)
@@ -578,11 +662,13 @@ function remove(
 		),
 	)
 
+	out.push(...announced.out)
+
 	if (next.players.length === 0) {
 		const closed = close(next)
 		return { lobby: closed.lobby, out: out.concat(closed.out) }
 	}
-	return closeIfAbandoned({ lobby: next, out })
+	return { lobby: next, out }
 }
 
 // The player asked to leave (op LEAVE, or the leave RPC): gone for good.
@@ -624,10 +710,18 @@ export function disconnect(
 			othersThan(transferred.lobby, userId),
 		),
 	])
-	return closeIfAbandoned({
-		lobby: transferred.lobby,
-		out: out.concat(transferred.out),
-	})
+	// Their PvP Ready goes: a blind never starts against a player in grace (#620).
+	// The lobby Ready stays: a blip is not a change of mind. It goes when the
+	// seat leaves for good or is evicted (remove()), and startGame refuses to
+	// start while any seat is away.
+	const readied = readyDroppedOnDisconnect(transferred.lobby, userId)
+	const announced = readied.changed
+		? announceChange(readied.lobby, [PVP_READY_KEY])
+		: { lobby: transferred.lobby, out: [] }
+	return {
+		lobby: announced.lobby,
+		out: out.concat(transferred.out, announced.out),
+	}
 }
 
 export function kick(lobby: Lobby, byId: string, targetId: string, now: number = Date.now()): Step {
@@ -717,12 +811,56 @@ export function setMetadata(lobby: Lobby, byId: string, patch: unknown): Step {
 	if (!isPlainObject(patch))
 		return { lobby, out: [rejectOp(byId, 'Metadata must be an object')] }
 
-	const metadata = { ...lobby.metadata, ...patch }
+	// A ranked PvP lobby keeps the rules of its queue (D1b): a pinned key written with a
+	// different value is refused by name, before and after the freeze. A ranked mode
+	// the pin table does not know is not enforced here (it cannot be created).
+	const pinned = pinFor(lobby.modId, lobby.rankedMode ?? '')
+	const pinSplit = pinned.ok
+		? splitPinnedPatch(patch, pinned.pin)
+		: { accepted: patch, refused: [] as string[] }
+	// A PvP game reads its mode from queue_mode when it starts (the kill switch checks
+	// it there), so from the start on, in the same batch as the start and across a
+	// restart, queue_mode cannot change; the same value is let through. Before the
+	// first tick no referee exists yet to freeze it, which is why this is not left to
+	// the freeze (docs/pvp-match.md section 4).
+	const modeLocked =
+		lobby.game.started !== null &&
+		lobby.modId === PVP_MOD_ID &&
+		'queue_mode' in pinSplit.accepted &&
+		pinSplit.accepted.queue_mode !== lobby.metadata.queue_mode
+	const lockedRefusals = modeLocked ? ['queue_mode'] : []
+	const pinRefusals = [...pinSplit.refused, ...lockedRefusals.filter((k) => !pinSplit.refused.includes(k))].map(
+		(key) => badRulesOp(byId, key),
+	)
+	const written = modeLocked
+		? Object.fromEntries(Object.entries(pinSplit.accepted).filter(([key]) => key !== 'queue_mode'))
+		: pinSplit.accepted
+	if (pinRefusals.length > 0 && Object.keys(written).length === 0)
+		return { lobby, out: pinRefusals }
+
+	// A refereed game freezes its rules from these keys (docs/pvp-match.md section 4):
+	// before the freeze a rule key is taken when it validates, after it the rule keys
+	// cannot change. Per key: a refused key is named, the rest of the patch goes through.
+	const referee = lobby.game.started ? refereeOf(lobby) : null
+	const split =
+		referee === null || !lobby.game.started
+			? { accepted: written, refused: [] as string[] }
+			: splitRulePatch(
+					written,
+					lobby.metadata,
+					referee.rules.runId === lobby.game.started.runId,
+				)
+	const refusals = [...pinRefusals, ...split.refused.map((key) => badRulesOp(byId, key))]
+	if (refusals.length > 0 && Object.keys(split.accepted).length === 0)
+		return { lobby, out: refusals }
+
+	const metadata = { ...lobby.metadata, ...split.accepted }
 	const next = { ...lobby, metadata }
 	const everyone = allIds(next)
 	return {
 		lobby: next,
 		out: [
+			...refusals,
 			{ kind: 'send', op: ServerOp.METADATA, payload: metadata, to: everyone },
 			event(next, 'metadata_changed', { data: metadata }, everyone),
 		],
@@ -803,8 +941,13 @@ export function tick(lobby: Lobby, now: number): Step {
 		const graceRanOut = !parked && awaySince !== null && now - awaySince >= lobby.graceMs
 		if (graceRanOut || catchUpLimitReached(lobby, current, now)) {
 			const started = step.lobby.game.started
+			// A leave that ends the game as a dodge stores the dodge only (pvp/dodge.ts).
+			const dodge = endsAsDodge(step.lobby)
+			// A seat away since the race began is left in place: pvpTick decides the dodge in this
+			// same pass from the seat it still sees. Removing it here would leave neither record.
+			if (dodge && started && started.raceStartedAt !== undefined && awayBeforeRunOf(step.lobby).includes(p.id)) continue
 			const forfeited: Outbound[] =
-				started && started.players.some((q) => q.id === p.id)
+				!dodge && started && started.players.some((q) => q.id === p.id)
 					? [{ kind: 'forfeited', userId: p.id, runId: started.runId, code: lobby.code, at: now, lobbyKind: lobbyKindOf(lobby) }]
 					: []
 			const timedOut = withPresence(step.lobby, {

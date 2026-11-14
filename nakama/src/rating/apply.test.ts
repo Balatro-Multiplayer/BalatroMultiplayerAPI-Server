@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { RunRecord } from '../lobby/protocol'
 import type { LogEvent } from '../shared/replay/events'
-import { type RatingRecord, applyRatings, newRating, planRatings } from './apply'
+import {
+	type RatingRecord,
+	type Standing,
+	applyRatings,
+	newRating,
+	planRatings,
+	standingsOf,
+} from './apply'
 import { PLACEMENT_GAMES } from './elo'
 import { logBounds, nextSeasonBest, seasonBestOf } from './metrics'
 import { configureSeason } from './season'
@@ -35,7 +42,44 @@ function seasoned(rating: number): RatingRecord {
 	return { ...newRating(), rating, gamesPlayed: 10 }
 }
 
+// The same table is in apps/server/src/tests/services/ratings-standing.test.ts.
+describe('standingsOf', () => {
+	it.each<[string, number[], Standing[]]>([
+		['two players share first: a draw', [1, 1], ['draw', 'draw']],
+		['two players, one wins', [1, 2], ['win', 'loss']],
+		['[1,1,2]: both first places win', [1, 1, 2], ['win', 'win', 'loss']],
+		['a single placement keeps the win', [1], ['win']],
+		['three share first: a draw', [1, 1, 1], ['draw', 'draw', 'draw']],
+	])('%s', (_name, places, expected) => {
+		const placements = places.map((place, i) => ({ playerId: `p${i}`, place }))
+		const got = standingsOf(placements)
+		expect(placements.map((p) => got.get(p.playerId))).toEqual(expected)
+	})
+})
+
 describe('planRatings', () => {
+	it('a draw credits neither a win nor a loss and a normal win credits exactly one win and one loss', () => {
+		const draw = planRatings(
+			run({
+				placements: [
+					{ playerId: 'a', place: 1 },
+					{ playerId: 'b', place: 1 },
+				],
+			}),
+			{ a: seasoned(600), b: seasoned(600) },
+		)
+		expect(draw.updates.a.wins).toBe(0)
+		expect(draw.updates.b.wins).toBe(0)
+		expect(draw.updates.a.losses).toBe(0)
+		expect(draw.updates.b.losses).toBe(0)
+		expect(draw.updates.a.gamesPlayed).toBe(11)
+		expect(draw.updates.a.rating).toBe(600)
+		expect(draw.updates.b.rating).toBe(600)
+		const win = planRatings(run(), { a: seasoned(600), b: seasoned(600) })
+		expect([win.updates.a.wins, win.updates.b.wins]).toEqual([1, 0])
+		expect([win.updates.a.losses, win.updates.b.losses]).toEqual([0, 1])
+	})
+
 	it('moves an even 1v1 by K/2 and records the win and loss', () => {
 		const plan = planRatings(run(), { a: seasoned(600), b: seasoned(600) })
 		expect(plan.updates.a).toMatchObject({ rating: 620, wins: 1, losses: 0, gamesPlayed: 11, lastMatchAt: 61_000 })

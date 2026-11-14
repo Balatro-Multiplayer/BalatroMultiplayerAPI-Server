@@ -14,7 +14,7 @@ import type { FlagReason, LogCheck, RunRecord } from './protocol'
 // The least time (ms) one hand can take to select and score.
 export const MIN_MS_PER_HAND = 3000
 
-// The replay opcode for a scored hand (PvP's pvp_api/net.lua).
+// The replay opcode for a scored hand, as the PvP client logs it.
 const HAND_OPCODE = 'hand_result'
 
 export function handCount(events: LogEvent[] | undefined): number {
@@ -28,7 +28,7 @@ export function runFlags(
 	checks: { [userId: string]: LogCheck },
 ): { [userId: string]: FlagReason } {
 	const flags: { [userId: string]: FlagReason } = {}
-	const played = run.status !== 'restarted' && run.status !== 'abandoned'
+	const played = run.status !== 'restarted' && run.status !== 'abandoned' && run.status !== 'dodged'
 	const elapsedMs = run.endedAt - run.startedAt
 	for (const player of run.players) {
 		if (checks[player.id] === 'mismatch') flags[player.id] = 'hash_mismatch'

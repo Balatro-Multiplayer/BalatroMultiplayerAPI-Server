@@ -116,8 +116,8 @@ export function rpcAdminRunSetResult(
 
 // What admin_player_get adds for a moderator: the last mod report, standing,
 // the launcher verdict and whether they are in ranked play right now.
-export function moderationContextOf(nk: nkruntime.Nakama, settings: ServerSettings, userId: string, now: number) {
-	const seat = currentLobby(nk, userId)
+export function moderationContextOf(nk: nkruntime.Nakama, logger: nkruntime.Logger, settings: ServerSettings, userId: string, now: number) {
+	const seat = currentLobby(nk, logger, userId)
 	const match = seat ? nk.matchGet(seat.matchId) : null
 	return {
 		mods: readModReport(nk, userId),

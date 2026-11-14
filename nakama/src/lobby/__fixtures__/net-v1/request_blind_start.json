@@ -1,0 +1,12 @@
+{
+	"v": 1,
+	"reqId": "c4:10",
+	"type": "pvp.blind_start",
+	"payload": {
+		"runId": "r-abc",
+		"roundId": 3,
+		"handsLeft": 5,
+		"score": "0",
+		"timerLossesApplied": 0
+	}
+}

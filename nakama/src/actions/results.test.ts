@@ -176,20 +176,10 @@ describe('reporting results', () => {
 	})
 
 	it('refuses a report from a player who sat the game out', () => {
-		// c was away when the game started, so isn't a participant.
-		let lobby = newLobby({
-			code: 'X',
-			modId: 'm',
-			maxPlayers: 4,
-			creatorId: 'a',
-			now: 0,
-			graceMs: 10_000,
-		})
-		for (const id of ['a', 'b', 'c']) lobby = join(lobby, id, `${id}-s`, info(id)).lobby
-		lobby = send(lobby, 'b', 'mpapi_ready', { ready: true }).lobby
-		lobby = disconnect(lobby, 'c', 'c-s', 500).lobby
-		lobby = send(lobby, 'a', 'mpapi_start_game', {}).lobby
-		lobby = join(lobby, 'c', 'c-s2', info('c')).lobby
+		// c is seated but not among the game's players, so isn't a participant.
+		// Built directly: joinRejection keeps a non-participant from being seated.
+		let lobby = started('a', 'b')
+		lobby = join(lobby, 'c', 'c-s', info('c')).lobby
 		expect(rejection(report(lobby, 'c', places('a', 'b')))).toBe('not_participant')
 		expect(
 			rejection(send(lobby, 'c', 'mpapi_log_event', { t: 1, opcode: 'play' })),
@@ -372,7 +362,7 @@ describe('reporting results', () => {
 	it('only lets a participant of a started game mark a run pending', () => {
 		let idle = newLobby({
 			code: 'ABC123',
-			modId: 'MultiplayerPvP',
+			modId: 'm',
 			maxPlayers: 2,
 			creatorId: 'a',
 			now: 0,
@@ -433,7 +423,7 @@ describe('reporting results', () => {
 function startedMatchmade(...players: string[]): Lobby {
 	let lobby = newLobby({
 		code: 'ABC123',
-		modId: 'MultiplayerPvP',
+		modId: 'm',
 		maxPlayers: 8,
 		creatorId: players[0],
 		gameMode: 'ranked:duel',
@@ -639,7 +629,12 @@ describe('replay logs', () => {
 		expect(sent.to).toEqual(['b', 'c'])
 		expect(sent.payload).toMatchObject({
 			from: 'server',
-			params: { playerId: 'a', t: 1, opcode: 'play', args: [1] },
+			params: { playerId: 'a', t: 1 },
+		})
+		// Exactly who and when: no opcode, no args (a hand result carries the score).
+		expect((sent.payload as { params: unknown }).params).toEqual({
+			playerId: 'a',
+			t: 1,
 		})
 		step = log(step.lobby, 'a', 2)
 		expect(step.lobby.game.logs.a.lines).toEqual(['[1,"play",[1]]', '[2,"play",[2]]'])
@@ -653,6 +648,16 @@ describe('replay logs', () => {
 		step = log(step.lobby, 'a', 2, 9000)
 		expect(step.lobby.game.started?.raceStartedAt).toBe(2000)
 		expect(snapshotFor(step.lobby, 'a', 9500).game.started?.raceStartedAt).toBe(2000)
+	})
+
+	it('does not stamp the race start while Setup is open, and stamps it once Setup is done', () => {
+		const lobby = started('a', 'b')
+		const open = { kind: 'draft', id: 'd1', pool: [], banned: [], schedule: [], turn: 0, turnMs: 30_000, deadline: 99_999, remaining: 1, first: 0, order: ['a', 'b'] } as never
+		const inSetup = { ...lobby, game: { ...lobby.game, setup: { open, results: {} } } }
+		const during = log(inSetup, 'a', 1, 2000)
+		expect(during.lobby.game.started?.raceStartedAt).toBeUndefined()
+		const done = { ...during.lobby, game: { ...during.lobby.game, setup: { open: null, results: {} } } }
+		expect(log(done, 'a', 2, 3000).lobby.game.started?.raceStartedAt).toBe(3000)
 	})
 
 	it('starts the race again for a restarted game', () => {
@@ -909,7 +914,13 @@ describe('replay logs', () => {
 			expect(sent[0].payload).toMatchObject({
 				from: 'server',
 				action: 'mpapi_log_events',
-				params: { playerId: 'a', t: 3, opcode: 'play', count: 3 },
+				params: { playerId: 'a', t: 3, count: 3 },
+			})
+			// Exactly who and when: no opcode, no args (a hand result carries the score).
+			expect((sent[0].payload as { params: unknown }).params).toEqual({
+				playerId: 'a',
+				t: 3,
+				count: 3,
 			})
 		})
 

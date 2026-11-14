@@ -31,6 +31,10 @@ socket:
   # 250 bytes each); Nakama's default (262144) refuses it at ~1000 players.
   # src/socket_limit.test.ts checks this against both configs.
   max_request_size_bytes: 8388608
+  # Nakama closes a socket whose outgoing queue overflows (default 64
+  # messages). A spectated run sends a burst of events at once; room for it.
+  # src/socket_limit.test.ts checks this against both configs.
+  outgoing_queue_size: 1024
 
 match:
   # Messages a match reads per tick. Nakama's default (128) silently drops the

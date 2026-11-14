@@ -11,7 +11,7 @@ import { isBanType, readBans } from './moderation/bans'
 import { applyBan, liftBan, forgetBanIndex } from './moderation/enforce'
 import { banNetworks } from './moderation/network'
 import { playerView, profileFor } from './player/profile'
-import { mergeConfig, readConfig, writeConfig } from './config'
+import { mergeConfig, pvpModesOf, readConfig, writeConfig } from './config'
 import { callExpress } from './express'
 import { isNotifyCode, notify } from './notify'
 import { parsePayload, requireServer } from './rpc'
@@ -79,8 +79,15 @@ export function rpcAdminConfigSet(
 	payload: string,
 ) {
 	requireServer(ctx)
-	const before = readConfig(nk)
-	const config = mergeConfig(before, parsePayload(payload))
+	const update = parsePayload(payload)
+	// The kill switch must not fail quietly: a malformed list is refused by name, and the
+	// current list stays.
+	if ('disabledPvpModes' in update && pvpModesOf(update.disabledPvpModes) === null) {
+		logger.warn('admin_config_set refused: disabledPvpModes must be a list of known PvP modes, each once')
+		throw runtimeError(INVALID_ARGUMENT, 'disabledPvpModes must be a list of known PvP modes, each at most once')
+	}
+	const before = readConfig(nk, logger)
+	const config = mergeConfig(before, update)
 	writeConfig(nk, config)
 	logger.info('Server config updated: %v', JSON.stringify(config))
 	if (standingInputsChanged(before, config)) standingInputsUpdated(nk, settingsOf(ctx), logger, Date.now())
@@ -276,9 +283,9 @@ export function rpcAdminPlayerGet(
 	return JSON.stringify({
 		player: playerView(nk, userId, profile),
 		bans: readBans(nk, userId),
-		lobby: currentLobby(nk, userId),
+		lobby: currentLobby(nk, logger, userId),
 		online,
-		...moderationContextOf(nk, settingsOf(ctx), userId, Date.now()),
+		...moderationContextOf(nk, logger, settingsOf(ctx), userId, Date.now()),
 	})
 }
 

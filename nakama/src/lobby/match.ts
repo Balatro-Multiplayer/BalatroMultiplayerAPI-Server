@@ -1,7 +1,7 @@
 // The bmp_lobby authoritative match: adapts Nakama's match callbacks to the
 // pure rules in state.ts and carries out the Outbound effects they return.
 // One match per lobby; the match ends (returns null) once the lobby closes.
-import { seedFromHex } from '../actions/registry'
+import { START_GAME_KEY, type StepContext, seedFromHex } from '../actions/registry'
 import { finishGame, settle } from '../actions/results'
 import { setupTick } from '../actions/setup'
 import { activeRunOf } from './active'
@@ -24,6 +24,11 @@ import { clearMatched } from '../matchmaking/queue'
 import { hasPlayerAnswer, releaseGroups } from './group_queue'
 import { answerGroupSignal, isGroupSignal } from './group_signals'
 import { type RelayStep, action } from './relay'
+import { pvpTick } from './pvp/referee'
+import { pinFor } from './pvp/ranked_pin'
+import type { PvpMode } from './pvp/state'
+import { announceDrift } from './match_state'
+import { requestStep } from './requests'
 import { catchUpLimitMsFor } from './catch_up'
 import {
 	DEFAULT_GRACE_MS,
@@ -35,6 +40,7 @@ import {
 	adminView,
 	close,
 	disconnect,
+	findPlayer,
 	join,
 	joinRejection,
 	kick,
@@ -68,10 +74,11 @@ import { DEFAULT_AVATAR } from '../shared/avatars/ids'
 import { selectableOrDefault } from '../shared/avatars/unlocked'
 import { runFlags } from './anticheat'
 import { eventsByPlayer, type LogEvent } from '../shared/replay/events'
+import { recordDodge } from './dodges'
 import { recordForfeit } from './forfeits'
 import { logChecksOf, saveRun } from './storage'
 import { standingFor } from '../standing/current'
-import { pvpVersionOf } from '../standing/pvp_version'
+import { PVP_UPDATE_REQUIRED_MESSAGE, pvpJoinRefused, pvpVersionOf } from '../standing/pvp_version'
 import { readModReport } from '../standing/storage'
 import { hasFailedVerdict, readIntegrity } from '../integrity'
 import { rejoinRefusal, rejoinRejectMessage } from '../standing/rejoin'
@@ -94,6 +101,18 @@ export interface LobbyMatchState extends nkruntime.MatchState {
 	// Set once the lobby has checkpointed for a server restart: the next loop
 	// ends the match (matchTerminate itself must hand back a state).
 	stopping?: boolean
+	// Ticks in a row on which a tick stage threw (applyStage). A stage that keeps
+	// throwing can never make progress, so the lobby closes at FAILED_TICKS_LIMIT.
+	failedTicks?: number
+}
+
+// 5 s of ticks.
+const FAILED_TICKS_LIMIT = TICK_RATE * 5
+
+// Whether a join to a lobby of `modId` is refused for the joiner's PvP version.
+function pvpVersionRefused(nk: nkruntime.Nakama, modId: string, userId: string): boolean {
+	const report = readModReport(nk, userId)
+	return pvpJoinRefused(modId, pvpVersionOf(report ? report.mods : []))
 }
 
 function secondsFromEnv(
@@ -162,6 +181,9 @@ function apply(
 		const finished = finishGame(step.lobby, Date.now())
 		step = { lobby: finished.lobby, out: step.out.concat(finished.out) }
 	}
+	// A game start, restart or end moves match state from several places: tell the
+	// players once, here.
+	step = announceDrift(state.lobby, step)
 	// A matchmade lobby's groups go home once its first game is over.
 	const released = releaseGroups(state.lobby.game.started !== null, step.lobby)
 	step = { lobby: released.lobby, out: step.out.concat(released.out) }
@@ -306,6 +328,21 @@ function runEffect(
 				logger.warn('Lobby %s: could not record the contest of run %s: %v', lobby.code, effect.runId, e)
 			}
 			return
+		case 'log':
+			logger.error('Lobby %s: %s', lobby.code, effect.message)
+			return
+		case 'dodged':
+			try {
+				recordDodge(nk, {
+					leaverId: effect.leaverId,
+					runId: effect.runId,
+					at: effect.at,
+					rankedMode: effect.rankedMode,
+				})
+			} catch (e) {
+				logger.warn('Lobby %s: could not record the dodge of %s: %v', lobby.code, effect.leaverId, e)
+			}
+			return
 		case 'forfeited':
 			try {
 				recordForfeit(nk, effect.userId, { runId: effect.runId, code: effect.code, at: effect.at, lobbyKind: effect.lobbyKind })
@@ -403,7 +440,15 @@ export function lobbyMatchInit(
 ) {
 	const resumeCode = stringParam(params, 'resumeCode')
 	const found = resumeCode ? readCheckpoint(nk, resumeCode) : null
+	// A resume with nothing to resume from fails the create (the rpc callers read
+	// that as "no lobby"); it never builds a blank lobby under the old code.
+	if (resumeCode && !found) throw new Error(`Lobby ${resumeCode} has no checkpoint to resume from`)
+	// A ranked PvP lobby starts on the pin of the queue it was made for; an unknown
+	// ranked mode never gets a lobby.
+	const pin = found ? null : pinFor(stringParam(params, 'modId'), stringParam(params, 'rankedMode'))
+	if (pin && !pin.ok) throw new Error(`${pin.reason}: ${stringParam(params, 'rankedMode')}`)
 	const lobby = found ? resumeFrom(found.checkpoint, Date.now()) : newLobby({
+		metadata: pin?.ok ? pin.pin : undefined,
 		code: stringParam(params, 'code'),
 		modId: stringParam(params, 'modId'),
 		maxPlayers: Number(params.maxPlayers),
@@ -514,12 +559,40 @@ function otherLobbyOf(
 	)
 		return null
 	const signal: LobbySignal = { type: 'has_player', userId, forMatchId: ctx.matchId }
-	return nk.matchSignal(matchId, JSON.stringify(signal)) === 'yes'
-		? String(objects[0].value.code)
-		: null
+	try {
+		return nk.matchSignal(matchId, JSON.stringify(signal)) === 'yes'
+			? String(objects[0].value.code)
+			: null
+	} catch (e) {
+		// The other match ended after matchGet: the player is in no other lobby. A
+		// busy match may still seat them, so that error is thrown on (and the join
+		// attempt refused).
+		if (String(e).indexOf('not found') !== -1) return null
+		throw e
+	}
 }
 
+// A join attempt that throws would end the match for everyone in it: the joiner
+// is refused instead.
 export function lobbyMatchJoinAttempt(
+	ctx: nkruntime.Context,
+	logger: nkruntime.Logger,
+	nk: nkruntime.Nakama,
+	dispatcher: nkruntime.MatchDispatcher,
+	tickNumber: number,
+	state: LobbyMatchState,
+	presence: nkruntime.Presence,
+	metadata: { [key: string]: string },
+) {
+	try {
+		return joinAttempt(ctx, logger, nk, dispatcher, tickNumber, state, presence, metadata)
+	} catch (e) {
+		logger.error('Lobby %s: join attempt by %s threw: %v', state.lobby.code, presence.userId, e)
+		return { state, accept: false, rejectMessage: 'Could not join, try again' }
+	}
+}
+
+function joinAttempt(
 	ctx: nkruntime.Context,
 	logger: nkruntime.Logger,
 	nk: nkruntime.Nakama,
@@ -539,6 +612,9 @@ export function lobbyMatchJoinAttempt(
 	if (meta.role === SPECTATOR_ROLE) {
 		const refused = spectateRejection(state.lobby, presence.userId, meta.modId || '')
 		if (refused) return { state, accept: false, rejectMessage: refused }
+		if (pvpVersionRefused(nk, state.lobby.modId, presence.userId)) {
+			return { state, accept: false, rejectMessage: PVP_UPDATE_REQUIRED_MESSAGE }
+		}
 		const pending = (state.pendingSpectators || []).filter((id) => id !== presence.userId)
 		return {
 			state: { ...state, pendingSpectators: pending.concat([presence.userId]) },
@@ -552,6 +628,12 @@ export function lobbyMatchJoinAttempt(
 	)
 	if (rejection) {
 		return { state, accept: false, rejectMessage: rejection }
+	}
+	// A PvP lobby is refereed by the server, which only PvP 1.1.0+ talks to. After
+	// joinRejection, so a closed, full or other-mod join keeps its own reason; a
+	// returning seat is gated too. The text is shown as is by 1.0.x clients.
+	if (pvpVersionRefused(nk, state.lobby.modId, presence.userId)) {
+		return { state, accept: false, rejectMessage: PVP_UPDATE_REQUIRED_MESSAGE }
 	}
 	const standingRefused = rejoinRefusal(
 		state.lobby.requiredStanding,
@@ -606,10 +688,20 @@ export function lobbyMatchJoin(
 			continue
 		}
 		const pendingInfo = { ...current.pendingInfo }
-		const info = pendingInfo[presence.userId] || {
-			displayName: presence.username,
-			preferredJoker: null,
-			mods: null,
+		const info = pendingInfo[presence.userId] ?? null
+		if (!info && !findPlayer(current.lobby, presence.userId)) {
+			// matchJoinAttempt records the info of every join it accepts, so a join
+			// without it did not come through it: nothing is invented, no seat.
+			// A user who already has a seat needs none: a second accepted attempt
+			// (a retry overlapping a slow join) finds the info used up and rejoins.
+			logger.warn(
+				'Lobby %s join of %s (session %s) has no pending info; kicked',
+				current.lobby.code,
+				presence.userId,
+				presence.sessionId,
+			)
+			dispatcher.matchKick([presence])
+			continue
 		}
 		delete pendingInfo[presence.userId]
 		const attached = {
@@ -617,14 +709,16 @@ export function lobbyMatchJoin(
 			pendingInfo,
 			presences: { ...current.presences, [presence.userId]: presence },
 		}
-		current = apply(
-			ctx,
-			logger,
-			nk,
-			dispatcher,
-			attached,
+		const joined = guarded(logger, attached.lobby.code, `join of ${presence.userId}`, () =>
 			join(attached.lobby, presence.userId, presence.sessionId, info, Date.now()),
 		)
+		if (!joined) {
+			// Not seated: kicked, so the client sees the join fail and can retry.
+			dispatcher.matchKick([presence])
+			current = { ...current, pendingInfo }
+			continue
+		}
+		current = apply(ctx, logger, nk, dispatcher, attached, joined)
 	}
 	return current ? { state: current } : null
 }
@@ -653,14 +747,13 @@ export function lobbyMatchLeave(
 				current = apply(ctx, logger, nk, dispatcher, current, removeSpectator(current.lobby, presence.userId))
 			continue
 		}
-		current = apply(
-			ctx,
-			logger,
-			nk,
-			dispatcher,
-			current,
-			disconnect(current.lobby, presence.userId, presence.sessionId, now),
+		const left = current
+		const gone = guarded(logger, left.lobby.code, `leave of ${presence.userId}`, () =>
+			disconnect(left.lobby, presence.userId, presence.sessionId, now),
 		)
+		// Without the step the seat is still marked away, so its grace period runs
+		// and tick frees it; otherwise the lobby would never close.
+		current = apply(ctx, logger, nk, dispatcher, left, gone || markedAway(left.lobby, presence, now))
 	}
 	return current ? { state: current } : null
 }
@@ -681,21 +774,45 @@ function parseMessage(
 	}
 }
 
+// The real clock, randomness, ids and seeds: what actions and requests (and,
+// later, the PvP tick) run with. Tests pass seeded fakes to the pure steps.
+function realContext(nk: nkruntime.Nakama): StepContext {
+	return {
+		now: Date.now(),
+		random: Math.random,
+		newId: () => nk.uuidv4(),
+		newSeed: () => seedFromHex(nk.uuidv4()),
+	}
+}
+
+// The kill switch's disabled modes, which only a game start looks at: the
+// config is read from storage for that action alone, not for every message.
+export function disabledModesFor(
+	data: { [key: string]: unknown },
+	read: () => PvpMode[],
+): PvpMode[] {
+	return data.action === START_GAME_KEY ? read() : []
+}
+
 function stepForMessage(
 	nk: nkruntime.Nakama,
 	lobby: Lobby,
 	senderId: string,
 	opCode: number,
 	data: { [key: string]: unknown },
+	logger: nkruntime.Logger,
 ): RelayStep | null {
 	switch (opCode) {
 		case ClientOp.ACTION:
-			return action(lobby, senderId, data, {
-				now: Date.now(),
-				newSeed: () => seedFromHex(nk.uuidv4()),
-				newId: () => nk.uuidv4(),
-				random: Math.random,
-			})
+			return action(
+				lobby,
+				senderId,
+				data,
+				realContext(nk),
+				disabledModesFor(data, () => readConfig(nk, logger).disabledPvpModes),
+			)
+		case ClientOp.REQUEST:
+			return requestStep(lobby, senderId, data, realContext(nk))
 		case ClientOp.LEAVE:
 			if (isSpectator(lobby, senderId)) {
 				const stopped = removeSpectator(lobby, senderId)
@@ -733,6 +850,74 @@ function stepForMessage(
 	}
 }
 
+// Runs one pure step. Nakama ends a match whose callback throws, which drops every
+// player, so a step that throws is logged and skipped: the lobby stays as it was.
+function guarded<T>(
+	logger: nkruntime.Logger,
+	code: string,
+	what: string,
+	run: () => T,
+): T | null {
+	try {
+		return run()
+	} catch (e) {
+		logger.error('Lobby %s: %s threw, skipped: %v', code, what, e)
+		return null
+	}
+}
+
+// The seat of a player whose disconnect step threw, marked away with nothing sent.
+function markedAway(lobby: Lobby, presence: nkruntime.Presence, now: number): Step {
+	const players = lobby.players.map((p) =>
+		p.id === presence.userId && p.sessionId === presence.sessionId && p.awaySince === null
+			? { ...p, awaySince: now }
+			: p,
+	)
+	return { lobby: { ...lobby, players }, out: [] }
+}
+
+// Applies a tick stage's step. A stage that threw leaves the state as it was and
+// is named in `failed`.
+function applyStage(
+	ctx: nkruntime.Context,
+	logger: nkruntime.Logger,
+	nk: nkruntime.Nakama,
+	dispatcher: nkruntime.MatchDispatcher,
+	state: LobbyMatchState,
+	what: string,
+	run: (lobby: Lobby) => Step,
+	failed: string[],
+): LobbyMatchState | null {
+	const step = guarded(logger, state.lobby.code, what, () => run(state.lobby))
+	if (step) return apply(ctx, logger, nk, dispatcher, state, step)
+	failed.push(what)
+	return state
+}
+
+// Counts a tick on which a stage threw. At FAILED_TICKS_LIMIT in a row the lobby
+// is closed (its game stored, its code released) and the match ends.
+function afterTick(
+	ctx: nkruntime.Context,
+	logger: nkruntime.Logger,
+	nk: nkruntime.Nakama,
+	dispatcher: nkruntime.MatchDispatcher,
+	state: LobbyMatchState,
+	failed: string[],
+): LobbyMatchState | null {
+	const failedTicks = failed.length === 0 ? 0 : (state.failedTicks ?? 0) + 1
+	if (failedTicks < FAILED_TICKS_LIMIT) return { ...state, failedTicks }
+	logger.error('Lobby %s: %s threw %d ticks in a row, closing', state.lobby.code, failed.join(', '), failedTicks)
+	// close() tells everyone and clears their current-lobby records; if it throws
+	// too, just mark the lobby closed so its game is stored and its code released.
+	const closing = guarded(logger, state.lobby.code, 'close', () => close(state.lobby))
+	try {
+		apply(ctx, logger, nk, dispatcher, state, closing || { lobby: { ...state.lobby, closed: true }, out: [] })
+	} catch (e) {
+		logger.error('Lobby %s: could not close: %v', state.lobby.code, e)
+	}
+	return null
+}
+
 export function lobbyMatchLoop(
 	ctx: nkruntime.Context,
 	logger: nkruntime.Logger,
@@ -748,18 +933,38 @@ export function lobbyMatchLoop(
 	// keeps that stale lobby -- whose game still looks started -- from being
 	// finished and stored a second time.
 	if (state.stopping || state.lobby.closed) return null
-	let current: LobbyMatchState | null = state
+	// The runtime hands back a new copy of nested state on every read, so the lobby is
+	// read once here: the steps below can then tell "nothing changed" by identity
+	// (changedKeys) instead of projecting every key again.
+	let current: LobbyMatchState | null = { ...state }
+	const warned = new Set<string>()
 	for (const message of messages) {
 		if (!current) break
+		// A sender speaks for a seat only from its current joined presence. A frame
+		// buffered past its session's own leave, or from an older session after a
+		// rejoin, is dropped unanswered, whatever the op.
+		if (
+			current.presences[message.sender.userId]?.sessionId !==
+			message.sender.sessionId
+		) {
+			// One warn per stale session per tick: a client can buffer many frames.
+			if (!warned.has(message.sender.sessionId)) {
+				warned.add(message.sender.sessionId)
+				logger.warn(
+					'Lobby %s: refused op %d from %s (stale_session)',
+					current.lobby.code,
+					message.opCode,
+					message.sender.userId,
+				)
+			}
+			continue
+		}
 		const data = parseMessage(nk, message)
+		const lobby = current.lobby
 		const step =
 			data &&
-			stepForMessage(
-				nk,
-				current.lobby,
-				message.sender.userId,
-				message.opCode,
-				data,
+			guarded(logger, lobby.code, `op ${message.opCode}`, () =>
+				stepForMessage(nk, lobby, message.sender.userId, message.opCode, data, logger),
 			)
 		if (!step) {
 			logger.warn(
@@ -795,26 +1000,37 @@ export function lobbyMatchLoop(
 	}
 	if (!current) return null
 	const now = Date.now()
-	const ticked = apply(ctx, logger, nk, dispatcher, current, tick(current.lobby, now))
+	const failed: string[] = []
+	const ticked = applyStage(ctx, logger, nk, dispatcher, current, 'tick', (lobby) => tick(lobby, now), failed)
 	if (!ticked) return null
-	const setupTicked = apply(
+	const setupTicked = applyStage(
 		ctx,
 		logger,
 		nk,
 		dispatcher,
 		ticked,
-		setupTick(ticked.lobby, now, Math.random),
+		'setupTick',
+		(lobby) => setupTick(lobby, now, Math.random),
+		failed,
 	)
 	if (!setupTicked) return null
-	const settled = apply(
+	// The referee decides on the facts the step's messages recorded (lives, the
+	// round, votes, the winner) before settle looks at the clock.
+	const refereed = applyStage(
 		ctx,
 		logger,
 		nk,
 		dispatcher,
 		setupTicked,
-		settle(setupTicked.lobby, now),
+		'pvpTick',
+		(lobby) => pvpTick(lobby, { ...realContext(nk), now }),
+		failed,
 	)
-	return settled ? { state: settled } : null
+	if (!refereed) return null
+	const settled = applyStage(ctx, logger, nk, dispatcher, refereed, 'settle', (lobby) => settle(lobby, now), failed)
+	if (!settled) return null
+	const counted = afterTick(ctx, logger, nk, dispatcher, settled, failed)
+	return counted ? { state: counted } : null
 }
 
 export function lobbyMatchSignal(

@@ -24,6 +24,7 @@ var __spreadValues = (a, b) => {
   return a;
 };
 var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+var __restKey = (key) => typeof key === "symbol" ? key : key + "";
 var __objRest = (source, exclude) => {
   var target = {};
   for (var prop in source)
@@ -275,20 +276,20 @@ var require_TextCensor = __commonJS({
       applyTo(input, matches) {
         if (matches.length === 0)
           return input;
-        const sorted = [...matches].sort(MatchPayload_1.compareMatchByPositionAndId);
+        const sorted2 = [...matches].sort(MatchPayload_1.compareMatchByPositionAndId);
         let censored = "";
         let lastIndex = 0;
-        for (let i = 0; i < sorted.length; i++) {
-          const match = sorted[i];
+        for (let i = 0; i < sorted2.length; i++) {
+          const match = sorted2[i];
           if (lastIndex > match.endIndex)
             continue;
           const overlapsAtStart = match.startIndex < lastIndex;
           if (!overlapsAtStart)
             censored += input.slice(lastIndex, match.startIndex);
           const actualStartIndex = Math.max(lastIndex, match.startIndex);
-          const overlapsAtEnd = i < sorted.length - 1 && // not the last match
-          match.endIndex >= sorted[i + 1].startIndex && // end index of this match and start index of next one overlap
-          match.endIndex < sorted[i + 1].endIndex;
+          const overlapsAtEnd = i < sorted2.length - 1 && // not the last match
+          match.endIndex >= sorted2[i + 1].startIndex && // end index of this match and start index of next one overlap
+          match.endIndex < sorted2[i + 1].endIndex;
           censored += this.strategy(__spreadProps(__spreadValues({}, match), { startIndex: actualStartIndex, input, overlapsAtStart, overlapsAtEnd }));
           lastIndex = match.endIndex + 1;
         }
@@ -773,7 +774,7 @@ var require_RegExpMatcher = __commonJS({
         this.blacklistMatcherTransformers = new TransformerSet_1.TransformerSet(blacklistMatcherTransformers);
         this.whitelistMatcherTransformers = new TransformerSet_1.TransformerSet(whitelistMatcherTransformers);
       }
-      getAllMatches(input, sorted = false) {
+      getAllMatches(input, sorted2 = false) {
         const whitelistedIntervals = this.getWhitelistedIntervals(input);
         const [transformedToOrigIndex, transformed] = this.applyTransformers(input, this.blacklistMatcherTransformers);
         const matches = [];
@@ -796,7 +797,7 @@ var require_RegExpMatcher = __commonJS({
             }
           }
         }
-        if (sorted)
+        if (sorted2)
           matches.sort(MatchPayload_1.compareMatchByPositionAndId);
         return matches;
       }
@@ -1539,7 +1540,9 @@ var ClientOp = {
   // {playerId, fromStart?} -- a spectator asks for the run of the player it watches: that
   // player's Run save and the events after it (answered with SPECTATE_RUN).
   // fromStart asks for the whole log and no Run save.
-  SPECTATE_VIEW: 7
+  SPECTATE_VIEW: 7,
+  // RequestMessage -- a request the server answers exactly once (lobby/requests.ts).
+  REQUEST: 8
 };
 var ServerOp = {
   // Snapshot, to the joining player only.
@@ -1573,8 +1576,13 @@ var ServerOp = {
   // (matchmaking/group).
   GROUP_QUEUE: 112,
   // SpectateRun, to the spectator that asked (ClientOp.SPECTATE_VIEW).
-  SPECTATE_RUN: 113
+  SPECTATE_RUN: 113,
+  // AnswerMessage, to the sender of a REQUEST.
+  ANSWER: 114,
+  // StateMessage, to every seated player: match state moved on.
+  STATE: 115
 };
+var PROTOCOL_VERSION = 1;
 var BROADCAST_TARGET = "*";
 var SERVER_TARGET = "server";
 var CURRENT_LOBBY_COLLECTION = "lobby";
@@ -1586,14 +1594,642 @@ function lobbyIdOf(matchId) {
 }
 var LOBBY_CHECKPOINT_COLLECTION = "lobby_checkpoints";
 var CHECKPOINT_TTL_MS = 10 * 60 * 1e3;
-function checkpointExpiry(stored) {
-  if (typeof stored.expiresAt === "number") return stored.expiresAt;
-  return Number(stored.at) + CHECKPOINT_TTL_MS;
+function checkpointExpired(stored, now) {
+  return typeof stored.expiresAt !== "number" || now >= stored.expiresAt;
 }
 var RUNS_COLLECTION = "match_runs";
 var LOGS_COLLECTION = "match_logs";
 var MY_RUNS_COLLECTION = "my_runs";
 var RATINGS_COLLECTION = "ratings";
+
+// src/standing/mod_report.ts
+var VERSION_START = /-(?=[0-9~]|v[0-9]|UNK$)/;
+function parseReportedMod(entry) {
+  const match = VERSION_START.exec(entry);
+  const at = match ? match.index : entry.lastIndexOf("-");
+  if (at <= 0) return { key: entry, version: "" };
+  return { key: entry.slice(0, at), version: entry.slice(at + 1) };
+}
+function isAllowedEntry(entry, allowedIds) {
+  return allowedIds.some((id) => entry === id || entry.indexOf(id + "-") === 0);
+}
+function disallowedMods(reported, allowedIds) {
+  const out = [];
+  for (const entry of reported) {
+    if (isAllowedEntry(entry, allowedIds)) continue;
+    const key = parseReportedMod(entry).key;
+    if (out.indexOf(key) === -1) out.push(key);
+  }
+  return out;
+}
+
+// src/standing/pvp_version.ts
+var PVP_MOD_ID = "MultiplayerPvP";
+var VERSION_MISMATCH = "version_mismatch";
+var VERSION_MISMATCH_MESSAGE = "Everyone in a PvP game needs the same MultiplayerPvP version. Update the mod and try again.";
+var MIN_PVP_VERSION = "1.1.0";
+var PVP_UPDATE_REQUIRED = "PVP_UPDATE_REQUIRED";
+var PVP_UPDATE_REQUIRED_MESSAGE = `PvP needs MultiplayerPvP ${MIN_PVP_VERSION} or newer. Update the mod and try again.`;
+var X_Y_Z = /^v?(\d+\.\d+\.\d+)/;
+function pvpVersionOf(reported) {
+  for (const entry of reported) {
+    const mod2 = parseReportedMod(entry);
+    if (mod2.key !== PVP_MOD_ID) continue;
+    const match = X_Y_Z.exec(mod2.version);
+    return match ? match[1] : mod2.version;
+  }
+  return "";
+}
+function compareVersions(a, b) {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const x = pa[i] > 0 ? pa[i] : 0;
+    const y = pb[i] > 0 ? pb[i] : 0;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+function pvpJoinRefused(modId, pvpVersion) {
+  if (modId !== PVP_MOD_ID) return false;
+  const match = X_Y_Z.exec(pvpVersion != null ? pvpVersion : "");
+  if (!match) return true;
+  return compareVersions(match[1], MIN_PVP_VERSION) < 0;
+}
+function versionOutliers(versionByPlayer) {
+  const ids = Object.keys(versionByPlayer);
+  const counts = {};
+  for (const id of ids) counts[versionByPlayer[id]] = (counts[versionByPlayer[id]] || 0) + 1;
+  let kept = "";
+  let keptCount = 0;
+  for (const version of Object.keys(counts)) {
+    const better = counts[version] > keptCount || counts[version] === keptCount && compareVersions(version, kept) > 0;
+    if (better) {
+      kept = version;
+      keptCount = counts[version];
+    }
+  }
+  return ids.filter((id) => versionByPlayer[id] !== kept);
+}
+
+// src/lobby/pvp/opponent_state.ts
+var PVP_NEMESIS_KEY = "pvp.nemesis";
+var PVP_OPPONENT_KEY = "pvp.opponent";
+var PVP_EFFECTS_KEY = "pvp.effects";
+var PVP_TRAPS_KEY = "pvp.traps";
+function seedOpponentPlayer() {
+  return { sells: {}, slots: [], closed: false };
+}
+function seedOpponentFacts(ids) {
+  const nemesis = {};
+  const players = {};
+  const server = {};
+  const effects = {};
+  for (const id of ids) {
+    nemesis[id] = {};
+    players[id] = seedOpponentPlayer();
+    server[id] = { seenAnte: null };
+    effects[id] = { incoming: [] };
+  }
+  return {
+    nemesis,
+    opponent: { players },
+    server: { players: server },
+    effects: { players: effects },
+    traps: { trapSeq: 0, traps: [] }
+  };
+}
+
+// src/lobby/pvp/payload.ts
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isCount(value, max = Number.MAX_SAFE_INTEGER) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= max;
+}
+function isName(value, max) {
+  return typeof value === "string" && value.length > 0 && value.length <= max;
+}
+
+// src/lobby/pvp/settings.ts
+var DEATH_ON_ROUND_LOSS = true;
+var MODE_OF_QUEUE = {
+  pvp_nemesis: "nemesis",
+  pvp_experimental: "nemesis",
+  pvp_manhunt: "manhunt",
+  pvp_teams: "teams",
+  pvp_royale: "royale",
+  pvp_smallworld: "royale"
+};
+function modeOfQueue(queueMode) {
+  if (typeof queueMode !== "string") return null;
+  return Object.prototype.hasOwnProperty.call(MODE_OF_QUEUE, queueMode) ? MODE_OF_QUEUE[queueMode] : null;
+}
+function positiveInt(value) {
+  const n = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  return typeof n === "number" && Number.isInteger(n) && n > 0 ? n : null;
+}
+var BLIND_KEY = /^(\d+):(Small|Big|Boss)$/;
+function isBlindKey(value) {
+  return typeof value === "string" && BLIND_KEY.test(value);
+}
+var SKIPPABLE_BLIND = /^(\d+):(Small|Big)$/;
+function isSkippableBlind(value) {
+  return typeof value === "string" && SKIPPABLE_BLIND.test(value);
+}
+function isBossBlind(blindKey) {
+  return blindKey.endsWith(":Boss");
+}
+var MIN_TIMER_MS = 1e4;
+var MAX_TIMER_MS = 36e5;
+var MAX_TIMER_FORGIVENESS = 9;
+function finiteNumber(value) {
+  const n = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  return typeof n === "number" && Number.isFinite(n) ? n : null;
+}
+function clampedInt(value, lo, hi) {
+  return Math.min(hi, Math.max(lo, Math.round(value)));
+}
+var PRESSURE = {
+  kind: "pressure",
+  baseMultiplier: 2,
+  timedRate: 2,
+  previewCostMs: 3500
+};
+var SPEEDLATRO = {
+  kind: "speedlatro",
+  baseMs: 147e3,
+  pvpMs: 73500,
+  graceMs: 4e3,
+  timedRate: 2,
+  previewCostMs: 0
+};
+var PVP_HAND_TIMER = { baseMs: 6e4, handMs: 1e4 };
+var BANK_ONLY = {
+  ante: "bank",
+  pvp: null,
+  personal: null,
+  ownSkips: false,
+  forcedTimer: null
+};
+var BANK_ONLY_RULESETS = [
+  "ruleset_mp_experimental_legacy",
+  "ruleset_mp_badlatro",
+  "ruleset_mp_legacy_ranked",
+  "ruleset_mp_sandbox",
+  "ruleset_mp_smallworld",
+  "ruleset_mp_vanilla",
+  "ruleset_mp_wsob"
+];
+var CLOCK_EXCEPTIONS = {
+  ruleset_mp_experimental: {
+    ante: "personal",
+    pvp: PVP_HAND_TIMER,
+    personal: PRESSURE,
+    ownSkips: false,
+    forcedTimer: null
+  },
+  ruleset_mp_balanced: __spreadProps(__spreadValues({}, BANK_ONLY), { pvp: PVP_HAND_TIMER }),
+  ruleset_mp_expanded: __spreadProps(__spreadValues({}, BANK_ONLY), { pvp: PVP_HAND_TIMER }),
+  ruleset_mp_speedlatro: {
+    ante: "personal",
+    pvp: null,
+    personal: SPEEDLATRO,
+    ownSkips: false,
+    forcedTimer: null
+  },
+  ruleset_mp_chaos: {
+    ante: "personal",
+    pvp: null,
+    personal: SPEEDLATRO,
+    ownSkips: false,
+    forcedTimer: null
+  },
+  // rulesets/majorleague.lua:11-12 and minorleague.lua:7-8 in the PvP mod.
+  ruleset_mp_majorleague: __spreadProps(__spreadValues({}, BANK_ONLY), {
+    ownSkips: true,
+    forcedTimer: { baseSeconds: 180, forgiveness: 0 }
+  }),
+  ruleset_mp_minorleague: __spreadProps(__spreadValues({}, BANK_ONLY), {
+    forcedTimer: { baseSeconds: 210, forgiveness: 1 }
+  }),
+  ruleset_mp_traditional: __spreadProps(__spreadValues({}, BANK_ONLY), { ante: "none" })
+};
+var RULESET_CLOCKS = __spreadValues(__spreadValues({}, Object.fromEntries(BANK_ONLY_RULESETS.map((id) => [id, BANK_ONLY]))), CLOCK_EXCEPTIONS);
+function clockRowOf(ruleset) {
+  if (typeof ruleset !== "string" || !Object.prototype.hasOwnProperty.call(RULESET_CLOCKS, ruleset))
+    return { ok: false, reason: "bad_rules" };
+  return { ok: true, row: RULESET_CLOCKS[ruleset] };
+}
+function clocksOf(row, timerBaseMs) {
+  const { ante, pvp, personal } = row;
+  if (personal === null) return { ante, pvp, personal: null };
+  if (personal.kind === "speedlatro") return { ante, pvp, personal };
+  return {
+    ante,
+    pvp,
+    personal: {
+      kind: "pressure",
+      baseMs: timerBaseMs * personal.baseMultiplier,
+      timedRate: personal.timedRate,
+      previewCostMs: personal.previewCostMs
+    }
+  };
+}
+function incrementMs(seconds) {
+  return seconds === null ? null : Math.max(0, Math.round(seconds * 1e3));
+}
+var RULE_KEYS = [
+  "ruleset",
+  "queue_mode",
+  "starting_lives",
+  "manhunt_hunter_lives",
+  "pvp_start_round",
+  "timer_base_seconds",
+  "timer_forgiveness",
+  "timer_increment_seconds"
+];
+function isRuleKey(key) {
+  return RULE_KEYS.includes(key);
+}
+function ruleValueOk(key, value) {
+  switch (key) {
+    case "ruleset":
+      return clockRowOf(value).ok;
+    case "queue_mode":
+      return typeof value === "string" && Object.prototype.hasOwnProperty.call(MODE_OF_QUEUE, value);
+    case "starting_lives":
+    case "manhunt_hunter_lives":
+    case "pvp_start_round":
+      return positiveInt(value) !== null;
+    case "timer_base_seconds":
+    case "timer_forgiveness":
+      return finiteNumber(value) !== null;
+    case "timer_increment_seconds":
+      return value === null || finiteNumber(value) !== null;
+  }
+}
+function splitRulePatch(patch, current, frozen) {
+  const accepted2 = {};
+  const refused = [];
+  for (const key of Object.keys(patch)) {
+    const value = patch[key];
+    const ok2 = !isRuleKey(key) ? true : frozen ? value === current[key] : ruleValueOk(key, value);
+    if (ok2) accepted2[key] = value;
+    else refused.push(key);
+  }
+  return { accepted: accepted2, refused };
+}
+function settingsFromMetadata(metadata, startedIds) {
+  var _a;
+  const found = clockRowOf(metadata.ruleset);
+  if (!found.ok) return { ok: false, reason: "bad_rules", key: "ruleset" };
+  const bad = (key) => ({
+    ok: false,
+    reason: "bad_rules",
+    key
+  });
+  const mode = modeOfQueue(metadata.queue_mode);
+  if (mode === null) return bad("queue_mode");
+  const startingLives = positiveInt(metadata.starting_lives);
+  if (startingLives === null) return bad("starting_lives");
+  const hunterLives = positiveInt(metadata.manhunt_hunter_lives);
+  if (hunterLives === null) return bad("manhunt_hunter_lives");
+  const pvpStartAnte = positiveInt(metadata.pvp_start_round);
+  if (pvpStartAnte === null) return bad("pvp_start_round");
+  const forced = found.row.forcedTimer;
+  const baseSeconds = forced ? forced.baseSeconds : finiteNumber(metadata.timer_base_seconds);
+  if (baseSeconds === null) return bad("timer_base_seconds");
+  const forgiveness = forced ? forced.forgiveness : finiteNumber(metadata.timer_forgiveness);
+  if (forgiveness === null) return bad("timer_forgiveness");
+  const rawIncrement = (_a = metadata.timer_increment_seconds) != null ? _a : null;
+  const increment = rawIncrement === null ? null : finiteNumber(rawIncrement);
+  if (rawIncrement !== null && increment === null)
+    return bad("timer_increment_seconds");
+  const timerBaseMs = clampedInt(baseSeconds * 1e3, MIN_TIMER_MS, MAX_TIMER_MS);
+  return {
+    ok: true,
+    settings: {
+      mode,
+      startedCount: startedIds.length,
+      startingLives,
+      hunterLives,
+      pvpStartAnte,
+      deathOnRoundLoss: DEATH_ON_ROUND_LOSS,
+      clocks: clocksOf(found.row, timerBaseMs),
+      // The host publishes the raw values (timer_base_seconds is not multiplied).
+      timerBaseMs,
+      timerIncrementMs: incrementMs(increment),
+      skipTimeRule: found.row.ownSkips ? "own" : "lead",
+      timerForgiveness: clampedInt(forgiveness, 0, MAX_TIMER_FORGIVENESS)
+    }
+  };
+}
+
+// src/lobby/pvp/ready.ts
+var PVP_READY_KEY = "pvp.ready";
+function freshPvp(runId) {
+  return {
+    runId,
+    round: 0,
+    ready: {},
+    firstReady: null,
+    blindKeys: {},
+    order: [],
+    readied: [],
+    lastStart: null
+  };
+}
+function pvpOf(lobby) {
+  const started = lobby.game.started;
+  if (!started) return null;
+  const pvp = lobby.game.pvp;
+  return pvp && pvp.runId === started.runId ? pvp : freshPvp(started.runId);
+}
+function withPvp(lobby, pvp) {
+  return __spreadProps(__spreadValues({}, lobby), { game: __spreadProps(__spreadValues({}, lobby.game), { pvp }) });
+}
+function outOfRun(lobby, userId) {
+  const started = lobby.game.started;
+  const game = lobby.game.pvp;
+  const referee = game == null ? void 0 : game.referee;
+  if (!started || !referee || (game == null ? void 0 : game.runId) !== started.runId || referee.lives.runId !== started.runId)
+    return false;
+  const seat = referee.lives.players[userId];
+  return !!seat && (seat.eliminated || seat.forfeited || seat.left);
+}
+function requiredIds(lobby) {
+  const started = lobby.game.started;
+  if (!started) return [];
+  const seated = new Set(lobby.players.map((p) => p.id));
+  return started.players.map((p) => p.id).filter((id) => seated.has(id) && !outOfRun(lobby, id));
+}
+function readyIdsOf(pvp) {
+  return Object.keys(pvp.ready).filter((id) => pvp.ready[id] === true);
+}
+function startIfReady(lobby, left = []) {
+  const pvp = pvpOf(lobby);
+  if (!pvp) return lobby;
+  const kept = left.reduce(dropReady, pvp);
+  const next = tryStart(kept, requiredIds(lobby));
+  return next === pvp ? lobby : withPvp(lobby, next);
+}
+function dropReady(pvp, userId) {
+  var _a;
+  if (pvp.ready[userId] !== true) return pvp;
+  const ready2 = __spreadValues({}, pvp.ready);
+  delete ready2[userId];
+  const blindKeys = __spreadValues({}, pvp.blindKeys);
+  delete blindKeys[userId];
+  const order = pvp.order.filter((id) => id !== userId);
+  return __spreadProps(__spreadValues({}, pvp), {
+    ready: ready2,
+    blindKeys,
+    order,
+    firstReady: pvp.firstReady === userId ? (_a = order[0]) != null ? _a : null : pvp.firstReady
+  });
+}
+function tryStart(pvp, required) {
+  if (required.length < 2) return pvp;
+  if (!required.every((id) => pvp.ready[id] === true)) return pvp;
+  const round = pvp.round + 1;
+  return __spreadProps(__spreadValues({}, pvp), {
+    round,
+    ready: {},
+    firstReady: null,
+    blindKeys: {},
+    order: [],
+    readied: [],
+    lastStart: {
+      roundId: round,
+      firstPlayer: pvp.firstReady,
+      players: [...pvp.order],
+      blindKeys: __spreadValues({}, pvp.blindKeys)
+    }
+  });
+}
+function projectReady(lobby) {
+  const pvp = pvpOf(lobby);
+  if (!pvp)
+    return {
+      runId: null,
+      round: 0,
+      ready: {},
+      firstReady: null,
+      lastStart: null
+    };
+  return {
+    runId: pvp.runId,
+    round: pvp.round,
+    ready: __spreadValues({}, pvp.ready),
+    firstReady: pvp.firstReady,
+    lastStart: pvp.lastStart ? {
+      roundId: pvp.lastStart.roundId,
+      firstPlayer: pvp.lastStart.firstPlayer,
+      players: [...pvp.lastStart.players]
+    } : null
+  };
+}
+function readyDroppedOnDisconnect(lobby, userId) {
+  const pvp = pvpOf(lobby);
+  if (!pvp || pvp.ready[userId] !== true) return { lobby, changed: false };
+  return { lobby: withPvp(lobby, dropReady(pvp, userId)), changed: true };
+}
+function readyAfterSeatRemoved(lobby, userId) {
+  const pvp = pvpOf(lobby);
+  if (!pvp) return { lobby, changed: false };
+  const wasReady = pvp.ready[userId] === true;
+  const kept = dropReady(pvp, userId);
+  const next = tryStart(kept, requiredIds(lobby));
+  if (!wasReady && next === kept) return { lobby, changed: false };
+  return { lobby: withPvp(lobby, next), changed: true };
+}
+function gameAfterResume(game) {
+  const pvp = game.pvp;
+  if (!pvp) return game;
+  return __spreadProps(__spreadValues({}, game), {
+    pvp: __spreadProps(__spreadValues({}, pvp), {
+      ready: {},
+      firstReady: null,
+      blindKeys: {},
+      order: []
+    })
+  });
+}
+function roundIsOpen(lobby, startId) {
+  var _a;
+  const game = lobby.game.pvp;
+  const round = (_a = game == null ? void 0 : game.referee) == null ? void 0 : _a.round;
+  if (!round) return true;
+  return round.roundId < startId || round.phase !== "resolved";
+}
+function playingSeat(lobby, senderId) {
+  const started = lobby.game.started;
+  const pvp = pvpOf(lobby);
+  if (!started || !pvp) return { ok: false, reason: "no_game" };
+  const seated = lobby.players.some((p) => p.id === senderId);
+  if (!seated || !started.players.some((p) => p.id === senderId))
+    return { ok: false, reason: "no_seat" };
+  return { ok: true, pvp };
+}
+function roundOf(pvp, payload, wantsKey) {
+  const blindKey = isRecord(payload) ? payload.blindKey : void 0;
+  if (!isRecord(payload) || typeof payload.runId !== "string" || !isCount(payload.roundId) || wantsKey && !isBlindKey(blindKey))
+    return { ok: false, reason: "bad_payload" };
+  if (payload.runId !== pvp.runId || payload.roundId <= pvp.round)
+    return { ok: false, reason: "round_over" };
+  if (payload.roundId > pvp.round + 1) return { ok: false, reason: "bad_round" };
+  return {
+    ok: true,
+    blindKey: isBlindKey(blindKey) ? blindKey : null
+  };
+}
+var unchanged = (lobby) => ({
+  ok: true,
+  lobby,
+  changed: []
+});
+var changed = (lobby) => ({
+  ok: true,
+  lobby,
+  changed: [PVP_READY_KEY]
+});
+function reduceReady(lobby, senderId, payload) {
+  var _a, _b;
+  const seat = playingSeat(lobby, senderId);
+  if (!seat.ok) return seat;
+  const round = roundOf(seat.pvp, payload, true);
+  if (!round.ok) return round;
+  const blindKey = round.blindKey;
+  if (blindKey === null) return { ok: false, reason: "bad_payload" };
+  if (!isBossBlind(blindKey)) return { ok: false, reason: "not_pvp_blind" };
+  const pvp = seat.pvp;
+  if (outOfRun(lobby, senderId)) return { ok: false, reason: "eliminated" };
+  if (((_a = pvp.lastStart) == null ? void 0 : _a.blindKeys[senderId]) === blindKey && roundIsOpen(lobby, pvp.lastStart.roundId))
+    return { ok: false, reason: "round_over" };
+  if (pvp.ready[senderId] === true) return unchanged(lobby);
+  const next = __spreadProps(__spreadValues({}, pvp), {
+    ready: __spreadProps(__spreadValues({}, pvp.ready), { [senderId]: true }),
+    blindKeys: __spreadProps(__spreadValues({}, pvp.blindKeys), { [senderId]: blindKey }),
+    order: pvp.order.concat([senderId]),
+    readied: pvp.readied.includes(senderId) ? pvp.readied : [...pvp.readied, senderId],
+    firstReady: (_b = pvp.firstReady) != null ? _b : senderId
+  });
+  return changed(withPvp(lobby, tryStart(next, requiredIds(lobby))));
+}
+function reduceUnready(lobby, senderId, payload) {
+  const seat = playingSeat(lobby, senderId);
+  if (!seat.ok) return seat;
+  const round = roundOf(seat.pvp, payload, false);
+  if (!round.ok) return round;
+  if (seat.pvp.ready[senderId] !== true) return unchanged(lobby);
+  return changed(withPvp(lobby, dropReady(seat.pvp, senderId)));
+}
+var readyReducer = {
+  keys: { [PVP_READY_KEY]: projectReady },
+  reduce: (lobby, senderId, payload) => reduceReady(lobby, senderId, payload)
+};
+var unreadyReducer = {
+  keys: { [PVP_READY_KEY]: projectReady },
+  reduce: (lobby, senderId, payload) => reduceUnready(lobby, senderId, payload)
+};
+
+// src/lobby/pvp/state.ts
+var PVP_MODES = ["royale", "nemesis", "manhunt", "teams"];
+function emptyPvp() {
+  return {
+    rules: { runId: null, mode: null, startedCount: 0 },
+    round: {
+      runId: null,
+      roundId: 0,
+      phase: "shop",
+      players: {},
+      lastResult: null
+    },
+    lives: { runId: null, players: {}, teamLives: null, pending: [] },
+    teams: { runId: null, teams: {} },
+    votes: { runId: null, draw: [], seed: [] },
+    result: {
+      runId: null,
+      kind: null,
+      winnerId: null,
+      winnerTeam: null,
+      places: []
+    },
+    pairing: null,
+    cardTargets: null
+  };
+}
+function emptyFacts() {
+  return __spreadProps(__spreadValues({
+    log: [],
+    applied: 0,
+    blinds: {},
+    handRound: {},
+    skips: {},
+    animating: []
+  }, seedOpponentFacts([])), {
+    guarded: {},
+    pvpBlinds: {},
+    anteSeen: 0,
+    deaths: [],
+    deadline: null,
+    timerN: 0,
+    forgiven: {},
+    clocks: {},
+    skipsSeen: {}
+  });
+}
+function refereeOf(lobby) {
+  var _a;
+  if (lobby.modId !== PVP_MOD_ID) return null;
+  const base = pvpOf(lobby);
+  if (!base) return null;
+  const stored = (_a = base.referee) != null ? _a : __spreadProps(__spreadValues({}, emptyPvp()), { facts: emptyFacts() });
+  return __spreadProps(__spreadValues({}, stored), { runId: base.runId, lastStart: base.lastStart });
+}
+function withReferee(lobby, state) {
+  const base = pvpOf(lobby);
+  if (!base) return lobby;
+  const _a = state, { runId: _run, lastStart: _last } = _a, referee = __objRest(_a, ["runId", "lastStart"]);
+  const pvp = __spreadProps(__spreadValues({}, base), { referee });
+  return __spreadProps(__spreadValues({}, lobby), { game: __spreadProps(__spreadValues({}, lobby.game), { pvp }) });
+}
+function withView(state, view5) {
+  return __spreadProps(__spreadValues(__spreadValues({}, state), view5), { facts: state.facts });
+}
+function withMemo(state, memo) {
+  return __spreadProps(__spreadValues({}, state), { facts: __spreadValues(__spreadValues({}, state.facts), memo) });
+}
+function withFact(state, fact) {
+  return __spreadProps(__spreadValues({}, state), {
+    facts: __spreadProps(__spreadValues({}, state.facts), { log: [...state.facts.log, fact] })
+  });
+}
+function mergeBlind(state, id, blindKey, next) {
+  var _a;
+  const old = (_a = state.facts.blinds[id]) == null ? void 0 : _a[blindKey];
+  const record = old ? {
+    beaten: old.beaten && next.beaten,
+    roundLost: old.roundLost || next.roundLost
+  } : next;
+  if (old && old.beaten === record.beaten && old.roundLost === record.roundLost)
+    return { state, record, changed: false };
+  return {
+    changed: true,
+    record,
+    state: __spreadProps(__spreadValues({}, state), {
+      facts: __spreadProps(__spreadValues({}, state.facts), {
+        blinds: __spreadProps(__spreadValues({}, state.facts.blinds), {
+          [id]: __spreadProps(__spreadValues({}, state.facts.blinds[id]), { [blindKey]: record })
+        })
+      })
+    })
+  };
+}
+function inRunIgnoringLives(seat) {
+  return !!seat && !seat.eliminated && !seat.forfeited && !seat.left;
+}
 
 // src/config.ts
 var CONFIG_COLLECTION = "server_config";
@@ -1610,8 +2246,19 @@ var DEFAULT_CONFIG = {
   chatAllowlist: [],
   season: 0,
   queueAllowedModIds: [],
-  queueAllowedModIdsExtra: []
+  queueAllowedModIdsExtra: [],
+  disabledPvpModes: []
 };
+function pvpModesOf(value) {
+  if (!Array.isArray(value)) return null;
+  const modes = [];
+  for (const entry of value) {
+    const known = PVP_MODES.find((mode) => mode === entry);
+    if (known === void 0 || modes.indexOf(known) !== -1) return null;
+    modes.push(known);
+  }
+  return modes;
+}
 var MAX_MOD_IDS = 500;
 var MOD_ID_PATTERN = /^[^\s]{1,128}$/;
 function modIdsOf(value) {
@@ -1644,15 +2291,20 @@ function mergeConfig(current, update) {
   if (allowedIds) next.queueAllowedModIds = allowedIds;
   const extraIds = modIdsOf(update.queueAllowedModIdsExtra);
   if (extraIds) next.queueAllowedModIdsExtra = extraIds;
+  const disabledModes = pvpModesOf(update.disabledPvpModes);
+  if (disabledModes) next.disabledPvpModes = disabledModes;
   return next;
 }
 function clientConfig(config) {
   const _a = config, { chatAllowlist, queueAllowedModIds, queueAllowedModIdsExtra } = _a, shown = __objRest(_a, ["chatAllowlist", "queueAllowedModIds", "queueAllowedModIdsExtra"]);
   return shown;
 }
-function readConfig(nk) {
+function readConfig(nk, logger) {
   const objects = nk.storageRead([{ collection: CONFIG_COLLECTION, key: CONFIG_KEY, userId: SYSTEM_USER_ID }]);
-  return mergeConfig(DEFAULT_CONFIG, objects.length > 0 ? objects[0].value : {});
+  const stored = objects.length > 0 ? objects[0].value : {};
+  if (logger && stored.disabledPvpModes !== void 0 && pvpModesOf(stored.disabledPvpModes) === null)
+    logger.warn("Stored config field disabledPvpModes is malformed and is ignored: no PvP mode is switched off");
+  return mergeConfig(DEFAULT_CONFIG, stored);
 }
 function writeConfig(nk, config) {
   nk.storageWrite([
@@ -1665,67 +2317,6 @@ function writeConfig(nk, config) {
       permissionWrite: 0
     }
   ]);
-}
-
-// src/standing/mod_report.ts
-var VERSION_START = /-(?=[0-9~]|v[0-9]|UNK$)/;
-function parseReportedMod(entry) {
-  const match = VERSION_START.exec(entry);
-  const at = match ? match.index : entry.lastIndexOf("-");
-  if (at <= 0) return { key: entry, version: "" };
-  return { key: entry.slice(0, at), version: entry.slice(at + 1) };
-}
-function isAllowedEntry(entry, allowedIds) {
-  return allowedIds.some((id) => entry === id || entry.indexOf(id + "-") === 0);
-}
-function disallowedMods(reported, allowedIds) {
-  const out = [];
-  for (const entry of reported) {
-    if (isAllowedEntry(entry, allowedIds)) continue;
-    const key = parseReportedMod(entry).key;
-    if (out.indexOf(key) === -1) out.push(key);
-  }
-  return out;
-}
-
-// src/standing/pvp_version.ts
-var PVP_MOD_ID = "MultiplayerPvP";
-var VERSION_MISMATCH = "version_mismatch";
-var VERSION_MISMATCH_MESSAGE = "Everyone in a PvP game needs the same MultiplayerPvP version. Update the mod and try again.";
-var X_Y_Z = /^v?(\d+\.\d+\.\d+)/;
-function pvpVersionOf(reported) {
-  for (const entry of reported) {
-    const mod2 = parseReportedMod(entry);
-    if (mod2.key !== PVP_MOD_ID) continue;
-    const match = X_Y_Z.exec(mod2.version);
-    return match ? match[1] : mod2.version;
-  }
-  return "";
-}
-function compareVersions(a, b) {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    const x = pa[i] > 0 ? pa[i] : 0;
-    const y = pb[i] > 0 ? pb[i] : 0;
-    if (x !== y) return x < y ? -1 : 1;
-  }
-  return 0;
-}
-function versionOutliers(versionByPlayer) {
-  const ids = Object.keys(versionByPlayer);
-  const counts = {};
-  for (const id of ids) counts[versionByPlayer[id]] = (counts[versionByPlayer[id]] || 0) + 1;
-  let kept = "";
-  let keptCount = 0;
-  for (const version of Object.keys(counts)) {
-    const better = counts[version] > keptCount || counts[version] === keptCount && compareVersions(version, kept) > 0;
-    if (better) {
-      kept = version;
-      keptCount = counts[version];
-    }
-  }
-  return ids.filter((id) => versionByPlayer[id] !== kept);
 }
 
 // src/standing/storage.ts
@@ -1801,15 +2392,15 @@ function withoutBan(bans, banId) {
   return next;
 }
 function withoutExpired(bans, now) {
-  let changed2 = false;
+  let changed3 = false;
   const next = {};
   for (const type of BAN_TYPES) {
     const ban = bans[type];
     if (!ban) continue;
     if (activeBan(bans, type, now)) next[type] = ban;
-    else changed2 = true;
+    else changed3 = true;
   }
-  return changed2 ? next : bans;
+  return changed3 ? next : bans;
 }
 function bansFromList(list) {
   let bans = {};
@@ -2368,6 +2959,18 @@ function profileFor(nk, userId, fallbackName = "") {
   return stored ? stored.profile : defaultProfile(fallbackName);
 }
 
+// src/matchmaking/mode_switch.ts
+var MODE_DISABLED = "mode_disabled";
+var MODE_DISABLED_MESSAGE = "This game mode is currently disabled.";
+function modeDisabled(disabled, mode, ranked) {
+  if (ranked && disabled.indexOf("nemesis") !== -1) return true;
+  return mode !== null && disabled.indexOf(mode) !== -1;
+}
+function ticketModeDisabled(disabled, modId, mode, ranked) {
+  if (modId !== PVP_MOD_ID) return false;
+  return modeDisabled(disabled, ranked ? "nemesis" : modeOfQueue(mode), ranked);
+}
+
 // src/lobby/codes.ts
 function keyOf(code) {
   return {
@@ -2399,7 +3002,7 @@ function heldByCheckpoint(nk, code) {
   const objects = nk.storageRead([
     { collection: LOBBY_CHECKPOINT_COLLECTION, key: code, userId: SYSTEM_USER_ID }
   ]);
-  return objects.length > 0 && Date.now() < checkpointExpiry(objects[0].value);
+  return objects.length > 0 && !checkpointExpired(objects[0].value, Date.now());
 }
 function reserveCode(nk, code, modId) {
   if (heldByCheckpoint(nk, code)) return false;
@@ -2603,21 +3206,22 @@ function stepSeconds(value, fallback) {
 function startRefusal(lobby, ctx, id) {
   if (!lobby.game.started) return "not_in_game";
   if (lobby.hostId !== ctx.from) return "not_host";
+  if (lobby.game.started.raceStartedAt !== void 0) return "run_started";
   if (typeof id !== "string" || !STEP_ID_PATTERN.test(id)) return "bad_params";
   const setup = setupOf(lobby.game);
   if (setup.open) return "step_open";
   if (setup.results[id]) return "step_done";
   return null;
 }
-function changed(game, now) {
+function changed2(game, now) {
   return { game, params: { setup: setupView(setupOf(game), now) } };
 }
 var startDraft = {
   key: "mpapi_setup_draft",
   reduce(lobby, ctx, params) {
     const p = isPlainObject(params) ? params : {};
-    const refusal = startRefusal(lobby, ctx, p.id);
-    if (refusal) return { reject: refusal };
+    const refusal2 = startRefusal(lobby, ctx, p.id);
+    if (refusal2) return { reject: refusal2 };
     const candidates = parseCandidates(p.candidates);
     if (!candidates) return { reject: "bad_params" };
     const poolSize = p.poolSize === void 0 ? candidates.length : p.poolSize;
@@ -2656,8 +3260,8 @@ var startDraft = {
       setup: __spreadProps(__spreadValues({}, setupOf(lobby.game)), { open: draft })
     });
     if (turns.length === 0)
-      return changed(finishDraft(game, draft, pool), ctx.now);
-    return changed(game, ctx.now);
+      return changed2(finishDraft(game, draft, pool), ctx.now);
+    return changed2(game, ctx.now);
   }
 };
 var chooseDraftTile = {
@@ -2670,7 +3274,7 @@ var chooseDraftTile = {
     if (typeof key !== "string") return { reject: "bad_params" };
     const game = chooseTile(lobby.game, open, key, ctx.now);
     if (!game) return { reject: "bad_tile" };
-    return changed(game, ctx.now);
+    return changed2(game, ctx.now);
   }
 };
 function rollVote(vote, random) {
@@ -2710,8 +3314,8 @@ var startVote = {
   key: "mpapi_setup_vote",
   reduce(lobby, ctx, params) {
     const p = isPlainObject(params) ? params : {};
-    const refusal = startRefusal(lobby, ctx, p.id);
-    if (refusal) return { reject: refusal };
+    const refusal2 = startRefusal(lobby, ctx, p.id);
+    if (refusal2) return { reject: refusal2 };
     const options = p.options;
     if (!Array.isArray(options) || options.length < 2 || options.length > MAX_VOTE_OPTIONS)
       return { reject: "bad_params" };
@@ -2731,7 +3335,7 @@ var startVote = {
       votes: {},
       deadline: ctx.now + seconds * 1e3
     };
-    return changed(
+    return changed2(
       __spreadProps(__spreadValues({}, lobby.game), {
         setup: __spreadProps(__spreadValues({}, setupOf(lobby.game)), { open: vote })
       }),
@@ -2756,8 +3360,8 @@ var castVote = {
       setup: __spreadProps(__spreadValues({}, setupOf(lobby.game)), { open: vote })
     });
     if (everyoneVoted(lobby, vote))
-      return changed(closeVote(game, vote, ctx.random), ctx.now);
-    return changed(game, ctx.now);
+      return changed2(closeVote(game, vote, ctx.random), ctx.now);
+    return changed2(game, ctx.now);
   }
 };
 var setupState = {
@@ -2815,6 +3419,7 @@ function setupAfterDowntime(game, downtime) {
 
 // src/lobby/checkpoint.ts
 var CLAIM_TIMEOUT_MS = 3e4;
+var CHECKPOINT_SCHEMA = 3;
 function withoutPendingRunSaves(lobby) {
   if (!lobby.game.runSavePending) return lobby;
   const _a = lobby.game, { runSavePending } = _a, game = __objRest(_a, ["runSavePending"]);
@@ -2825,30 +3430,68 @@ function checkpointOf(lobby, now) {
   const gq = lobby.groupQueue;
   const parkedUntil = gq && gq.phase === "away" ? gq.until : 0;
   return {
+    schema: CHECKPOINT_SCHEMA,
     lobby: withoutPendingRunSaves(lobby),
     at: now,
     claimedAt: null,
     expiresAt: Math.max(now + CHECKPOINT_TTL_MS, parkedUntil)
   };
 }
+var FROZEN_MODES = [null, ...PVP_MODES];
+function hasCurrentSchema(checkpoint) {
+  var _a, _b;
+  if (checkpoint.schema !== CHECKPOINT_SCHEMA) return false;
+  const mode = (_b = (_a = refereeOf(checkpoint.lobby)) == null ? void 0 : _a.rules.mode) != null ? _b : null;
+  return FROZEN_MODES.includes(mode);
+}
 function isExpired(checkpoint, now) {
-  return now >= checkpointExpiry(checkpoint);
+  return checkpointExpired(checkpoint, now);
 }
 function isClaimable(checkpoint, now) {
   return !isExpired(checkpoint, now) && (checkpoint.claimedAt === null || now - checkpoint.claimedAt >= CLAIM_TIMEOUT_MS);
+}
+function carriedOver(deadline, startId) {
+  return deadline.kind === "ante" ? __spreadProps(__spreadValues({}, deadline), { resumed: startId }) : deadline;
+}
+function pvpAfterDowntime(pvp, downtime) {
+  var _a, _b;
+  const referee = pvp.referee;
+  if (!referee) return pvp;
+  const facts = referee.facts;
+  const deadline = facts.deadline;
+  const clocks = {};
+  for (const id of Object.keys(facts.clocks)) {
+    const clock = facts.clocks[id];
+    clocks[id] = __spreadProps(__spreadValues({}, clock), {
+      since: clock.since + downtime,
+      graceUntil: clock.graceUntil === null ? null : clock.graceUntil + downtime
+    });
+  }
+  return __spreadProps(__spreadValues({}, pvp), {
+    referee: __spreadProps(__spreadValues({}, referee), {
+      facts: __spreadProps(__spreadValues({}, facts), {
+        deadline: deadline ? carriedOver(
+          typeof deadline.endsAt === "number" && deadline.pausedMs === void 0 ? __spreadProps(__spreadValues({}, deadline), { endsAt: deadline.endsAt + downtime }) : deadline,
+          (_b = (_a = pvp.lastStart) == null ? void 0 : _a.roundId) != null ? _b : 0
+        ) : deadline,
+        clocks
+      })
+    })
+  });
 }
 function resumeFrom(checkpoint, now) {
   const lobby = checkpoint.lobby;
   const downtime = Math.max(0, now - checkpoint.at);
   const settleFrom = lobby.game.settleFrom;
   const gq = lobby.groupQueue;
+  const game = gameAfterResume(lobby.game);
   return __spreadProps(__spreadValues({}, lobby), {
     groupQueue: gq && gq.phase === "away" ? gq : null,
     createdAt: now,
     players: lobby.players.map((p) => __spreadProps(__spreadValues({}, p), { sessionId: "", awaySince: now })),
     spectators: [],
     actionBudget: {},
-    game: __spreadProps(__spreadValues({}, lobby.game), {
+    game: __spreadProps(__spreadValues(__spreadValues({}, game), game.pvp ? { pvp: pvpAfterDowntime(game.pvp, downtime) } : {}), {
       settleFrom: settleFrom === null ? null : settleFrom + downtime,
       setup: setupAfterDowntime(lobby.game, downtime)
     })
@@ -2863,14 +3506,14 @@ function keyOf2(code) {
   return { collection: LOBBY_CHECKPOINT_COLLECTION, key: code, userId: SYSTEM_USER_ID };
 }
 function write2(nk, code, checkpoint, version) {
-  nk.storageWrite([
-    __spreadProps(__spreadValues({}, keyOf2(code)), {
+  const acks = nk.storageWrite([
+    __spreadValues(__spreadProps(__spreadValues({}, keyOf2(code)), {
       value: checkpoint,
       permissionRead: 0,
-      permissionWrite: 0,
-      version
-    })
+      permissionWrite: 0
+    }), version === void 0 ? {} : { version })
   ]);
+  return acks[0].version;
 }
 function saveCheckpoint(nk, checkpoint) {
   write2(nk, checkpoint.lobby.code, checkpoint);
@@ -2880,25 +3523,46 @@ function readCheckpoint(nk, code) {
   if (objects.length === 0) return null;
   return { checkpoint: objects[0].value, version: objects[0].version || "" };
 }
-function deleteCheckpoint(nk, code) {
-  nk.storageDelete([keyOf2(code)]);
+function deleteCheckpoint(nk, code, version) {
+  nk.storageDelete([version === void 0 ? keyOf2(code) : __spreadProps(__spreadValues({}, keyOf2(code)), { version })]);
 }
 function resumeLobby(nk, logger, code, now) {
   const found = readCheckpoint(nk, code);
   if (!found) return { kind: "none" };
   const checkpoint = found.checkpoint;
-  if (isExpired(checkpoint, now)) {
+  if (!hasCurrentSchema(checkpoint) || isExpired(checkpoint, now)) {
     deleteCheckpoint(nk, code);
     return { kind: "none" };
   }
   if (!isClaimable(checkpoint, now)) return { kind: "resuming" };
+  let claim;
   try {
-    write2(nk, code, __spreadProps(__spreadValues({}, checkpoint), { claimedAt: now }), found.version);
+    claim = write2(nk, code, __spreadProps(__spreadValues({}, checkpoint), { claimedAt: now }), found.version);
   } catch (e) {
     return { kind: "resuming" };
   }
   const lobby = checkpoint.lobby;
-  const matchId = nk.matchCreate(LOBBY_MATCH, { resumeCode: code });
+  try {
+    resumeFrom(checkpoint, now);
+  } catch (e) {
+    logger.error("Lobby %s could not resume from its checkpoint: %s", code, String(e));
+    try {
+      deleteCheckpoint(nk, code, claim);
+    } catch (_) {
+    }
+    return { kind: "none" };
+  }
+  let matchId;
+  try {
+    matchId = nk.matchCreate(LOBBY_MATCH, { resumeCode: code });
+  } catch (e) {
+    logger.error("Lobby %s could not resume from its checkpoint: %s", code, String(e));
+    try {
+      write2(nk, code, __spreadProps(__spreadValues({}, checkpoint), { claimedAt: null }), claim);
+    } catch (_) {
+    }
+    return { kind: "resuming" };
+  }
   bindCode(nk, code, matchId, lobby.modId);
   for (const id of seatHoldersOf(lobby)) {
     nk.storageWrite([
@@ -2913,7 +3577,7 @@ function resumeLobby(nk, logger, code, now) {
     ]);
   }
   deleteCheckpoint(nk, code);
-  if (logger) logger.info("Lobby %s resumed from its checkpoint as %s", code, matchId);
+  logger.info("Lobby %s resumed from its checkpoint as %s", code, matchId);
   return { kind: "resumed", matchId, modId: lobby.modId };
 }
 
@@ -2967,8 +3631,8 @@ function steamIdHashOf(nk, userId) {
 
 // src/mirror/outbox.ts
 var MIRROR_COLLECTION = "mirror_outbox";
-function entryKey(at, unique) {
-  return `${String(at).padStart(15, "0")}-${unique}`;
+function entryKey(at, unique2) {
+  return `${String(at).padStart(15, "0")}-${unique2}`;
 }
 function enqueue(nk, entry) {
   nk.storageWrite([
@@ -3094,6 +3758,54 @@ function noteReturn(nk, logger, userId, now) {
   }
 }
 
+// src/lobby/pvp/ranked_pin.ts
+var RANKED_PREFIX = "pvp_ranked_";
+var RANKED_RULESETS = [
+  "balanced",
+  "expanded",
+  "vanilla",
+  "majorleague",
+  "smallworld"
+];
+function rankedPinOf(rankedMode) {
+  if (!rankedMode.startsWith(RANKED_PREFIX))
+    return { ok: false, reason: "unknown_ranked_mode" };
+  const short = rankedMode.slice(RANKED_PREFIX.length);
+  if (!RANKED_RULESETS.includes(short))
+    return { ok: false, reason: "unknown_ranked_mode" };
+  const ruleset = `ruleset_mp_${short}`;
+  const found = clockRowOf(ruleset);
+  if (!found.ok) return { ok: false, reason: "unknown_ranked_mode" };
+  const pin = {
+    ruleset,
+    queue_mode: "pvp_nemesis",
+    starting_lives: 4,
+    pvp_start_round: 2,
+    // The client's lobby default (core.lua) and what flow.lua sends: `or 7`.
+    manhunt_hunter_lives: 7
+  };
+  if (!found.row.forcedTimer) {
+    pin.timer_base_seconds = 150;
+    pin.timer_forgiveness = 0;
+  }
+  pin.timer_increment_seconds = 60;
+  return { ok: true, pin };
+}
+function pinFor(modId, rankedMode) {
+  if (modId !== PVP_MOD_ID || rankedMode === "") return { ok: true, pin: {} };
+  return rankedPinOf(rankedMode);
+}
+function splitPinnedPatch(patch, pin) {
+  const accepted2 = {};
+  const refused = [];
+  for (const key of Object.keys(patch)) {
+    if (Object.prototype.hasOwnProperty.call(pin, key) && patch[key] !== pin[key])
+      refused.push(key);
+    else accepted2[key] = patch[key];
+  }
+  return { accepted: accepted2, refused };
+}
+
 // src/lobby/log_check.ts
 var FRAMING_OPCODES = { end: true, chk: true };
 function opcodeOf(line) {
@@ -3197,10 +3909,13 @@ function replayTailOf(lobby, userId) {
     var _a, _b;
     return {
       playerId: p.id,
-      events: eventsOf((_b = (_a = lobby.game.logs[p.id]) == null ? void 0 : _a.lines) != null ? _b : [])
+      events: tailEventsOf((_b = (_a = lobby.game.logs[p.id]) == null ? void 0 : _a.lines) != null ? _b : [])
     };
   }).filter((tail) => tail.events.length > 0);
   return tails.length > 0 ? { runId: started.runId, tails } : null;
+}
+function tailEventsOf(lines) {
+  return eventsOf(lines).map((e) => ({ t: e.t }));
 }
 function eventsOf(lines) {
   return lines.map((line) => {
@@ -3247,16 +3962,20 @@ function catchUpLimitMsFor(modId, overrideSeconds) {
 
 // src/matchmaking/queue_refusal.ts
 var PRIVATE_LOBBIES_ALLOW_ANY_MODS = "Private lobbies allow any mods.";
-function queueRefusalMessage(refusal) {
-  switch (refusal.code) {
+function queueRefusalMessage(refusal2) {
+  switch (refusal2.code) {
     case "access_denied":
-      return refusal.message;
+      return refusal2.message;
     case "integrity_required":
       return INTEGRITY_REQUIRED;
     case "mods_not_allowed":
-      return "These mods aren't allowed in matchmaking: " + refusal.mods.join(", ") + ". " + PRIVATE_LOBBIES_ALLOW_ANY_MODS;
+      return "These mods aren't allowed in matchmaking: " + refusal2.mods.join(", ") + ". " + PRIVATE_LOBBIES_ALLOW_ANY_MODS;
     case "version_mismatch":
       return VERSION_MISMATCH_MESSAGE;
+    case "mode_disabled":
+      return MODE_DISABLED_MESSAGE;
+    case "PVP_UPDATE_REQUIRED":
+      return PVP_UPDATE_REQUIRED_MESSAGE;
     case "mods_unreported":
       return "Your game hasn't reported its mods yet. Reconnect and try again.";
   }
@@ -3265,11 +3984,11 @@ function standingRefusal(result) {
   if (result.standing !== "none") return null;
   return result.reason === "mods_not_allowed" ? { code: "mods_not_allowed", mods: result.disallowed } : { code: "mods_unreported" };
 }
-function refusedMods(refusal) {
-  return refusal.code === "mods_not_allowed" ? refusal.mods : [];
+function refusedMods(refusal2) {
+  return refusal2.code === "mods_not_allowed" ? refusal2.mods : [];
 }
-function isStandingRefusal(refusal) {
-  return refusal.code === "mods_not_allowed" || refusal.code === "mods_unreported";
+function isStandingRefusal(refusal2) {
+  return refusal2.code === "mods_not_allowed" || refusal2.code === "mods_unreported";
 }
 
 // src/matchmaking/ticket_query.ts
@@ -3322,11 +4041,12 @@ var MESSAGES = {
   not_leader: "Only the host can queue the group.",
   not_member: "Only players in the lobby can join its group.",
   ticket_mismatch: "The ticket doesn't match the group.",
-  bad_counts: "Invalid player counts for a group ticket."
+  bad_counts: "Invalid player counts for a group ticket.",
+  mode_disabled: MODE_DISABLED_MESSAGE
 };
-function refusalMessage(refusal) {
-  const base = MESSAGES[refusal.code];
-  return refusal.detail ? base + " " + refusal.detail : base;
+function refusalMessage(refusal2) {
+  const base = MESSAGES[refusal2.code];
+  return refusal2.detail ? base + " " + refusal2.detail : base;
 }
 var NAME_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
 var PARTY_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[A-Za-z0-9_.-]{1,64}$/;
@@ -3352,13 +4072,13 @@ function homeRefusal(home, byId, switches) {
   if (away) return { code: "member_away", userId: away.id };
   return null;
 }
-function memberRefused(userId, refusal) {
+function memberRefused(userId, refusal2) {
   return {
     code: "member_refused",
     userId,
-    detail: queueRefusalMessage(refusal),
-    reason: refusal.code,
-    mods: refusedMods(refusal)
+    detail: queueRefusalMessage(refusal2),
+    reason: refusal2.code,
+    mods: refusedMods(refusal2)
   };
 }
 function memberRefusal(memberIds, facts) {
@@ -3468,8 +4188,8 @@ function everyone(lobby) {
   return lobby.players.map((p) => p.id);
 }
 function announce(lobby, reason, requeue = false) {
-  const view = viewOf(lobby);
-  const payload = view && __spreadProps(__spreadValues({}, view), { reason, requeue });
+  const view5 = viewOf(lobby);
+  const payload = view5 && __spreadProps(__spreadValues({}, view5), { reason, requeue });
   return { kind: "send", op: ServerOp.GROUP_QUEUE, payload, to: everyone(lobby) };
 }
 function withGroup(lobby, groupQueue) {
@@ -3611,6 +4331,3185 @@ function releaseGroups(previouslyStarted, lobby) {
   };
 }
 
+// src/lobby/pvp/modes/common.ts
+var freshRoundPlayer = () => ({
+  score: null,
+  handsLeft: null,
+  highestScore: null,
+  ante: null,
+  furthestBlind: null,
+  reportedHands: null,
+  reportedApplied: 0,
+  timerLosses: 0,
+  handsSpent: false,
+  committedHands: null,
+  creditedHands: null,
+  pvpLeftMs: null
+});
+var handsDone = (p) => p.handsSpent || p.handsLeft === 0;
+var inRunWithLives = (p) => p.lives > 0 && !p.eliminated && !p.forfeited && !p.left;
+function seatIds(state) {
+  return [
+    .../* @__PURE__ */ new Set([
+      ...Object.keys(state.lives.players),
+      ...Object.keys(state.round.players)
+    ])
+  ].sort();
+}
+function seatedIds(state) {
+  return Object.keys(state.lives.players).filter((id) => !state.lives.players[id].left).sort();
+}
+function aliveIds(state) {
+  return Object.keys(state.lives.players).filter((id) => inRunWithLives(state.lives.players[id])).sort();
+}
+var highestAnte = (state) => Object.values(state.round.players).reduce(
+  (best, p) => p.ante === null ? best : best === null ? p.ante : Math.max(best, p.ante),
+  null
+);
+var scoreOf = (state, id) => {
+  const entry = state.round.players[id];
+  return entry === void 0 ? null : entry.score;
+};
+var allOutOfHands = (state, ids) => ids.every((id) => {
+  const entry = state.round.players[id];
+  return entry !== void 0 && handsDone(entry);
+});
+var seatPlayers = (state) => {
+  const { rules } = state;
+  if (rules.runId === null || state.round.runId === rules.runId) return state;
+  const ids = seatIds(state);
+  const round = {};
+  const lives = {};
+  for (const id of ids) {
+    round[id] = freshRoundPlayer();
+    lives[id] = {
+      lives: rules.startingLives,
+      eliminated: false,
+      forfeited: false,
+      left: false,
+      events: []
+    };
+  }
+  return __spreadProps(__spreadValues({}, state), {
+    rules,
+    round: {
+      runId: rules.runId,
+      roundId: 0,
+      phase: "shop",
+      players: round,
+      lastResult: null
+    },
+    lives: { runId: rules.runId, players: lives, teamLives: null, pending: [] },
+    votes: { runId: rules.runId, draw: [], seed: [] }
+  });
+};
+function openRound(state) {
+  var _a, _b;
+  if (state.rules.runId === null || state.result.runId !== null || state.round.phase === "playing")
+    return state;
+  const players = {};
+  const pvpLeftMs = (_b = (_a = state.rules.clocks.pvp) == null ? void 0 : _a.baseMs) != null ? _b : null;
+  for (const [id, p] of Object.entries(state.round.players)) {
+    players[id] = __spreadProps(__spreadValues({}, p), {
+      score: null,
+      handsLeft: null,
+      reportedHands: null,
+      reportedApplied: 0,
+      timerLosses: 0,
+      handsSpent: false,
+      committedHands: null,
+      creditedHands: null,
+      pvpLeftMs
+    });
+  }
+  return __spreadProps(__spreadValues({}, state), { round: __spreadProps(__spreadValues({}, state.round), { phase: "playing", players }) });
+}
+var roundReady = (state) => openRound(state);
+var lastPlayerStanding = (state) => {
+  const { rules } = state;
+  if (rules.runId === null || state.lives.runId !== rules.runId) return state;
+  if (state.result.runId !== null || state.lives.pending.length > 0)
+    return state;
+  const alive = aliveIds(state);
+  if (alive.length > 1) return state;
+  const others = Object.keys(state.lives.players).filter((id) => !alive.includes(id)).sort();
+  const result = alive.length === 1 ? {
+    runId: rules.runId,
+    kind: "win",
+    winnerId: alive[0],
+    winnerTeam: null,
+    places: [
+      { playerId: alive[0], place: 1 },
+      ...others.map((playerId) => ({ playerId, place: 2 }))
+    ]
+  } : {
+    runId: rules.runId,
+    kind: "draw",
+    winnerId: null,
+    winnerTeam: null,
+    places: others.map((playerId) => ({ playerId, place: 1 }))
+  };
+  return __spreadProps(__spreadValues({}, state), { result });
+};
+var retireForfeiters = (state, ctx) => {
+  if (state.result.runId !== null) return state;
+  const waiting = new Set(state.lives.pending.map((p) => p.playerId));
+  let changed3 = false;
+  const players = {};
+  for (const [id, seat] of Object.entries(state.lives.players)) {
+    const out = (seat.forfeited || seat.left) && !waiting.has(id);
+    if (out && !seat.eliminated) {
+      players[id] = __spreadProps(__spreadValues({}, seat), { eliminated: true });
+      changed3 = true;
+    } else players[id] = seat;
+  }
+  const next = changed3 ? __spreadProps(__spreadValues({}, state), { lives: __spreadProps(__spreadValues({}, state.lives), { players }) }) : state;
+  return lastPlayerStanding(next, ctx);
+};
+
+// src/lobby/pvp/mask.ts
+function maskedFor(state, viewer) {
+  if (state === null || state.round.phase !== "playing") return false;
+  const entry = state.round.players[viewer];
+  if (entry === void 0 || entry.handsLeft === null) return true;
+  if (state.facts.handRound[viewer] === state.round.roundId) return false;
+  return !handsDone(entry);
+}
+
+// src/lobby/pvp/reducer.ts
+var PVP_ROUND_KEY = "pvp.round";
+var PVP_VOTES_KEY = "pvp.votes";
+var PVP_SKIPS_KEY = "pvp.skips";
+var refuse = (reason) => ({ ok: false, reason });
+var unchanged2 = (state) => ({
+  ok: true,
+  state,
+  changed: []
+});
+function isOut(state, id) {
+  const life = state.lives.players[id];
+  if (life && (life.eliminated || life.forfeited || life.left)) return true;
+  return state.facts.log.some((f) => f.type === "forfeit" && f.playerId === id);
+}
+function gate(state, id, runId, allowOut = false) {
+  if (runId !== state.runId) return refuse("round_over");
+  if (state.result.runId === state.runId && state.result.kind !== null)
+    return refuse("round_over");
+  if (!allowOut && isOut(state, id)) return refuse("eliminated");
+  return null;
+}
+function runIdOf(args) {
+  return isRecord(args) && typeof args.runId === "string" ? args.runId : null;
+}
+function handsAfter(reportedHands, applied, timerLosses) {
+  return Math.max(0, reportedHands - (timerLosses - applied));
+}
+function entryOf2(state, id) {
+  const entry = state.round.players[id];
+  return entry === void 0 ? refuse("no_entry") : entry;
+}
+function withPlayer(state, id, entry, roundId = null) {
+  return __spreadProps(__spreadValues({}, state), {
+    round: __spreadProps(__spreadValues({}, state.round), {
+      runId: state.runId,
+      players: __spreadProps(__spreadValues({}, state.round.players), { [id]: entry })
+    }),
+    facts: __spreadProps(__spreadValues({}, state.facts), {
+      handRound: roundId === null ? state.facts.handRound : __spreadProps(__spreadValues({}, state.facts.handRound), { [id]: roundId })
+    })
+  });
+}
+
+// ../packages/types/src/big-score.ts
+var MAX_SAFE = 9007199254740991;
+var MAX_ARRAY_LENGTH = 100;
+var MAX_TEXT_LENGTH = 4096;
+var LOG_MAX_SAFE = Math.log10(MAX_SAFE);
+var ZERO_SCORE = "0";
+var TOP_SCORE = new Array(MAX_ARRAY_LENGTH).fill(String(MAX_SAFE)).join(",");
+var ENTRY_FIRST = /^(0|[1-9][0-9]*)(\.[0-9]+)?$/;
+var ENTRY_HIGHER = /^(0|[1-9][0-9]*)$/;
+var TOP_ARRAY = () => new Array(MAX_ARRAY_LENGTH).fill(MAX_SAFE);
+function normalizeArray(input) {
+  if (input.length === 0) return [0];
+  if (input.length > MAX_ARRAY_LENGTH) return TOP_ARRAY();
+  const x = input.slice();
+  for (let i = 0; i < x.length; i++) {
+    const e = x[i];
+    if (Number.isNaN(e) || e === Number.POSITIVE_INFINITY || e === Number.NEGATIVE_INFINITY) {
+      return TOP_ARRAY();
+    }
+    if (i !== 0 && e !== Math.floor(e)) x[i] = Math.floor(e);
+  }
+  let again;
+  do {
+    again = false;
+    while (x.length > 0 && x[x.length - 1] === 0) {
+      x.pop();
+      again = true;
+    }
+    if (x[0] > MAX_SAFE) {
+      x[1] = (x[1] || 0) + 1;
+      x[0] = Math.log10(x[0]);
+      again = true;
+    }
+    while (x[0] < LOG_MAX_SAFE && x[1]) {
+      x[0] = __pow(10, x[0]);
+      x[1]--;
+      again = true;
+    }
+    if (x.length > 2 && !x[1]) {
+      let i = 2;
+      while (!x[i]) i++;
+      x[i - 1] = Math.floor(x[0]);
+      x[0] = __pow(10, x[0] - Math.floor(x[0]));
+      x[i]--;
+      again = true;
+    }
+    for (let i = 1; i < x.length; i++) {
+      if (x[i] > MAX_SAFE) {
+        x[i + 1] = (x[i + 1] || 0) + 1;
+        x[0] = x[i] + 1;
+        for (let j = 1; j <= i; j++) x[j] = 0;
+        again = true;
+      }
+    }
+    if (x.length > MAX_ARRAY_LENGTH) return TOP_ARRAY();
+  } while (again);
+  if (x.length === 0) return [0];
+  for (let i = 0; i < x.length; i++) if (x[i] === void 0) x[i] = 0;
+  if (x.length === 1) x[0] = Math.floor(x[0]);
+  return x;
+}
+function writeFirst(x) {
+  if (x === Math.floor(x)) return x.toFixed(0);
+  for (let digits = 15; digits <= 17; digits++) {
+    const s = x.toPrecision(digits);
+    if (s.indexOf("e") === -1 && Number(s) === x) {
+      return s.indexOf(".") === -1 ? s : s.replace(/0+$/, "").replace(/\.$/, "");
+    }
+  }
+  return x.toPrecision(17);
+}
+function writeArray(array) {
+  const parts = [writeFirst(array[0])];
+  for (let i = 1; i < array.length; i++) parts.push(array[i].toFixed(0));
+  return parts.join(",");
+}
+function readArray(text) {
+  if (typeof text !== "string" || text.length === 0 || text.length > MAX_TEXT_LENGTH)
+    return null;
+  const parts = text.split(",");
+  if (parts.length > MAX_ARRAY_LENGTH) return null;
+  const array = [];
+  for (let i = 0; i < parts.length; i++) {
+    if (!(i === 0 ? ENTRY_FIRST : ENTRY_HIGHER).test(parts[i])) return null;
+    const n = Number(parts[i]);
+    if (!Number.isFinite(n)) return null;
+    array.push(n);
+  }
+  return array;
+}
+function fromNumber(n) {
+  const value = Number.isNaN(n) || n === Number.POSITIVE_INFINITY ? Number.MAX_VALUE : n;
+  if (value < 1) return ZERO_SCORE;
+  return writeArray(normalizeArray([Math.floor(value)]));
+}
+function fromArray(array, sign) {
+  if (sign < 0) return ZERO_SCORE;
+  return writeArray(normalizeArray(array));
+}
+function normalizeScore(text) {
+  const array = readArray(text);
+  return array === null ? null : writeArray(normalizeArray(array));
+}
+function compareScores(a, b) {
+  const x = readArray(a);
+  const y = readArray(b);
+  if (x === null || y === null) return null;
+  const p = normalizeArray(x);
+  const q = normalizeArray(y);
+  if (p.length !== q.length) return p.length > q.length ? 1 : -1;
+  for (let i = p.length - 1; i >= 0; i--) {
+    if (p[i] > q[i]) return 1;
+    if (p[i] < q[i]) return -1;
+  }
+  return 0;
+}
+var GROUPED_INTEGER = /^\d{1,3}(,\d{3})+$/;
+var HYPER_E = /^(e*)([0-9]+(?:\.[0-9]+)?)e\+?([0-9]+)$/;
+function parseLegacyScore(input) {
+  if (typeof input === "number") return fromNumber(input);
+  if (typeof input !== "string") return ZERO_SCORE;
+  const text = input.trim();
+  if (GROUPED_INTEGER.test(text)) return fromNumber(Number(text.replace(/,/g, "")));
+  const normal = normalizeScore(text);
+  if (normal !== null) return normal;
+  const cleaned = text.replace(/[,\s]/g, "").toLowerCase();
+  if (cleaned === "") return ZERO_SCORE;
+  const value = Number(cleaned);
+  if (!Number.isNaN(value) && (Number.isFinite(value) || !HYPER_E.test(cleaned))) return fromNumber(value);
+  if (cleaned === "naneinf" || cleaned === "nan" || cleaned === "inf" || cleaned === "infinity")
+    return fromNumber(Number.POSITIVE_INFINITY);
+  const tower = HYPER_E.exec(cleaned);
+  if (tower !== null) {
+    const layers = tower[1].length;
+    const inner = Number(tower[2] + "e" + tower[3]);
+    if (Number.isFinite(inner)) return fromArray([inner, layers], 1);
+    return fromArray([Number(tower[3]) + Math.log10(Number(tower[2])), layers + 1], 1);
+  }
+  if (/^[0-9.]*e/.test(cleaned) || cleaned.indexOf("#") !== -1) return TOP_SCORE;
+  return ZERO_SCORE;
+}
+function scoreToNumber(text) {
+  const array = readArray(text);
+  if (array === null) return 0;
+  const a = normalizeArray(array);
+  if (a.length === 1) return a[0];
+  if (a.length > 2) return Number.POSITIVE_INFINITY;
+  let value = a[0];
+  for (let i = 0; i < a[1] && value !== Number.POSITIVE_INFINITY; i++) value = Math.pow(10, value);
+  return value;
+}
+
+// src/lobby/pvp/score.ts
+var SCORE_ZERO = ZERO_SCORE;
+function fromGameValue(value) {
+  return fromNumber(value);
+}
+function parse(text) {
+  if (typeof text !== "string") return null;
+  return normalizeScore(text);
+}
+function compare(a, b) {
+  const order = compareScores(a, b);
+  if (order === null)
+    throw new Error("compare was given text that is not a score");
+  return order;
+}
+function compareRoundScore(a, b) {
+  if (a === null) return b === null ? 0 : -1;
+  if (b === null) return 1;
+  return compare(a, b);
+}
+function greater(a, b) {
+  return compare(a, b) > 0;
+}
+function equal(a, b) {
+  return compare(a, b) === 0;
+}
+var SUM_LIMIT = 1e300;
+function sum(list) {
+  let total = 0;
+  let allPlain = true;
+  let largest = SCORE_ZERO;
+  for (const text of list) {
+    if (greater(text, largest)) largest = text;
+    if (text.includes(",")) allPlain = false;
+    else total += Number(text);
+  }
+  if (allPlain && total < SUM_LIMIT) return fromGameValue(total);
+  return largest;
+}
+
+// src/lobby/pvp/clocks.ts
+function notAhead(input) {
+  if (input.rival === null || input.rival.score === null) return true;
+  return compareRoundScore(input.rival.score, input.score) === 1;
+}
+function clockRuns(rules, input, entry, now) {
+  if (!input.inRun || input.ready || input.away) return false;
+  if (rules.kind === "pressure") {
+    return !input.pvpOpen && !input.animating && (!input.readied || input.timed);
+  }
+  if (entry.spent) return false;
+  if (!input.pvpOpen) return true;
+  if (!input.blindStarted) return false;
+  if (entry.graceUntil === null || now < entry.graceUntil) return false;
+  return !input.handsDone && notAhead(input);
+}
+function clockRate(rules, input) {
+  if (!input.timed) return 1;
+  if (rules.kind === "speedlatro" && input.pvpOpen) return 1;
+  return rules.timedRate;
+}
+function clockLive(entry, now) {
+  if (!entry.running) return entry.ms;
+  const elapsed = Math.max(0, now - entry.since);
+  return Math.max(0, entry.ms - elapsed * entry.rate);
+}
+function settled(entry, now) {
+  return __spreadProps(__spreadValues({}, entry), { ms: clockLive(entry, now), since: now });
+}
+function clockCredit(entry, ms) {
+  return __spreadProps(__spreadValues({}, entry), { ms: entry.ms + ms });
+}
+function clockReset(rules, entry, now) {
+  return __spreadProps(__spreadValues({}, entry), {
+    ms: rules.baseMs,
+    spent: false,
+    graceUntil: null,
+    since: now
+  });
+}
+function clockCharge(entry, cost) {
+  if (cost === 0 || entry.ms <= Math.max(1e4, cost)) return entry;
+  return __spreadProps(__spreadValues({}, entry), { ms: entry.ms - cost });
+}
+function skipCredit(input, memo) {
+  if (input.teamMode) return { fresh: 0, memo: null };
+  if (input.rivalId === null) return { fresh: 0, memo: { rival: null } };
+  if (input.rivalSkips === null) return { fresh: 0, memo: null };
+  const next = { rival: input.rivalId, skips: input.rivalSkips };
+  if (memo === void 0 || memo.rival === null || memo.rival !== input.rivalId) {
+    return { fresh: 0, memo: next };
+  }
+  return { fresh: Math.max(0, input.rivalSkips - memo.skips), memo: next };
+}
+function afterRunOut(rules, entry, now) {
+  return rules.kind === "pressure" ? __spreadProps(__spreadValues({}, entry), { ms: rules.baseMs, since: now }) : __spreadProps(__spreadValues({}, entry), { ms: 0, since: now, running: false, spent: true });
+}
+function stepPlayer(rules, now, before, input, memo, incrementMs2) {
+  let entry = before;
+  let dirty = false;
+  let runOut2 = null;
+  if (input.roundClosed) {
+    entry = clockReset(rules, entry, now);
+    dirty = true;
+  }
+  if (entry.running && clockLive(entry, now) === 0) {
+    runOut2 = { kind: rules.kind, n: before.n };
+    entry = afterRunOut(rules, entry, now);
+    dirty = true;
+  }
+  const skip = skipCredit(input, memo);
+  if (rules.kind === "pressure" && incrementMs2 !== null && skip.fresh * incrementMs2 > 0 && !input.timing && !input.timed) {
+    entry = clockCredit(settled(entry, now), skip.fresh * incrementMs2);
+    dirty = true;
+  }
+  for (let i = 0; i < input.previews; i++) {
+    const live = settled(entry, now);
+    const charged = clockCharge(live, rules.previewCostMs);
+    if (charged.ms !== live.ms) {
+      entry = charged;
+      dirty = true;
+    }
+  }
+  if (rules.kind === "speedlatro" && input.pvpOpen && input.blindStarted && !entry.spent && entry.graceUntil === null) {
+    entry = __spreadProps(__spreadValues({}, settled(entry, now)), {
+      ms: rules.pvpMs,
+      graceUntil: now + rules.graceMs
+    });
+    dirty = true;
+  }
+  const running = clockRuns(rules, input, entry, now);
+  const rate = clockRate(rules, input);
+  if (running !== entry.running || rate !== entry.rate) {
+    entry = __spreadProps(__spreadValues({}, settled(entry, now)), { running, rate });
+    dirty = true;
+  }
+  if (runOut2 === null && entry.running && clockLive(entry, now) === 0) {
+    runOut2 = { kind: rules.kind, n: before.n };
+    entry = afterRunOut(rules, entry, now);
+    dirty = true;
+  }
+  return {
+    entry: dirty ? __spreadProps(__spreadValues({}, entry), { n: before.n + 1 }) : entry,
+    memo: skip.memo,
+    runOut: runOut2
+  };
+}
+function sameSeen(a, b) {
+  if (b === void 0 || a.rival !== b.rival) return false;
+  return a.rival === null || b.rival !== null && a.skips === b.skips;
+}
+function clocksStep(rules, now, clocks, skipsSeen, inputs, incrementMs2) {
+  const nextClocks = __spreadValues({}, clocks);
+  const nextSeen = __spreadValues({}, skipsSeen);
+  let clocksChanged = false;
+  let seenChanged = false;
+  const runOuts = [];
+  const missing = [];
+  for (const id of Object.keys(inputs).sort()) {
+    const entry = clocks[id];
+    if (entry === void 0) {
+      missing.push(id);
+      continue;
+    }
+    const stepped2 = stepPlayer(
+      rules,
+      now,
+      entry,
+      inputs[id],
+      skipsSeen[id],
+      incrementMs2
+    );
+    if (stepped2.entry !== entry) {
+      nextClocks[id] = stepped2.entry;
+      clocksChanged = true;
+    }
+    if (stepped2.memo !== null && !sameSeen(stepped2.memo, skipsSeen[id])) {
+      nextSeen[id] = stepped2.memo;
+      seenChanged = true;
+    }
+    if (stepped2.runOut !== null) {
+      runOuts.push(__spreadValues({ playerId: id }, stepped2.runOut));
+    }
+  }
+  return {
+    clocks: clocksChanged ? nextClocks : clocks,
+    skipsSeen: seenChanged ? nextSeen : skipsSeen,
+    runOuts,
+    missing
+  };
+}
+
+// src/lobby/pvp/pending.ts
+function resultOn(results, playerId, key) {
+  var _a;
+  return key === null ? void 0 : (_a = results[playerId]) == null ? void 0 : _a[key];
+}
+function decidePending(pending, opponentId, results, opponent) {
+  var _a;
+  const result = (_a = results[opponentId]) == null ? void 0 : _a[pending.blindKey];
+  if (result === "beaten") return { outcome: "win", winner: opponentId };
+  if (opponent.lives <= 0) return { outcome: "draw", winner: null };
+  if (result === "failed") return { outcome: "win", winner: opponentId };
+  if (!opponent.present || opponent.forfeited)
+    return { outcome: "win", winner: pending.playerId };
+  return { outcome: "pending", winner: null };
+}
+var standing = (seat) => seat.present && seat.lives > 0 && !seat.forfeited;
+function findPending(pendings, playerId) {
+  var _a;
+  return (_a = pendings.find((p) => p.playerId === playerId)) != null ? _a : null;
+}
+function addPending(pendings, playerId, key, outBefore = {}) {
+  if (findPending(pendings, playerId)) return [...pendings];
+  return [...pendings, { playerId, blindKey: key, outBefore }];
+}
+function hasResult(results, playerId, key) {
+  var _a;
+  return key === null || ((_a = results[playerId]) == null ? void 0 : _a[key]) !== void 0;
+}
+function manyResolved(pendings, results, roster) {
+  for (const pending of pendings)
+    for (const [id, seat] of Object.entries(roster))
+      if (id !== pending.playerId && standing(seat) && !hasResult(results, id, pending.blindKey))
+        return false;
+  return true;
+}
+function places(pendings, results, roster) {
+  const ids = Object.keys(roster);
+  const keys = {};
+  for (const [id, seat] of Object.entries(roster)) {
+    let key = standing(seat) ? 0 : 1;
+    let involved = 0;
+    let dropped = 0;
+    for (const pending of pendings) {
+      const result = resultOn(results, id, pending.blindKey);
+      if (id === pending.playerId || result === "failed") involved += 1;
+      else if (result === void 0 && (pending.outBefore[id] === true || !seat.present))
+        dropped += 1;
+    }
+    if (involved > 0) key = Math.max(key, 1 + involved);
+    keys[id] = key + 2 * dropped;
+  }
+  const out = {};
+  for (const id of ids)
+    out[id] = 1 + ids.filter((other) => keys[other] < keys[id]).length;
+  return out;
+}
+function decideTeam(key, results, roster) {
+  var _a;
+  let open = false;
+  for (const [id, seat] of Object.entries(roster)) {
+    const result = (_a = results[id]) == null ? void 0 : _a[key];
+    if (result === "beaten") return "win";
+    if (result === void 0 && standing(seat)) open = true;
+  }
+  return open ? "pending" : "draw";
+}
+
+// src/lobby/pvp/result.ts
+function resultOf(state, kind, winnerId) {
+  return {
+    runId: state.rules.runId,
+    kind,
+    winnerId: kind === "win" ? winnerId : null,
+    winnerTeam: null,
+    places: Object.keys(state.lives.players).sort().map((id) => ({
+      playerId: id,
+      place: kind === "draw" || id === winnerId ? 1 : 2
+    }))
+  };
+}
+function withResult(state, kind, winnerId) {
+  if (state.result.kind !== null) return state;
+  return __spreadProps(__spreadValues({}, state), { result: resultOf(state, kind, winnerId) });
+}
+function teamResultOf(state, kind, winnerTeam) {
+  return {
+    runId: state.rules.runId,
+    kind,
+    winnerId: null,
+    winnerTeam: kind === "win" ? winnerTeam : null,
+    places: Object.keys(state.lives.players).sort().map((id) => ({
+      playerId: id,
+      place: kind === "draw" || state.teams.teams[id] === winnerTeam ? 1 : 2
+    }))
+  };
+}
+function withTeamResult(state, kind, winnerTeam) {
+  if (state.result.kind !== null) return state;
+  return __spreadProps(__spreadValues({}, state), { result: teamResultOf(state, kind, winnerTeam) });
+}
+
+// src/lobby/pvp/deaths.ts
+function withDuelPending(state, id, key) {
+  const opponent = Object.keys(state.lives.players).find((o) => o !== id);
+  if (opponent === void 0) return state;
+  return __spreadProps(__spreadValues({}, state), {
+    lives: __spreadProps(__spreadValues({}, state.lives), {
+      pending: [
+        ...state.lives.pending,
+        { playerId: id, blindKey: key, waitsOn: [opponent] }
+      ]
+    })
+  });
+}
+function withManyDeath(state, id, key) {
+  const others = Object.keys(state.lives.players).filter((o) => o !== id);
+  const outBefore = {};
+  for (const o of others) {
+    const seat = state.lives.players[o];
+    if (seat.lives <= 0 || seat.forfeited) outBefore[o] = true;
+  }
+  const recorded = withMemo(state, {
+    deaths: addPending(state.facts.deaths, id, key, outBefore)
+  });
+  if (key === null) return recorded;
+  return __spreadProps(__spreadValues({}, recorded), {
+    lives: __spreadProps(__spreadValues({}, recorded.lives), {
+      pending: [
+        ...recorded.lives.pending,
+        {
+          playerId: id,
+          blindKey: key,
+          waitsOn: others.filter(
+            (o) => inRunIgnoringLives(state.lives.players[o])
+          )
+        }
+      ]
+    })
+  });
+}
+function otherSide(team) {
+  switch (team) {
+    case "A":
+      return "B";
+    case "B":
+      return "A";
+    case "RUNNER":
+      return "HUNTER";
+    case "HUNTER":
+      return "RUNNER";
+    default:
+      return null;
+  }
+}
+function membersInRun(state, team) {
+  return Object.keys(state.lives.players).filter(
+    (id) => state.teams.teams[id] === team && inRunIgnoringLives(state.lives.players[id])
+  ).sort();
+}
+function withTeamDeath(state, mode, id, key) {
+  const team = state.teams.teams[id];
+  const other = otherSide(team);
+  if (other === null || state.lives.pending.length > 0) return state;
+  if (mode.opensSideDeath && !mode.opensSideDeath(state, id)) return state;
+  return __spreadProps(__spreadValues({}, state), {
+    lives: __spreadProps(__spreadValues({}, state.lives), {
+      pending: [
+        { playerId: id, blindKey: key, waitsOn: membersInRun(state, other) }
+      ]
+    })
+  });
+}
+function onPvpBlind(state, id, blindKey) {
+  const keys = state.facts.pvpBlinds[id];
+  return (keys == null ? void 0 : keys.includes(blindKey)) === true;
+}
+function openDeath(state, mode, id, key) {
+  if (key !== null && (key.startsWith("pvp:") || onPvpBlind(state, id, key)))
+    return state;
+  switch (mode.deathPolicy) {
+    case "opponent":
+      return key === null ? state : withDuelPending(state, id, key);
+    case "everyone":
+      return withManyDeath(state, id, key);
+    case "side":
+      return key === null ? state : withTeamDeath(state, mode, id, key);
+    case "none":
+      return state;
+  }
+}
+function blindResultsOf(state) {
+  const results = {};
+  for (const id of Object.keys(state.facts.blinds)) {
+    results[id] = {};
+    for (const key of Object.keys(state.facts.blinds[id]))
+      results[id][key] = state.facts.blinds[id][key].beaten ? "beaten" : "failed";
+  }
+  return results;
+}
+function rosterOf(state) {
+  const roster = {};
+  for (const [id, seat] of Object.entries(state.lives.players))
+    roster[id] = {
+      present: !seat.left,
+      lives: seat.lives,
+      forfeited: seat.forfeited
+    };
+  return roster;
+}
+function withWaiting(state, deaths, results, roster) {
+  const waiting = new Set(
+    deaths.filter((death) => !manyResolved([death], results, roster)).map((death) => death.playerId)
+  );
+  const pending = state.lives.pending.filter((p) => waiting.has(p.playerId));
+  if (pending.length === state.lives.pending.length) return state;
+  return __spreadProps(__spreadValues({}, state), { lives: __spreadProps(__spreadValues({}, state.lives), { pending }) });
+}
+function settleMany(state) {
+  const deaths = state.facts.deaths;
+  if (state.result.kind !== null || deaths.length === 0) return state;
+  const results = blindResultsOf(state);
+  const roster = rosterOf(state);
+  const next = withWaiting(state, deaths, results, roster);
+  if (aliveIds(next).length > 1 || !manyResolved(deaths, results, roster))
+    return next;
+  const ids = Object.keys(next.lives.players).sort();
+  const placeOf = places(deaths, results, roster);
+  const first = ids.filter((id) => placeOf[id] === 1);
+  const result = {
+    runId: next.rules.runId,
+    kind: first.length === 1 ? "win" : "draw",
+    winnerId: first.length === 1 ? first[0] : null,
+    winnerTeam: null,
+    places: ids.map((playerId) => ({ playerId, place: placeOf[playerId] }))
+  };
+  return __spreadProps(__spreadValues({}, next), { result });
+}
+function settleDuel(state) {
+  if (state.result.kind !== null) return state;
+  const results = blindResultsOf(state);
+  const waiting = state.lives.pending;
+  for (let i = 0; i < waiting.length; i++) {
+    const pending = waiting[i];
+    const opponentId = Object.keys(state.lives.players).find(
+      (id) => id !== pending.playerId
+    );
+    if (opponentId === void 0) continue;
+    const opponent = state.lives.players[opponentId];
+    const decided = decidePending(pending, opponentId, results, {
+      present: !opponent.left,
+      lives: opponent.lives,
+      forfeited: opponent.forfeited
+    });
+    if (decided.outcome === "pending") continue;
+    const resolved = __spreadProps(__spreadValues({}, state), {
+      lives: __spreadProps(__spreadValues({}, state.lives), {
+        pending: waiting.filter((_, at) => at !== i)
+      })
+    });
+    return decided.outcome === "win" ? withResult(resolved, "win", decided.winner) : withResult(resolved, "draw", null);
+  }
+  return state;
+}
+function settleTeam(state) {
+  const pending = state.lives.pending[0];
+  if (state.result.kind !== null || pending === void 0) return state;
+  const winner = otherSide(state.teams.teams[pending.playerId]);
+  if (winner === null) return state;
+  const roster = {};
+  const all = rosterOf(state);
+  for (const id of Object.keys(all))
+    if (state.teams.teams[id] === winner) roster[id] = all[id];
+  const outcome = decideTeam(pending.blindKey, blindResultsOf(state), roster);
+  if (outcome === "pending") return state;
+  const resolved = __spreadProps(__spreadValues({}, state), {
+    lives: __spreadProps(__spreadValues({}, state.lives), { pending: state.lives.pending.slice(1) })
+  });
+  return withTeamResult(resolved, outcome, outcome === "win" ? winner : null);
+}
+function settlePending(state, mode) {
+  switch (mode.deathPolicy) {
+    case "opponent":
+      return settleDuel(state);
+    case "everyone":
+      return settleMany(state);
+    case "side":
+      return settleTeam(state);
+    case "none":
+      return state;
+  }
+}
+function asOneMoment(state, before, from, batch) {
+  const deaths = state.facts.deaths;
+  if (deaths.length <= from) return state;
+  const alreadyOut = (id) => {
+    const seat = before.lives.players[id];
+    return seat.lives <= 0 || seat.forfeited;
+  };
+  const simultaneous = batch.filter((id) => !alreadyOut(id));
+  return withMemo(state, {
+    deaths: deaths.map((death, at) => {
+      if (at < from) return death;
+      const outBefore = __spreadValues({}, death.outBefore);
+      for (const id of simultaneous) delete outBefore[id];
+      return __spreadProps(__spreadValues({}, death), { outBefore });
+    })
+  });
+}
+
+// src/lobby/pvp/lives.ts
+function withSeat(state, id, seat) {
+  return __spreadProps(__spreadValues({}, state), {
+    lives: __spreadProps(__spreadValues({}, state.lives), {
+      players: __spreadProps(__spreadValues({}, state.lives.players), { [id]: seat })
+    })
+  });
+}
+function loseLife(state, mode, id, key, guardKey) {
+  var _a;
+  const seat = state.lives.players[id];
+  if (!seat || seat.lives <= 0 || !inRunIgnoringLives(seat)) return state;
+  const spent = (_a = state.facts.guarded[id]) != null ? _a : [];
+  const pvpLoss = (key == null ? void 0 : key.startsWith("pvp:")) === true;
+  if (guardKey !== null && spent.includes(guardKey) && (!pvpLoss || seat.events.some((e) => e.key === guardKey)))
+    return state;
+  const lives = seat.lives - 1;
+  let next = withSeat(state, id, __spreadProps(__spreadValues({}, seat), {
+    lives,
+    eliminated: lives <= 0,
+    events: [...seat.events, { delta: -1, key }]
+  }));
+  if (guardKey !== null && !spent.includes(guardKey))
+    next = withMemo(next, {
+      guarded: __spreadProps(__spreadValues({}, state.facts.guarded), { [id]: [...spent, guardKey] })
+    });
+  return lives <= 0 ? openDeath(next, mode, id, key) : next;
+}
+var TEAM_GUARD = "team:spent";
+function rearmTeamGuard(state, mode, id) {
+  var _a;
+  if (!mode.lifePool) return state;
+  const guards = __spreadValues({}, state.facts.guarded);
+  let changed3 = false;
+  for (const m of mode.lifePool.sharers(state, id)) {
+    if (!((_a = guards[m]) == null ? void 0 : _a.includes(TEAM_GUARD))) continue;
+    guards[m] = guards[m].filter((k) => k !== TEAM_GUARD);
+    changed3 = true;
+  }
+  return changed3 ? withMemo(state, { guarded: guards }) : state;
+}
+function losePooledLife(state, mode, pool, id, key, guardKey) {
+  var _a, _b;
+  const members = pool.sharers(state, id);
+  if (members.length === 0) return state;
+  const pvpLoss = (key == null ? void 0 : key.startsWith("pvp:")) === true;
+  if (!pvpLoss && key !== null && guardKey !== null && !onPvpBlind(state, id, key)) {
+    if (((_a = state.facts.guarded[id]) != null ? _a : []).includes(TEAM_GUARD)) return state;
+    const charged2 = withView(state, pool.spend(state, id, key));
+    const guards = __spreadValues({}, state.facts.guarded);
+    for (const m of members)
+      guards[m] = [...(_b = guards[m]) != null ? _b : [], TEAM_GUARD];
+    const next2 = withMemo(charged2, { guarded: guards });
+    return next2.lives.players[id].lives <= 0 ? openDeath(next2, mode, id, key) : next2;
+  }
+  const guardedIds = pvpLoss ? members : [id];
+  const spent = (m) => {
+    var _a2;
+    return (_a2 = state.facts.guarded[m]) != null ? _a2 : [];
+  };
+  const spendGuards = (s) => {
+    if (guardKey === null || guardedIds.every((m) => spent(m).includes(guardKey)))
+      return s;
+    const guards = __spreadValues({}, state.facts.guarded);
+    for (const m of guardedIds)
+      if (!spent(m).includes(guardKey)) guards[m] = [...spent(m), guardKey];
+    return withMemo(s, { guarded: guards });
+  };
+  if (guardKey !== null && guardedIds.some((m) => spent(m).includes(guardKey)) && (!pvpLoss || state.lives.players[id].events.some((e) => e.key === guardKey)))
+    return spendGuards(state);
+  const charged = withView(state, pool.spend(state, id, key));
+  const next = spendGuards(charged);
+  return next.lives.players[id].lives <= 0 ? openDeath(next, mode, id, key) : next;
+}
+function chargeLife(state, mode, id, key, guardKey) {
+  return mode.lifePool ? losePooledLife(state, mode, mode.lifePool, id, key, guardKey) : loseLife(state, mode, id, key, guardKey);
+}
+function gainLife(state, id) {
+  const seat = state.lives.players[id];
+  if (!seat || seat.lives <= 0 || !inRunIgnoringLives(seat)) return state;
+  return withSeat(state, id, __spreadProps(__spreadValues({}, seat), {
+    lives: seat.lives + 1,
+    events: [...seat.events, { delta: 1, key: null }]
+  }));
+}
+function gainVoucherLives(state, mode, fact) {
+  if (!mode.voucherGainers || mode.lifePool) return state;
+  const gainers = new Set(mode.voucherGainers(state, fact));
+  return [...gainers].reduce(gainLife, state);
+}
+function outOfHands(state, mode, id) {
+  if (!mode.outOfHandsOnFail || state.round.phase !== "playing") return state;
+  const prior = state.round.players[id];
+  if (!prior || handsDone(prior)) return state;
+  return __spreadProps(__spreadValues({}, state), {
+    round: __spreadProps(__spreadValues({}, state.round), {
+      players: __spreadProps(__spreadValues({}, state.round.players), { [id]: __spreadProps(__spreadValues({}, prior), { handsSpent: true }) })
+    })
+  });
+}
+function runOut(state, mode, id) {
+  var _a;
+  const forgiveness = state.rules.runId === null ? 0 : state.rules.timerForgiveness;
+  const used = (_a = state.facts.forgiven[id]) != null ? _a : 0;
+  if (used < forgiveness)
+    return __spreadProps(__spreadValues({}, state), {
+      facts: __spreadProps(__spreadValues({}, state.facts), {
+        forgiven: __spreadProps(__spreadValues({}, state.facts.forgiven), { [id]: used + 1 })
+      })
+    });
+  return outOfHands(chargeLife(state, mode, id, null, null), mode, id);
+}
+function consumeFacts(state, mode) {
+  const log = state.facts.log;
+  if (state.facts.applied >= log.length) return { state, gone: [] };
+  let next = state;
+  const gone = [];
+  for (const fact of log.slice(state.facts.applied)) {
+    switch (fact.type) {
+      case "forfeit": {
+        const seat = next.lives.players[fact.playerId];
+        if (seat && !seat.forfeited) {
+          next = withSeat(next, fact.playerId, __spreadProps(__spreadValues({}, seat), { forfeited: true }));
+          gone.push(fact.playerId);
+        }
+        break;
+      }
+      case "blind":
+        if (fact.roundLost && next.rules.runId !== null && next.rules.deathOnRoundLoss)
+          next = chargeLife(
+            next,
+            mode,
+            fact.playerId,
+            fact.blindKey,
+            fact.blindKey
+          );
+        if (fact.roundLost) next = outOfHands(next, mode, fact.playerId);
+        break;
+      case "progress":
+        next = rearmTeamGuard(next, mode, fact.playerId);
+        break;
+      case "voucher":
+        next = gainVoucherLives(next, mode, {
+          playerId: fact.playerId,
+          voucherKey: fact.voucherKey
+        });
+        break;
+      default:
+        break;
+    }
+  }
+  return {
+    state: __spreadProps(__spreadValues({}, next), { facts: __spreadProps(__spreadValues({}, next.facts), { applied: log.length }) }),
+    gone
+  };
+}
+function markLeft(state, startedIds, seatedIds2) {
+  let next = state;
+  const gone = [];
+  const seated = new Set(seatedIds2);
+  for (const id of startedIds) {
+    const seat = next.lives.players[id];
+    if (seat && !seat.left && !seated.has(id)) {
+      next = withSeat(next, id, __spreadProps(__spreadValues({}, seat), { left: true }));
+      gone.push(id);
+    }
+  }
+  return { state: next, gone };
+}
+
+// src/lobby/pvp/skips.ts
+var NOTHING = {
+  skips: null,
+  skipsAtPvp: null,
+  facing: null,
+  spentMs: 0
+};
+function entryOf3(entries, id) {
+  var _a;
+  return (_a = entries[id]) != null ? _a : NOTHING;
+}
+function skipsSincePvp(entry) {
+  if (entry.skips === null || entry.skipsAtPvp === null) return null;
+  return entry.skips - entry.skipsAtPvp;
+}
+function leadOf(settings, entries, id, opponentOf) {
+  var _a;
+  const mine = skipsSincePvp(entryOf3(entries, id));
+  if (mine === null) return 0;
+  if (settings.skipTimeRule === "own") return mine;
+  const facing = (_a = entryOf3(entries, id).facing) != null ? _a : opponentOf(id);
+  if (facing === null) return 0;
+  const theirs = skipsSincePvp(entryOf3(entries, facing));
+  if (theirs === null) return 0;
+  return Math.max(mine - theirs, 0);
+}
+function skipTimeMs(settings, lead) {
+  if (settings.timerIncrementMs === null) return 0;
+  return settings.timerIncrementMs * lead;
+}
+function rawBankMs(settings, entries, id, opponentOf) {
+  return settings.timerBaseMs + skipTimeMs(settings, leadOf(settings, entries, id, opponentOf)) - entryOf3(entries, id).spentMs;
+}
+function anteBankMs(settings, entries, id, opponentOf) {
+  const raw = rawBankMs(settings, entries, id, opponentOf);
+  return Math.min(MAX_TIMER_MS, Math.max(MIN_TIMER_MS, raw));
+}
+function spentOut(settings, entries, id, ms, opponentOf) {
+  const room = rawBankMs(settings, entries, id, opponentOf) - MIN_TIMER_MS;
+  const taken = Math.min(ms, Math.max(0, Math.floor(room)));
+  if (taken <= 0) return entries;
+  const entry = entryOf3(entries, id);
+  return __spreadProps(__spreadValues({}, entries), { [id]: __spreadProps(__spreadValues({}, entry), { spentMs: entry.spentMs + taken }) });
+}
+var MANHUNT_REPLAYABLE_ANTES = 2;
+function skipCap(ante, mode) {
+  const replayable = mode === "manhunt" ? MANHUNT_REPLAYABLE_ANTES : 0;
+  return 2 * (ante + replayable);
+}
+function skipsReported(entries, id, skips) {
+  const entry = entryOf3(entries, id);
+  if (entry.skips === skips) return entries;
+  return __spreadProps(__spreadValues({}, entries), { [id]: __spreadProps(__spreadValues({}, entry), { skips }) });
+}
+function spentRestarted(settings, entries, id, opponentOf) {
+  const spentMs = skipTimeMs(
+    settings,
+    leadOf(settings, entries, id, opponentOf)
+  );
+  const entry = entryOf3(entries, id);
+  if (entry.spentMs === spentMs) return entries;
+  return __spreadProps(__spreadValues({}, entries), { [id]: __spreadProps(__spreadValues({}, entry), { spentMs }) });
+}
+function skipsReset(entries, opponentOf) {
+  let changed3 = false;
+  const next = {};
+  for (const id of Object.keys(entries)) {
+    const entry = entries[id];
+    const facing = opponentOf(id);
+    if (entry.spentMs === 0 && entry.skipsAtPvp === entry.skips && entry.facing === facing) {
+      next[id] = entry;
+      continue;
+    }
+    changed3 = true;
+    next[id] = { skips: entry.skips, skipsAtPvp: entry.skips, facing, spentMs: 0 };
+  }
+  return changed3 ? next : entries;
+}
+function facingRepinned(entries, opponentOf) {
+  let changed3 = false;
+  const next = {};
+  for (const id of Object.keys(entries)) {
+    const entry = entries[id];
+    const facing = opponentOf(id);
+    if (entry.facing === null || entry.facing === facing) {
+      next[id] = entry;
+      continue;
+    }
+    changed3 = true;
+    next[id] = __spreadProps(__spreadValues({}, entry), { facing });
+  }
+  return changed3 ? next : entries;
+}
+
+// src/lobby/pvp/deadline.ts
+function worldOf(state, mode, readyIds, requiredIds2) {
+  return {
+    readyIds,
+    requiredIds: requiredIds2,
+    opponentOf: (id) => {
+      var _a, _b;
+      return (_b = (_a = mode.view) == null ? void 0 : _a.call(mode, state).opponents[id]) != null ? _b : null;
+    },
+    firstPlayer: state.lastStart === null ? null : state.lastStart.firstPlayer
+  };
+}
+function roundOpen(state) {
+  return state.round.phase === "playing" && !(state.lastStart !== null && state.lastStart.roundId > state.round.roundId);
+}
+var sorted = (ids) => [...ids].sort();
+function wouldTime(kind, by, state, world) {
+  if (kind === "ante") {
+    if (!world.readyIds.includes(by)) return { ok: false, reason: "not_ready" };
+    const side = state.teams.teams[by];
+    const against = world.requiredIds.filter(
+      (id) => id !== by && !world.readyIds.includes(id) && inRunIgnoringLives(state.lives.players[id]) && !(side !== void 0 && state.teams.teams[id] === side)
+    );
+    return against.length === 0 ? { ok: false, reason: "nobody_to_time" } : { ok: true, against: sorted(against) };
+  }
+  const target = world.opponentOf(by);
+  if (target === null) return { ok: false, reason: "no_opponent" };
+  if (maskedFor(state, by)) return { ok: false, reason: "not_ahead" };
+  const mine = state.round.players[by];
+  const theirs = state.round.players[target];
+  if (theirs === void 0 || theirs.handsLeft === null)
+    return { ok: false, reason: "not_started" };
+  if (mine === void 0 || mine.score === null || theirs.score === null)
+    return { ok: false, reason: "not_ahead" };
+  const behind = inRunIgnoringLives(state.lives.players[target]) && !handsDone(theirs) && (greater(mine.score, theirs.score) || equal(mine.score, theirs.score) && world.firstPlayer === by);
+  return behind ? { ok: true, against: [target] } : { ok: false, reason: "not_ahead" };
+}
+function holderAfter(deadline, unapplied) {
+  var _a;
+  let holder = (_a = deadline == null ? void 0 : deadline.by) != null ? _a : null;
+  for (const fact of unapplied) {
+    if (fact.type === "timer_start" && holder === null) holder = fact.playerId;
+    else if (fact.type === "timer_pause" && holder === fact.playerId)
+      holder = null;
+  }
+  return holder;
+}
+function plainDeadline(deadline) {
+  if (!deadline) return null;
+  return __spreadValues(__spreadValues({
+    kind: deadline.kind,
+    by: deadline.by,
+    against: [...deadline.against],
+    endsAt: deadline.endsAt,
+    shownMs: deadline.shownMs,
+    n: deadline.n
+  }, deadline.pausedMs === void 0 ? {} : { pausedMs: deadline.pausedMs }), deadline.resumed === void 0 ? {} : { resumed: deadline.resumed });
+}
+function sameDeadline(a, b) {
+  if (a === null || b === null) return a === b;
+  return a.kind === b.kind && a.by === b.by && a.endsAt === b.endsAt && a.shownMs === b.shownMs && a.n === b.n && a.pausedMs === b.pausedMs && a.resumed === b.resumed && a.against.length === b.against.length && a.against.every((id, i) => id === b.against[i]);
+}
+function ranMs(deadline, now) {
+  if (deadline.endsAt === null || deadline.shownMs === null || deadline.pausedMs !== void 0)
+    return 0;
+  return Math.max(0, deadline.shownMs - Math.max(0, deadline.endsAt - now));
+}
+function opened(kind, by, against, ms, now, n) {
+  return {
+    kind,
+    by,
+    against,
+    endsAt: ms === null ? null : now + ms,
+    shownMs: ms,
+    n
+  };
+}
+function dropReason(deadline, state, world) {
+  var _a, _b;
+  if (state.result.kind !== null) return "decided";
+  const starter = state.lives.players[deadline.by];
+  if (starter === void 0 || !inRunIgnoringLives(starter) || starter.lives <= 0)
+    return "starter_out";
+  if (deadline.kind === "ante") {
+    const carriedHere = deadline.resumed !== void 0 && deadline.resumed === ((_b = (_a = state.lastStart) == null ? void 0 : _a.roundId) != null ? _b : 0);
+    if (!carriedHere && !world.readyIds.includes(deadline.by)) return "unready";
+  }
+  if (deadline.kind === "pvp" && !roundOpen(state)) return "round_closed";
+  return null;
+}
+function refreshed(deadline, state, world) {
+  const spared = deadline.resumed !== void 0 && !world.readyIds.includes(deadline.by) ? __spreadProps(__spreadValues({}, world), { readyIds: [...world.readyIds, deadline.by] }) : world;
+  const timing = wouldTime(deadline.kind, deadline.by, state, spared);
+  return timing.ok ? __spreadProps(__spreadValues({}, deadline), { against: timing.against }) : null;
+}
+function animationPauses(kind) {
+  return kind === "pvp";
+}
+function pausedFor(deadline, holdIds, now) {
+  if (deadline.endsAt === null) return deadline;
+  const away = deadline.against.some((id) => holdIds.includes(id)) || deadline.resumed !== void 0 && holdIds.includes(deadline.by);
+  if (away)
+    return deadline.pausedMs === void 0 ? __spreadProps(__spreadValues({}, deadline), { pausedMs: Math.max(0, deadline.endsAt - now) }) : deadline;
+  if (deadline.pausedMs === void 0) return deadline;
+  const _a = deadline, { pausedMs } = _a, running = __objRest(_a, ["pausedMs"]);
+  return __spreadProps(__spreadValues({}, running), { endsAt: now + pausedMs, shownMs: pausedMs });
+}
+function expired(deadline, now) {
+  return deadline.endsAt !== null && deadline.pausedMs === void 0 && now >= deadline.endsAt;
+}
+function restarted(deadline, against, now, baseMs, n) {
+  const _a = deadline, { resumed: _carried } = _a, ordinary = __objRest(_a, ["resumed"]);
+  return __spreadProps(__spreadValues({}, ordinary), {
+    against: sorted(against),
+    endsAt: now + baseMs,
+    shownMs: baseMs,
+    n
+  });
+}
+function credited(deadline, ms, now, n) {
+  if (deadline.pausedMs !== void 0) {
+    const left = deadline.pausedMs + ms;
+    return __spreadProps(__spreadValues({}, deadline), { pausedMs: left, shownMs: left, n });
+  }
+  if (deadline.endsAt === null) return deadline;
+  const endsAt = deadline.endsAt + ms;
+  return __spreadProps(__spreadValues({}, deadline), { endsAt, shownMs: Math.max(0, endsAt - now), n });
+}
+function leftMs(deadline, now) {
+  if (deadline.pausedMs !== void 0) return deadline.pausedMs;
+  return deadline.endsAt === null ? null : Math.max(0, deadline.endsAt - now);
+}
+function withPvpLeft(state, id, pvpLeftMs) {
+  const entry = state.round.players[id];
+  return entry === void 0 ? state : withPlayer(state, id, __spreadProps(__spreadValues({}, entry), { pvpLeftMs }));
+}
+function released(state, deadline, now) {
+  if (deadline.kind !== "pvp") return state;
+  const left = leftMs(deadline, now);
+  return deadline.against.reduce(
+    (next, id) => withPvpLeft(next, id, left),
+    state
+  );
+}
+function anteRunOut(state, mode, id) {
+  return runOut(state, mode, id);
+}
+function anteRunOuts(state, mode, ids) {
+  let next = state;
+  for (const id of ids) next = anteRunOut(next, mode, id);
+  return asOneMoment(next, state, state.facts.deaths.length, ids);
+}
+function pvpRunOut(state, id, handMs) {
+  const prior = state.round.players[id];
+  if (prior === void 0) return state;
+  const timerLosses = prior.timerLosses + 1;
+  const next = withPlayer(state, id, __spreadProps(__spreadValues({}, prior), {
+    timerLosses,
+    handsLeft: prior.reportedHands === null ? null : handsAfter(prior.reportedHands, prior.reportedApplied, timerLosses),
+    creditedHands: prior.creditedHands === null ? null : Math.max(0, prior.creditedHands - 1),
+    committedHands: prior.committedHands === null || prior.committedHands === 0 ? null : prior.committedHands - 1,
+    pvpLeftMs: handMs
+  }));
+  return next;
+}
+function projectDeadline(deadline, now) {
+  var _a;
+  if (!deadline) return null;
+  const remainingMs = (_a = deadline.pausedMs) != null ? _a : now !== null && deadline.endsAt !== null ? Math.max(0, deadline.endsAt - now) : deadline.shownMs;
+  return __spreadValues({
+    kind: deadline.kind,
+    by: deadline.by,
+    against: [...deadline.against],
+    remainingMs,
+    n: deadline.n
+  }, deadline.pausedMs === void 0 ? {} : { paused: true });
+}
+function withLiveDeadline(match, deadline, now) {
+  const round = match["pvp.round"];
+  if (!deadline || deadline.endsAt === null || typeof round !== "object" || !round)
+    return match;
+  return __spreadProps(__spreadValues({}, match), {
+    "pvp.round": __spreadProps(__spreadValues({}, round), { deadline: projectDeadline(deadline, now) })
+  });
+}
+function openingMs(state, kind, by, against, skips, world) {
+  var _a, _b;
+  const rules = state.rules;
+  if (rules.runId === null) return void 0;
+  if (kind === "pvp") {
+    if (rules.clocks.pvp === null) return void 0;
+    return (_b = (_a = state.round.players[against[0]]) == null ? void 0 : _a.pvpLeftMs) != null ? _b : void 0;
+  }
+  if (rules.clocks.ante === "bank")
+    return anteBankMs(rules, skips, by, world.opponentOf);
+  return rules.clocks.ante === "personal" ? null : void 0;
+}
+function deadlineStep(state, mode, timers, fresh, now) {
+  var _a, _b, _c, _d;
+  const rules = state.rules;
+  if (rules.runId === null) return state;
+  const baseMs = rules.timerBaseMs;
+  const handMs = (_b = (_a = rules.clocks.pvp) == null ? void 0 : _a.handMs) != null ? _b : null;
+  const world = worldOf(state, mode, timers.readyIds, timers.requiredIds);
+  const before = plainDeadline(state.facts.deadline);
+  let next = state;
+  let n = state.facts.timerN;
+  let deadline = before;
+  let skips = state.facts.skips;
+  const charge = (d, ms) => {
+    if (d.kind === "ante" && ms > 0)
+      skips = spentOut(rules, skips, d.by, ms, world.opponentOf);
+  };
+  const end = (d) => {
+    charge(d, ranMs(d, now));
+    next = released(next, d, now);
+  };
+  for (const fact of fresh) {
+    if (fact.type === "timer_start" && deadline === null) {
+      const timing = wouldTime(fact.kind, fact.playerId, state, world);
+      const ms = timing.ok ? openingMs(next, fact.kind, fact.playerId, timing.against, skips, world) : void 0;
+      if (timing.ok && ms !== void 0) {
+        n += 1;
+        deadline = opened(fact.kind, fact.playerId, timing.against, ms, now, n);
+      }
+    } else if (fact.type === "timer_pause") {
+      if ((deadline == null ? void 0 : deadline.by) === fact.playerId) {
+        end(deadline);
+        deadline = null;
+      }
+    } else if (fact.type === "hand_credit" && handMs !== null) {
+      const ms = fact.hands * handMs;
+      if (deadline !== null && deadline.kind === "pvp" && deadline.against.includes(fact.playerId)) {
+        n += 1;
+        deadline = credited(deadline, ms, now, n);
+      } else {
+        const left = (_d = (_c = next.round.players[fact.playerId]) == null ? void 0 : _c.pvpLeftMs) != null ? _d : null;
+        if (left !== null) next = withPvpLeft(next, fact.playerId, left + ms);
+      }
+    }
+  }
+  if (deadline !== null) {
+    const kept = dropReason(deadline, state, world) === null ? refreshed(deadline, state, world) : null;
+    if (kept === null) end(deadline);
+    deadline = kept;
+    if ((deadline == null ? void 0 : deadline.resumed) !== void 0 && world.readyIds.includes(deadline.by)) {
+      const _e = deadline, { resumed: _carried } = _e, ordinary = __objRest(_e, ["resumed"]);
+      deadline = ordinary;
+    }
+  }
+  if (deadline !== null) {
+    const going = deadline;
+    deadline = pausedFor(
+      going,
+      animationPauses(going.kind) ? [...timers.awayIds, ...state.facts.animating] : timers.awayIds,
+      now
+    );
+    if (going.pausedMs === void 0 && deadline.pausedMs !== void 0)
+      charge(going, ranMs(going, now));
+  }
+  if (deadline !== null && expired(deadline, now)) {
+    if (deadline.kind === "pvp") {
+      if (handMs !== null)
+        for (const id of deadline.against)
+          next = pvpRunOut(next, id, handMs);
+      deadline = null;
+    } else {
+      const timed = deadline.against;
+      next = anteRunOuts(
+        next,
+        mode,
+        timed
+      );
+      const staying = timed.filter(
+        (id) => inRunIgnoringLives(next.lives.players[id])
+      );
+      if (staying.length > 0) {
+        n += 1;
+        skips = spentRestarted(rules, skips, deadline.by, world.opponentOf);
+        deadline = restarted(deadline, staying, now, baseMs, n);
+      } else {
+        charge(deadline, ranMs(deadline, now));
+        deadline = null;
+      }
+    }
+  }
+  if (next === state && skips === state.facts.skips && sameDeadline(deadline, before) && n === state.facts.timerN)
+    return state;
+  return __spreadProps(__spreadValues({}, next), { facts: __spreadProps(__spreadValues({}, next.facts), { deadline, timerN: n, skips }) });
+}
+
+// src/lobby/pvp/modes/duel.ts
+var resolveRound = (state) => {
+  if (state.result.runId !== null || state.round.phase !== "playing")
+    return state;
+  const alive = aliveIds(state);
+  if (alive.length !== 2) return state;
+  const [a, b] = alive;
+  const pa = state.round.players[a];
+  const pb = state.round.players[b];
+  if (pa === void 0 || pb === void 0) return state;
+  if (pa.handsLeft === null && !pa.handsSpent || pb.handsLeft === null && !pb.handsSpent)
+    return state;
+  const order = compareRoundScore(pa.score, pb.score);
+  const aBelow = order === -1;
+  const bBelow = order === 1;
+  const aDone = handsDone(pa);
+  const bDone = handsDone(pb);
+  const trigger = aDone && aBelow || bDone && bBelow || aDone && bDone;
+  if (!trigger) return state;
+  const roundId = state.round.roundId;
+  const losers = order === 0 ? [] : [aBelow ? a : b];
+  return __spreadProps(__spreadValues({}, state), {
+    round: __spreadProps(__spreadValues({}, state.round), {
+      phase: "resolved",
+      lastResult: { roundId, losers }
+    })
+  });
+};
+function duelOpponents(state, ids = seatIds(state)) {
+  var _a;
+  const out = {};
+  for (const id of ids) out[id] = (_a = ids.find((other) => other !== id)) != null ? _a : null;
+  return out;
+}
+var duelMode = {
+  name: "duel",
+  // R11, R21: the last life lost on a normal blind waits on the opponent.
+  deathPolicy: "opponent",
+  // A lost blind does not put a duelist out of hands: the round ends on the
+  // hands and scores of both.
+  outOfHandsOnFail: false,
+  init: seatPlayers,
+  roundReady,
+  resolveRound,
+  checkWinner: lastPlayerStanding,
+  onForfeit: retireForfeiters,
+  view: (state) => ({ opponents: duelOpponents(state) })
+};
+
+// src/lobby/pvp/modes/manhunt.ts
+var RUNNER_LIVES = 1;
+var LAST_ANTE = 8;
+function idsOf(state, team) {
+  return Object.keys(state.teams.teams).filter((id) => state.teams.teams[id] === team).sort();
+}
+var runnerOf = (state) => {
+  var _a;
+  return (_a = idsOf(state, "RUNNER")[0]) != null ? _a : null;
+};
+var isAliveId = (state, id) => {
+  const seat = state.lives.players[id];
+  return seat !== void 0 && inRunWithLives(seat);
+};
+var aliveHunters = (state) => idsOf(state, "HUNTER").filter((id) => isAliveId(state, id));
+function runnerAt(start) {
+  var _a;
+  return (_a = start.startedIds.find((id) => start.picks[id] === "RUNNER")) != null ? _a : start.startedIds[0];
+}
+var init = (state, ctx, start) => {
+  const seated = seatPlayers(state, ctx);
+  const { rules } = seated;
+  if (seated === state || rules.runId === null) return state;
+  const runner = runnerAt(start);
+  const teams = {};
+  const players = __spreadValues({}, seated.lives.players);
+  for (const id of start.startedIds) {
+    const seat = players[id];
+    teams[id] = id === runner ? "RUNNER" : "HUNTER";
+    if (seat)
+      players[id] = __spreadProps(__spreadValues({}, seat), {
+        lives: id === runner ? RUNNER_LIVES : rules.hunterLives
+      });
+  }
+  return __spreadProps(__spreadValues({}, seated), {
+    teams: { runId: rules.runId, teams },
+    lives: __spreadProps(__spreadValues({}, seated.lives), { players })
+  });
+};
+var behindRunner = (hunter, runner) => {
+  const order = compareRoundScore(runner, hunter);
+  return order === 1 || order === 0 && runner !== null && greater(runner, SCORE_ZERO);
+};
+function losersOf(state, runner) {
+  const hunters = aliveHunters(state);
+  const runnerScore = scoreOf(state, runner);
+  const behind = hunters.filter(
+    (id) => behindRunner(scoreOf(state, id), runnerScore)
+  );
+  const caught = hunters.some(
+    (id) => compareRoundScore(scoreOf(state, id), runnerScore) === 1
+  );
+  return caught ? [runner, ...behind] : behind;
+}
+var resolveRound2 = (state) => {
+  if (state.result.kind !== null || state.round.phase !== "playing")
+    return state;
+  const runner = runnerOf(state);
+  if (runner === null || !isAliveId(state, runner)) return state;
+  const hunters = aliveHunters(state);
+  if (hunters.length === 0) return state;
+  if (!allOutOfHands(state, [runner, ...hunters])) return state;
+  return __spreadProps(__spreadValues({}, state), {
+    round: __spreadProps(__spreadValues({}, state.round), {
+      phase: "resolved",
+      lastResult: {
+        roundId: state.round.roundId,
+        losers: losersOf(state, runner)
+      }
+    })
+  });
+};
+var voucherGainers = (state, fact) => state.teams.teams[fact.playerId] === "RUNNER" ? idsOf(state, "HUNTER") : [];
+var mayRedeemVoucher = (state, playerId) => state.teams.teams[playerId] === "RUNNER";
+var opensSideDeath = (state, playerId) => state.teams.teams[playerId] === "RUNNER";
+var checkWinner = (state) => {
+  const runner = runnerOf(state);
+  if (runner === null) return state;
+  if (!isAliveId(state, runner)) return withTeamResult(state, "win", "HUNTER");
+  if (aliveHunters(state).length === 0)
+    return withTeamResult(state, "win", "RUNNER");
+  const entry = state.round.players[runner];
+  const ante = entry === void 0 ? null : entry.ante;
+  if (ante !== null && ante > LAST_ANTE && state.round.phase !== "playing")
+    return withTeamResult(state, "win", "RUNNER");
+  return state;
+};
+var onForfeit = (state) => state;
+var view = (state) => {
+  const runner = runnerOf(state);
+  if (runner === null) return { opponents: {} };
+  const opponents = {};
+  for (const id of idsOf(state, "HUNTER")) opponents[id] = runner;
+  opponents[runner] = aliveHunters(state).reduce(
+    (best, id) => best === null || compareRoundScore(scoreOf(state, id), scoreOf(state, best)) > 0 ? id : best,
+    null
+  );
+  return { opponents };
+};
+var manhuntMode = {
+  name: "manhunt",
+  // R45: the Runner's death waits on the Hunters as a whole.
+  deathPolicy: "side",
+  opensSideDeath,
+  // R34: a lost blind puts the player out of hands, so the round does not wait on them.
+  outOfHandsOnFail: true,
+  init,
+  roundReady,
+  resolveRound: resolveRound2,
+  voucherGainers,
+  mayRedeemVoucher,
+  checkWinner,
+  onForfeit,
+  view
+};
+
+// src/lobby/pvp/modes/nemesis.ts
+var pairKey = (a, b) => a < b ? `${a}|${b}` : `${b}|${a}`;
+function shuffled2(ids, random) {
+  const out = [...ids];
+  for (let i = out.length - 1; i >= 1; i--) {
+    const j = Math.floor(random() * (i + 1));
+    const keep = out[i];
+    out[i] = out[j];
+    out[j] = keep;
+  }
+  return out;
+}
+function circleRound(ids, offset) {
+  const n = ids.length;
+  const rotated = [ids[0]];
+  for (let i = 1; i < n; i++)
+    rotated.push(ids[(i - 1 + offset) % (n - 1) + 1]);
+  const pairs = [];
+  for (let i = 0; i < n; i += 2) pairs.push([rotated[i], rotated[i + 1]]);
+  return pairs;
+}
+function freshRound(ids, used) {
+  for (let offset = 0; offset <= ids.length - 2; offset++) {
+    const pairs = circleRound(ids, offset);
+    if (pairs.every(([a, b]) => !used.has(pairKey(a, b)))) return pairs;
+  }
+  return null;
+}
+function pairNemesis(alive, previous, ante, random) {
+  var _a, _b;
+  const used = (_a = previous == null ? void 0 : previous.usedPairs) != null ? _a : [];
+  const lastBye = (_b = previous == null ? void 0 : previous.lastBye) != null ? _b : null;
+  if (alive.length < 2) return { ante, partners: {}, usedPairs: used, lastBye };
+  const ids = shuffled2([...alive].sort(), random);
+  let bye = null;
+  if (ids.length % 2 === 1) {
+    const at = Math.max(
+      0,
+      ids.findIndex((id) => id !== lastBye)
+    );
+    bye = ids.splice(at, 1)[0];
+  }
+  const fresh = freshRound(ids, new Set(used));
+  const chosen = fresh != null ? fresh : circleRound(ids, 0);
+  const partners = {};
+  if (bye !== null) partners[bye] = null;
+  for (const [a, b] of chosen) {
+    partners[a] = b;
+    partners[b] = a;
+  }
+  return {
+    ante,
+    partners,
+    usedPairs: [
+      ...fresh ? used : [],
+      ...chosen.map(([a, b]) => pairKey(a, b))
+    ],
+    lastBye: bye
+  };
+}
+var onAnte = (state, ctx) => {
+  const ante = highestAnte(state);
+  if (ante === null) return state;
+  if (state.pairing !== null && ante <= state.pairing.ante) return state;
+  return __spreadProps(__spreadValues({}, state), {
+    pairing: pairNemesis(aliveIds(state), state.pairing, ante, ctx.random)
+  });
+};
+var resolveRound3 = (state) => {
+  var _a, _b, _c;
+  if (state.result.runId !== null || state.round.phase !== "playing")
+    return state;
+  const alive = aliveIds(state);
+  if (alive.length < 2) return state;
+  if (!allOutOfHands(state, alive)) return state;
+  const partners = (_b = (_a = state.pairing) == null ? void 0 : _a.partners) != null ? _b : {};
+  const losers = [];
+  for (const id of alive) {
+    const partner = (_c = partners[id]) != null ? _c : null;
+    if (partner === null || id > partner || !alive.includes(partner)) continue;
+    const order = compareRoundScore(scoreOf(state, id), scoreOf(state, partner));
+    if (order === -1) losers.push(id);
+    else if (order === 1) losers.push(partner);
+  }
+  return __spreadProps(__spreadValues({}, state), {
+    round: __spreadProps(__spreadValues({}, state.round), {
+      phase: "resolved",
+      lastResult: { roundId: state.round.roundId, losers: losers.sort() }
+    })
+  });
+};
+function view2(state) {
+  var _a, _b, _c, _d;
+  const opponents = {};
+  for (const id of aliveIds(state))
+    opponents[id] = (_b = (_a = state.pairing) == null ? void 0 : _a.partners[id]) != null ? _b : null;
+  return { opponents, pairingAnte: (_d = (_c = state.pairing) == null ? void 0 : _c.ante) != null ? _d : null };
+}
+var nemesisMode = {
+  name: "nemesis",
+  // R32: a game of 3+ players, every death waits on all the others.
+  deathPolicy: "everyone",
+  // R34: a lost blind puts the player out of hands, so the round does not wait on them.
+  outOfHandsOnFail: true,
+  init: seatPlayers,
+  roundReady,
+  resolveRound: resolveRound3,
+  checkWinner: lastPlayerStanding,
+  onAnte,
+  onForfeit: retireForfeiters,
+  view: view2
+};
+
+// src/lobby/pvp/modes/royale.ts
+var greater2 = (a, b) => compareRoundScore(a, b) === 1;
+function byScore(players) {
+  return [...players].sort(
+    (a, b) => compareRoundScore(a.score, b.score) || (a.id < b.id ? -1 : 1)
+  );
+}
+function cut(ranked) {
+  if (ranked.length === 0) return /* @__PURE__ */ new Set();
+  const top = ranked[ranked.length - 1].score;
+  let cutoff = ranked[Math.max(1, Math.floor(ranked.length / 2)) - 1].score;
+  if (!greater2(top, cutoff)) {
+    const below = ranked.filter((p) => greater2(top, p.score)).pop();
+    if (below) cutoff = below.score;
+  }
+  return new Set(
+    ranked.filter((p) => !greater2(p.score, cutoff)).map((p) => p.id)
+  );
+}
+function rankRoyale(players) {
+  const ranked = byScore(players);
+  const cutIds = cut(ranked);
+  const all = cutIds.size === ranked.length;
+  return {
+    ranked: ranked.map((p) => p.id),
+    losers: all ? [] : ranked.map((p) => p.id).filter((id) => cutIds.has(id))
+  };
+}
+function aliveEntries(state) {
+  return aliveIds(state).map((id) => ({ id, score: scoreOf(state, id) }));
+}
+var resolveRound4 = (state) => {
+  if (state.result.runId !== null || state.round.phase !== "playing")
+    return state;
+  const alive = aliveIds(state);
+  if (alive.length < 2) return state;
+  if (!allOutOfHands(state, alive)) return state;
+  return __spreadProps(__spreadValues({}, state), {
+    round: __spreadProps(__spreadValues({}, state.round), {
+      phase: "resolved",
+      lastResult: {
+        roundId: state.round.roundId,
+        losers: rankRoyale(aliveEntries(state)).losers
+      }
+    })
+  });
+};
+var view3 = (state) => {
+  const ranked = byScore(aliveEntries(state));
+  if (ranked.length < 2) return { opponents: {}, safe: {} };
+  const cutIds = cut(ranked);
+  const opponents = {};
+  const safe = {};
+  ranked.forEach((p, i) => {
+    var _a, _b;
+    const losing = cutIds.has(p.id);
+    opponents[p.id] = (_b = (_a = ranked[losing ? i + 1 : i - 1]) == null ? void 0 : _a.id) != null ? _b : null;
+    safe[p.id] = !losing;
+  });
+  return { opponents, safe };
+};
+var royaleMode = {
+  name: "royale",
+  // R32: a game of 3+ players, every death waits on all the others.
+  deathPolicy: "everyone",
+  // R34: a lost blind puts the player out of hands, so the round does not wait on them.
+  outOfHandsOnFail: true,
+  init: seatPlayers,
+  roundReady,
+  resolveRound: resolveRound4,
+  checkWinner: lastPlayerStanding,
+  onForfeit: retireForfeiters,
+  view: view3
+};
+
+// src/lobby/pvp/modes/teams.ts
+var SIDES = ["A", "B"];
+var otherSide2 = (side) => side === "A" ? "B" : "A";
+var asSide = (team) => team === "A" || team === "B" ? team : null;
+function plannedTeams(start) {
+  const started = new Set(start.startedIds);
+  const planned = {};
+  SIDES.forEach((side, i) => {
+    var _a, _b;
+    for (const id of (_b = (_a = start.teamPlan) == null ? void 0 : _a[i]) != null ? _b : [])
+      if (started.has(id)) planned[id] = side;
+  });
+  return planned;
+}
+function assignTeams(start) {
+  var _a;
+  const planned = plannedTeams(start);
+  const teams = {};
+  for (const id of start.startedIds) {
+    const side = (_a = planned[id]) != null ? _a : asSide(start.picks[id]);
+    if (side !== null) teams[id] = side;
+  }
+  const size = { A: 0, B: 0 };
+  for (const side of Object.values(teams)) size[side]++;
+  for (const id of start.startedIds) {
+    if (teams[id] !== void 0) continue;
+    const side = size.B < size.A ? "B" : "A";
+    teams[id] = side;
+    size[side]++;
+  }
+  return teams;
+}
+var membersOf = (state, side, ids) => ids.filter((id) => state.teams.teams[id] === side);
+function drawTarget(state, mine, alive, random) {
+  const candidates = membersOf(state, otherSide2(mine), alive);
+  return candidates.length === 0 ? null : candidates[Math.floor(random() * candidates.length)];
+}
+function drawCardTargets(state, ante, random) {
+  const alive = aliveIds(state);
+  const targets = {};
+  for (const id of alive) {
+    const mine = asSide(state.teams.teams[id]);
+    if (mine === null) continue;
+    targets[id] = drawTarget(state, mine, alive, random);
+  }
+  return { ante, targets };
+}
+function repairCardTargets(state, random) {
+  const held = state.cardTargets;
+  if (held === null) return null;
+  const alive = aliveIds(state);
+  const isAliveId2 = (id) => alive.includes(id);
+  const holders = Object.keys(held.targets).sort();
+  const stale = holders.some((id) => {
+    const target = held.targets[id];
+    return !isAliveId2(id) || target !== null && !isAliveId2(target);
+  });
+  if (!stale) return null;
+  const targets = {};
+  for (const id of holders) {
+    const mine = asSide(state.teams.teams[id]);
+    if (!isAliveId2(id) || mine === null) continue;
+    const target = held.targets[id];
+    targets[id] = target !== null && !isAliveId2(target) ? drawTarget(state, mine, alive, random) : target;
+  }
+  return { ante: held.ante, targets };
+}
+var init2 = (state, ctx, start) => {
+  const { rules } = state;
+  if (rules.runId === null || state.round.runId === rules.runId) return state;
+  const seated = seatPlayers(state, ctx);
+  const pool = { A: rules.startingLives, B: rules.startingLives };
+  const settled3 = __spreadProps(__spreadValues({}, seated), {
+    teams: { runId: rules.runId, teams: assignTeams(start) },
+    lives: __spreadProps(__spreadValues({}, seated.lives), { teamLives: pool })
+  });
+  return __spreadProps(__spreadValues({}, settled3), {
+    cardTargets: drawCardTargets(settled3, 1, ctx.random)
+  });
+};
+function teamScore(state, side, alive) {
+  const reported = [];
+  for (const id of membersOf(state, side, alive)) {
+    const score = scoreOf(state, id);
+    if (score !== null) reported.push(score);
+  }
+  return reported.length === 0 ? null : sum(reported);
+}
+var resolveRound5 = (state) => {
+  if (state.result.runId !== null || state.round.phase !== "playing")
+    return state;
+  const alive = aliveIds(state);
+  if (alive.length === 0) return state;
+  if (!allOutOfHands(state, alive)) return state;
+  const a = teamScore(state, "A", alive);
+  const b = teamScore(state, "B", alive);
+  const order = compareRoundScore(a, b);
+  const loser = order === 0 ? null : order < 0 ? "A" : "B";
+  return __spreadProps(__spreadValues({}, state), {
+    round: __spreadProps(__spreadValues({}, state.round), {
+      phase: "resolved",
+      lastResult: {
+        roundId: state.round.roundId,
+        losers: loser === null ? [] : membersOf(state, loser, alive)
+      }
+    })
+  });
+};
+function teamIsOut(state, side, pool) {
+  const members = Object.keys(state.lives.players).filter(
+    (id) => state.teams.teams[id] === side
+  );
+  return pool <= 0 || !members.some((id) => inRunIgnoringLives(state.lives.players[id]));
+}
+var checkWinner2 = (state) => {
+  const { rules } = state;
+  if (rules.runId === null || state.lives.runId !== rules.runId) return state;
+  if (state.result.runId !== null || state.lives.pending.length > 0)
+    return state;
+  if (state.lives.teamLives === null) return state;
+  const { teamLives } = state.lives;
+  const aOut = teamIsOut(state, "A", teamLives.A);
+  const bOut = teamIsOut(state, "B", teamLives.B);
+  if (aOut && bOut) return withTeamResult(state, "draw", null);
+  if (aOut) return withTeamResult(state, "win", "B");
+  if (bOut) return withTeamResult(state, "win", "A");
+  return state;
+};
+var onForfeit2 = (state, ctx) => {
+  const targets = repairCardTargets(state, ctx.random);
+  return targets === null ? state : __spreadProps(__spreadValues({}, state), { cardTargets: targets });
+};
+var onAnte2 = (state, ctx) => {
+  const ante = highestAnte(state);
+  if (ante === null) return state;
+  if (state.cardTargets !== null && ante <= state.cardTargets.ante) return state;
+  return __spreadProps(__spreadValues({}, state), { cardTargets: drawCardTargets(state, ante, ctx.random) });
+};
+var view4 = (state) => {
+  var _a, _b;
+  const alive = aliveIds(state);
+  return {
+    opponents: {},
+    cardTargets: (_b = (_a = state.cardTargets) == null ? void 0 : _a.targets) != null ? _b : {},
+    teamScores: {
+      A: teamScore(state, "A", alive),
+      B: teamScore(state, "B", alive)
+    }
+  };
+};
+function poolOf(state, id) {
+  const side = asSide(state.teams.teams[id]);
+  const pool = state.lives.teamLives;
+  return side === null || pool === null ? null : { side, pool };
+}
+var lifePool = {
+  // The whole team of `id`, or nobody when it has no pool or the pool is already at 0.
+  sharers: (state, id) => {
+    const held = poolOf(state, id);
+    if (!held || !state.lives.players[id] || held.pool[held.side] <= 0)
+      return [];
+    return membersOf(state, held.side, Object.keys(state.lives.players));
+  },
+  // One life off the pool of `id`'s team, shown on every seat of that team
+  // with the same event and the pool's value.
+  spend: (state, id, key) => {
+    const held = poolOf(state, id);
+    if (!held) return state;
+    const lives = held.pool[held.side] - 1;
+    const players = __spreadValues({}, state.lives.players);
+    for (const member of membersOf(state, held.side, Object.keys(players)))
+      players[member] = __spreadProps(__spreadValues({}, players[member]), {
+        lives,
+        eliminated: lives <= 0,
+        events: [...players[member].events, { delta: -1, key }]
+      });
+    return __spreadProps(__spreadValues({}, state), {
+      lives: __spreadProps(__spreadValues({}, state.lives), {
+        players,
+        teamLives: __spreadProps(__spreadValues({}, held.pool), { [held.side]: lives })
+      })
+    });
+  },
+  // One loser per losing team (the smallest id, so the order of the losers cannot
+  // matter): the team loses one life, not one per member.
+  payers: (state, losers) => {
+    const byTeam = {};
+    for (const id of losers) {
+      const team = state.teams.teams[id];
+      if (team !== void 0 && (byTeam[team] === void 0 || id < byTeam[team]))
+        byTeam[team] = id;
+    }
+    return Object.values(byTeam).sort();
+  }
+};
+var teamsMode = {
+  name: "teams",
+  // R53: the pool of a team at 0 opens a pending death that waits on the other team.
+  deathPolicy: "side",
+  lifePool,
+  // R34: a lost blind puts the player out of hands, so the round does not wait on them.
+  outOfHandsOnFail: true,
+  init: init2,
+  roundReady,
+  resolveRound: resolveRound5,
+  checkWinner: checkWinner2,
+  onAnte: onAnte2,
+  onForfeit: onForfeit2,
+  view: view4
+};
+
+// src/lobby/pvp/modes/index.ts
+function runHook(hook, state, ctx) {
+  const out = hook(state, ctx);
+  return out === state ? state : withView(state, out);
+}
+var finalTwo = (mode) => __spreadProps(__spreadValues({}, mode), {
+  finalTwo: true,
+  resolveRound: duelMode.resolveRound,
+  view: (state) => ({ opponents: duelOpponents(state, aliveIds(state)) })
+});
+var royaleFinalTwo = finalTwo(royaleMode);
+var nemesisFinalTwo = finalTwo(nemesisMode);
+function pickMode(mode, startedCount, seatedCount = startedCount) {
+  if (mode === "manhunt") return manhuntMode;
+  if (mode === "teams") return teamsMode;
+  if (startedCount === 2) return duelMode;
+  if (mode === "nemesis") return seatedCount === 2 ? nemesisFinalTwo : nemesisMode;
+  return seatedCount === 2 ? royaleFinalTwo : royaleMode;
+}
+function modeOfGame(state) {
+  const { rules } = state;
+  if (rules.runId === null) return null;
+  return pickMode(rules.mode, rules.startedCount, seatedIds(state).length);
+}
+
+// src/lobby/pvp/view.ts
+var PVP_RULES_KEY = "pvp.rules";
+var PVP_LIVES_KEY = "pvp.lives";
+var PVP_TARGETS_KEY = "pvp.targets";
+var PVP_TEAMS_KEY = "pvp.teams";
+var PVP_RESULT_KEY = "pvp.result";
+var PVP_CLOCKS_KEY = "pvp.clocks";
+function stateOf(lobby) {
+  var _a;
+  return (_a = refereeOf(lobby)) != null ? _a : emptyPvp();
+}
+function projectRules(lobby) {
+  const r = stateOf(lobby).rules;
+  if (r.runId === null) return { runId: null, mode: null, startedCount: 0 };
+  return {
+    runId: r.runId,
+    mode: r.mode,
+    startedCount: r.startedCount,
+    startingLives: r.startingLives,
+    hunterLives: r.hunterLives,
+    pvpStartAnte: r.pvpStartAnte,
+    deathOnRoundLoss: r.deathOnRoundLoss,
+    clocks: {
+      ante: r.clocks.ante,
+      pvp: r.clocks.pvp === null ? null : __spreadValues({}, r.clocks.pvp),
+      personal: r.clocks.personal === null ? null : __spreadValues({}, r.clocks.personal)
+    }
+  };
+}
+function projectRound(lobby) {
+  return roundOf2(lobby, true);
+}
+function projectRoundMasked(lobby) {
+  return roundOf2(lobby, false);
+}
+function canTime(lobby, id) {
+  const state = refereeOf(lobby);
+  if (state === null) return false;
+  if (state.rules.runId === null || state.rules.clocks.pvp === null)
+    return false;
+  if (!roundOpen(state)) return false;
+  const mode = modeOfGame(state);
+  if (mode === null) return false;
+  const world = worldOf(state, mode, [], []);
+  return wouldTime("pvp", id, state, world).ok;
+}
+function roundOf2(lobby, unmasked) {
+  var _a;
+  const r = stateOf(lobby).round;
+  const players = {};
+  for (const id of Object.keys(r.players)) {
+    const p = r.players[id];
+    players[id] = __spreadValues({
+      score: unmasked ? p.score : null,
+      handsLeft: p.handsLeft,
+      highestScore: unmasked ? p.highestScore : null,
+      ante: p.ante,
+      furthestBlind: p.furthestBlind,
+      timerLosses: p.timerLosses,
+      handsSpent: p.handsSpent,
+      pvpLeftMs: p.pvpLeftMs
+    }, unmasked ? { canTime: canTime(lobby, id) } : {});
+  }
+  return {
+    runId: r.runId,
+    roundId: r.roundId,
+    phase: r.phase,
+    players,
+    lastResult: r.lastResult ? { roundId: r.lastResult.roundId, losers: [...r.lastResult.losers] } : null,
+    // A STATE shows the bank frozen at the last `n`; a snapshot adds the live
+    // remaining time (state.ts snapshotFor).
+    deadline: projectDeadline((_a = refereeOf(lobby)) == null ? void 0 : _a.facts.deadline, null)
+  };
+}
+function projectLives(lobby) {
+  const l = stateOf(lobby).lives;
+  const players = {};
+  for (const id of Object.keys(l.players)) {
+    const p = l.players[id];
+    players[id] = {
+      lives: p.lives,
+      eliminated: p.eliminated,
+      forfeited: p.forfeited,
+      left: p.left,
+      events: p.events.map((e) => ({ delta: e.delta, key: e.key }))
+    };
+  }
+  return {
+    runId: l.runId,
+    players,
+    teamLives: l.teamLives ? { A: l.teamLives.A, B: l.teamLives.B } : null,
+    pending: l.pending.map((p) => ({
+      playerId: p.playerId,
+      blindKey: p.blindKey,
+      waitsOn: [...p.waitsOn]
+    }))
+  };
+}
+function projectTargets(lobby) {
+  return targetsOf(stateOf(lobby), false);
+}
+function projectTargetsMasked(lobby) {
+  return targetsOf(stateOf(lobby), true);
+}
+function targetsOf(state, scrubbed) {
+  var _a, _b, _c, _d, _e, _f, _g;
+  const rules = state.rules;
+  if (rules.runId === null)
+    return {
+      runId: null,
+      opponents: {},
+      cardTargets: {},
+      teamScores: null,
+      safe: {},
+      pairingAnte: null
+    };
+  const view5 = (_b = (_a = modeOfGame(state)) == null ? void 0 : _a.view) == null ? void 0 : _b.call(
+    _a,
+    scrubbed ? withoutScores(state) : state
+  );
+  return {
+    runId: rules.runId,
+    opponents: (_c = view5 == null ? void 0 : view5.opponents) != null ? _c : {},
+    cardTargets: (_d = view5 == null ? void 0 : view5.cardTargets) != null ? _d : {},
+    teamScores: scrubbed ? null : (_e = view5 == null ? void 0 : view5.teamScores) != null ? _e : null,
+    safe: (_f = view5 == null ? void 0 : view5.safe) != null ? _f : {},
+    pairingAnte: (_g = view5 == null ? void 0 : view5.pairingAnte) != null ? _g : null
+  };
+}
+function withoutScores(state) {
+  const players = {};
+  for (const [id, p] of Object.entries(state.round.players))
+    players[id] = __spreadProps(__spreadValues({}, p), { score: null, highestScore: null });
+  return __spreadProps(__spreadValues({}, state), { round: __spreadProps(__spreadValues({}, state.round), { players }) });
+}
+var TEAMS_OF_MODE = {
+  manhunt: ["RUNNER", "HUNTER"],
+  teams: ["A", "B"]
+};
+function picksOfMode(lobby) {
+  var _a, _b;
+  const mode = modeOfQueue(lobby.metadata.queue_mode);
+  const offered = mode === null ? [] : (_a = TEAMS_OF_MODE[mode]) != null ? _a : [];
+  const shown = {};
+  for (const [id, team] of Object.entries((_b = lobby.teamPicks) != null ? _b : {}))
+    if (offered.includes(team)) shown[id] = team;
+  return shown;
+}
+function projectTeams(lobby) {
+  const t = stateOf(lobby).teams;
+  if (t.runId === null) return { runId: null, teams: picksOfMode(lobby) };
+  return { runId: t.runId, teams: __spreadValues({}, t.teams) };
+}
+function projectVotes(lobby) {
+  const v = stateOf(lobby).votes;
+  return { runId: v.runId, draw: [...v.draw], seed: [...v.seed] };
+}
+function projectResult(lobby) {
+  const r = stateOf(lobby).result;
+  return {
+    runId: r.runId,
+    kind: r.kind,
+    winnerId: r.winnerId,
+    winnerTeam: r.winnerTeam,
+    places: r.places.map((p) => ({ playerId: p.playerId, place: p.place }))
+  };
+}
+function projectSkips(lobby) {
+  const state = refereeOf(lobby);
+  if (state === null || state.rules.runId === null)
+    return { runId: null, players: {} };
+  const mode = modeOfGame(state);
+  if (mode === null) return { runId: null, players: {} };
+  const world = worldOf(state, mode, [], []);
+  const running = plainDeadline(state.facts.deadline);
+  const players = {};
+  for (const id of Object.keys(state.lives.players))
+    players[id] = {
+      skips: entryOf3(state.facts.skips, id).skips,
+      anteBankMs: (running == null ? void 0 : running.by) === id && running.shownMs !== null ? running.shownMs : anteBankMs(state.rules, state.facts.skips, id, world.opponentOf)
+    };
+  return { runId: state.rules.runId, players };
+}
+function projectClocks(lobby) {
+  const state = refereeOf(lobby);
+  if (state === null || state.rules.runId === null || state.rules.clocks.personal === null)
+    return void 0;
+  return clocksShown(state.facts.clocks, null);
+}
+function clocksShown(clocks, now) {
+  const players = {};
+  for (const id of Object.keys(clocks)) {
+    const c = clocks[id];
+    players[id] = {
+      ms: now === null ? c.ms : clockLive(c, now),
+      running: c.running,
+      rate: c.rate,
+      n: c.n,
+      spent: c.spent
+    };
+  }
+  return players;
+}
+function withLiveClocks(match, state, now) {
+  if (state === null || match[PVP_CLOCKS_KEY] === void 0) return match;
+  return __spreadProps(__spreadValues({}, match), { [PVP_CLOCKS_KEY]: clocksShown(state.facts.clocks, now) });
+}
+function projectOpponent(lobby) {
+  const state = refereeOf(lobby);
+  if (state === null || state.rules.runId === null)
+    return { runId: null, players: {} };
+  const players = {};
+  const recorded = state.facts.opponent.players;
+  for (const id of Object.keys(recorded)) {
+    const p = recorded[id];
+    players[id] = {
+      sells: __spreadValues({}, p.sells),
+      slots: p.slots.map((slot) => __spreadValues({}, slot)),
+      closed: p.closed
+    };
+  }
+  return { runId: state.rules.runId, players };
+}
+function projectTraps(lobby) {
+  const state = refereeOf(lobby);
+  if (state === null || state.rules.runId === null)
+    return { runId: null, trapSeq: 0, traps: [] };
+  const traps = state.facts.traps;
+  return {
+    runId: state.rules.runId,
+    trapSeq: traps.trapSeq,
+    traps: traps.traps.map((t) => ({
+      id: t.id,
+      key: t.key,
+      owner: t.owner,
+      holder: t.holder,
+      state: t.state
+    }))
+  };
+}
+function projectNemesisFor(lobby, viewer) {
+  const state = refereeOf(lobby);
+  if (state === null || state.rules.runId === null)
+    return { runId: null, byAnte: null };
+  const mine = state.facts.nemesis[viewer];
+  return {
+    runId: state.rules.runId,
+    byAnte: mine === void 0 ? null : __spreadValues({}, mine)
+  };
+}
+function projectEffectsFor(lobby, viewer) {
+  const state = refereeOf(lobby);
+  if (state === null || state.rules.runId === null)
+    return { runId: null, me: null };
+  const mine = state.facts.effects.players[viewer];
+  if (mine === void 0) return { runId: state.rules.runId, me: null };
+  return {
+    runId: state.rules.runId,
+    me: { incoming: mine.incoming.map((e) => __spreadValues({}, e)) }
+  };
+}
+function detectNemesis(lobby) {
+  const state = refereeOf(lobby);
+  if (state === null || state.rules.runId === null) return { runId: null };
+  return { runId: state.rules.runId, nemesis: state.facts.nemesis };
+}
+function detectEffects(lobby) {
+  const state = refereeOf(lobby);
+  if (state === null || state.rules.runId === null) return { runId: null };
+  return { runId: state.rules.runId, effects: state.facts.effects.players };
+}
+var VIEWER_PROJECTIONS = {
+  [PVP_NEMESIS_KEY]: projectNemesisFor,
+  [PVP_EFFECTS_KEY]: projectEffectsFor
+};
+var MASKED_PROJECTIONS = {
+  [PVP_ROUND_KEY]: projectRoundMasked,
+  [PVP_TARGETS_KEY]: projectTargetsMasked
+};
+var PVP_PROJECTIONS = {
+  [PVP_RULES_KEY]: projectRules,
+  [PVP_ROUND_KEY]: projectRound,
+  [PVP_LIVES_KEY]: projectLives,
+  [PVP_TARGETS_KEY]: projectTargets,
+  [PVP_TEAMS_KEY]: projectTeams,
+  [PVP_VOTES_KEY]: projectVotes,
+  [PVP_RESULT_KEY]: projectResult,
+  [PVP_SKIPS_KEY]: projectSkips,
+  [PVP_CLOCKS_KEY]: projectClocks,
+  [PVP_OPPONENT_KEY]: projectOpponent,
+  [PVP_TRAPS_KEY]: projectTraps,
+  [PVP_NEMESIS_KEY]: detectNemesis,
+  [PVP_EFFECTS_KEY]: detectEffects
+};
+var sourcesOf = (lobby, pick) => {
+  const state = refereeOf(lobby);
+  return state === null ? [null] : [state.rules.runId, ...pick(state)];
+};
+var PVP_SOURCES = {
+  [PVP_OPPONENT_KEY]: (l) => sourcesOf(l, (s) => [s.facts.opponent]),
+  [PVP_TRAPS_KEY]: (l) => sourcesOf(l, (s) => [s.facts.traps]),
+  [PVP_NEMESIS_KEY]: (l) => sourcesOf(l, (s) => [s.facts.nemesis]),
+  [PVP_EFFECTS_KEY]: (l) => sourcesOf(l, (s) => [s.facts.effects])
+};
+
+// src/lobby/match_state.ts
+var MATCH_KEYS = __spreadProps(__spreadValues({}, PVP_PROJECTIONS), {
+  [PVP_READY_KEY]: projectReady
+});
+var projections = __spreadValues({}, MATCH_KEYS);
+function matchKeys() {
+  return Object.keys(projections);
+}
+function matchStateOf(lobby, keys = matchKeys(), masked = false, viewer) {
+  const out = {};
+  for (const key of keys) {
+    if (isPerViewer(key)) {
+      if (viewer !== void 0) out[key] = VIEWER_PROJECTIONS[key](lobby, viewer);
+      continue;
+    }
+    const project = masked && MASKED_PROJECTIONS[key] || projections[key];
+    if (project) out[key] = project(lobby);
+  }
+  return out;
+}
+function isPerViewer(key) {
+  return Object.prototype.hasOwnProperty.call(VIEWER_PROJECTIONS, key);
+}
+function maskedIn(lobby, viewer) {
+  return maskedFor(refereeOf(lobby), viewer);
+}
+function revOf(lobby) {
+  var _a;
+  return (_a = lobby.rev) != null ? _a : 1;
+}
+function announceChange(lobby, keys, before) {
+  if (keys.length === 0 && (before === void 0 || before === lobby))
+    return { lobby, out: [] };
+  const state = refereeOf(lobby);
+  const stateBefore = before === void 0 ? state : refereeOf(before);
+  const viewers = lobby.players.map((p) => {
+    const masked = maskedFor(state, p.id);
+    const flipped = maskedFor(stateBefore, p.id) !== masked;
+    return { id: p.id, masked, flipped };
+  });
+  if (keys.length === 0 && !viewers.some((v) => v.flipped))
+    return { lobby, out: [] };
+  const next = __spreadProps(__spreadValues({}, lobby), { rev: revOf(lobby) + 1 });
+  const projected = /* @__PURE__ */ new Map();
+  const partOf = (key, masked) => {
+    const id = `${masked}:${key}`;
+    let part = projected.get(id);
+    if (part === void 0) {
+      part = matchStateOf(next, [key], masked);
+      projected.set(id, part);
+    }
+    return part;
+  };
+  const viewerPart = (key, viewer) => {
+    const id = `${viewer}:${key}`;
+    let part = projected.get(id);
+    if (part === void 0) {
+      part = matchStateOf(next, [key], false, viewer);
+      projected.set(id, part);
+    }
+    return part;
+  };
+  const perViewerShown = keys.some(isPerViewer);
+  const groups = /* @__PURE__ */ new Map();
+  for (const v of viewers) {
+    const id = perViewerShown ? v.id : `${v.masked}:${v.flipped}`;
+    const group = groups.get(id);
+    if (group) {
+      group.sendTo.push(v.id);
+      continue;
+    }
+    let shown = v.flipped ? [.../* @__PURE__ */ new Set([...keys, PVP_ROUND_KEY, PVP_TARGETS_KEY])] : keys;
+    if (v.masked && !v.flipped && before !== void 0)
+      shown = shown.filter(
+        (key) => !MASKED_PROJECTIONS[key] || canonical(MASKED_PROJECTIONS[key](before)) !== canonical(MASKED_PROJECTIONS[key](next))
+      );
+    if (before !== void 0)
+      shown = shown.filter(
+        (key) => !isPerViewer(key) || canonical(VIEWER_PROJECTIONS[key](before, v.id)) !== canonical(viewerPart(key, v.id)[key])
+      );
+    const changed3 = {};
+    for (const key of shown)
+      Object.assign(
+        changed3,
+        isPerViewer(key) ? viewerPart(key, v.id) : partOf(key, v.masked)
+      );
+    groups.set(id, {
+      sendTo: [v.id],
+      msg: { rev: revOf(next), changed: changed3 }
+    });
+  }
+  return {
+    lobby: next,
+    out: [...groups.values()].map((g) => ({
+      kind: "send",
+      op: ServerOp.STATE,
+      payload: g.msg,
+      to: g.sendTo
+    }))
+  };
+}
+function canonical(value) {
+  var _a;
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value === null || typeof value !== "object")
+    return (_a = JSON.stringify(value)) != null ? _a : "null";
+  const record = value;
+  const keys = Object.keys(record).filter((k) => record[k] !== void 0).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(record[k])}`).join(",")}}`;
+}
+function sameSources(key, before, after) {
+  const sources = PVP_SOURCES[key];
+  if (sources === void 0 || projections[key] !== MATCH_KEYS[key]) return false;
+  const a = sources(before);
+  const b = sources(after);
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+function changedKeys(before, after) {
+  if (before === after) return [];
+  return matchKeys().filter(
+    (key) => !sameSources(key, before, after) && canonical(projections[key](before)) !== canonical(projections[key](after))
+  );
+}
+function announceDrift(before, step) {
+  if (step.lobby.closed || revOf(step.lobby) !== revOf(before)) return step;
+  const keys = changedKeys(before, step.lobby);
+  if (keys.length === 0) return step;
+  const announced = announceChange(step.lobby, keys, before);
+  return { lobby: announced.lobby, out: step.out.concat(announced.out) };
+}
+
+// src/lobby/pvp/opponent_targets.ts
+var emptyRow = () => ({ each: [], one: null });
+var isEmpty = (row) => row.each.length === 0 && row.one === null;
+var isAlive = (state, id) => {
+  const seat = state.lives.players[id];
+  return seat !== void 0 && inRunWithLives(seat);
+};
+function targetable(state, actor, id) {
+  if (id === actor || !isAlive(state, id)) return false;
+  const mine = state.teams.teams[actor];
+  return mine === void 0 || state.teams.teams[id] !== mine;
+}
+var unique = (ids) => [...new Set(ids)];
+function viewOf2(state) {
+  const mode = modeOfGame(state);
+  if (mode === null || mode.view === void 0) return null;
+  return mode.view(state);
+}
+function resolveTargets(state, actor, view5 = viewOf2(state)) {
+  var _a, _b, _c, _d;
+  const mode = modeOfGame(state);
+  if (mode === null || view5 === null) return emptyRow();
+  let each;
+  let one;
+  if (mode.name === "teams") {
+    one = (_b = (_a = view5.cardTargets) == null ? void 0 : _a[actor]) != null ? _b : null;
+    each = one === null ? [] : [one];
+  } else if (mode.name === "manhunt" && state.teams.teams[actor] === "RUNNER") {
+    one = (_c = view5.opponents[actor]) != null ? _c : null;
+    each = Object.keys(state.teams.teams).filter((id) => state.teams.teams[id] === "HUNTER").sort();
+  } else {
+    one = (_d = view5.opponents[actor]) != null ? _d : null;
+    each = one === null ? [] : [one];
+  }
+  return {
+    each: unique(each).filter((id) => targetable(state, actor, id)),
+    one: one !== null && targetable(state, actor, one) ? one : null
+  };
+}
+function freezeNemesis(state) {
+  var _a, _b, _c, _d;
+  let nemesis = state.facts.nemesis;
+  let server = state.facts.server;
+  let view5;
+  for (const actor of Object.keys(state.facts.nemesis)) {
+    const ante = (_b = (_a = state.round.players[actor]) == null ? void 0 : _a.ante) != null ? _b : null;
+    if (ante === null) continue;
+    const seen = (_d = (_c = server.players[actor]) == null ? void 0 : _c.seenAnte) != null ? _d : null;
+    const mine = server.players[actor];
+    const mineRows = nemesis[actor];
+    const byeAnte = seen !== null && ante > seen && mineRows[seen] === void 0;
+    const needsRow = mineRows[ante] === void 0;
+    if (byeAnte || needsRow) {
+      const rows = __spreadValues({}, mineRows);
+      let wrote = false;
+      if (byeAnte && seen !== null) {
+        rows[seen] = emptyRow();
+        wrote = true;
+      }
+      if (needsRow) {
+        if (view5 === void 0) view5 = viewOf2(state);
+        const row = resolveTargets(state, actor, view5);
+        if (!isEmpty(row)) {
+          rows[ante] = row;
+          wrote = true;
+        }
+      }
+      if (wrote) nemesis = __spreadProps(__spreadValues({}, nemesis), { [actor]: rows });
+    }
+    if (mine !== void 0 && mine.seenAnte !== ante)
+      server = __spreadProps(__spreadValues({}, server), {
+        players: __spreadProps(__spreadValues({}, server.players), { [actor]: __spreadProps(__spreadValues({}, mine), { seenAnte: ante }) })
+      });
+  }
+  if (nemesis === state.facts.nemesis && server === state.facts.server)
+    return { state, changed: false };
+  return {
+    state: __spreadProps(__spreadValues({}, state), { facts: __spreadProps(__spreadValues({}, state.facts), { nemesis, server }) }),
+    changed: nemesis !== state.facts.nemesis
+  };
+}
+function rowAt(state, id, ante) {
+  var _a;
+  const frozen = (_a = state.facts.nemesis[id]) == null ? void 0 : _a[ante];
+  if (frozen !== void 0) return { row: frozen, state, changed: [] };
+  const row = resolveTargets(state, id);
+  if (isEmpty(row)) return { row, state, changed: [] };
+  return {
+    row,
+    state: __spreadProps(__spreadValues({}, state), {
+      facts: __spreadProps(__spreadValues({}, state.facts), {
+        nemesis: __spreadProps(__spreadValues({}, state.facts.nemesis), {
+          [id]: __spreadProps(__spreadValues({}, state.facts.nemesis[id]), { [ante]: row })
+        })
+      })
+    }),
+    changed: [PVP_NEMESIS_KEY]
+  };
+}
+function recordTargets(state, actor, fan) {
+  var _a, _b, _c;
+  const ante = (_b = (_a = state.round.players[actor]) == null ? void 0 : _a.ante) != null ? _b : null;
+  if (ante === null) return refuse("no_progress");
+  if (fan === "all") {
+    const targets = Object.keys(state.lives.players).filter((id) => id !== actor && isAlive(state, id)).sort();
+    return { ok: true, state, targets, changed: [] };
+  }
+  if (fan === "targeting") {
+    const own = rowAt(state, actor, ante);
+    const finalTwo2 = ((_c = modeOfGame(state)) == null ? void 0 : _c.finalTwo) === true;
+    const view5 = viewOf2(state);
+    const targets = Object.keys(state.lives.players).sort().filter((id) => {
+      var _a2, _b2, _c2, _d;
+      if (id === actor || !isAlive(state, id)) return false;
+      if (finalTwo2) return resolveTargets(state, id, view5).one === actor;
+      const theirs = (_b2 = (_a2 = state.round.players[id]) == null ? void 0 : _a2.ante) != null ? _b2 : null;
+      if (theirs === null) return false;
+      const row = (_d = (_c2 = state.facts.nemesis[id]) == null ? void 0 : _c2[theirs]) != null ? _d : resolveTargets(state, id, view5);
+      return row.one === actor;
+    });
+    return { ok: true, state: own.state, targets, changed: own.changed };
+  }
+  const at = rowAt(state, actor, ante);
+  const picked = fan === "one" ? at.row.one === null ? [] : [at.row.one] : at.row.each;
+  return {
+    ok: true,
+    state: at.state,
+    targets: picked.filter((id) => isAlive(state, id)),
+    changed: at.changed
+  };
+}
+
+// src/lobby/pvp/opponent_facts.ts
+var MAX_SPEND = 1e6;
+var MAX_EFFECTS_PER_ACTOR = 384;
+var MAX_PLANTS_PER_PLANTER = 32;
+var MAX_SLOTS_PER_PLAYER = 160;
+var EFFECT_KINDS = {
+  // lower the best-levelled visible hand by 1
+  asteroid: { fan: "targeting", amount: 1 },
+  // discards_nemesis = 1
+  pizza: { fan: "all", amount: 1 },
+  // nemesis_dollars = 10
+  gambling: { fan: "all", amount: 10 }
+};
+function isEffectKind(value) {
+  return Object.prototype.hasOwnProperty.call(EFFECT_KINDS, value);
+}
+var isSeeded = (state, id) => state.facts.opponent.players[id] !== void 0 && state.facts.server.players[id] !== void 0 && state.facts.effects.players[id] !== void 0 && state.facts.nemesis[id] !== void 0;
+function begin(state, id, args) {
+  const runId = runIdOf(args);
+  if (runId === null || !isRecord(args)) return refuse("bad_payload");
+  const refused = gate(state, id, runId);
+  if (refused) return refused;
+  const rules = state.rules;
+  if (rules.runId === null || rules.runId !== state.runId || !isSeeded(state, id))
+    return refuse("not_running");
+  return { ok: true, args };
+}
+var onlyKeys = (args, keys) => Object.keys(args).every((key) => keys.includes(key));
+var accepted = (state, changed3) => ({
+  ok: true,
+  state,
+  changed: changed3,
+  reply: { kind: "accepted" }
+});
+function reduceSell(state, id, args) {
+  var _a, _b, _c;
+  const begun = begin(state, id, args);
+  if (!begun.ok) return begun;
+  const a = begun.args;
+  if (!onlyKeys(a, ["runId", "ante"]) || !Number.isSafeInteger(a.ante))
+    return refuse("bad_payload");
+  const ante = a.ante;
+  const progress = (_b = (_a = state.round.players[id]) == null ? void 0 : _a.ante) != null ? _b : null;
+  if (progress === null) return refuse("no_progress");
+  if (ante < 1 || ante > progress + 1) return refuse("bad_ante");
+  const player = state.facts.opponent.players[id];
+  const sells = __spreadProps(__spreadValues({}, player.sells), { [ante]: ((_c = player.sells[ante]) != null ? _c : 0) + 1 });
+  return accepted(withPlayer2(state, id, __spreadProps(__spreadValues({}, player), { sells })), [
+    PVP_OPPONENT_KEY
+  ]);
+}
+function withPlayer2(state, id, player) {
+  return __spreadProps(__spreadValues({}, state), {
+    facts: __spreadProps(__spreadValues({}, state.facts), {
+      opponent: {
+        players: __spreadProps(__spreadValues({}, state.facts.opponent.players), { [id]: player })
+      }
+    })
+  });
+}
+function reduceEffect(state, id, args) {
+  var _a, _b;
+  const begun = begin(state, id, args);
+  if (!begun.ok) return begun;
+  const a = begun.args;
+  if (!onlyKeys(a, ["runId", "kind"]) || typeof a.kind !== "string")
+    return refuse("bad_payload");
+  const kind = a.kind;
+  if (!isEffectKind(kind)) return refuse("unknown_kind");
+  if (((_b = (_a = state.round.players[id]) == null ? void 0 : _a.ante) != null ? _b : null) === null)
+    return refuse("no_progress");
+  const { fan, amount } = EFFECT_KINDS[kind];
+  const hit = recordTargets(state, id, fan);
+  if (!hit.ok) return refuse(hit.reason);
+  const sentBy = (target) => {
+    var _a2, _b2;
+    return (_b2 = (_a2 = hit.state.facts.effects.players[target]) == null ? void 0 : _a2.incoming.filter(
+      (e) => e.from === id
+    ).length) != null ? _b2 : 0;
+  };
+  if (hit.targets.some((target) => sentBy(target) >= MAX_EFFECTS_PER_ACTOR))
+    return refuse("over_cap");
+  const players = __spreadValues({}, hit.state.facts.effects.players);
+  for (const target of hit.targets) {
+    const p = players[target];
+    if (p === void 0) continue;
+    players[target] = {
+      incoming: [
+        ...p.incoming,
+        { from: id, n: p.incoming.length + 1, kind, amount }
+      ]
+    };
+  }
+  return accepted(
+    __spreadProps(__spreadValues({}, hit.state), { facts: __spreadProps(__spreadValues({}, hit.state.facts), { effects: { players } }) }),
+    [PVP_EFFECTS_KEY, ...hit.changed]
+  );
+}
+function parseShop(args) {
+  if (!onlyKeys(args, ["runId", "spent", "skipped"])) return null;
+  const hasSpent = "spent" in args;
+  const hasSkipped = "skipped" in args;
+  if (hasSpent && hasSkipped) return null;
+  if (!hasSpent && !hasSkipped) return { unknown: true };
+  if (hasSpent) return isCount(args.spent) ? { spent: args.spent } : null;
+  return args.skipped === true ? { skipped: true } : null;
+}
+function reduceShop(state, id, args) {
+  var _a, _b;
+  const begun = begin(state, id, args);
+  if (!begun.ok) return begun;
+  const parsed = parseShop(begun.args);
+  if (parsed === null) return refuse("bad_payload");
+  const player = state.facts.opponent.players[id];
+  if (player.slots.length >= MAX_SLOTS_PER_PLAYER) return refuse("over_cap");
+  const ante = (_b = (_a = state.round.players[id]) == null ? void 0 : _a.ante) != null ? _b : null;
+  const made = slotOf(state, id, ante, parsed);
+  const slot = made.slot;
+  return {
+    ok: true,
+    state: withPlayer2(state, id, __spreadProps(__spreadValues({}, player), { slots: [...player.slots, slot] })),
+    changed: [PVP_OPPONENT_KEY],
+    reply: "refused" in slot ? made.detail === void 0 ? { kind: "refused", reason: slot.refused } : { kind: "refused", reason: slot.refused, detail: made.detail } : { kind: "accepted" }
+  };
+}
+function slotOf(state, id, ante, parsed) {
+  var _a, _b;
+  const refuseWith = (refused, detail) => ({
+    slot: { ante, refused },
+    detail
+  });
+  if (ante === null) return refuseWith("no_progress");
+  if ("unknown" in parsed) return refuseWith("bad_spend");
+  const player = state.facts.opponent.players[id];
+  if ("skipped" in parsed) {
+    const total = (_b = (_a = state.facts.skips[id]) == null ? void 0 : _a.skips) != null ? _b : null;
+    const taken = player.slots.filter((s) => "skipped" in s).length;
+    if (total === null || total <= taken) return refuseWith("skip_missing");
+  } else if (parsed.spent > MAX_SPEND)
+    return refuseWith("implausible", {
+      count: parsed.spent,
+      cap: MAX_SPEND,
+      window: "slot"
+    });
+  return {
+    slot: "skipped" in parsed ? { ante, skipped: true } : { ante, spent: parsed.spent }
+  };
+}
+function syncClosed(state) {
+  let players = state.facts.opponent.players;
+  for (const [id, player] of Object.entries(players)) {
+    const seat = state.lives.players[id];
+    if (seat === void 0) continue;
+    const closed = !inRunIgnoringLives(seat);
+    if (closed !== player.closed)
+      players = __spreadProps(__spreadValues({}, players), { [id]: __spreadProps(__spreadValues({}, player), { closed }) });
+  }
+  if (players === state.facts.opponent.players) return { state, changed: false };
+  return {
+    state: __spreadProps(__spreadValues({}, state), {
+      facts: __spreadProps(__spreadValues({}, state.facts), { opponent: { players } })
+    }),
+    changed: true
+  };
+}
+
+// src/lobby/pvp/round_cycle.ts
+function resolveRound6(state, mode, ctx) {
+  if (state.round.phase !== "playing") return state;
+  const ran = runHook(mode.resolveRound, state, ctx);
+  if (ran.round.phase === "playing") return ran;
+  const resolved = withSkipsReset(ran, mode);
+  const result = resolved.round.lastResult;
+  if (result === null) return resolved;
+  let next = resolved;
+  for (const id of chargedLosers(next, mode, result.losers)) {
+    const guardKey = pvpGuardKey(next, id);
+    if (guardKey === null) continue;
+    next = chargeLife(next, mode, id, `pvp:${result.roundId}`, guardKey);
+  }
+  return next;
+}
+function withoutAnteDeadline(state) {
+  var _a;
+  if (((_a = state.facts.deadline) == null ? void 0 : _a.kind) !== "ante") return state;
+  return __spreadProps(__spreadValues({}, state), { facts: __spreadProps(__spreadValues({}, state.facts), { deadline: null }) });
+}
+function withSkipsReset(state, mode) {
+  const { opponentOf } = worldOf(state, mode, [], []);
+  const skips = skipsReset(state.facts.skips, opponentOf);
+  return skips === state.facts.skips ? state : __spreadProps(__spreadValues({}, state), { facts: __spreadProps(__spreadValues({}, state.facts), { skips }) });
+}
+function pvpGuardKey(state, id) {
+  if (state.lastStart === null || !state.lastStart.players.includes(id))
+    return null;
+  const keys = state.facts.pvpBlinds[id];
+  if (keys === void 0 || keys.length === 0) return null;
+  return keys[keys.length - 1];
+}
+function chargedLosers(state, mode, losers) {
+  return mode.lifePool ? mode.lifePool.payers(state, losers) : losers;
+}
+function openNextRound(state, mode, ctx) {
+  const start = pendingStart(state);
+  if (start === null) return state;
+  let next = runHook((s, c) => mode.roundReady(s, c), state, ctx);
+  next = withStartKeys(next, start);
+  next = rearmGuards(next, start.players);
+  next = withoutAnteDeadline(next);
+  next = withSkipsReset(next, mode);
+  return __spreadProps(__spreadValues({}, next), { round: __spreadProps(__spreadValues({}, next.round), { roundId: start.roundId }) });
+}
+function pendingStart(state) {
+  const start = state.lastStart;
+  if (state.result.kind !== null || start === null || start.roundId <= state.round.roundId)
+    return null;
+  return start;
+}
+function resolveLeftRound(state, mode, ctx) {
+  const start = pendingStart(state);
+  if (start === null || state.round.phase !== "playing") return state;
+  const players = __spreadValues({}, state.round.players);
+  for (const id of start.players) {
+    const entry = players[id];
+    if (entry !== void 0 && !handsDone(entry))
+      players[id] = __spreadProps(__spreadValues({}, entry), { handsSpent: true });
+  }
+  const resolved = resolveRound6(
+    __spreadProps(__spreadValues({}, state), { round: __spreadProps(__spreadValues({}, state.round), { players }) }),
+    mode,
+    ctx
+  );
+  if (resolved.round.phase === "playing")
+    return __spreadProps(__spreadValues({}, resolved), {
+      round: __spreadProps(__spreadValues({}, resolved.round), {
+        phase: "resolved",
+        lastResult: { roundId: resolved.round.roundId, losers: [] }
+      })
+    });
+  return resolved;
+}
+function withStartKeys(state, start) {
+  var _a;
+  const blinds = __spreadValues({}, state.facts.pvpBlinds);
+  for (const id of start.players) {
+    const key = start.blindKeys[id];
+    if (key === void 0) throw new Error(`round start without a blind key for ${id}`);
+    blinds[id] = [...(_a = blinds[id]) != null ? _a : [], key];
+  }
+  return withMemo(state, { pvpBlinds: blinds });
+}
+function rearmGuards(state, starters) {
+  var _a;
+  const next = __spreadValues({}, state.facts.guarded);
+  let changed3 = false;
+  for (const id of starters) {
+    const keys = state.facts.pvpBlinds[id];
+    const key = keys[keys.length - 1];
+    if ((_a = next[id]) == null ? void 0 : _a.includes(key)) {
+      next[id] = next[id].filter((k) => k !== key);
+      changed3 = true;
+    }
+  }
+  return changed3 ? withMemo(state, { guarded: next }) : state;
+}
+function withFacingRepinned(state, mode) {
+  const { opponentOf } = worldOf(state, mode, [], []);
+  const skips = facingRepinned(state.facts.skips, opponentOf);
+  return skips === state.facts.skips ? state : __spreadProps(__spreadValues({}, state), { facts: __spreadProps(__spreadValues({}, state.facts), { skips }) });
+}
+
+// src/lobby/pvp/tick.ts
+function preFreezeEnd(startedIds, leaverId, runId, ranked) {
+  if (startedIds.length !== 2 || !startedIds.includes(leaverId))
+    return { kind: "none" };
+  if (ranked) return { kind: "dodged", leaverId };
+  const stayer = startedIds.find((id) => id !== leaverId);
+  if (stayer === void 0) return { kind: "none" };
+  return {
+    kind: "result",
+    result: {
+      runId,
+      kind: "win",
+      winnerId: stayer,
+      winnerTeam: null,
+      places: [
+        { playerId: stayer, place: 1 },
+        { playerId: leaverId, place: 2 }
+      ]
+    }
+  };
+}
+function leaversOf(state, env) {
+  const seated = new Set(env.seatedIds);
+  return env.startedIds.filter(
+    (id) => !seated.has(id) || state.facts.log.some((f) => f.type === "forfeit" && f.playerId === id)
+  );
+}
+function inRunIds(state) {
+  return Object.keys(state.lives.players).filter(
+    (id) => inRunIgnoringLives(state.lives.players[id])
+  );
+}
+function freshLife(lives) {
+  return {
+    lives,
+    eliminated: false,
+    forfeited: false,
+    left: false,
+    events: []
+  };
+}
+function rivalIdOf(state, mode, id) {
+  var _a, _b;
+  return (_b = (_a = mode.view) == null ? void 0 : _a.call(mode, state).opponents[id]) != null ? _b : null;
+}
+function withSkipsSeen(state, mode, ids) {
+  const skipsSeen = {};
+  for (const id of ids) {
+    const rival = rivalIdOf(state, mode, id);
+    skipsSeen[id] = rival === null ? { rival: null } : { rival, skips: 0 };
+  }
+  return __spreadProps(__spreadValues({}, state), { facts: __spreadProps(__spreadValues({}, state.facts), { skipsSeen }) });
+}
+function freezeIfNeeded(state, env, ctx, modeFor = pickMode) {
+  if (state.rules.runId === env.runId) return { ok: true, state };
+  const found = settingsFromMetadata(env.metadata, env.startedIds);
+  if (!found.ok) return found;
+  const settings = found.settings;
+  const players = __spreadValues({}, state.lives.players);
+  for (const id of env.startedIds)
+    if (!players[id]) players[id] = freshLife(settings.startingLives);
+  const skips = __spreadValues({}, state.facts.skips);
+  for (const id of env.startedIds)
+    skips[id] = { skips: 0, skipsAtPvp: 0, facing: null, spentMs: 0 };
+  const personal = settings.clocks.personal;
+  const clocks = {};
+  if (personal !== null)
+    for (const id of env.startedIds)
+      clocks[id] = {
+        ms: personal.baseMs,
+        running: false,
+        rate: 1,
+        since: ctx.now,
+        n: 1,
+        spent: false,
+        graceUntil: null
+      };
+  const frozen = __spreadProps(__spreadValues({}, state), {
+    facts: __spreadProps(__spreadValues(__spreadValues({}, state.facts), seedOpponentFacts(env.startedIds)), {
+      // A new run starts with nobody animating. D1d says to keep the entries, but every
+      // pvp.animating freezes first, so an entry found at the freeze is the previous
+      // run's, which would hold the new run's timers paused.
+      animating: [],
+      skips,
+      clocks,
+      skipsSeen: {}
+    }),
+    rules: __spreadValues({ runId: env.runId }, settings),
+    lives: __spreadProps(__spreadValues({}, state.lives), { players })
+  });
+  const mode = modeFor(settings.mode, settings.startedCount);
+  const start = {
+    startedIds: env.startedIds,
+    picks: env.picks,
+    teamPlan: env.teamPlan
+  };
+  const afterInit = runHook((s, c) => mode.init(s, c, start), frozen, ctx);
+  const inited = personal === null ? afterInit : withSkipsSeen(afterInit, mode, env.startedIds);
+  return {
+    ok: true,
+    state: __spreadProps(__spreadValues({}, inited), {
+      round: __spreadProps(__spreadValues({}, inited.round), { runId: env.runId }),
+      lives: __spreadProps(__spreadValues({}, inited.lives), { runId: env.runId }),
+      teams: __spreadProps(__spreadValues({}, inited.teams), { runId: env.runId }),
+      votes: __spreadProps(__spreadValues({}, inited.votes), { runId: env.runId })
+    })
+  };
+}
+function placed(state) {
+  const r = state.result;
+  if (r.kind === null || r.places.length > 0) return state;
+  return __spreadProps(__spreadValues({}, state), { result: resultOf(state, r.kind, r.winnerId) });
+}
+function unanimous(votes, voters) {
+  return voters.length > 0 && voters.every((id) => votes.includes(id));
+}
+function decideVotes(state, env) {
+  if (state.votes.runId !== state.rules.runId) return { state, restart: false };
+  const seated = new Set(env.seatedIds);
+  const voters = inRunIds(state).filter((id) => seated.has(id));
+  if (unanimous(state.votes.draw, voters))
+    return { state: withResult(state, "draw", null), restart: false };
+  return { state, restart: unanimous(state.votes.seed, voters) };
+}
+function withoutConsumedFacts(state) {
+  const log = state.facts.log;
+  const kept = log.filter(
+    (fact) => fact.type !== "timer_start" && fact.type !== "timer_pause" && fact.type !== "blind" && fact.type !== "hand_credit" && fact.type !== "preview_charge" && fact.type !== "progress"
+  );
+  if (kept.length === log.length) return state;
+  return __spreadProps(__spreadValues({}, state), {
+    facts: __spreadProps(__spreadValues({}, state.facts), { log: kept, applied: kept.length })
+  });
+}
+function stepClocks(state, mode, env, fresh, opened2, now) {
+  var _a, _b;
+  const rules = state.rules;
+  if (rules.runId === null || rules.clocks.personal === null) return state;
+  const personal = rules.clocks.personal;
+  const deadline = plainDeadline(state.facts.deadline);
+  const stillPlaying = opened2 !== null && state.round.phase === "playing" && state.round.roundId === opened2;
+  const teamMode = rules.mode === "manhunt" || rules.mode === "teams";
+  const inputs = {};
+  for (const id of Object.keys(state.facts.clocks)) {
+    const entry = state.round.players[id];
+    const rivalId = rivalIdOf(state, mode, id);
+    const rivalScore = rivalId === null || maskedFor(state, id) ? null : scoreOf(state, rivalId);
+    inputs[id] = {
+      inRun: inRunIgnoringLives(state.lives.players[id]),
+      ready: env.readyIds.includes(id),
+      readied: env.readiedIds.includes(id),
+      away: env.awayIds.includes(id),
+      animating: state.facts.animating.includes(id),
+      pvpOpen: roundOpen(state),
+      roundClosed: opened2 !== null && !stillPlaying,
+      timing: deadline !== null && deadline.by === id,
+      timed: (deadline == null ? void 0 : deadline.against.includes(id)) === true,
+      blindStarted: entry !== void 0 && entry.reportedHands !== null,
+      handsDone: entry !== void 0 && handsDone(entry),
+      score: entry === void 0 ? null : entry.score,
+      rival: rivalId === null ? null : { score: rivalScore },
+      rivalId,
+      rivalSkips: rivalId === null ? null : (_b = (_a = state.facts.skips[rivalId]) == null ? void 0 : _a.skips) != null ? _b : null,
+      teamMode,
+      previews: fresh.filter(
+        (fact) => fact.type === "preview_charge" && fact.playerId === id
+      ).length
+    };
+  }
+  const stepped2 = clocksStep(
+    personal,
+    now,
+    state.facts.clocks,
+    state.facts.skipsSeen,
+    inputs,
+    rules.timerIncrementMs
+  );
+  if (stepped2.clocks === state.facts.clocks && stepped2.skipsSeen === state.facts.skipsSeen && stepped2.runOuts.length === 0)
+    return state;
+  const stored = __spreadProps(__spreadValues({}, state), {
+    facts: __spreadProps(__spreadValues({}, state.facts), {
+      clocks: stepped2.clocks,
+      skipsSeen: stepped2.skipsSeen
+    })
+  });
+  if (stepped2.runOuts.length === 0) return stored;
+  return anteRunOuts(
+    stored,
+    mode,
+    stepped2.runOuts.map((out) => out.playerId)
+  );
+}
+function withAnimatingKept(state, env, roundClosed) {
+  const before = state.facts.animating;
+  const kept = roundClosed ? [] : before.filter(
+    (id) => env.seatedIds.includes(id) && !env.awayIds.includes(id) && inRunIgnoringLives(state.lives.players[id])
+  );
+  if (kept.length === before.length) return state;
+  return __spreadProps(__spreadValues({}, state), { facts: __spreadProps(__spreadValues({}, state.facts), { animating: kept }) });
+}
+function withoutDeadline(state) {
+  if (state.facts.deadline === void 0 || state.facts.deadline === null)
+    return state;
+  return __spreadProps(__spreadValues({}, state), { facts: __spreadProps(__spreadValues({}, state.facts), { deadline: null }) });
+}
+function allForfeited(state, env) {
+  if (!env.ranked) return false;
+  const seats = Object.values(state.lives.players);
+  return seats.length > 0 && seats.every((s) => s.forfeited || s.left);
+}
+function decide(state, env, ctx, modeFor = pickMode) {
+  var _a;
+  if (env.contested && env.startedIds.length <= 2)
+    return { state, end: { kind: "contested" } };
+  if (state.result.runId === env.runId && state.result.kind !== null)
+    return { state, end: { kind: "finish" } };
+  const wasAway = (_a = env.awayBeforeRun) != null ? _a : [];
+  if (!env.raceStarted || wasAway.length > 0) {
+    const gone = env.raceStarted ? [] : leaversOf(state, env);
+    const leavers = gone.concat(wasAway.filter((id) => !gone.includes(id)));
+    if (env.startedIds.length >= 2 && leavers.length === env.startedIds.length)
+      return { state, end: { kind: "bothGone", leaverIds: leavers } };
+    const leaver = leavers.length === 1 ? leavers[0] : void 0;
+    const ended = leaver === void 0 ? null : preFreezeEnd(env.startedIds, leaver, env.runId, env.ranked && env.firstRun !== false);
+    if (ended !== null && ended.kind === "dodged")
+      return { state, end: { kind: "dodged", leaverId: ended.leaverId } };
+    if (ended !== null && ended.kind === "result")
+      return { state: __spreadProps(__spreadValues({}, state), { result: ended.result }), end: { kind: "finish" } };
+    if (!env.raceStarted) return { state, end: null };
+  }
+  const frozen = freezeIfNeeded(state, env, ctx, modeFor);
+  if (!frozen.ok)
+    return { state, end: { kind: "unrefereeable", key: frozen.key } };
+  let next = frozen.state;
+  const rules = next.rules;
+  const frozenMode = rules.mode;
+  if (frozenMode === null)
+    return { state, end: { kind: "unrefereeable", key: "queue_mode" } };
+  const modeNow = (s) => modeFor(frozenMode, rules.startedCount, seatedIds(s).length);
+  let mode = modeNow(next);
+  const opened2 = state.round.phase === "playing" ? state.round.roundId : null;
+  const fresh = next.facts.log.slice(next.facts.applied);
+  const consumed = consumeFacts(next, mode);
+  const left = markLeft(consumed.state, env.startedIds, env.seatedIds);
+  next = left.state;
+  if (consumed.gone.length + left.gone.length > 0) {
+    const undecided = next.result;
+    next = runHook(mode.onForfeit, next, ctx);
+    if (next.facts.deaths.length > 0)
+      next = __spreadProps(__spreadValues({}, next), { result: undecided });
+  }
+  mode = modeNow(next);
+  next = withAnimatingKept(next, env, false);
+  next = deadlineStep(next, mode, env, fresh, ctx.now);
+  next = resolveRound6(next, mode, ctx);
+  next = resolveLeftRound(next, mode, ctx);
+  const ante = highestAnte(next);
+  if (ante !== null && !roundOpen(next) && ante > next.facts.anteSeen) {
+    next = withMemo(next, { anteSeen: ante });
+    if (mode.onAnte) {
+      next = runHook(mode.onAnte, next, ctx);
+      next = withFacingRepinned(next, mode);
+    }
+  }
+  next = openNextRound(next, mode, ctx);
+  next = withAnimatingKept(
+    next,
+    env,
+    opened2 !== null && !(next.round.phase === "playing" && next.round.roundId === opened2)
+  );
+  next = withoutConsumedFacts(
+    stepClocks(next, mode, env, fresh, opened2, ctx.now)
+  );
+  next = freezeNemesis(next).state;
+  next = settlePending(next, mode);
+  const voted = decideVotes(next, env);
+  next = voted.state;
+  if (next.result.kind === null && next.lives.pending.length === 0 && next.facts.deaths.length === 0)
+    next = runHook(mode.checkWinner, next, ctx);
+  next = placed(next);
+  next = syncClosed(next).state;
+  if (next.result.kind !== null)
+    return {
+      state: withoutDeadline(next),
+      end: allForfeited(next, env) ? { kind: "forfeited" } : { kind: "finish" }
+    };
+  return {
+    state: next,
+    end: voted.restart ? { kind: "restart" } : null
+  };
+}
+
+// src/lobby/pvp/freeze_env.ts
+function freezeEnvOf(lobby) {
+  var _a, _b;
+  const started = lobby.game.started;
+  if (!started) return null;
+  return {
+    runId: started.runId,
+    startedIds: started.players.map((p) => p.id),
+    metadata: lobby.metadata,
+    picks: (_a = lobby.teamPicks) != null ? _a : {},
+    teamPlan: (_b = lobby.teamPlan) != null ? _b : null
+  };
+}
+function frozenState(lobby, state, ctx) {
+  const env = freezeEnvOf(lobby);
+  if (env === null) return { ok: true, state };
+  return freezeIfNeeded(state, env, ctx);
+}
+function runFrozen(lobby) {
+  const started = lobby.game.started;
+  const state = refereeOf(lobby);
+  return !!started && !!state && state.rules.runId === started.runId;
+}
+var RULESET_STEP = "ruleset";
+function setupPending(lobby) {
+  var _a;
+  const started = lobby.game.started;
+  if (!started) return false;
+  const setup = lobby.game.setup;
+  if (setup == null ? void 0 : setup.open) return true;
+  if (lobby.modId !== PVP_MOD_ID) return false;
+  const results = Object.values((_a = setup == null ? void 0 : setup.results) != null ? _a : {});
+  if (lobby.rankedMode !== void 0)
+    return started.players.length === 2 && !results.some((r) => r.kind === "draft");
+  const vote = setup == null ? void 0 : setup.results[RULESET_STEP];
+  return (vote == null ? void 0 : vote.kind) === "vote" && lobby.metadata.ruleset !== `ruleset_mp_${vote.option}`;
+}
+function awayBeforeRunOf(lobby) {
+  const started = lobby.game.started;
+  if (lobby.rankedMode === void 0 || !started || lobby.game.contest) return [];
+  if (started.players.length !== 2 || started.restarted) return [];
+  const racedAt = started.raceStartedAt;
+  if (racedAt === void 0) return [];
+  return lobby.players.filter(
+    (p) => started.players.some((s) => s.id === p.id) && p.awaySince !== null && p.awaySince <= racedAt
+  ).map((p) => p.id);
+}
+
+// src/lobby/pvp/dodge.ts
+function endsAsDodge(lobby) {
+  const started = lobby.game.started;
+  if (lobby.rankedMode === void 0 || !started) return false;
+  if (started.players.length !== 2) return false;
+  if (started.restarted) return false;
+  if (started.raceStartedAt !== void 0 && awayBeforeRunOf(lobby).length === 0)
+    return false;
+  if (lobby.game.contest) return false;
+  const referee = refereeOf(lobby);
+  if (referee === null) return false;
+  return !(referee.result.runId === started.runId && referee.result.kind !== null);
+}
+
 // src/lobby/state.ts
 var DEFAULT_GRACE_MS = 12e4;
 var DEFAULT_RESULT_TIMEOUT_MS = 6e4;
@@ -3618,7 +7517,7 @@ var CREATOR_JOIN_TIMEOUT_MS = 3e4;
 var MIN_PLAYERS = 2;
 var MAX_PLAYERS = 128;
 function newLobby(params) {
-  var _a, _b;
+  var _a, _b, _c;
   return {
     code: params.code,
     modId: params.modId,
@@ -3628,13 +7527,13 @@ function newLobby(params) {
     rankedMode: params.rankedMode,
     allowedIds: params.allowedIds,
     gameMode: params.gameMode,
-    metadata: {},
+    metadata: (_a = params.metadata) != null ? _a : {},
     players: [],
     kickedIds: [],
     createdAt: params.now,
     graceMs: params.graceMs,
-    catchUpLimitMs: (_a = params.catchUpLimitMs) != null ? _a : null,
-    resultTimeoutMs: (_b = params.resultTimeoutMs) != null ? _b : DEFAULT_RESULT_TIMEOUT_MS,
+    catchUpLimitMs: (_b = params.catchUpLimitMs) != null ? _b : null,
+    resultTimeoutMs: (_c = params.resultTimeoutMs) != null ? _c : DEFAULT_RESULT_TIMEOUT_MS,
     closed: false,
     game: emptyGame(),
     actionBudget: {},
@@ -3701,6 +7600,14 @@ function rejectOp(userId, message) {
     to: [userId]
   };
 }
+function badRulesOp(userId, key) {
+  return {
+    kind: "send",
+    op: ServerOp.ERROR,
+    payload: { message: `bad_rules: ${key}`, reason: "bad_rules", key },
+    to: [userId]
+  };
+}
 var DIFFERENT_MOD = "Lobby is for a different mod";
 var FORFEITED_SEAT = "You forfeited this match";
 function joinRejection(lobby, userId, modId) {
@@ -3732,7 +7639,13 @@ function forfeitedStill(lobby, userId) {
 function isCatchingUp(player) {
   return typeof player.catchingUpSince === "number";
 }
+function viewOfStarted(started) {
+  if (!started) return null;
+  const _a = started, { restarted: _restarted } = _a, visible = __objRest(_a, ["restarted"]);
+  return visible;
+}
 function snapshotFor(lobby, userId, now = Date.now()) {
+  var _a, _b, _c, _d, _e;
   const self = findPlayer(lobby, userId);
   return {
     code: lobby.code,
@@ -3753,28 +7666,48 @@ function snapshotFor(lobby, userId, now = Date.now()) {
     ownState: self ? self.ownState : null,
     game: {
       ready: lobby.game.ready,
-      started: lobby.game.started,
+      started: viewOfStarted(lobby.game.started),
       reported: Object.keys(lobby.game.reports),
       resultPending: lobby.game.resultPending === true,
       logSeq: logHeldOf(lobby.game.logs[userId]),
+      lastEnded: (_b = (_a = lobby.game.endedAway) == null ? void 0 : _a[userId]) != null ? _b : null,
       setup: setupView(setupOf(lobby.game), now)
     },
     groupQueue: viewOf(lobby),
     teamPlan: lobby.teamPlan || null,
     graceSeconds: Math.ceil(lobby.graceMs / 1e3),
-    serverNow: now
+    serverNow: now,
+    rev: (_c = lobby.rev) != null ? _c : 1,
+    connectionId: `c${(_d = lobby.connSeq) != null ? _d : 0}`,
+    protocol: PROTOCOL_VERSION,
+    match: withLiveClocks(
+      withLiveDeadline(
+        matchStateOf(lobby, matchKeys(), maskedIn(lobby, userId), userId),
+        (_e = refereeOf(lobby)) == null ? void 0 : _e.facts.deadline,
+        now
+      ),
+      refereeOf(lobby),
+      now
+    )
   };
 }
 function join(lobby, userId, sessionId, info, now = Date.now()) {
+  var _a, _b;
   const existing = findPlayer(lobby, userId);
   if (existing) {
     const wasAway = existing.awaySince !== null;
     const wasCatchingUp = isCatchingUp(existing);
     const back = __spreadProps(__spreadValues({}, existing), { sessionId, awaySince: null, catchingUpSince: null });
-    const next2 = withPresence(
-      __spreadProps(__spreadValues({}, lobby), { players: lobby.players.map((p) => p.id === userId ? back : p) }),
+    const marked = withPresence(
+      __spreadProps(__spreadValues({}, lobby), {
+        connSeq: ((_a = lobby.connSeq) != null ? _a : 0) + 1,
+        players: lobby.players.map((p) => p.id === userId ? back : p)
+      }),
       { userId, kind: "rejoined", at: now }
     );
+    const hostSeat = findPlayer(marked, marked.hostId);
+    const rehosted = hostSeat && hostSeat.awaySince !== null && !isParked(marked) ? transferHostFrom(marked, marked.hostId) : { lobby: marked, out: [] };
+    const next2 = rehosted.lobby;
     const out = [
       { kind: "setCurrent", userId },
       {
@@ -3797,8 +7730,10 @@ function join(lobby, userId, sessionId, info, now = Date.now()) {
       if (tail) out.push({ kind: "send", op: ServerOp.REPLAY_TAIL, payload: tail, to: [userId] });
     }
     if (wasCatchingUp) out.push(catchingUpEvent(next2, userId, false));
+    out.push(...rehosted.out);
     return then({ lobby: next2, out }, groupReturned);
   }
+  if (!info) throw new Error(`A new seat for ${userId} needs join info`);
   const player = {
     id: userId,
     sessionId,
@@ -3809,6 +7744,7 @@ function join(lobby, userId, sessionId, info, now = Date.now()) {
   };
   const next = withPresence(
     __spreadProps(__spreadValues({}, lobby), {
+      connSeq: ((_b = lobby.connSeq) != null ? _b : 0) + 1,
       hostId: lobby.allowedIds && lobby.players.length === 0 ? userId : lobby.hostId,
       players: lobby.players.concat([player])
     }),
@@ -3891,14 +7827,6 @@ function close(lobby) {
   for (const id of allIds(next)) out.push({ kind: "clearCurrent", userId: id });
   return { lobby: next, out: ended.out.concat(out) };
 }
-function closeIfAbandoned(step) {
-  const lobby = step.lobby;
-  if (lobby.closed || isParked(lobby) || lobby.game.started) return step;
-  const anyoneHere = lobby.players.some((p) => p.awaySince === null);
-  if (anyoneHere) return step;
-  const closed = close(lobby);
-  return { lobby: closed.lobby, out: step.out.concat(closed.out) };
-}
 function remove(lobby, userId, type, why) {
   const player = findPlayer(lobby, userId);
   if (!player) return { lobby, out: [] };
@@ -3909,11 +7837,22 @@ function remove(lobby, userId, type, why) {
   const actionBudget = __spreadValues({}, transferred.lobby.actionBudget);
   delete actionBudget[userId];
   delete actionBudget[logBudgetKey(userId)];
-  const next = __spreadProps(__spreadValues({}, transferred.lobby), {
+  let next = __spreadProps(__spreadValues({}, transferred.lobby), {
     players: transferred.lobby.players.filter((p) => p.id !== userId),
     game: __spreadProps(__spreadValues({}, transferred.lobby.game), { ready: ready2 }),
     actionBudget
   });
+  if (next.answered) {
+    const _a = next.answered, { [userId]: _dropped } = _a, answered2 = __objRest(_a, [__restKey(userId)]);
+    next.answered = answered2;
+  }
+  if (next.teamPicks) {
+    const _b = next.teamPicks, { [userId]: _pick } = _b, teamPicks = __objRest(_b, [__restKey(userId)]);
+    next.teamPicks = teamPicks;
+  }
+  const readied = readyAfterSeatRemoved(next, userId);
+  const announced = readied.changed ? announceChange(readied.lobby, [PVP_READY_KEY]) : { lobby: next, out: [] };
+  next = announced.lobby;
   const others = allIds(next);
   const out = grouped.out.concat([{ kind: "clearCurrent", userId }]);
   if (type)
@@ -3936,11 +7875,12 @@ function remove(lobby, userId, type, why) {
       (o) => o.kind === "send" ? __spreadProps(__spreadValues({}, o), { to: others }) : o
     )
   );
+  out.push(...announced.out);
   if (next.players.length === 0) {
     const closed = close(next);
     return { lobby: closed.lobby, out: out.concat(closed.out) };
   }
-  return closeIfAbandoned({ lobby: next, out });
+  return { lobby: next, out };
 }
 function leave(lobby, userId, now = Date.now()) {
   if (!findPlayer(lobby, userId)) return { lobby, out: [] };
@@ -3968,10 +7908,12 @@ function disconnect(lobby, userId, sessionId, now) {
       othersThan(transferred.lobby, userId)
     )
   ]);
-  return closeIfAbandoned({
-    lobby: transferred.lobby,
-    out: out.concat(transferred.out)
-  });
+  const readied = readyDroppedOnDisconnect(transferred.lobby, userId);
+  const announced = readied.changed ? announceChange(readied.lobby, [PVP_READY_KEY]) : { lobby: transferred.lobby, out: [] };
+  return {
+    lobby: announced.lobby,
+    out: out.concat(transferred.out, announced.out)
+  };
 }
 function kick(lobby, byId, targetId, now = Date.now()) {
   if (lobby.hostId !== byId)
@@ -4035,16 +7977,37 @@ function isPlainObject2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function setMetadata(lobby, byId, patch) {
+  var _a;
   if (lobby.hostId !== byId)
     return { lobby, out: [rejectOp(byId, "Only the host can set metadata")] };
   if (!isPlainObject2(patch))
     return { lobby, out: [rejectOp(byId, "Metadata must be an object")] };
-  const metadata = __spreadValues(__spreadValues({}, lobby.metadata), patch);
+  const pinned = pinFor(lobby.modId, (_a = lobby.rankedMode) != null ? _a : "");
+  const pinSplit = pinned.ok ? splitPinnedPatch(patch, pinned.pin) : { accepted: patch, refused: [] };
+  const modeLocked = lobby.game.started !== null && lobby.modId === PVP_MOD_ID && "queue_mode" in pinSplit.accepted && pinSplit.accepted.queue_mode !== lobby.metadata.queue_mode;
+  const lockedRefusals = modeLocked ? ["queue_mode"] : [];
+  const pinRefusals = [...pinSplit.refused, ...lockedRefusals.filter((k) => !pinSplit.refused.includes(k))].map(
+    (key) => badRulesOp(byId, key)
+  );
+  const written = modeLocked ? Object.fromEntries(Object.entries(pinSplit.accepted).filter(([key]) => key !== "queue_mode")) : pinSplit.accepted;
+  if (pinRefusals.length > 0 && Object.keys(written).length === 0)
+    return { lobby, out: pinRefusals };
+  const referee = lobby.game.started ? refereeOf(lobby) : null;
+  const split = referee === null || !lobby.game.started ? { accepted: written, refused: [] } : splitRulePatch(
+    written,
+    lobby.metadata,
+    referee.rules.runId === lobby.game.started.runId
+  );
+  const refusals = [...pinRefusals, ...split.refused.map((key) => badRulesOp(byId, key))];
+  if (refusals.length > 0 && Object.keys(split.accepted).length === 0)
+    return { lobby, out: refusals };
+  const metadata = __spreadValues(__spreadValues({}, lobby.metadata), split.accepted);
   const next = __spreadProps(__spreadValues({}, lobby), { metadata });
   const everyone2 = allIds(next);
   return {
     lobby: next,
     out: [
+      ...refusals,
       { kind: "send", op: ServerOp.METADATA, payload: metadata, to: everyone2 },
       event(next, "metadata_changed", { data: metadata }, everyone2)
     ]
@@ -4106,7 +8069,9 @@ function tick(lobby, now) {
     const graceRanOut = !parked && awaySince !== null && now - awaySince >= lobby.graceMs;
     if (graceRanOut || catchUpLimitReached(lobby, current, now)) {
       const started = step.lobby.game.started;
-      const forfeited = started && started.players.some((q) => q.id === p.id) ? [{ kind: "forfeited", userId: p.id, runId: started.runId, code: lobby.code, at: now, lobbyKind: lobbyKindOf(lobby) }] : [];
+      const dodge = endsAsDodge(step.lobby);
+      if (dodge && started && started.raceStartedAt !== void 0 && awayBeforeRunOf(step.lobby).includes(p.id)) continue;
+      const forfeited = !dodge && started && started.players.some((q) => q.id === p.id) ? [{ kind: "forfeited", userId: p.id, runId: started.runId, code: lobby.code, at: now, lobbyKind: lobbyKindOf(lobby) }] : [];
       const timedOut = withPresence(step.lobby, {
         userId: p.id,
         kind: graceRanOut ? "timed_out" : "catch_up_limit",
@@ -4397,14 +8362,15 @@ function seatOf(nk, logger, userId) {
   nk.storageDelete([key]);
   return null;
 }
-function currentLobby(nk, userId) {
-  const seat = seatOf(nk, null, userId);
+function currentLobby(nk, logger, userId) {
+  const seat = seatOf(nk, logger, userId);
   return seat === "resuming" ? null : seat;
 }
 function rpcLobbyCreate(ctx, logger, nk, payload) {
   const userId = requireUser(ctx);
   const input = parsePayload(payload);
-  const refused = lobbyCreateRefusal(readConfig(nk), profileFor(nk, userId, ctx.username).privileges);
+  const config = readConfig(nk, logger);
+  const refused = lobbyCreateRefusal(config, profileFor(nk, userId, ctx.username).privileges);
   if (refused) throw runtimeError(PERMISSION_DENIED, refused);
   const modId = input.modId;
   if (typeof modId !== "string" || !MOD_ID_PATTERN2.test(modId)) {
@@ -4421,10 +8387,14 @@ function rpcLobbyCreate(ctx, logger, nk, payload) {
   if (rankedMode !== void 0 && rankedMode !== null) {
     if (typeof rankedMode !== "string" || !RANKED_MODE_PATTERN.test(rankedMode))
       throw runtimeError(INVALID_ARGUMENT, "rankedMode is not a valid mode");
+    if (!pinFor(modId, rankedMode).ok)
+      throw runtimeError(INVALID_ARGUMENT, "unknown_ranked_mode");
+    if (ticketModeDisabled(config.disabledPvpModes, modId, rankedMode, true))
+      throw runtimeError(PERMISSION_DENIED, MODE_DISABLED);
     if (!settingsOf(ctx).rankedLobbies)
       throw runtimeError(PERMISSION_DENIED, "Ranked lobbies are not enabled");
   }
-  const current = currentLobby(nk, userId);
+  const current = currentLobby(nk, logger, userId);
   if (current)
     throw runtimeError(ALREADY_EXISTS, `Already in lobby ${current.code}`);
   if (!spendLobbyCreate(nk, userId, Date.now()))
@@ -4503,7 +8473,7 @@ function rpcLobbyCurrent(ctx, logger, nk, payload) {
 }
 function rpcRunActive(ctx, logger, nk, payload) {
   const userId = requireUser(ctx);
-  const current = currentLobby(nk, userId);
+  const current = currentLobby(nk, logger, userId);
   if (!current) return JSON.stringify({});
   const signal2 = { type: "get_active", userId };
   const active = JSON.parse(nk.matchSignal(current.matchId, JSON.stringify(signal2)));
@@ -4511,7 +8481,7 @@ function rpcRunActive(ctx, logger, nk, payload) {
 }
 function rpcLobbyLeave(ctx, logger, nk, payload) {
   const userId = requireUser(ctx);
-  const current = currentLobby(nk, userId);
+  const current = currentLobby(nk, logger, userId);
   if (current) {
     const signal2 = { type: "leave", userId };
     nk.matchSignal(current.matchId, JSON.stringify(signal2));
@@ -4600,7 +8570,7 @@ var SPDRN_MODES = [
   "spdrn_all_deck",
   "spdrn_stake_climb"
 ];
-function membersOf(collection) {
+function membersOf2(collection) {
   switch (collection) {
     case "vanillaDecks":
       return VANILLA_DECKS;
@@ -4846,7 +8816,7 @@ function handCount(events) {
 function runFlags(run, events, checks) {
   var _a;
   const flags = {};
-  const played = run.status !== "restarted" && run.status !== "abandoned";
+  const played = run.status !== "restarted" && run.status !== "abandoned" && run.status !== "dodged";
   const elapsedMs = run.endedAt - run.startedAt;
   for (const player of run.players) {
     if (checks[player.id] === "mismatch") flags[player.id] = "hash_mismatch";
@@ -4863,7 +8833,7 @@ var MIN_ACTIVE_PLAYERS = 2;
 var PRIVATE_DAILY_CAP = 10;
 var FINISHED_STATUSES = ["agreed", "partial", "disputed"];
 var MOD_KINDS = { MultiplayerPvP: "pvp", MultiplayerSPDRN: "spdrn" };
-function resultOf(run, playerId) {
+function resultOf2(run, playerId) {
   if (run.status === "disputed") return "unknown";
   const placement = run.placements.filter((p) => p.playerId === playerId)[0];
   if (!placement) return "unknown";
@@ -4892,7 +8862,7 @@ function eligibilityOf(run, playerId, facts, metShowman2, progress, day) {
       runId: run.runId,
       day,
       kind: MOD_KINDS[run.modId] || "other",
-      result: resultOf(run, playerId),
+      result: resultOf2(run, playerId),
       activeOpponents: active.filter((p) => p.id !== playerId).length,
       metShowman: metShowman2,
       privateOpponentsKey: opponentsKey,
@@ -4983,158 +8953,6 @@ function moneySpent(events) {
   return spent;
 }
 
-// ../packages/types/src/big-score.ts
-var MAX_SAFE = 9007199254740991;
-var MAX_ARRAY_LENGTH = 100;
-var MAX_TEXT_LENGTH = 4096;
-var LOG_MAX_SAFE = Math.log10(MAX_SAFE);
-var ZERO_SCORE = "0";
-var TOP_SCORE = new Array(MAX_ARRAY_LENGTH).fill(String(MAX_SAFE)).join(",");
-var ENTRY_FIRST = /^(0|[1-9][0-9]*)(\.[0-9]+)?$/;
-var ENTRY_HIGHER = /^(0|[1-9][0-9]*)$/;
-var TOP_ARRAY = () => new Array(MAX_ARRAY_LENGTH).fill(MAX_SAFE);
-function normalizeArray(input) {
-  if (input.length === 0) return [0];
-  if (input.length > MAX_ARRAY_LENGTH) return TOP_ARRAY();
-  const x = input.slice();
-  for (let i = 0; i < x.length; i++) {
-    const e = x[i];
-    if (Number.isNaN(e) || e === Number.POSITIVE_INFINITY || e === Number.NEGATIVE_INFINITY) {
-      return TOP_ARRAY();
-    }
-    if (i !== 0 && e !== Math.floor(e)) x[i] = Math.floor(e);
-  }
-  let again;
-  do {
-    again = false;
-    while (x.length > 0 && x[x.length - 1] === 0) {
-      x.pop();
-      again = true;
-    }
-    if (x[0] > MAX_SAFE) {
-      x[1] = (x[1] || 0) + 1;
-      x[0] = Math.log10(x[0]);
-      again = true;
-    }
-    while (x[0] < LOG_MAX_SAFE && x[1]) {
-      x[0] = __pow(10, x[0]);
-      x[1]--;
-      again = true;
-    }
-    if (x.length > 2 && !x[1]) {
-      let i = 2;
-      while (!x[i]) i++;
-      x[i - 1] = Math.floor(x[0]);
-      x[0] = __pow(10, x[0] - Math.floor(x[0]));
-      x[i]--;
-      again = true;
-    }
-    for (let i = 1; i < x.length; i++) {
-      if (x[i] > MAX_SAFE) {
-        x[i + 1] = (x[i + 1] || 0) + 1;
-        x[0] = x[i] + 1;
-        for (let j = 1; j <= i; j++) x[j] = 0;
-        again = true;
-      }
-    }
-    if (x.length > MAX_ARRAY_LENGTH) return TOP_ARRAY();
-  } while (again);
-  if (x.length === 0) return [0];
-  for (let i = 0; i < x.length; i++) if (x[i] === void 0) x[i] = 0;
-  if (x.length === 1) x[0] = Math.floor(x[0]);
-  return x;
-}
-function writeFirst(x) {
-  if (x === Math.floor(x)) return x.toFixed(0);
-  for (let digits = 15; digits <= 17; digits++) {
-    const s = x.toPrecision(digits);
-    if (s.indexOf("e") === -1 && Number(s) === x) {
-      return s.indexOf(".") === -1 ? s : s.replace(/0+$/, "").replace(/\.$/, "");
-    }
-  }
-  return x.toPrecision(17);
-}
-function writeArray(array) {
-  const parts = [writeFirst(array[0])];
-  for (let i = 1; i < array.length; i++) parts.push(array[i].toFixed(0));
-  return parts.join(",");
-}
-function readArray(text) {
-  if (typeof text !== "string" || text.length === 0 || text.length > MAX_TEXT_LENGTH)
-    return null;
-  const parts = text.split(",");
-  if (parts.length > MAX_ARRAY_LENGTH) return null;
-  const array = [];
-  for (let i = 0; i < parts.length; i++) {
-    if (!(i === 0 ? ENTRY_FIRST : ENTRY_HIGHER).test(parts[i])) return null;
-    const n = Number(parts[i]);
-    if (!Number.isFinite(n)) return null;
-    array.push(n);
-  }
-  return array;
-}
-function fromNumber(n) {
-  const value = Number.isNaN(n) || n === Number.POSITIVE_INFINITY ? Number.MAX_VALUE : n;
-  if (value < 1) return ZERO_SCORE;
-  return writeArray(normalizeArray([Math.floor(value)]));
-}
-function fromArray(array, sign) {
-  if (sign < 0) return ZERO_SCORE;
-  return writeArray(normalizeArray(array));
-}
-function normalizeScore(text) {
-  const array = readArray(text);
-  return array === null ? null : writeArray(normalizeArray(array));
-}
-function compareScores(a, b) {
-  const x = readArray(a);
-  const y = readArray(b);
-  if (x === null || y === null) return null;
-  const p = normalizeArray(x);
-  const q = normalizeArray(y);
-  if (p.length !== q.length) return p.length > q.length ? 1 : -1;
-  for (let i = p.length - 1; i >= 0; i--) {
-    if (p[i] > q[i]) return 1;
-    if (p[i] < q[i]) return -1;
-  }
-  return 0;
-}
-var GROUPED_INTEGER = /^\d{1,3}(,\d{3})+$/;
-var HYPER_E = /^(e*)([0-9]+(?:\.[0-9]+)?)e\+?([0-9]+)$/;
-function parseLegacyScore(input) {
-  if (typeof input === "number") return fromNumber(input);
-  if (typeof input !== "string") return ZERO_SCORE;
-  const text = input.trim();
-  if (GROUPED_INTEGER.test(text)) return fromNumber(Number(text.replace(/,/g, "")));
-  const normal = normalizeScore(text);
-  if (normal !== null) return normal;
-  const cleaned = text.replace(/[,\s]/g, "").toLowerCase();
-  if (cleaned === "") return ZERO_SCORE;
-  const value = Number(cleaned);
-  if (!Number.isNaN(value) && (Number.isFinite(value) || !HYPER_E.test(cleaned))) return fromNumber(value);
-  if (cleaned === "naneinf" || cleaned === "nan" || cleaned === "inf" || cleaned === "infinity")
-    return fromNumber(Number.POSITIVE_INFINITY);
-  const tower = HYPER_E.exec(cleaned);
-  if (tower !== null) {
-    const layers = tower[1].length;
-    const inner = Number(tower[2] + "e" + tower[3]);
-    if (Number.isFinite(inner)) return fromArray([inner, layers], 1);
-    return fromArray([Number(tower[3]) + Math.log10(Number(tower[2])), layers + 1], 1);
-  }
-  if (/^[0-9.]*e/.test(cleaned) || cleaned.indexOf("#") !== -1) return TOP_SCORE;
-  return ZERO_SCORE;
-}
-function scoreToNumber(text) {
-  const array = readArray(text);
-  if (array === null) return 0;
-  const a = normalizeArray(array);
-  if (a.length === 1) return a[0];
-  if (a.length > 2) return Number.POSITIVE_INFINITY;
-  let value = a[0];
-  for (let i = 0; i < a[1] && value !== Number.POSITIVE_INFINITY; i++) value = Math.pow(10, value);
-  return value;
-}
-
 // src/achievements/facts/score.ts
 function parseScore(text) {
   return scoreToNumber(parseLegacyScore(text));
@@ -5212,7 +9030,7 @@ function counterValue(progress, counter2) {
   return counter2 === "bestWinStreak" ? progress.winStreak.best : progress.counters[counter2];
 }
 function covered(progress, rule) {
-  const members = membersOf(rule.collection);
+  const members = membersOf2(rule.collection);
   const played = rule.collection === "vanillaDecks" ? members.filter((deck) => (progress.deckGames[deck] || 0) > 0) : members.filter((mode) => progress.spdrnModesPlayed.indexOf(mode) !== -1);
   return played.length;
 }
@@ -5234,7 +9052,7 @@ function goalOf(entry, progress, holdings) {
     case "deckGames":
       return { kind: "deckGames", key: rule.deck, threshold: rule.threshold, progress: Math.min(progress.deckGames[rule.deck] || 0, rule.threshold) };
     case "allOf":
-      return { kind: "allOf", key: rule.collection, threshold: membersOf(rule.collection).length, progress: covered(progress, rule) };
+      return { kind: "allOf", key: rule.collection, threshold: membersOf2(rule.collection).length, progress: covered(progress, rule) };
     case "milestone":
       return { kind: "milestone", key: rule.milestone, threshold: 1, progress: progress.milestones.indexOf(rule.milestone) !== -1 ? 1 : 0 };
     case "allUnlockable":
@@ -5250,7 +9068,7 @@ function meets(rule, progress) {
     case "deckGames":
       return (progress.deckGames[rule.deck] || 0) >= rule.threshold;
     case "allOf":
-      return covered(progress, rule) >= membersOf(rule.collection).length;
+      return covered(progress, rule) >= membersOf2(rule.collection).length;
     case "milestone":
       return progress.milestones.indexOf(rule.milestone) !== -1;
     default:
@@ -5537,14 +9355,14 @@ function computeFFA(players) {
   const deltas = /* @__PURE__ */ new Map();
   for (const p of players) {
     const kp = effectiveK(p.gamesPlayed, p.performance) / kDivisor;
-    let sum = 0;
+    let sum2 = 0;
     for (const q of players) {
       if (q.playerId === p.playerId) continue;
       const score = p.place < q.place ? 1 : p.place > q.place ? 0 : 0.5;
       const ep = expectedScore(p.rating, q.rating);
-      sum += kp * (score - ep);
+      sum2 += kp * (score - ep);
     }
-    deltas.set(p.playerId, Math.round(sum));
+    deltas.set(p.playerId, Math.round(sum2));
   }
   return deltas;
 }
@@ -5556,9 +9374,9 @@ function computeTeam(teams, winnerTeamIndex) {
     }
     return deltas;
   }
-  const avgRating = (team) => team.reduce((sum, p) => sum + p.rating, 0) / team.length;
-  const avgPerformance = (team) => team.reduce((sum, p) => sum + p.performance, 0) / team.length;
-  const avgGamesPlayed = (team) => team.reduce((sum, p) => sum + p.gamesPlayed, 0) / team.length;
+  const avgRating = (team) => team.reduce((sum2, p) => sum2 + p.rating, 0) / team.length;
+  const avgPerformance = (team) => team.reduce((sum2, p) => sum2 + p.performance, 0) / team.length;
+  const avgGamesPlayed = (team) => team.reduce((sum2, p) => sum2 + p.gamesPlayed, 0) / team.length;
   const loserTeamIndex = winnerTeamIndex === 0 ? 1 : 0;
   const winner = teams[winnerTeamIndex];
   const loser = teams[loserTeamIndex];
@@ -5694,7 +9512,7 @@ function renameLeaderboardEntries(nk, logger, userId, name) {
 function showNameChange(nk, logger, userId) {
   const stored = readProfile(nk, userId);
   if (!stored) return;
-  profileChanged(nk, userId, stored.profile);
+  profileChanged(nk, logger, userId, stored.profile);
   renameLeaderboardEntries(nk, logger, userId, shownNameOf(nk, userId, stored.profile));
 }
 
@@ -5726,8 +9544,8 @@ function deleteIndex(nk, userId) {
     loginKeys(nk, userId).map((key) => ({ collection: BAN_INDEX_COLLECTION, key, userId: SYSTEM_USER_ID }))
   );
 }
-function removeFromLobby(nk, userId, reason, onlyIfStarted) {
-  const lobby = currentLobby(nk, userId);
+function removeFromLobby(nk, logger, userId, reason, onlyIfStarted) {
+  const lobby = currentLobby(nk, logger, userId);
   if (!lobby) return;
   const signal2 = { type: "admin_remove", userId, reason, onlyIfStarted };
   nk.matchSignal(lobby.matchId, JSON.stringify(signal2));
@@ -5742,9 +9560,9 @@ function pushBan(nk, userId, type, ban) {
     type === "account"
   );
 }
-function enforceAccountBan(nk, userId, ban) {
+function enforceAccountBan(nk, logger, userId, ban) {
   writeIndex(nk, userId, ban);
-  removeFromLobby(nk, userId, "banned", false);
+  removeFromLobby(nk, logger, userId, "banned", false);
   nk.usersBanId([userId]);
 }
 function applyBan(nk, logger, userId, type, ban) {
@@ -5757,8 +9575,8 @@ function applyBan(nk, logger, userId, type, ban) {
     if (((_a = before.username) == null ? void 0 : _a.banId) !== ban.banId)
       sendNotification(nk, userId, NotificationKind.USERNAME_BANNED, { banName: banNameOf(userId) });
   } else pushBan(nk, userId, type, ban);
-  if (type === "queue") removeFromLobby(nk, userId, "banned", true);
-  if (type === "account" && bans.account) enforceAccountBan(nk, userId, bans.account);
+  if (type === "queue") removeFromLobby(nk, logger, userId, "banned", true);
+  if (type === "account" && bans.account) enforceAccountBan(nk, logger, userId, bans.account);
   logger.info("Applied %s ban %s to %s", type, ban.banId, userId);
   return bans;
 }
@@ -5878,14 +9696,14 @@ function ipv6Groups(text) {
   }
   const halves = head.split("::");
   if (halves.length > 2) return null;
-  const parse = (part) => {
+  const parse2 = (part) => {
     if (part === "") return [];
     const groups = part.split(":");
     for (const g of groups) if (!HEX_GROUP.test(g)) return null;
     return groups.map((g) => Number.parseInt(g, 16));
   };
-  const left = parse(halves[0]);
-  const right = halves.length === 2 ? parse(halves[1]) : [];
+  const left = parse2(halves[0]);
+  const right = halves.length === 2 ? parse2(halves[1]) : [];
   if (!left || !right) return null;
   const given = left.length + right.length + tail.length;
   if (halves.length === 1) return given === 8 ? left.concat(tail) : null;
@@ -5923,15 +9741,15 @@ function networkHash(sha256, salt, ip) {
 }
 function withoutStale(hashes, now) {
   const cutoff = now - IP_HASH_DAYS * DAY_MS;
-  let changed2 = false;
+  let changed3 = false;
   const next = {};
   for (const hash2 of Object.keys(hashes)) {
     if (hashes[hash2] > cutoff) next[hash2] = hashes[hash2];
-    else changed2 = true;
+    else changed3 = true;
   }
-  return changed2 ? next : hashes;
+  return changed3 ? next : hashes;
 }
-function viewOf2(ban) {
+function viewOf3(ban) {
   return {
     banId: ban.banId,
     userId: ban.userId,
@@ -6067,7 +9885,7 @@ function networkBansFor(nk, userId) {
   const own = readIpHashes(nk, userId);
   return listNetworkBans(nk).filter(
     (ban) => ban.userId === userId || ban.hashes.some((hash2) => hash2 in own)
-  ).map(viewOf2);
+  ).map(viewOf3);
 }
 function purgeIpHashes(nk, now, max) {
   let deleted = 0;
@@ -6169,7 +9987,7 @@ function rpcSessionInit(ctx, logger, nk, payload) {
   }
   const accountBan = activeBan(readBans(nk, userId), "account", Date.now());
   if (accountBan) {
-    enforceAccountBan(nk, userId, accountBan);
+    enforceAccountBan(nk, logger, userId, accountBan);
     banNetworks(nk, settingsOf(ctx), userId, accountBan, Date.now());
     throw runtimeError(PERMISSION_DENIED, banMessage(ACCOUNT_BANNED, accountBan));
   }
@@ -6209,8 +10027,8 @@ var MAX_MODS = 300;
 var MAX_MOD_LENGTH = 128;
 var MAX_MUTES = 1e3;
 var USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function pushToLobby(nk, userId, info) {
-  const current = currentLobby(nk, userId);
+function pushToLobby(nk, logger, userId, info) {
+  const current = currentLobby(nk, logger, userId);
   if (!current) return;
   const signal2 = { type: "player_info", userId, info };
   nk.matchSignal(current.matchId, JSON.stringify(signal2));
@@ -6218,9 +10036,9 @@ function pushToLobby(nk, userId, info) {
 function accountUpdated(nk, userId, profile) {
   notify(nk, userId, NotifyCode.ACCOUNT_UPDATED, "account_updated", { player: playerView(nk, userId, profile) });
 }
-function profileChanged(nk, userId, profile) {
+function profileChanged(nk, logger, userId, profile) {
   syncDisplayName(nk, userId, profile);
-  pushToLobby(nk, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker });
+  pushToLobby(nk, logger, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker });
   accountUpdated(nk, userId, profile);
 }
 function rpcProfileSetDisplay(ctx, logger, nk, payload) {
@@ -6237,7 +10055,7 @@ function rpcProfileSetDisplay(ctx, logger, nk, payload) {
     ctx.username
   );
   syncDisplayName(nk, userId, profile);
-  pushToLobby(nk, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker });
+  pushToLobby(nk, logger, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker });
   accountUpdated(nk, userId, profile);
   return JSON.stringify({ player: playerView(nk, userId, profile) });
 }
@@ -6256,7 +10074,7 @@ function rpcProfileSetJoker(ctx, logger, nk, payload) {
     },
     ctx.username
   );
-  pushToLobby(nk, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker });
+  pushToLobby(nk, logger, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker });
   accountUpdated(nk, userId, profile);
   return JSON.stringify({ player: playerView(nk, userId, profile) });
 }
@@ -6269,9 +10087,9 @@ function rpcProfileSetMods(ctx, logger, nk, payload) {
   updateProfile(nk, userId, (current) => __spreadProps(__spreadValues({}, current), { mods: list }), ctx.username);
   const now = Date.now();
   writeModReport(nk, userId, { mods: list, reportedAt: now });
-  const standing = standingFor(nk, settingsOf(ctx), userId, now);
-  pushToLobby(nk, userId, { mods: list, standing: standing.standing, pvpVersion: pvpVersionOf(list) });
-  return JSON.stringify({ mods: list, standing });
+  const standing2 = standingFor(nk, settingsOf(ctx), userId, now);
+  pushToLobby(nk, logger, userId, { mods: list, standing: standing2.standing, pvpVersion: pvpVersionOf(list) });
+  return JSON.stringify({ mods: list, standing: standing2 });
 }
 function rpcMuteSet(ctx, logger, nk, payload) {
   const userId = requireUser(ctx);
@@ -6387,7 +10205,7 @@ function rpcAdminIntegritySet(ctx, logger, nk, payload) {
     reason: optionalString(input.reason),
     message: optionalString(input.message)
   });
-  pushToLobby(nk, userId, { standing: standingFor(nk, settingsOf(ctx), userId, Date.now()).standing });
+  pushToLobby(nk, logger, userId, { standing: standingFor(nk, settingsOf(ctx), userId, Date.now()).standing });
   return JSON.stringify({});
 }
 function rpcAdminQueueCancel(ctx, logger, nk, payload) {
@@ -6450,8 +10268,8 @@ function standingOf(input) {
   return VALID;
 }
 var RANK = { none: 0, valid: 1, verified: 2 };
-function meetsRequirement(standing, required) {
-  return RANK[standing] >= RANK[required];
+function meetsRequirement(standing2, required) {
+  return RANK[standing2] >= RANK[required];
 }
 function requiredStandingFor(ranked, integrityEnforced) {
   return ranked && integrityEnforced ? "verified" : "valid";
@@ -6486,7 +10304,7 @@ function catalogView(progress, holdings, selected, enabled) {
     enabled
   };
 }
-function viewOf3(nk, userId, fallbackName) {
+function viewOf4(nk, userId, fallbackName) {
   const profile = profileFor(nk, userId, fallbackName);
   const progress = progressFor(nk, userId);
   const holdings = { privileges: profile.privileges, unlocked: progress.unlocked };
@@ -6494,30 +10312,30 @@ function viewOf3(nk, userId, fallbackName) {
 }
 function rpcAvatarCatalog(ctx, logger, nk, payload) {
   const userId = requireUser(ctx);
-  return JSON.stringify(viewOf3(nk, userId, ctx.username));
+  return JSON.stringify(viewOf4(nk, userId, ctx.username));
 }
 function rpcAdminAvatarsFor(ctx, logger, nk, payload) {
   requireServer(ctx);
   const input = parsePayload(payload);
-  let view;
+  let view5;
   if (input.userId !== void 0) {
     if (typeof input.userId !== "string" || !USER_ID2.test(input.userId)) throw runtimeError(INVALID_ARGUMENT, "Invalid userId");
     if (!readProfile(nk, input.userId)) throw runtimeError(NOT_FOUND, "No such player");
-    view = viewOf3(nk, input.userId, "");
+    view5 = viewOf4(nk, input.userId, "");
   } else {
     const privileges = input.privileges;
     if (!Array.isArray(privileges) || !privileges.every((p) => typeof p === "string" && PRIVILEGE.test(p)))
       throw runtimeError(INVALID_ARGUMENT, "userId or privileges is required");
     const progress = emptyProgress();
-    view = catalogView(progress, { privileges, unlocked: [] }, "j_joker", readConfig(nk).achievementsEnabled);
+    view5 = catalogView(progress, { privileges, unlocked: [] }, "j_joker", readConfig(nk).achievementsEnabled);
   }
-  return JSON.stringify(__spreadProps(__spreadValues({}, view), { jokers: view.avatars.filter((a) => a.unlocked).map((a) => a.id) }));
+  return JSON.stringify(__spreadProps(__spreadValues({}, view5), { jokers: view5.avatars.filter((a) => a.unlocked).map((a) => a.id) }));
 }
 function testingRpcsAllowed(ctx) {
   return settingsOf(ctx).testingRpcs;
 }
 var isFields = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-var isCount = (value) => typeof value === "number" && Number.isInteger(value) && value >= 0;
+var isCount2 = (value) => typeof value === "number" && Number.isInteger(value) && value >= 0;
 function editedProgress(progress, edit) {
   const next = __spreadProps(__spreadValues({}, progress), { counters: __spreadValues({}, progress.counters), deckGames: __spreadValues({}, progress.deckGames) });
   if (edit.counters !== void 0) {
@@ -6525,11 +10343,11 @@ function editedProgress(progress, edit) {
     for (const key in edit.counters) {
       const value = edit.counters[key];
       if (key === "bestWinStreak") {
-        if (!isCount(value)) throw runtimeError(INVALID_ARGUMENT, "Invalid counter bestWinStreak");
+        if (!isCount2(value)) throw runtimeError(INVALID_ARGUMENT, "Invalid counter bestWinStreak");
         next.winStreak = { current: Math.min(next.winStreak.current, value), best: value };
         continue;
       }
-      if (COUNTERS.indexOf(key) === -1 || !isCount(value))
+      if (COUNTERS.indexOf(key) === -1 || !isCount2(value))
         throw runtimeError(INVALID_ARGUMENT, `Invalid counter ${key}`);
       next.counters[key] = value;
     }
@@ -6538,7 +10356,7 @@ function editedProgress(progress, edit) {
     if (!isFields(edit.deckGames)) throw runtimeError(INVALID_ARGUMENT, "deckGames must be an object");
     for (const deck in edit.deckGames) {
       const value = edit.deckGames[deck];
-      if (VANILLA_DECKS.indexOf(deck) === -1 || !isCount(value))
+      if (VANILLA_DECKS.indexOf(deck) === -1 || !isCount2(value))
         throw runtimeError(INVALID_ARGUMENT, `Invalid deck ${deck}`);
       next.deckGames[deck] = value;
     }
@@ -6975,7 +10793,7 @@ function rpcAdminAvatarsReset(ctx, logger, nk, payload) {
       object.userId,
       (current) => keepsJoker(current.preferredJoker, current.privileges, unlocked) ? current : __spreadProps(__spreadValues({}, current), { preferredJoker: DEFAULT_AVATAR })
     );
-    profileChanged(nk, object.userId, profile);
+    profileChanged(nk, logger, object.userId, profile);
   }
   logger.info(
     "Avatar reset%s: %d checked, %d jokers reset",
@@ -7087,6 +10905,11 @@ function queueRefusalFor(nk, settings, userId, ranked, now) {
   if (ranked && integrityRefusal(config, readIntegrity(nk, userId), now)) return { code: "integrity_required" };
   return standingRefusal(standingFor(nk, settings, userId, now, config));
 }
+function pvpFloorRefusal(nk, modId, userId) {
+  if (modId !== PVP_MOD_ID) return null;
+  const report = readModReport(nk, userId);
+  return pvpJoinRefused(PVP_MOD_ID, pvpVersionOf(report ? report.mods : [])) ? { code: PVP_UPDATE_REQUIRED } : null;
+}
 function matchmakerAdd(envelope) {
   return envelope.matchmakerAdd || envelope.matchmaker_add || {};
 }
@@ -7103,6 +10926,10 @@ function beforeMatchmakerAdd(ctx, logger, nk, envelope) {
   const ranked = props.kind === "ranked";
   const refused = queueRefusalFor(nk, settingsOf(ctx), ctx.userId, ranked, Date.now());
   if (refused) throw runtimeError(PERMISSION_DENIED, queueRefusalMessage(refused));
+  const tooOld = pvpFloorRefusal(nk, props.modId, ctx.userId);
+  if (tooOld) throw runtimeError(PERMISSION_DENIED, queueRefusalMessage(tooOld));
+  if (ticketModeDisabled(readConfig(nk, logger).disabledPvpModes, props.modId, props.mode, ranked))
+    throw runtimeError(PERMISSION_DENIED, MODE_DISABLED);
   const group = groupOf(nk, ctx.userId);
   if (group && blocksSoloQueue(group.phase)) throw runtimeError(PERMISSION_DENIED, IN_GROUP_QUEUE);
   if (ranked && readConfig(nk).integrityEnforced) checkRankedReadiness(ctx, logger, nk, ctx.userId);
@@ -7119,13 +10946,19 @@ function pvpVersionOutliers(nk, userIds) {
   }
   return versionOutliers(versions);
 }
-function refusedPlayers(nk, settings, plan) {
+function refusedPlayers(nk, settings, plan, logger) {
   const now = Date.now();
   const ranked = plan.rankedMode !== "";
+  const modeOff = ticketModeDisabled(
+    readConfig(nk, logger).disabledPvpModes,
+    plan.modId,
+    ranked ? plan.rankedMode : plan.gameMode,
+    ranked
+  );
   const out = [];
   for (const userId of plan.playerIds) {
-    const refusal = queueRefusalFor(nk, settings, userId, ranked, now);
-    if (refusal) out.push({ userId, refusal });
+    const refusal2 = modeOff ? { code: MODE_DISABLED } : queueRefusalFor(nk, settings, userId, ranked, now);
+    if (refusal2) out.push({ userId, refusal: refusal2 });
   }
   if (plan.modId === PVP_MOD_ID) {
     for (const userId of pvpVersionOutliers(nk, plan.playerIds)) {
@@ -7134,13 +10967,13 @@ function refusedPlayers(nk, settings, plan) {
   }
   return out;
 }
-function cancelSoloQueue(nk, userId, modId, mode, refusal) {
+function cancelSoloQueue(nk, userId, modId, mode, refusal2) {
   notify(nk, userId, NotifyCode.QUEUE_CANCELLED, "queue_cancelled", {
     modId,
     mode,
-    reason: queueRefusalMessage(refusal),
-    code: refusal.code,
-    mods: refusedMods(refusal),
+    reason: queueRefusalMessage(refusal2),
+    code: refusal2.code,
+    mods: refusedMods(refusal2),
     requeue: false
   });
 }
@@ -7151,7 +10984,8 @@ function requeueSolos(nk, plan, refused) {
     if (grouped.indexOf(id) !== -1) continue;
     const own = refused.filter((r) => r.userId === id)[0];
     if (own) {
-      if (isStandingRefusal(own.refusal) || own.refusal.code === VERSION_MISMATCH) cancelSoloQueue(nk, id, plan.modId, mode, own.refusal);
+      if (isStandingRefusal(own.refusal) || own.refusal.code === VERSION_MISMATCH || own.refusal.code === MODE_DISABLED)
+        cancelSoloQueue(nk, id, plan.modId, mode, own.refusal);
       continue;
     }
     notify(nk, id, NotifyCode.QUEUE_CANCELLED, "queue_cancelled", {
@@ -7249,7 +11083,7 @@ function ownRecords(nk, userId) {
   return out;
 }
 var REMOVED_PREFIX2 = "removed:";
-function isRecord(o) {
+function isRecord2(o) {
   return o.key.indexOf(REMOVED_PREFIX2) !== 0;
 }
 function afterMatchmakerAdd(ctx, logger, nk, output, input) {
@@ -7276,7 +11110,7 @@ function afterMatchmakerAdd(ctx, logger, nk, output, input) {
 function beforeMatchmakerRemove(ctx, logger, nk, envelope) {
   const ticket = field(field(envelope, "matchmakerRemove", "matchmaker_remove"), "ticket", "ticket");
   if (!ctx.userId || typeof ticket !== "string" || !ticket) return envelope;
-  const keys = ownRecords(nk, ctx.userId).filter((o) => isRecord(o) && o.value.ticket === ticket).map((o) => o.key);
+  const keys = ownRecords(nk, ctx.userId).filter((o) => isRecord2(o) && o.value.ticket === ticket).map((o) => o.key);
   if (keys.length > 0) {
     deleteRecords(nk, ctx.userId, keys);
   } else {
@@ -7314,7 +11148,7 @@ function sessionsOf(nk, userId) {
 }
 function liveTicketHolders(nk, userIds, exceptTicket) {
   return userIds.filter((userId) => {
-    const records = ownRecords(nk, userId).filter(isRecord).map((o) => o.value).filter((r) => r.ticket !== exceptTicket);
+    const records = ownRecords(nk, userId).filter(isRecord2).map((o) => o.value).filter((r) => r.ticket !== exceptTicket);
     if (records.length === 0) return false;
     const sessions = sessionsOf(nk, userId);
     return records.some((r) => sessions.indexOf(r.sessionId) !== -1);
@@ -7322,7 +11156,7 @@ function liveTicketHolders(nk, userIds, exceptTicket) {
 }
 function liveRecordsOf(nk, userId) {
   const sessions = sessionsOf(nk, userId);
-  return ownRecords(nk, userId).filter(isRecord).map((o) => o.value).filter((r) => sessions.indexOf(r.sessionId) !== -1);
+  return ownRecords(nk, userId).filter(isRecord2).map((o) => o.value).filter((r) => sessions.indexOf(r.sessionId) !== -1);
 }
 function liveQueuedPlayers(nk, modId, now) {
   const byUser = {};
@@ -7330,7 +11164,7 @@ function liveQueuedPlayers(nk, modId, now) {
   do {
     const page = nk.storageList(null, QUEUE_COLLECTION, LIST_PAGE4, cursor);
     for (const o of page.objects || []) {
-      if (!isRecord(o)) {
+      if (!isRecord2(o)) {
         if (now - Number(o.value.at) > TOMBSTONE_MS) deleteRecords(nk, o.userId, [o.key]);
         continue;
       }
@@ -7417,6 +11251,7 @@ function planMatch(entries, integrityEnforced = false) {
   const groups = groupsOf(entries);
   if (typeof groups === "string") return groups;
   if (groups.party.length > 0 && kind === "ranked") return "A group may not queue ranked";
+  if (kind === "ranked" && !pinFor(modId, mode).ok) return `unknown_ranked_mode: ${mode}`;
   let teamPlan = null;
   if (teams) {
     const split = partitionTeams(groups.all);
@@ -7440,7 +11275,7 @@ function matchmakerMatched(ctx, logger, nk, matches) {
     requeuePartiesOf(nk, partyIdsOf(matches));
     throw new Error(plan);
   }
-  const refused = refusedPlayers(nk, settingsOf(ctx), plan);
+  const refused = refusedPlayers(nk, settingsOf(ctx), plan, logger);
   const groups = resolveGroups(nk, plan);
   if (refused.length > 0 || groups.faulty.length > 0) {
     refuseMatch(nk, plan, refused, groups);
@@ -7546,18 +11381,18 @@ function requeuePartiesOf(nk, partyIds) {
 
 // src/standing/changed.ts
 var NOTIFICATIONS_STREAM2 = 0;
-var RANKED_PREFIX = "ranked:";
+var RANKED_PREFIX2 = "ranked:";
 function isOnline(nk, userId) {
   return nk.streamUserList({ mode: NOTIFICATIONS_STREAM2, subject: userId }, true, true).length > 0;
 }
-function announceStandings(nk, settings, now) {
+function announceStandings(nk, logger, settings, now) {
   const config = readConfig(nk);
   let told = 0;
   for (const userId of reporterIds(nk)) {
     if (!isOnline(nk, userId)) continue;
-    const view = standingFor(nk, settings, userId, now, config);
-    notify(nk, userId, NotifyCode.STANDING_CHANGED, "standing_changed", __spreadValues({}, view));
-    pushToLobby(nk, userId, { standing: view.standing });
+    const view5 = standingFor(nk, settings, userId, now, config);
+    notify(nk, userId, NotifyCode.STANDING_CHANGED, "standing_changed", __spreadValues({}, view5));
+    pushToLobby(nk, logger, userId, { standing: view5.standing });
     told++;
   }
   return told;
@@ -7570,24 +11405,24 @@ function regateQueued(nk, settings, now) {
     const group = groupOf(nk, userId);
     if (group && group.phase === "queued") {
       if (cancelledParties.indexOf(group.partyId) !== -1) continue;
-      const refusal2 = queueRefusalFor(nk, settings, userId, false, now);
-      if (!refusal2 || !isStandingRefusal(refusal2)) continue;
-      cancelGroupFor(nk, group.homeCode, group.partyId, "member_refused", refusedMemberOf({ userId, refusal: refusal2 }));
+      const refusal3 = queueRefusalFor(nk, settings, userId, false, now);
+      if (!refusal3 || !isStandingRefusal(refusal3)) continue;
+      cancelGroupFor(nk, group.homeCode, group.partyId, "member_refused", refusedMemberOf({ userId, refusal: refusal3 }));
       cancelledParties.push(group.partyId);
       continue;
     }
-    const ranked = record.gameMode.indexOf(RANKED_PREFIX) === 0;
-    const refusal = queueRefusalFor(nk, settings, userId, ranked, now);
-    if (!refusal || !isStandingRefusal(refusal)) continue;
-    const mode = ranked ? record.gameMode.slice(RANKED_PREFIX.length) : record.gameMode;
-    cancelSoloQueue(nk, userId, record.modId, mode, refusal);
+    const ranked = record.gameMode.indexOf(RANKED_PREFIX2) === 0;
+    const refusal2 = queueRefusalFor(nk, settings, userId, ranked, now);
+    if (!refusal2 || !isStandingRefusal(refusal2)) continue;
+    const mode = ranked ? record.gameMode.slice(RANKED_PREFIX2.length) : record.gameMode;
+    cancelSoloQueue(nk, userId, record.modId, mode, refusal2);
     clearMatched(nk, record.modId, record.gameMode, [userId]);
     solos++;
   }
   return { solos, groups: cancelledParties.length };
 }
 function standingInputsUpdated(nk, settings, logger, now) {
-  const told = announceStandings(nk, settings, now);
+  const told = announceStandings(nk, logger, settings, now);
   const cancelled = regateQueued(nk, settings, now);
   logger.info(
     "Standing inputs changed: told %d player(s); cancelled %d solo ticket(s), %d group(s)",
@@ -7612,29 +11447,29 @@ function parseResultPlacements(value) {
 }
 function sameIds(a, b) {
   if (a.length !== b.length) return false;
-  const sorted = (ids) => ids.slice().sort().join(",");
-  return sorted(a) === sorted(b);
+  const sorted2 = (ids) => ids.slice().sort().join(",");
+  return sorted2(a) === sorted2(b);
 }
 function placesKey(placements) {
   return placements.map((p) => `${p.playerId}=${p.place}`).sort().join(",");
 }
 function overturnRun(run, placements, now) {
-  const placed = run.placements.length > 0 ? run.placements.map((p) => p.playerId) : run.players.map((p) => p.id);
-  if (!sameIds(placed, placements.map((p) => p.playerId)))
+  const placed2 = run.placements.length > 0 ? run.placements.map((p) => p.playerId) : run.players.map((p) => p.id);
+  if (!sameIds(placed2, placements.map((p) => p.playerId)))
     return { ok: false, refusal: { kind: "players_differ" } };
   if (placesKey(run.placements) === placesKey(placements)) return { ok: false, refusal: { kind: "unchanged" } };
   const previousBy = {};
   for (const p of run.placements) previousBy[p.playerId] = p;
   const next = placements.slice().sort((a, b) => a.place - b.place).map((p) => __spreadProps(__spreadValues({}, previousBy[p.playerId]), { playerId: p.playerId, place: p.place }));
-  const places = {};
-  for (const p of next) places[p.playerId] = p.place;
+  const places2 = {};
+  for (const p of next) places2[p.playerId] = p.place;
   return {
     ok: true,
     run: __spreadProps(__spreadValues({}, run), {
       placements: next,
       overturned: { at: now, previous: run.overturned ? run.overturned.previous : run.placements }
     }),
-    places
+    places: places2
   };
 }
 
@@ -7703,8 +11538,8 @@ function rpcAdminRunSetResult(ctx, logger, nk, payload) {
   logger.info("Run %s result overturned by the service queue", next.runId);
   return JSON.stringify({ run: next });
 }
-function moderationContextOf(nk, settings, userId, now) {
-  const seat = currentLobby(nk, userId);
+function moderationContextOf(nk, logger, settings, userId, now) {
+  const seat = currentLobby(nk, logger, userId);
   const match = seat ? nk.matchGet(seat.matchId) : null;
   return {
     mods: readModReport(nk, userId),
@@ -7747,8 +11582,13 @@ function rpcAdminNotify(ctx, logger, nk, payload) {
 }
 function rpcAdminConfigSet(ctx, logger, nk, payload) {
   requireServer(ctx);
-  const before = readConfig(nk);
-  const config = mergeConfig(before, parsePayload(payload));
+  const update = parsePayload(payload);
+  if ("disabledPvpModes" in update && pvpModesOf(update.disabledPvpModes) === null) {
+    logger.warn("admin_config_set refused: disabledPvpModes must be a list of known PvP modes, each once");
+    throw runtimeError(INVALID_ARGUMENT, "disabledPvpModes must be a list of known PvP modes, each at most once");
+  }
+  const before = readConfig(nk, logger);
+  const config = mergeConfig(before, update);
   writeConfig(nk, config);
   logger.info("Server config updated: %v", JSON.stringify(config));
   if (standingInputsChanged(before, config)) standingInputsUpdated(nk, settingsOf(ctx), logger, Date.now());
@@ -7834,9 +11674,9 @@ function rpcAdminLobbyGet(ctx, logger, nk, payload) {
   requireServer(ctx);
   const lobby = lobbyByCode(nk, parsePayload(payload).code);
   const signal2 = { type: "admin_view" };
-  const view = nk.matchSignal(lobby.matchId, JSON.stringify(signal2));
-  if (!view) throw runtimeError(NOT_FOUND, "No such lobby");
-  return JSON.stringify({ lobby: __spreadProps(__spreadValues({}, JSON.parse(view)), { matchId: lobby.matchId }) });
+  const view5 = nk.matchSignal(lobby.matchId, JSON.stringify(signal2));
+  if (!view5) throw runtimeError(NOT_FOUND, "No such lobby");
+  return JSON.stringify({ lobby: __spreadProps(__spreadValues({}, JSON.parse(view5)), { matchId: lobby.matchId }) });
 }
 function rpcAdminLobbyKick(ctx, logger, nk, payload) {
   requireServer(ctx);
@@ -7868,9 +11708,9 @@ function rpcAdminPlayerGet(ctx, logger, nk, payload) {
   return JSON.stringify(__spreadValues({
     player: playerView(nk, userId, profile),
     bans: readBans(nk, userId),
-    lobby: currentLobby(nk, userId),
+    lobby: currentLobby(nk, logger, userId),
     online
-  }, moderationContextOf(nk, settingsOf(ctx), userId, Date.now())));
+  }, moderationContextOf(nk, logger, settingsOf(ctx), userId, Date.now())));
 }
 var MIRROR_PULL_DEFAULT = 10;
 var MIRROR_PULL_MAX = 50;
@@ -7972,7 +11812,7 @@ function decayedRating(record, now) {
   const loss = Math.floor(inactiveDays - DECAY_INACTIVE_THRESHOLD_DAYS) * DECAY_RATE_PER_DAY;
   return Math.max(DECAY_FLOOR, record.rating - loss);
 }
-function carriedOver(previous, now) {
+function carriedOver2(previous, now) {
   if (!previous || previous.gamesPlayed < PLACEMENT_GAMES) return void 0;
   return applySoftReset(decayedRating(previous, now));
 }
@@ -7991,6 +11831,15 @@ function newRating() {
     lastMatchAt: 0
   };
 }
+function standingsOf(placements) {
+  const out = /* @__PURE__ */ new Map();
+  if (placements.length === 0) return out;
+  const best = Math.min(...placements.map((p) => p.place));
+  const draw = placements.length >= 2 && placements.every((p) => p.place === best);
+  for (const p of placements)
+    out.set(p.playerId, draw ? "draw" : p.place === best ? "win" : "loss");
+  return out;
+}
 function planRatings(run, current, bounds = {}) {
   const plan = { updates: {}, results: {} };
   if (run.status !== "agreed" && run.status !== "partial") return plan;
@@ -8004,15 +11853,15 @@ function planRatings(run, current, bounds = {}) {
     performance: p.performance
   }));
   const deltas = computeRatingDeltas(detectRatingMode(entries), entries, ratings);
-  const bestPlace = Math.min(...placements.map((p) => p.place));
+  const standings = standingsOf(placements);
   for (const p of placements) {
     const before = ratings.get(p.playerId);
     const delta = deltas.get(p.playerId) || 0;
-    const won = p.place === bestPlace;
+    const standing2 = standings.get(p.playerId);
     const after = {
       rating: Math.max(RATING_FLOOR, before.rating + delta),
-      wins: before.wins + (won ? 1 : 0),
-      losses: before.losses + (won ? 0 : 1),
+      wins: before.wins + (standing2 === "win" ? 1 : 0),
+      losses: before.losses + (standing2 === "loss" ? 1 : 0),
       gamesPlayed: before.gamesPlayed + 1,
       seasonBest: nextSeasonBest(run.modId, p, before.seasonBest, bounds[p.playerId]),
       lastMatchAt: run.endedAt
@@ -8052,7 +11901,7 @@ function loadRatings(nk, modId, mode, playerIds, now, season) {
       }))
     );
     for (const object of previous) {
-      const rating = carriedOver(object.value, now);
+      const rating = carriedOver2(object.value, now);
       if (rating !== void 0) current[object.userId] = __spreadProps(__spreadValues({}, newRating()), { rating });
     }
   }
@@ -8358,6 +12207,321 @@ function beforeSessionRefresh(ctx, logger, nk, data) {
   return data;
 }
 
+// src/lobby/pvp/skip_facts.ts
+function withSkips(state, skips) {
+  if (skips === state.facts.skips) return unchanged2(state);
+  return {
+    ok: true,
+    state: __spreadProps(__spreadValues({}, state), { facts: __spreadProps(__spreadValues({}, state.facts), { skips }) }),
+    changed: [PVP_SKIPS_KEY]
+  };
+}
+function reduceSkip(state, id, args) {
+  var _a, _b, _c, _d;
+  const runId = runIdOf(args);
+  if (runId === null || !isRecord(args) || !isCount(args.skips))
+    return refuse("bad_payload");
+  if (!isBlindKey(args.blindKey)) return refuse("bad_payload");
+  if (!isSkippableBlind(args.blindKey)) return refuse("not_skippable");
+  const refused = gate(state, id, runId);
+  if (refused) return refused;
+  if (state.rules.runId !== state.runId) return refuse("not_running");
+  const recorded = (_b = (_a = state.facts.skips[id]) == null ? void 0 : _a.skips) != null ? _b : null;
+  if (recorded !== null && args.skips < recorded) return refuse("stale_skips");
+  const ante = (_d = (_c = state.round.players[id]) == null ? void 0 : _c.ante) != null ? _d : null;
+  if (ante === null) return refuse("no_progress");
+  if (Number(args.blindKey.split(":")[0]) > ante)
+    return refuse("ahead_of_progress");
+  if (args.skips > skipCap(ante, state.rules.mode)) return refuse("over_cap");
+  return withSkips(state, skipsReported(state.facts.skips, id, args.skips));
+}
+function reduceTimerSpend(state, id, args, world) {
+  const runId = runIdOf(args);
+  if (runId === null || !isRecord(args) || !isCount(args.ms))
+    return refuse("bad_payload");
+  const refused = gate(state, id, runId);
+  if (refused) return refused;
+  const rules = state.rules;
+  if (rules.runId !== state.runId) return refuse("not_running");
+  const personal = rules.clocks.personal;
+  if (personal === null && args.ms <= 0) return refuse("bad_payload");
+  if (personal !== null && args.ms !== personal.previewCostMs)
+    return refuse("bad_payload");
+  const running = plainDeadline(state.facts.deadline);
+  if (running == null ? void 0 : running.against.includes(id))
+    return refuse("timer_running");
+  const unapplied = state.facts.log.slice(state.facts.applied);
+  if (holderAfter(running, unapplied) === id) return refuse("timer_running");
+  if (personal !== null) {
+    if (roundOpen(state)) return refuse("in_pvp");
+    if (state.facts.clocks[id] === void 0) return refuse("no_clock");
+    if (personal.previewCostMs === 0) return unchanged2(state);
+    return {
+      ok: true,
+      state: withFact(state, { type: "preview_charge", playerId: id }),
+      changed: []
+    };
+  }
+  return withSkips(
+    state,
+    spentOut(rules, state.facts.skips, id, args.ms, world.opponentOf)
+  );
+}
+
+// src/lobby/pvp/facts.ts
+var MAX_HANDS = 100;
+var MAX_VOUCHER_KEY_CHARS = 64;
+function earnsHandTime(state) {
+  const rules = state.rules;
+  return rules.runId !== null && rules.clocks.pvp !== null;
+}
+function creditFor(creditedHands, count2) {
+  if (creditedHands === null) return { hands: 0, creditedHands: null };
+  return {
+    hands: Math.max(0, creditedHands - count2),
+    creditedHands: Math.min(creditedHands, count2)
+  };
+}
+function appliedOf(args, prior) {
+  const applied = args.timerLossesApplied;
+  if (!isCount(applied) || applied > prior.timerLosses) return null;
+  return applied;
+}
+function reduceBlindStart(state, id, args) {
+  const runId = runIdOf(args);
+  if (runId === null || !isRecord(args) || !isCount(args.roundId) || !isCount(args.handsLeft, MAX_HANDS) || !isCount(args.timerLossesApplied) || typeof args.score !== "string")
+    return refuse("bad_payload");
+  const score = parse(args.score);
+  if (score === null) return refuse("bad_score");
+  const refused = gate(state, id, runId);
+  if (refused) return refused;
+  if (args.roundId !== state.round.roundId) return refuse("round_over");
+  if (state.round.phase !== "playing") return refuse("not_playing");
+  const prior = entryOf2(state, id);
+  if ("ok" in prior) return prior;
+  if (state.facts.handRound[id] === args.roundId || prior.reportedHands !== null)
+    return unchanged2(state);
+  const applied = appliedOf(args, prior);
+  if (applied === null) return refuse("bad_payload");
+  const handsLeft = handsAfter(args.handsLeft, applied, prior.timerLosses);
+  const entry = __spreadProps(__spreadValues({}, prior), {
+    score,
+    reportedHands: args.handsLeft,
+    reportedApplied: applied,
+    handsLeft,
+    // Hand time is credited for the hands from here on, never for these; a
+    // ruleset with no PvP clock earns none, so the watermark stays null.
+    creditedHands: earnsHandTime(state) ? handsLeft : null
+  });
+  return {
+    ok: true,
+    state: withPlayer(state, id, entry),
+    changed: [PVP_ROUND_KEY]
+  };
+}
+function reduceHandCommit(state, id, args) {
+  const runId = runIdOf(args);
+  if (runId === null || !isRecord(args) || !isCount(args.roundId) || !isCount(args.handsLeft, MAX_HANDS) || !isCount(args.timerLossesApplied))
+    return refuse("bad_payload");
+  const refused = gate(state, id, runId);
+  if (refused) return refused;
+  const rules = state.rules;
+  if (rules.runId !== state.runId) return refuse("not_running");
+  if (rules.clocks.pvp === null) return refuse("no_timer");
+  if (args.roundId !== state.round.roundId) return refuse("round_over");
+  if (state.round.phase !== "playing") return refuse("not_playing");
+  const prior = entryOf2(state, id);
+  if ("ok" in prior) return prior;
+  const applied = appliedOf(args, prior);
+  if (applied === null) return refuse("bad_payload");
+  if (prior.handsSpent) return refuse("hands_spent");
+  const count2 = handsAfter(args.handsLeft, applied, prior.timerLosses);
+  const credit = creditFor(prior.creditedHands, count2);
+  if (prior.handsLeft === null || count2 !== prior.handsLeft - 1 || prior.committedHands !== null || credit.hands <= 0)
+    return refuse("stale_commit");
+  const entry = __spreadProps(__spreadValues({}, prior), {
+    committedHands: count2,
+    creditedHands: credit.creditedHands
+  });
+  return {
+    ok: true,
+    state: withFact(withPlayer(state, id, entry), {
+      type: "hand_credit",
+      playerId: id,
+      hands: credit.hands
+    }),
+    changed: []
+  };
+}
+function reduceHand(state, id, args) {
+  const runId = runIdOf(args);
+  if (runId === null || !isRecord(args) || !isCount(args.roundId) || typeof args.score !== "string" || !isCount(args.handsLeft, MAX_HANDS))
+    return refuse("bad_payload");
+  const score = parse(args.score);
+  if (score === null) return refuse("bad_score");
+  const refused = gate(state, id, runId);
+  if (refused) return refused;
+  if (args.roundId !== state.round.roundId) return refuse("round_over");
+  if (state.round.phase !== "playing") return refuse("not_playing");
+  const prior = entryOf2(state, id);
+  if ("ok" in prior) return prior;
+  const applied = appliedOf(args, prior);
+  if (applied === null) return refuse("bad_payload");
+  if (prior.handsSpent) return refuse("hands_spent");
+  if (applied < prior.reportedApplied) return refuse("stale_hand");
+  if (prior.reportedHands !== null && args.handsLeft > prior.reportedHands)
+    return refuse("stale_hand");
+  if (prior.score !== null && compare(score, prior.score) === -1)
+    return refuse("stale_hand");
+  if (prior.score !== null && prior.reportedHands !== null && compare(score, prior.score) === 1 && args.handsLeft >= prior.reportedHands && applied <= prior.reportedApplied)
+    return refuse("stale_hand");
+  const highest = prior.highestScore === null || compare(score, prior.highestScore) === 1 ? score : prior.highestScore;
+  const handsLeft = handsAfter(args.handsLeft, applied, prior.timerLosses);
+  const entry = __spreadProps(__spreadValues({}, prior), {
+    score,
+    reportedHands: args.handsLeft,
+    reportedApplied: applied,
+    handsLeft,
+    highestScore: highest
+  });
+  if (state.facts.handRound[id] === args.roundId && prior.score === entry.score && prior.reportedHands === entry.reportedHands && prior.reportedApplied === entry.reportedApplied && prior.highestScore === entry.highestScore)
+    return unchanged2(state);
+  if (prior.committedHands !== null && handsLeft > prior.committedHands)
+    return refuse("commit_mismatch");
+  const credit = creditFor(prior.creditedHands, handsLeft);
+  const next = withPlayer(
+    state,
+    id,
+    __spreadProps(__spreadValues({}, entry), { committedHands: null, creditedHands: credit.creditedHands }),
+    args.roundId
+  );
+  return {
+    ok: true,
+    state: credit.hands > 0 ? withFact(next, {
+      type: "hand_credit",
+      playerId: id,
+      hands: credit.hands
+    }) : next,
+    changed: [PVP_ROUND_KEY]
+  };
+}
+function reduceBlind(state, id, args) {
+  const runId = runIdOf(args);
+  if (runId === null || !isRecord(args) || !isBlindKey(args.blindKey) || typeof args.beaten !== "boolean" || typeof args.roundLost !== "boolean" || args.beaten && args.roundLost)
+    return refuse("bad_payload");
+  const refused = gate(state, id, runId);
+  if (refused) return refused;
+  const merged = mergeBlind(state, id, args.blindKey, {
+    beaten: args.beaten,
+    roundLost: args.roundLost
+  });
+  if (!merged.changed) return unchanged2(state);
+  return {
+    ok: true,
+    state: withFact(merged.state, {
+      type: "blind",
+      playerId: id,
+      blindKey: args.blindKey,
+      beaten: merged.record.beaten,
+      roundLost: merged.record.roundLost
+    }),
+    changed: []
+  };
+}
+function higher(prior, reported) {
+  return prior === null ? reported : Math.max(prior, reported);
+}
+function reduceProgress(state, id, args) {
+  const runId = runIdOf(args);
+  if (runId === null || !isRecord(args) || !isCount(args.ante) || !isCount(args.furthestBlind))
+    return refuse("bad_payload");
+  const refused = gate(state, id, runId);
+  if (refused) return refused;
+  const prior = entryOf2(state, id);
+  if ("ok" in prior) return prior;
+  const ante = higher(prior.ante, args.ante);
+  const furthestBlind = higher(prior.furthestBlind, args.furthestBlind);
+  if (prior.ante === ante && prior.furthestBlind === furthestBlind)
+    return unchanged2(state);
+  return {
+    ok: true,
+    state: withFact(withPlayer(state, id, __spreadProps(__spreadValues({}, prior), { ante, furthestBlind })), {
+      type: "progress",
+      playerId: id
+    }),
+    changed: [PVP_ROUND_KEY]
+  };
+}
+function reduceVoucher(state, id, args) {
+  var _a, _b;
+  const runId = runIdOf(args);
+  const voucherKey = isRecord(args) ? args.voucherKey : void 0;
+  if (runId === null || !isName(voucherKey, MAX_VOUCHER_KEY_CHARS))
+    return refuse("bad_payload");
+  const refused = gate(state, id, runId);
+  if (refused) return refused;
+  if (!((_b = (_a = modeOfGame(state)) == null ? void 0 : _a.mayRedeemVoucher) == null ? void 0 : _b.call(_a, state, id)))
+    return refuse("not_runner");
+  if (state.facts.log.some(
+    (f) => f.type === "voucher" && f.playerId === id && f.voucherKey === voucherKey
+  ))
+    return refuse("already_redeemed");
+  return {
+    ok: true,
+    state: withFact(state, { type: "voucher", playerId: id, voucherKey }),
+    changed: []
+  };
+}
+function reduceForfeit(state, id, args) {
+  var _a;
+  const runId = runIdOf(args);
+  if (runId === null) return refuse("bad_payload");
+  const refused = gate(state, id, runId, true);
+  if (refused) return refused;
+  if (isOut(state, id)) {
+    const forfeitedAlready = ((_a = state.lives.players[id]) == null ? void 0 : _a.forfeited) === true || state.facts.log.some((f) => f.type === "forfeit" && f.playerId === id);
+    return forfeitedAlready ? unchanged2(state) : refuse("eliminated");
+  }
+  return {
+    ok: true,
+    state: withFact(state, { type: "forfeit", playerId: id }),
+    changed: []
+  };
+}
+function withVote(votes, kind, ids) {
+  return __spreadProps(__spreadValues({}, votes), { [kind]: ids });
+}
+function reduceVote(state, id, args) {
+  const runId = runIdOf(args);
+  if (runId === null || !isRecord(args) || args.kind !== "draw" && args.kind !== "seed" || typeof args.yes !== "boolean")
+    return refuse("bad_payload");
+  const refused = gate(state, id, runId);
+  if (refused) return refused;
+  if (state.rules.runId !== state.runId) return refuse("no_vote");
+  const kind = args.kind;
+  const current = state.votes.runId === state.runId ? state.votes[kind] : [];
+  const has = current.includes(id);
+  if (args.yes === has) return unchanged2(state);
+  const ids = args.yes ? [...current, id] : current.filter((v) => v !== id);
+  const base = state.votes.runId === state.runId ? state.votes : { runId: state.runId, draw: [], seed: [] };
+  return {
+    ok: true,
+    state: __spreadProps(__spreadValues({}, state), { votes: withVote(base, kind, ids) }),
+    changed: [PVP_VOTES_KEY]
+  };
+}
+var FACT_REDUCERS = {
+  "pvp.blind_start": reduceBlindStart,
+  "pvp.hand": reduceHand,
+  "pvp.hand_commit": reduceHandCommit,
+  "pvp.blind": reduceBlind,
+  "pvp.progress": reduceProgress,
+  "pvp.voucher": reduceVoucher,
+  "pvp.forfeit": reduceForfeit,
+  "pvp.vote": reduceVote,
+  "pvp.skip": reduceSkip
+};
+
 // src/actions/run_save.ts
 var RUN_SAVE_PART_KEY = "mpapi_run_save_part";
 var MAX_RUN_SAVE_PART_BYTES = 12 * 1024;
@@ -8367,7 +12531,7 @@ var HASH_PATTERN2 = /^[0-9a-f]{64}$/i;
 function isPlainObject3(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-function isCount2(value, max) {
+function isCount3(value, max) {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= max;
 }
 function isNonNegativeInt(value) {
@@ -8376,15 +12540,16 @@ function isNonNegativeInt(value) {
 var runSavePart = {
   key: RUN_SAVE_PART_KEY,
   reduce(lobby, ctx, params) {
-    var _a, _b, _c;
+    var _a, _b, _c, _d;
     if (!lobby.game.started) return { reject: "not_in_game" };
     if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
-    if (!isPlainObject3(params) || typeof params.id !== "string" || params.id.length === 0 || params.id.length > MAX_ID_LENGTH || !isCount2(params.count, MAX_RUN_SAVE_PARTS) || !isNonNegativeInt(params.index) || params.index >= params.count || !isNonNegativeInt(params.pos) || typeof params.hash !== "string" || !HASH_PATTERN2.test(params.hash) || typeof params.data !== "string" || params.data.length > MAX_RUN_SAVE_PART_BYTES)
+    if (!isPlainObject3(params) || typeof params.run !== "string" || typeof params.id !== "string" || params.id.length === 0 || params.id.length > MAX_ID_LENGTH || !isCount3(params.count, MAX_RUN_SAVE_PARTS) || !isNonNegativeInt(params.index) || params.index >= params.count || !isNonNegativeInt(params.pos) || typeof params.hash !== "string" || !HASH_PATTERN2.test(params.hash) || typeof params.data !== "string" || params.data.length > MAX_RUN_SAVE_PART_BYTES)
       return { reject: "bad_params" };
-    if (typeof params.run === "string" && params.run !== lobby.game.started.runId)
-      return { game: lobby.game, params: null, to: "none" };
+    if (params.run !== lobby.game.started.runId) return { reject: "wrong_run" };
     const game = lobby.game;
-    const held = (_a = game.runSavePending) == null ? void 0 : _a[ctx.from];
+    const kept = (_a = game.runSaves) == null ? void 0 : _a[ctx.from];
+    if (kept && params.pos < kept.pos) return { reject: "stale_save" };
+    const held = (_b = game.runSavePending) == null ? void 0 : _b[ctx.from];
     const same = held && held.id === params.id && held.count === params.count && held.pos === params.pos && held.hash === params.hash;
     const pending = same ? __spreadProps(__spreadValues({}, held), { parts: __spreadValues({}, held.parts) }) : {
       id: params.id,
@@ -8394,7 +12559,7 @@ var runSavePart = {
       parts: {}
     };
     pending.parts[String(params.index)] = params.data;
-    const rest = __spreadValues({}, (_b = game.runSavePending) != null ? _b : {});
+    const rest = __spreadValues({}, (_c = game.runSavePending) != null ? _c : {});
     if (Object.keys(pending.parts).length < pending.count) {
       return {
         game: __spreadProps(__spreadValues({}, game), { runSavePending: __spreadProps(__spreadValues({}, rest), { [ctx.from]: pending }) }),
@@ -8414,7 +12579,7 @@ var runSavePart = {
     };
     return {
       game: __spreadProps(__spreadValues({}, game), {
-        runSaves: __spreadProps(__spreadValues({}, (_c = game.runSaves) != null ? _c : {}), { [ctx.from]: save }),
+        runSaves: __spreadProps(__spreadValues({}, (_d = game.runSaves) != null ? _d : {}), { [ctx.from]: save }),
         runSavePending: rest
       }),
       params: null,
@@ -8505,6 +12670,9 @@ function remainingParticipants(lobby) {
   for (const p of lobby.players) seated[p.id] = true;
   return started.players.filter((p) => seated[p.id]).map((p) => p.id);
 }
+function isRefereed(lobby) {
+  return refereeOf(lobby) !== null;
+}
 function finishGame(lobby, now, override) {
   const game = lobby.game;
   const started = game.started;
@@ -8516,7 +12684,7 @@ function finishGame(lobby, now, override) {
     started.hostId
   );
   const status = game.contest ? "contested" : override ? override.status : reconciled.status;
-  const placements = status === "abandoned" ? [] : reconciled.placements;
+  const placements = status === "abandoned" || status === "dodged" ? [] : (override == null ? void 0 : override.placements) ? sortedById(override.placements) : reconciled.placements;
   const run = __spreadValues(__spreadValues({
     runId: started.runId,
     code: lobby.code,
@@ -8537,10 +12705,20 @@ function finishGame(lobby, now, override) {
   }, game.contest ? { contest: game.contest } : {}), game.presence && game.presence.length > 0 ? { presence: game.presence } : {});
   const seated = {};
   for (const p of lobby.players) seated[p.id] = true;
-  const lateResultTo = game.resultWasPending && status !== "abandoned" ? started.players.filter((p) => !seated[p.id]).map((p) => p.id) : [];
-  const next = __spreadProps(__spreadValues({}, lobby), { lastRunId: started.runId, game: emptyGame() });
+  const lateResultTo = game.resultWasPending && status !== "abandoned" && status !== "dodged" ? started.players.filter((p) => !seated[p.id]).map((p) => p.id) : [];
+  const announced = !override || override.announce;
+  const attached = new Set(lobby.players.filter((p) => p.awaySince === null).map((p) => p.id));
+  const missed = {};
+  if (announced) {
+    for (const p of started.players)
+      if (!attached.has(p.id)) missed[p.id] = { runId: started.runId, status };
+  }
+  const next = __spreadProps(__spreadValues({}, lobby), {
+    lastRunId: started.runId,
+    game: Object.keys(missed).length > 0 ? __spreadProps(__spreadValues({}, emptyGame()), { endedAway: missed }) : emptyGame()
+  });
   const out = [{ kind: "saveRun", run, logs: game.logs, lateResultTo }];
-  if (!override || override.announce) {
+  if (announced) {
     const ended = { runId: started.runId, status, placements };
     out.push({
       kind: "send",
@@ -8556,11 +12734,14 @@ function settle(lobby, now) {
   if (!started) return { lobby, out: [] };
   const remaining = remainingParticipants(lobby);
   if (remaining.length === 0) return finishGame(lobby, now);
-  if (lobby.game.resultPending && !lobby.game.contest) return { lobby, out: [] };
-  const reports = lobby.game.reports;
-  const anyReport = lobby.game.reportOrder.length > 0;
-  if (anyReport && remaining.every((id) => reports[id] !== void 0))
-    return finishGame(lobby, now);
+  if (!isRefereed(lobby)) {
+    if (lobby.game.resultPending && !lobby.game.contest)
+      return { lobby, out: [] };
+    const reports = lobby.game.reports;
+    const anyReport = lobby.game.reportOrder.length > 0;
+    if (anyReport && remaining.every((id) => reports[id] !== void 0))
+      return finishGame(lobby, now);
+  }
   let current = lobby;
   if (current.game.settleFrom === null && remaining.length < 2) {
     current = __spreadProps(__spreadValues({}, current), { game: __spreadProps(__spreadValues({}, current.game), { settleFrom: now }) });
@@ -8572,6 +12753,9 @@ function settle(lobby, now) {
 }
 
 // src/actions/registry.ts
+var SERVER_REFEREE = "server_referee";
+var START_GAME_KEY = "mpapi_start_game";
+var PLAYER_AWAY = "player_away";
 var MAX_OPTIONS_BYTES = 4 * 1024;
 var MIN_GAME_PLAYERS = 2;
 function isPlainObject4(value) {
@@ -8601,6 +12785,25 @@ function startedParams(started) {
     players: started.players
   };
 }
+var BAD_RULES = "bad_rules";
+function badRulesKey(lobby) {
+  if (lobby.modId !== PVP_MOD_ID) return null;
+  const result = settingsFromMetadata(
+    lobby.metadata,
+    lobby.players.map((p) => p.id)
+  );
+  return result.ok ? null : result.key;
+}
+function modeSwitchedOff(lobby, disabled) {
+  var _a;
+  if (lobby.modId !== PVP_MOD_ID) return false;
+  return ticketModeDisabled(
+    disabled,
+    lobby.modId,
+    lobby.metadata.queue_mode,
+    ((_a = lobby.rankedMode) != null ? _a : "") !== ""
+  );
+}
 function newGame(lobby, ctx, stake, options) {
   return {
     runId: ctx.newId(),
@@ -8609,14 +12812,14 @@ function newGame(lobby, ctx, stake, options) {
     options,
     startedAt: ctx.now,
     hostId: lobby.hostId,
-    players: lobby.players.filter((pl) => pl.awaySince === null).map((pl) => __spreadValues({
+    players: lobby.players.map((pl) => __spreadValues({
       id: pl.id,
       displayName: pl.info.displayName
     }, pl.info.preferredJoker ? { avatar: pl.info.preferredJoker } : {}))
   };
 }
 var startGame = {
-  key: "mpapi_start_game",
+  key: START_GAME_KEY,
   reduce(lobby, ctx, params) {
     const p = isPlainObject4(params) ? params : {};
     if (p.stake !== void 0 && typeof p.stake !== "number")
@@ -8634,17 +12837,21 @@ var startGame = {
       lobby.maxPlayers,
       MAX_PLAYERS
     );
-    const present = lobby.players.filter((pl) => pl.awaySince === null);
-    if (present.length < minPlayers) return { reject: "too_few_players" };
-    for (const pl of present) {
+    if (lobby.players.some((pl) => pl.awaySince !== null))
+      return { reject: PLAYER_AWAY };
+    if (lobby.players.length < minPlayers) return { reject: "too_few_players" };
+    for (const pl of lobby.players) {
       if (pl.id !== lobby.hostId && !lobby.game.ready[pl.id])
         return { reject: "not_all_ready" };
     }
     if (lobby.modId === PVP_MOD_ID) {
       const versions = {};
-      for (const pl of present) versions[pl.id] = pl.info.pvpVersion || "";
+      for (const pl of lobby.players) versions[pl.id] = pl.info.pvpVersion || "";
       if (versionOutliers(versions).length > 0) return { reject: VERSION_MISMATCH };
     }
+    if (modeSwitchedOff(lobby, ctx.disabledPvpModes)) return { reject: MODE_DISABLED };
+    const badKey = badRulesKey(lobby);
+    if (badKey !== null) return { reject: BAD_RULES, key: badKey };
     const started = newGame(
       lobby,
       ctx,
@@ -8657,29 +12864,58 @@ var startGame = {
     };
   }
 };
+function restartedGame(lobby, ctx) {
+  const current = lobby.game.started;
+  if (!current) return null;
+  const finished = finishGame(lobby, ctx.now, {
+    status: "restarted",
+    announce: false
+  });
+  const started = __spreadProps(__spreadValues({}, newGame(finished.lobby, ctx, current.stake, current.options)), {
+    restarted: true
+  });
+  return {
+    game: __spreadProps(__spreadValues({}, emptyGame()), {
+      started,
+      setup: setupForRestart(lobby.game),
+      // An away seat joined at the start like the rest, then is recorded away:
+      // the record never claims a connection that is not there.
+      presence: startingPresence(started).concat(
+        lobby.players.filter((pl) => pl.awaySince !== null).map((pl) => ({ userId: pl.id, kind: "disconnected", at: ctx.now }))
+      )
+    }),
+    params: startedParams(started),
+    out: finished.out
+  };
+}
 var restartGame = {
   key: "mpapi_restart_game",
   reduce(lobby, ctx) {
+    var _a;
     if (lobby.hostId !== ctx.from) return { reject: "not_host" };
-    const current = lobby.game.started;
-    if (!current) return { reject: "not_in_game" };
-    const finished = finishGame(lobby, ctx.now, {
-      status: "restarted",
-      announce: false
-    });
-    const started = newGame(finished.lobby, ctx, current.stake, current.options);
-    return {
-      game: __spreadProps(__spreadValues({}, emptyGame()), { started, setup: setupForRestart(lobby.game), presence: startingPresence(started) }),
-      params: startedParams(started),
-      out: finished.out
-    };
+    if (!lobby.game.started) return { reject: "not_in_game" };
+    if (isRefereed(lobby)) return { reject: SERVER_REFEREE };
+    return (_a = restartedGame(lobby, ctx)) != null ? _a : { reject: "not_in_game" };
   }
 };
 var abandonGame = {
   key: "mpapi_abandon_game",
   reduce(lobby, ctx) {
-    if (lobby.hostId !== ctx.from) return { reject: "not_host" };
     const current = lobby.game.started;
+    if (current && isRefereed(lobby)) {
+      if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
+      const referee = refereeOf(lobby);
+      if (referee === null) return { reject: "not_in_game" };
+      const forfeit = reduceForfeit(referee, ctx.from, { runId: current.runId });
+      if (!forfeit.ok && (forfeit.reason === "eliminated" || forfeit.reason === "round_over"))
+        return { game: lobby.game, params: { runId: current.runId } };
+      if (!forfeit.ok) return { reject: forfeit.reason };
+      return {
+        game: withReferee(lobby, forfeit.state).game,
+        params: { runId: current.runId }
+      };
+    }
+    if (lobby.hostId !== ctx.from) return { reject: "not_host" };
     if (!current) return { reject: "not_in_game" };
     const finished = finishGame(lobby, ctx.now, {
       status: "abandoned",
@@ -8698,6 +12934,7 @@ var reportResult = {
     const started = lobby.game.started;
     if (!started) return { reject: "not_in_game" };
     if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
+    if (isRefereed(lobby)) return { reject: SERVER_REFEREE };
     const placements = parsePlacements(
       isPlainObject4(params) ? params.placements : null,
       started.players
@@ -8720,6 +12957,7 @@ var setResultPending = {
     const started = lobby.game.started;
     if (!started) return { reject: "not_in_game" };
     if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
+    if (isRefereed(lobby)) return { reject: SERVER_REFEREE };
     if (!isPlainObject4(params) || typeof params.pending !== "boolean")
       return { reject: "bad_params" };
     const game = __spreadProps(__spreadValues({}, lobby.game), {
@@ -8807,7 +13045,7 @@ function appendLogEvent(lobby, from, now, params) {
     bytes: log.bytes + size,
     truncated: false
   });
-  const stamped = started.raceStartedAt === void 0 ? __spreadProps(__spreadValues({}, started), { raceStartedAt: now }) : started;
+  const stamped = started.raceStartedAt === void 0 && !setupPending(lobby) ? __spreadProps(__spreadValues({}, started), { raceStartedAt: now }) : started;
   return {
     game: __spreadProps(__spreadValues({}, game), { started: stamped, logs: __spreadProps(__spreadValues({}, game.logs), { [from]: grown }) }),
     relayed: { playerId: from, t: params.t, opcode: params.opcode, args }
@@ -8826,10 +13064,12 @@ var logEvent = {
     if (!isParticipant(lobby, ctx.from)) return { reject: "not_participant" };
     const appended = appendLogEvent(lobby, ctx.from, ctx.now, params);
     if ("reject" in appended) return appended;
+    const { relayed: relayed2 } = appended;
     return {
       game: appended.game,
-      params: appended.relayed,
-      to: appended.relayed ? "others" : "none",
+      params: relayed2 ? { playerId: relayed2.playerId, t: relayed2.t } : null,
+      to: relayed2 ? "others" : "none",
+      spectate: relayed2 ? [relayed2] : void 0,
       ack: ackOf(appended.game, ctx.from, [params])
     };
   }
@@ -8855,7 +13095,7 @@ var logEvents = {
     const last = relayed2[relayed2.length - 1];
     return {
       game: current.game,
-      params: __spreadProps(__spreadValues({}, last), { count: relayed2.length }),
+      params: { playerId: last.playerId, t: last.t, count: relayed2.length },
       to: "others",
       spectate: relayed2,
       ack
@@ -8908,11 +13148,11 @@ var GROUP_SIGNALS = [
 function isGroupSignal(signal2) {
   return GROUP_SIGNALS.indexOf(signal2.type) !== -1;
 }
-function unchanged(lobby, reply) {
+function unchanged3(lobby, reply) {
   return { step: { lobby, out: [] }, reply: JSON.stringify(reply) };
 }
 function answered(lobby, result) {
-  if (!result.ok) return unchanged(lobby, { refused: result.error });
+  if (!result.ok) return unchanged3(lobby, { refused: result.error });
   return { step: result.value, reply: JSON.stringify({ groupQueue: viewOf(result.value.lobby) }) };
 }
 function stepped(step) {
@@ -8921,10 +13161,10 @@ function stepped(step) {
 function answerGroupSignal(lobby, signal2, switches, now) {
   switch (signal2.type) {
     case "group_members":
-      return unchanged(lobby, homeFactsOf(lobby));
+      return unchanged3(lobby, homeFactsOf(lobby));
     case "group_status": {
-      const view = viewOf(lobby);
-      return unchanged(lobby, view && view.partyId === signal2.partyId ? view : null);
+      const view5 = viewOf(lobby);
+      return unchanged3(lobby, view5 && view5.partyId === signal2.partyId ? view5 : null);
     }
     case "group_open":
       return answered(
@@ -8949,30 +13189,18 @@ function answerGroupSignal(lobby, signal2, switches, now) {
 }
 
 // src/lobby/sender_guard.ts
+var PVP_RELAY_KEYS = [
+  "pvp_end_game_stats_requested",
+  "pvp_get_end_game_jokers",
+  "pvp_get_nemesis_deck",
+  "pvp_location",
+  "pvp_log_event",
+  "pvp_nemesis_end_game_stats",
+  "pvp_player_result",
+  "pvp_receive_end_game_jokers",
+  "pvp_receive_nemesis_deck"
+];
 var SENDER_RULES = {
-  // PvP referee (pvp_api/referee.lua: every broadcast is under is_host()).
-  pvp_win: "host",
-  pvp_player_won: "host",
-  // check_single_survivor: host only
-  pvp_end_pvp: "host",
-  pvp_round_state: "host",
-  pvp_player_lives: "host",
-  pvp_eliminated: "host",
-  pvp_start_blind: "host",
-  pvp_ready_check: "host",
-  // referee.lua: the host asks everyone to confirm Ready before a blind
-  pvp_timer_hand_lost: "host",
-  pvp_nemesis_pairing: "host",
-  pvp_royale_target: "host",
-  pvp_manhunt_target: "host",
-  pvp_team_card_target: "host",
-  pvp_team_score_board: "host",
-  pvp_team_lives: "host",
-  pvp_team_roster: "host",
-  pvp_death_pending: "host",
-  // pvp_api/referee.lua: the host broadcasts a pending death
-  pvp_reseed: "host",
-  // run_actions.lua: host on a unanimous seed vote
   // SPDRN host decisions.
   spdrn_match_timeout: "host",
   // matchmaking/duration.lua: host clock
@@ -8995,10 +13223,12 @@ function claimedPlayer(params) {
   return typeof id === "string" ? id : null;
 }
 function senderRefusal(lobby, from, key, params) {
+  const hostId = lobby.hostId;
+  if (key.startsWith("pvp_") && !PVP_RELAY_KEYS.includes(key))
+    return { kind: "not_relayed", key, from, hostId };
   const rule = senderRuleOf(key);
   if (rule === null) return null;
   const ruled = key;
-  const hostId = lobby.hostId;
   const isHost = from === hostId;
   if (rule === "host")
     return isHost ? null : { kind: "not_host", key: ruled, from, hostId };
@@ -9008,8 +13238,10 @@ function senderRefusal(lobby, from, key, params) {
 }
 
 // src/lobby/relay.ts
+var NO_DISABLED_MODES = [];
 var ACTION_KEY_PATTERN = /^[a-z0-9_]{1,64}$/;
 var MAX_PARAMS_BYTES = 16 * 1024;
+var PVP_LOG_EVENT_KEY = "pvp_log_event";
 var MAX_CID_LENGTH = 64;
 var RATE_PER_SECOND = 40;
 var BURST = 100;
@@ -9055,52 +13287,37 @@ function stringField(data, key) {
   const value = data[key];
   return typeof value === "string" ? value : "";
 }
-function action(lobby, senderId, data, ctx) {
-  const sender = findPlayer(lobby, senderId);
-  if (!sender || sender.awaySince === null) return relayAction(lobby, senderId, data, ctx);
-  const back = __spreadProps(__spreadValues({}, lobby), {
-    players: lobby.players.map((p) => p.id === senderId ? __spreadProps(__spreadValues({}, p), { awaySince: null }) : p)
-  });
-  const payload = {
-    type: "player_reconnected",
-    lobbyCode: lobby.code,
-    playerId: senderId,
-    displayName: sender.info.displayName
-  };
-  const announce3 = {
-    kind: "send",
-    op: ServerOp.EVENT,
-    payload,
-    to: back.players.map((p) => p.id).filter((id) => id !== senderId)
-  };
-  const step = relayAction(back, senderId, data, ctx);
-  return __spreadProps(__spreadValues({}, step), { out: [announce3, ...step.out] });
-}
-function relayAction(lobby, senderId, data, ctx) {
+function action(lobby, senderId, data, ctx, disabledPvpModes = NO_DISABLED_MODES) {
   const cid = stringField(data, "cid").slice(0, MAX_CID_LENGTH);
   const key = stringField(data, "action");
   const to = stringField(data, "to");
-  const refuse3 = (reason) => ({
+  const refuse4 = (reason, ruleKey) => ({
     lobby,
-    out: [reject(senderId, { cid, action: key, reason })],
+    out: [
+      reject(
+        senderId,
+        ruleKey === void 0 ? { cid, action: key, reason } : { cid, action: key, reason, key: ruleKey }
+      )
+    ],
     refused: { key, reason }
   });
-  if (!findPlayer(lobby, senderId)) return { lobby, out: [], refused: { key, reason: "no_seat" } };
-  if (!ACTION_KEY_PATTERN.test(key)) return refuse3("bad_action");
+  if (!findPlayer(lobby, senderId))
+    return { lobby, out: [], refused: { key, reason: "no_seat" } };
+  if (!ACTION_KEY_PATTERN.test(key)) return refuse4("bad_action");
   const params = data.params === void 0 ? null : data.params;
   if (JSON.stringify(params).length > MAX_PARAMS_BYTES)
-    return refuse3("too_large");
+    return refuse4("too_large");
   const budgeted = spend(lobby, senderId, key, ctx.now, spendCost(key, params));
-  if (!budgeted) return refuse3("rate_limited");
+  if (!budgeted) return refuse4("rate_limited");
   const authoritative = authoritativeAction(key);
   if (to === SERVER_TARGET) {
-    if (!authoritative) return refuse3("not_authoritative");
+    if (!authoritative) return refuse4("not_authoritative");
     const result = authoritative.reduce(
       budgeted,
-      __spreadProps(__spreadValues({}, ctx), { from: senderId }),
+      __spreadProps(__spreadValues({}, ctx), { from: senderId, disabledPvpModes }),
       params
     );
-    if ("reject" in result) return refuse3(result.reject);
+    if ("reject" in result) return refuse4(result.reject, result.key);
     const next = __spreadProps(__spreadValues({}, budgeted), { game: result.game });
     const out = [];
     const audience = result.to || "all";
@@ -9123,18 +13340,23 @@ function relayAction(lobby, senderId, data, ctx) {
       out.push({
         kind: "send",
         op: ServerOp.ACTION,
-        payload: { cid, action: key, from: SERVER_TARGET, to: BROADCAST_TARGET, params: __spreadValues({ ack: true }, result.ack) },
+        payload: {
+          cid,
+          action: key,
+          from: SERVER_TARGET,
+          to: BROADCAST_TARGET,
+          params: __spreadValues({ ack: true }, result.ack)
+        },
         to: [senderId]
       });
     if (result.out) out.push(...result.out);
-    if (key === LOG_EVENT_KEY && audience !== "none" && result.params)
-      out.push(...spectateEvent(next, result.params));
-    if (key === LOG_EVENTS_KEY && result.spectate)
-      for (const event2 of result.spectate) out.push(...spectateEvent(next, event2));
-    const settled = settle(next, ctx.now);
-    return { lobby: settled.lobby, out: out.concat(settled.out) };
+    if ((key === LOG_EVENT_KEY || key === LOG_EVENTS_KEY) && result.spectate)
+      for (const event2 of result.spectate)
+        out.push(...spectateEvent(next, event2));
+    const settled3 = settle(next, ctx.now);
+    return { lobby: settled3.lobby, out: out.concat(settled3.out) };
   }
-  if (authoritative) return refuse3("authoritative_only");
+  if (authoritative) return refuse4("authoritative_only");
   const dropped = senderRefusal(budgeted, senderId, key, params);
   if (dropped)
     return {
@@ -9148,7 +13370,7 @@ function relayAction(lobby, senderId, data, ctx) {
   } else if (findPlayer(budgeted, to)) {
     targets = [to];
   } else {
-    return refuse3("unknown_target");
+    return refuse4("unknown_target");
   }
   const envelope = {
     cid,
@@ -9159,10 +13381,663 @@ function relayAction(lobby, senderId, data, ctx) {
   };
   const responseTo = stringField(data, "responseTo");
   if (responseTo) envelope.responseTo = responseTo.slice(0, MAX_CID_LENGTH);
+  if (key === PVP_LOG_EVENT_KEY) {
+    const slim = __spreadProps(__spreadValues({}, envelope), { params: slimLogParams(params) });
+    const own = targets.filter((id) => id === senderId);
+    const others = targets.filter((id) => id !== senderId);
+    const out = [];
+    if (own.length > 0)
+      out.push({ kind: "send", op: ServerOp.ACTION, payload: envelope, to: own });
+    if (others.length > 0)
+      out.push({ kind: "send", op: ServerOp.ACTION, payload: slim, to: others });
+    return { lobby: budgeted, out };
+  }
   return {
     lobby: budgeted,
-    out: [{ kind: "send", op: ServerOp.ACTION, payload: envelope, to: targets }]
+    out: [
+      { kind: "send", op: ServerOp.ACTION, payload: envelope, to: targets }
+    ]
   };
+}
+function slimLogParams(params) {
+  if (params === null || typeof params !== "object" || Array.isArray(params))
+    return params;
+  const { t, opcode } = params;
+  return { t, opcode };
+}
+
+// src/lobby/pvp/pvp_tick.ts
+var METRIC_CAP = 1e15;
+function metricOf(text) {
+  if (text.includes(",")) return METRIC_CAP;
+  const n = Number(text);
+  return Math.round(Math.min(n, METRIC_CAP));
+}
+function placementsOf(state, playerIds) {
+  const placeOf = {};
+  for (const p of state.result.places) placeOf[p.playerId] = p.place;
+  const tiedFirst = playerIds.filter((id) => placeOf[id] === 1).length;
+  return playerIds.map((id) => {
+    const place = placeOf[id];
+    if (place === void 0) throw new Error(`no place for ${id}`);
+    const entry = state.round.players[id];
+    const best = entry === void 0 ? null : entry.highestScore;
+    const performance = place === 1 && tiedFirst === 1 ? 1 : 0;
+    if (best === null) return { playerId: id, place, performance };
+    return {
+      playerId: id,
+      place,
+      performance,
+      metric: metricOf(best),
+      metricText: best
+    };
+  });
+}
+function readyAfterOut(before, after) {
+  if (!pvpOf(before)) return after;
+  const still = new Set(requiredIds(after));
+  const left = requiredIds(before).filter((id) => !still.has(id));
+  if (left.length === 0) return after;
+  return startIfReady(after, left);
+}
+function pvpTick(lobby, ctx, ends, modeFor = pickMode) {
+  var _a, _b, _c, _d, _e, _f, _g;
+  const state = refereeOf(lobby);
+  const started = lobby.game.started;
+  const ready2 = pvpOf(lobby);
+  if (!state || !started || !ready2) return { lobby, out: [] };
+  const freezeEnv = freezeEnvOf(lobby);
+  if (freezeEnv === null) return { lobby, out: [] };
+  const outcome = decide(
+    state,
+    __spreadProps(__spreadValues({}, freezeEnv), {
+      seatedIds: lobby.players.map((p) => p.id),
+      raceStarted: started.raceStartedAt !== void 0,
+      // A restarted run has no dodge window: a pre-run leave is a forfeit there.
+      firstRun: started.restarted !== true,
+      readyIds: readyIdsOf(ready2),
+      readiedIds: ready2.readied,
+      requiredIds: requiredIds(lobby),
+      awayIds: lobby.players.filter((p) => p.awaySince !== null).map((p) => p.id),
+      contested: !!lobby.game.contest,
+      ranked: lobby.rankedMode !== void 0,
+      awayBeforeRun: awayBeforeRunOf(lobby)
+    }),
+    ctx,
+    modeFor
+  );
+  if (((_a = outcome.end) == null ? void 0 : _a.kind) === "contested") return ends.finish(lobby, ctx.now);
+  if (((_b = outcome.end) == null ? void 0 : _b.kind) === "dodged" && lobby.rankedMode !== void 0) {
+    const finished = ends.finish(lobby, ctx.now, {
+      status: "dodged",
+      announce: true
+    });
+    const dodge = {
+      kind: "dodged",
+      leaverId: outcome.end.leaverId,
+      runId: started.runId,
+      at: ctx.now,
+      rankedMode: lobby.rankedMode
+    };
+    return { lobby: finished.lobby, out: [dodge, ...finished.out] };
+  }
+  if (((_c = outcome.end) == null ? void 0 : _c.kind) === "bothGone") {
+    const finished = ends.finish(lobby, ctx.now, {
+      status: "abandoned",
+      announce: true
+    });
+    const rankedMode = lobby.rankedMode;
+    const dodges = rankedMode === void 0 || !ends.endsAsDodge(lobby) ? [] : outcome.end.leaverIds.map((leaverId) => ({
+      kind: "dodged",
+      leaverId,
+      runId: started.runId,
+      at: ctx.now,
+      rankedMode
+    }));
+    return { lobby: finished.lobby, out: [...dodges, ...finished.out] };
+  }
+  if (((_d = outcome.end) == null ? void 0 : _d.kind) === "forfeited")
+    return ends.finish(lobby, ctx.now, { status: "abandoned", announce: true });
+  if (((_e = outcome.end) == null ? void 0 : _e.kind) === "unrefereeable") {
+    const finished = ends.finish(lobby, ctx.now, {
+      status: "abandoned",
+      announce: true
+    });
+    const message = `run ${started.runId} is unrefereeable: bad_rules ${outcome.end.key}`;
+    return {
+      lobby: finished.lobby,
+      out: [{ kind: "log", message }, ...finished.out]
+    };
+  }
+  const next = readyAfterOut(
+    lobby,
+    outcome.state === state ? lobby : withReferee(lobby, outcome.state)
+  );
+  if (((_f = outcome.end) == null ? void 0 : _f.kind) === "restart") {
+    const restarted2 = ends.restart(next, ctx);
+    if (restarted2) return restarted2;
+  }
+  const announced = announceChange(next, changedKeys(lobby, next), lobby);
+  if (((_g = outcome.end) == null ? void 0 : _g.kind) === "finish") {
+    const finished = ends.finish(announced.lobby, ctx.now, {
+      status: "agreed",
+      announce: true,
+      placements: placementsOf(
+        outcome.state,
+        started.players.map((p) => p.id)
+      )
+    });
+    return { lobby: finished.lobby, out: [...announced.out, ...finished.out] };
+  }
+  return announced;
+}
+
+// src/lobby/pvp/referee.ts
+function restartOut(lobby, ctx) {
+  const restarted2 = restartedGame(lobby, ctx);
+  if (!restarted2) return null;
+  const envelope = {
+    cid: "",
+    action: "mpapi_restart_game",
+    from: SERVER_TARGET,
+    to: BROADCAST_TARGET,
+    params: restarted2.params
+  };
+  const next = __spreadProps(__spreadValues({}, lobby), { game: restarted2.game });
+  const out = [
+    {
+      kind: "send",
+      op: ServerOp.ACTION,
+      payload: envelope,
+      to: next.players.map((p) => p.id)
+    },
+    ...restarted2.out
+  ];
+  return { lobby: next, out };
+}
+var REAL_ENDS = {
+  finish: finishGame,
+  restart: restartOut,
+  endsAsDodge
+};
+function pvpTick2(lobby, ctx, modeFor = pickMode) {
+  return pvpTick(lobby, ctx, REAL_ENDS, modeFor);
+}
+
+// src/lobby/pvp/timer_facts.ts
+function reduceTimerStart(state, id, args, world) {
+  const runId = runIdOf(args);
+  if (runId === null || !isRecord(args)) return refuse("bad_payload");
+  const kind = args.kind;
+  if (kind !== "ante" && kind !== "pvp") return refuse("bad_payload");
+  if ("clock" in args || "ms" in args) return refuse("bad_payload");
+  if (kind === "pvp" && !isCount(args.roundId)) return refuse("bad_payload");
+  const refused = gate(state, id, runId);
+  if (refused) return refused;
+  const rules = state.rules;
+  if (rules.runId !== state.runId) return refuse("not_running");
+  if (kind === "ante" ? rules.clocks.ante === "none" : rules.clocks.pvp === null)
+    return refuse("no_timer");
+  if (kind === "pvp") {
+    if (args.roundId !== state.round.roundId) return refuse("round_over");
+    if (state.round.phase !== "playing") return refuse("not_playing");
+  }
+  const timing = wouldTime(kind, id, state, world);
+  if (!timing.ok) return refuse(timing.reason);
+  const unapplied = state.facts.log.slice(state.facts.applied);
+  if (holderAfter(plainDeadline(state.facts.deadline), unapplied) !== null)
+    return unchanged2(state);
+  return {
+    ok: true,
+    state: withFact(state, { type: "timer_start", playerId: id, kind }),
+    changed: []
+  };
+}
+function reduceAnimating(state, id, args) {
+  const runId = runIdOf(args);
+  if (runId === null || !isRecord(args)) return refuse("bad_payload");
+  const animating = args.animating;
+  if (typeof animating !== "boolean") return refuse("bad_payload");
+  const refused = gate(state, id, runId);
+  if (refused) return refused;
+  const now = state.facts.animating;
+  if (now.includes(id) === animating) return unchanged2(state);
+  const next = animating ? [...now, id].sort() : now.filter((p) => p !== id);
+  return {
+    ok: true,
+    state: __spreadProps(__spreadValues({}, state), { facts: __spreadProps(__spreadValues({}, state.facts), { animating: next }) }),
+    changed: []
+  };
+}
+function reduceTimerPause(state, id, args) {
+  const runId = runIdOf(args);
+  if (runId === null) return refuse("bad_payload");
+  const refused = gate(state, id, runId);
+  if (refused) return refused;
+  const unapplied = state.facts.log.slice(state.facts.applied);
+  const holder = holderAfter(plainDeadline(state.facts.deadline), unapplied);
+  if (holder === null) return unchanged2(state);
+  if (holder !== id) return refuse("not_starter");
+  return {
+    ok: true,
+    state: withFact(state, { type: "timer_pause", playerId: id }),
+    changed: []
+  };
+}
+
+// src/lobby/pvp/traps.ts
+var ARCANE_LOCK_KEY = "c_mp_trap_arcane_lock";
+var MAX_KEY_CHARS = 64;
+var MAX_DATA_BYTES = 512;
+var isTrapKey = (key) => key.startsWith("c_mp_") && isName(key, MAX_KEY_CHARS);
+function validateFire(key, data) {
+  if (key === ARCANE_LOCK_KEY) return null;
+  if (data === void 0) return {};
+  return JSON.stringify(data).length <= MAX_DATA_BYTES ? data : null;
+}
+var plantedFor = (traps, owner, holder) => traps.filter((t) => t.owner === owner && t.holder === holder).length;
+function reduceTrapPlant(state, id, args) {
+  var _a, _b;
+  const begun = begin(state, id, args);
+  if (!begun.ok) return begun;
+  const a = begun.args;
+  if (!onlyKeys(a, ["runId", "key"]) || typeof a.key !== "string")
+    return refuse("bad_payload");
+  const key = a.key;
+  if (!isTrapKey(key)) return refuse("unknown_trap");
+  if (((_b = (_a = state.round.players[id]) == null ? void 0 : _a.ante) != null ? _b : null) === null)
+    return refuse("no_progress");
+  const { trapSeq, traps } = state.facts.traps;
+  const lock = oldestLock(traps, id);
+  if (lock !== void 0) {
+    if (plantedFor(traps, lock.owner, id) >= MAX_PLANTS_PER_PLANTER)
+      return refuse("over_cap");
+    const made2 = {
+      id: trapSeq,
+      key,
+      owner: lock.owner,
+      holder: id,
+      state: "live"
+    };
+    const spent = traps.map(
+      (t) => t.id === lock.id ? __spreadProps(__spreadValues({}, t), { state: { fired: { bounced: made2.id } } }) : t
+    );
+    return {
+      ok: true,
+      state: withTraps(state, trapSeq + 1, [...spent, made2]),
+      changed: [PVP_TRAPS_KEY],
+      reply: { kind: "accepted" }
+    };
+  }
+  const hit = recordTargets(state, id, "each");
+  if (!hit.ok) return refuse(hit.reason);
+  if (hit.targets.some((holder) => plantedFor(traps, id, holder) >= MAX_PLANTS_PER_PLANTER))
+    return refuse("over_cap");
+  const made = hit.targets.map((holder, i) => ({
+    id: trapSeq + i,
+    key,
+    owner: id,
+    holder,
+    state: "live"
+  }));
+  return {
+    ok: true,
+    state: withTraps(hit.state, trapSeq + made.length, [...traps, ...made]),
+    changed: [PVP_TRAPS_KEY, ...hit.changed],
+    reply: { kind: "accepted" }
+  };
+}
+var oldestLock = (traps, holder) => traps.filter(
+  (t) => t.holder === holder && t.key === ARCANE_LOCK_KEY && t.state === "live"
+).reduce(
+  (best, t) => best === void 0 || t.id < best.id ? t : best,
+  void 0
+);
+var withTraps = (state, trapSeq, traps) => __spreadProps(__spreadValues({}, state), {
+  facts: __spreadProps(__spreadValues({}, state.facts), { traps: { trapSeq, traps } })
+});
+function heldLive(state, id, trapId) {
+  const trap = state.facts.traps.traps.find((t) => t.id === trapId);
+  if (trap === void 0 || trap.holder !== id)
+    return { ok: false, reason: "not_holder" };
+  if (trap.state !== "live") return { ok: false, reason: "already_fired" };
+  return { ok: true, trap, state };
+}
+function settled2(state, trapId, next) {
+  const traps = state.facts.traps.traps.map(
+    (t) => t.id === trapId ? __spreadProps(__spreadValues({}, t), { state: next }) : t
+  );
+  return {
+    ok: true,
+    state: withTraps(state, state.facts.traps.trapSeq, traps),
+    changed: [PVP_TRAPS_KEY],
+    reply: { kind: "accepted" }
+  };
+}
+function reduceTrapFire(state, id, args) {
+  const begun = begin(state, id, args);
+  if (!begun.ok) return begun;
+  const a = begun.args;
+  if (!onlyKeys(a, ["runId", "trapId", "data"]) || !isCount(a.trapId) || a.data !== void 0 && !isRecord(a.data))
+    return refuse("bad_payload");
+  const held = heldLive(state, id, a.trapId);
+  if (!held.ok) return refuse(held.reason);
+  const data = validateFire(held.trap.key, a.data);
+  if (data === null) return refuse("bad_payload");
+  return settled2(state, a.trapId, { fired: data });
+}
+function reduceTrapLost(state, id, args) {
+  const begun = begin(state, id, args);
+  if (!begun.ok) return begun;
+  const a = begun.args;
+  if (!onlyKeys(a, ["runId", "trapId"]) || !isCount(a.trapId))
+    return refuse("bad_payload");
+  const held = heldLive(state, id, a.trapId);
+  if (!held.ok) return refuse(held.reason);
+  return settled2(state, a.trapId, "lost");
+}
+
+// src/lobby/pvp/register.ts
+function derivedKeys(before, after) {
+  return changedKeys(before, after).filter(
+    (key) => Object.prototype.hasOwnProperty.call(PVP_PROJECTIONS, key)
+  );
+}
+function lobbyReducer(fact, freezes = true) {
+  return {
+    keys: PVP_PROJECTIONS,
+    reduce: (lobby, senderId, payload, ctx) => {
+      const state = refereeOf(lobby);
+      const started = lobby.game.started;
+      if (!state || !started) return { ok: false, reason: "not_running" };
+      if (!started.players.some((p) => p.id === senderId))
+        return { ok: false, reason: "no_seat" };
+      const frozen = frozenFor(freezes, lobby, state, ctx);
+      if (!frozen.ok) return frozen;
+      const base = frozen.state === state ? lobby : withReferee(lobby, frozen.state);
+      const result = fact(frozen.state, senderId, payload, base);
+      if (!result.ok) return result;
+      const next = result.state === state ? lobby : withReferee(lobby, result.state);
+      return {
+        ok: true,
+        lobby: next,
+        changed: [.../* @__PURE__ */ new Set([...result.changed, ...derivedKeys(lobby, next)])]
+      };
+    }
+  };
+}
+function frozenFor(freezes, lobby, state, ctx) {
+  var _a;
+  if (!freezes) return { ok: true, state };
+  if (!runFrozen(lobby) && ((_a = lobby.game.started) == null ? void 0 : _a.raceStartedAt) === void 0 && setupPending(lobby))
+    return { ok: false, reason: "setup_open" };
+  const frozen = frozenState(lobby, state, ctx);
+  return frozen.ok ? frozen : { ok: false, reason: frozen.reason, key: frozen.key };
+}
+function freezingReducer(inner) {
+  return {
+    keys: inner.keys,
+    reduce: (lobby, senderId, payload, ctx) => {
+      const state = refereeOf(lobby);
+      if (!state || !lobby.game.started)
+        return inner.reduce(lobby, senderId, payload, ctx);
+      const frozen = frozenFor(true, lobby, state, ctx);
+      if (!frozen.ok) return frozen;
+      const base = frozen.state === state ? lobby : withReferee(lobby, frozen.state);
+      const result = inner.reduce(base, senderId, payload, ctx);
+      if (!result.ok) return result;
+      return __spreadProps(__spreadValues({}, result), {
+        changed: [
+          .../* @__PURE__ */ new Set([...result.changed, ...derivedKeys(lobby, result.lobby)])
+        ]
+      });
+    }
+  };
+}
+function refusalOf(reply) {
+  if (reply.kind === "accepted") return void 0;
+  return reply.detail === void 0 ? { reason: reply.reason } : {
+    reason: reply.reason,
+    detail: `count ${reply.detail.count} cap ${reply.detail.cap} window ${reply.detail.window}`
+  };
+}
+function opponentReducer(fact) {
+  return {
+    keys: PVP_PROJECTIONS,
+    reduce: (lobby, senderId, payload, ctx) => {
+      const state = refereeOf(lobby);
+      const started = lobby.game.started;
+      if (!state || !started) return { ok: false, reason: "not_running" };
+      if (!started.players.some((p) => p.id === senderId))
+        return { ok: false, reason: "no_seat" };
+      const frozen = frozenFor(true, lobby, state, ctx);
+      if (!frozen.ok) return frozen;
+      const result = fact(frozen.state, senderId, payload);
+      if (!result.ok) return result;
+      const next = result.state === state ? lobby : withReferee(lobby, result.state);
+      const refusal2 = refusalOf(result.reply);
+      return __spreadValues({
+        ok: true,
+        lobby: next,
+        changed: [.../* @__PURE__ */ new Set([...result.changed, ...derivedKeys(lobby, next)])]
+      }, refusal2 ? { refusal: refusal2 } : {});
+    }
+  };
+}
+function timerWorldOf(lobby, state) {
+  const mode = modeOfGame(state);
+  if (mode === null) return null;
+  const ready2 = pvpOf(lobby);
+  return worldOf(
+    state,
+    mode,
+    ready2 ? readyIdsOf(ready2) : [],
+    requiredIds(lobby)
+  );
+}
+function checkTeamPick(lobby, senderId, payload) {
+  var _a;
+  if (!findPlayer(lobby, senderId)) return { ok: false, reason: "no_seat" };
+  if (lobby.game.started) return { ok: false, reason: "running" };
+  const mode = modeOfQueue(lobby.metadata.queue_mode);
+  const offered = mode === null ? [] : (_a = TEAMS_OF_MODE[mode]) != null ? _a : [];
+  const team = typeof payload === "object" && payload !== null ? payload.team : void 0;
+  const picked = offered.find((t) => t === team);
+  return picked ? { ok: true, team: picked } : { ok: false, reason: "bad_team" };
+}
+var teamReducer = {
+  keys: PVP_PROJECTIONS,
+  reduce: (lobby, senderId, payload) => {
+    var _a;
+    const check = checkTeamPick(lobby, senderId, payload);
+    if (!check.ok) return check;
+    if (((_a = lobby.teamPicks) == null ? void 0 : _a[senderId]) === check.team)
+      return { ok: true, lobby, changed: [] };
+    return {
+      ok: true,
+      lobby: __spreadProps(__spreadValues({}, lobby), {
+        teamPicks: __spreadProps(__spreadValues({}, lobby.teamPicks), { [senderId]: check.team })
+      }),
+      changed: [PVP_TEAMS_KEY]
+    };
+  }
+};
+var NEVER_FREEZE = ["pvp.forfeit", "pvp.vote"];
+function gatedFactReducers() {
+  const gated = {};
+  for (const type of Object.keys(FACT_REDUCERS))
+    gated[type] = lobbyReducer(
+      FACT_REDUCERS[type],
+      !NEVER_FREEZE.includes(type)
+    );
+  return gated;
+}
+var PVP_REQUESTS = __spreadProps(__spreadValues({
+  "pvp.ready": freezingReducer(readyReducer),
+  "pvp.unready": freezingReducer(unreadyReducer),
+  "pvp.team": teamReducer
+}, gatedFactReducers()), {
+  "pvp.timer_start": lobbyReducer((state, senderId, payload, lobby) => {
+    const world = timerWorldOf(lobby, state);
+    if (world === null) return { ok: false, reason: "not_running" };
+    return reduceTimerStart(state, senderId, payload, world);
+  }),
+  "pvp.timer_spend": lobbyReducer((state, senderId, payload, lobby) => {
+    const world = timerWorldOf(lobby, state);
+    if (world === null) return { ok: false, reason: "not_running" };
+    return reduceTimerSpend(state, senderId, payload, world);
+  }),
+  "pvp.timer_pause": lobbyReducer(reduceTimerPause),
+  "pvp.animating": lobbyReducer(reduceAnimating),
+  "pvp.sell": opponentReducer(reduceSell),
+  "pvp.shop": opponentReducer(reduceShop),
+  "pvp.effect": opponentReducer(reduceEffect),
+  "pvp.trap_plant": opponentReducer(reduceTrapPlant),
+  "pvp.trap_fire": opponentReducer(reduceTrapFire),
+  "pvp.trap_lost": opponentReducer(reduceTrapLost)
+});
+
+// src/lobby/requests.ts
+var SNAPSHOT_TYPE = "snapshot";
+var ANSWERED_LIMIT = BURST;
+var TRANSIENT_REASONS = ["rate_limited", "no_seat"];
+var reducers = __spreadValues({}, PVP_REQUESTS);
+function stateOut(msg, to) {
+  return { kind: "send", op: ServerOp.STATE, payload: msg, to };
+}
+function answerOut(answer2, to) {
+  return { kind: "send", op: ServerOp.ANSWER, payload: answer2, to: [to] };
+}
+function withAnswered(lobby, userId, entry) {
+  var _a, _b;
+  const kept = ((_b = (_a = lobby.answered) == null ? void 0 : _a[userId]) != null ? _b : []).concat([entry]).slice(-ANSWERED_LIMIT);
+  return __spreadProps(__spreadValues({}, lobby), { answered: __spreadProps(__spreadValues({}, lobby.answered || {}), { [userId]: kept }) });
+}
+function refusal(lobby, reqId, type, reason, store, senderId, key) {
+  const answer2 = __spreadValues({
+    reqId,
+    ok: false,
+    reason
+  }, key === void 0 ? {} : { key });
+  const next = store ? withAnswered(lobby, senderId, { reqId, answer: answer2 }) : lobby;
+  return {
+    lobby: next,
+    answer: answer2,
+    pushes: [],
+    changed: false,
+    refused: { type, reason }
+  };
+}
+function handleRequest(lobby, senderId, msg, ctx) {
+  var _a, _b, _c;
+  const reqId = msg.reqId;
+  const fullType = typeof msg.type === "string" ? msg.type : "";
+  const type = fullType.slice(0, MAX_CID_LENGTH);
+  if (typeof reqId !== "string" || reqId === "" || reqId.length > MAX_CID_LENGTH)
+    return {
+      lobby,
+      answer: null,
+      pushes: [],
+      changed: false,
+      refused: { type, reason: "no_req_id" }
+    };
+  if (!findPlayer(lobby, senderId))
+    return refusal(lobby, reqId, type, "no_seat", false, senderId);
+  const budgeted = spend(lobby, senderId, "request", ctx.now);
+  if (!budgeted)
+    return refusal(lobby, reqId, type, "rate_limited", false, senderId);
+  if (fullType === SNAPSHOT_TYPE) {
+    const full = {
+      rev: revOf(budgeted),
+      full: true,
+      changed: withLiveClocks(
+        withLiveDeadline(
+          matchStateOf(
+            budgeted,
+            matchKeys(),
+            maskedIn(budgeted, senderId),
+            senderId
+          ),
+          (_a = refereeOf(budgeted)) == null ? void 0 : _a.facts.deadline,
+          ctx.now
+        ),
+        refereeOf(budgeted),
+        ctx.now
+      )
+    };
+    return {
+      lobby: budgeted,
+      answer: { reqId, ok: true, rev: revOf(budgeted) },
+      pushes: [stateOut(full, [senderId])],
+      changed: false
+    };
+  }
+  const stored = ((_c = (_b = budgeted.answered) == null ? void 0 : _b[senderId]) != null ? _c : []).find(
+    (e) => e.reqId === reqId
+  );
+  if (stored)
+    return {
+      lobby: budgeted,
+      answer: stored.answer,
+      pushes: [],
+      changed: false
+    };
+  if (fullType === "")
+    return refusal(budgeted, reqId, type, "bad_payload", true, senderId);
+  const reducer = Object.prototype.hasOwnProperty.call(reducers, fullType) ? reducers[fullType] : void 0;
+  if (!reducer)
+    return refusal(budgeted, reqId, type, "unknown_type", true, senderId);
+  const raw = msg.payload;
+  const payload = Array.isArray(raw) && raw.length === 0 ? {} : raw;
+  const result = reducer.reduce(budgeted, senderId, payload, ctx);
+  if (!result.ok)
+    return refusal(
+      budgeted,
+      reqId,
+      type,
+      result.reason,
+      TRANSIENT_REASONS.indexOf(result.reason) === -1,
+      senderId,
+      result.key
+    );
+  const announced = announceChange(result.lobby, result.changed, lobby);
+  const recorded = result.refusal;
+  const answer2 = recorded ? __spreadValues({
+    reqId,
+    ok: false,
+    reason: recorded.reason
+  }, result.changed.length > 0 ? { rev: revOf(announced.lobby) } : {}) : { reqId, ok: true, rev: revOf(announced.lobby) };
+  return __spreadValues({
+    lobby: withAnswered(announced.lobby, senderId, { reqId, answer: answer2 }),
+    answer: answer2,
+    pushes: announced.out,
+    changed: result.changed.length > 0
+  }, recorded ? {
+    refused: {
+      type,
+      reason: recorded.detail === void 0 ? recorded.reason : `${recorded.reason}: ${recorded.detail}`
+    }
+  } : {});
+}
+function requestStep(lobby, senderId, msg, ctx) {
+  const result = handleRequest(lobby, senderId, msg, ctx);
+  const out = [...result.pushes];
+  if (result.answer) out.push(answerOut(result.answer, senderId));
+  let next = result.lobby;
+  if (result.changed) {
+    const settled3 = announceDrift(next, settle(next, ctx.now));
+    next = settled3.lobby;
+    out.push(...settled3.out);
+  }
+  return __spreadValues({
+    lobby: next,
+    out
+  }, result.refused ? {
+    refused: {
+      key: `request:${result.refused.type}`,
+      reason: result.refused.reason
+    }
+  } : {});
 }
 
 // src/lobby/chat.ts
@@ -9279,6 +14154,21 @@ function sendRankedResults(nk, run) {
   }
 }
 
+// src/lobby/dodges.ts
+var DODGES_COLLECTION = "dodges";
+function recordDodge(nk, dodge) {
+  nk.storageWrite([
+    {
+      collection: DODGES_COLLECTION,
+      key: dodge.runId,
+      userId: dodge.leaverId,
+      value: dodge,
+      permissionRead: 0,
+      permissionWrite: 0
+    }
+  ]);
+}
+
 // src/standing/rejoin.ts
 var REJOIN_REFUSED_PREFIX = "standing_refused:";
 function rejoinRefusal(required, result, verdictFailed = false) {
@@ -9286,10 +14176,10 @@ function rejoinRefusal(required, result, verdictFailed = false) {
   if (required === "verified") return { reason: verdictFailed ? "verification_failed" : "verification_pending" };
   return result.reason === "mods_not_allowed" ? { reason: "mods_not_allowed", mods: result.disallowed } : { reason: "mods_unreported" };
 }
-function messageOf(refusal) {
-  switch (refusal.reason) {
+function messageOf(refusal2) {
+  switch (refusal2.reason) {
     case "mods_not_allowed":
-      return "These mods aren't allowed in this game: " + refusal.mods.join(", ");
+      return "These mods aren't allowed in this game: " + refusal2.mods.join(", ");
     case "mods_unreported":
       return "Your game hasn't reported its mods yet. Try again in a moment.";
     case "verification_pending":
@@ -9298,18 +14188,23 @@ function messageOf(refusal) {
       return "This ranked game needs a verified BET Launcher.";
   }
 }
-function rejoinRejectMessage(refusal) {
-  const view = {
-    reason: refusal.reason,
-    mods: refusal.reason === "mods_not_allowed" ? refusal.mods : [],
-    message: messageOf(refusal)
+function rejoinRejectMessage(refusal2) {
+  const view5 = {
+    reason: refusal2.reason,
+    mods: refusal2.reason === "mods_not_allowed" ? refusal2.mods : [],
+    message: messageOf(refusal2)
   };
-  return REJOIN_REFUSED_PREFIX + JSON.stringify(view);
+  return REJOIN_REFUSED_PREFIX + JSON.stringify(view5);
 }
 
 // src/lobby/match.ts
 var TICK_RATE = 5;
 var MAX_MESSAGE_BYTES = 64 * 1024;
+var FAILED_TICKS_LIMIT = TICK_RATE * 5;
+function pvpVersionRefused(nk, modId, userId) {
+  const report = readModReport(nk, userId);
+  return pvpJoinRefused(modId, pvpVersionOf(report ? report.mods : []));
+}
 function secondsFromEnv(ctx, name, fallbackMs) {
   const seconds = Number(ctx.env[name]);
   return seconds > 0 ? seconds * 1e3 : fallbackMs;
@@ -9344,8 +14239,9 @@ function apply(ctx, logger, nk, dispatcher, state, raw) {
     const finished = finishGame(step.lobby, Date.now());
     step = { lobby: finished.lobby, out: step.out.concat(finished.out) };
   }
-  const released = releaseGroups(state.lobby.game.started !== null, step.lobby);
-  step = { lobby: released.lobby, out: step.out.concat(released.out) };
+  step = announceDrift(state.lobby, step);
+  const released2 = releaseGroups(state.lobby.game.started !== null, step.lobby);
+  step = { lobby: released2.lobby, out: step.out.concat(released2.out) };
   const presences = __spreadValues({}, state.presences);
   for (const effect of step.out) {
     runEffect(ctx, logger, nk, dispatcher, step.lobby, presences, effect);
@@ -9457,6 +14353,21 @@ function runEffect(ctx, logger, nk, dispatcher, lobby, presences, effect) {
         logger.warn("Lobby %s: could not record the contest of run %s: %v", lobby.code, effect.runId, e);
       }
       return;
+    case "log":
+      logger.error("Lobby %s: %s", lobby.code, effect.message);
+      return;
+    case "dodged":
+      try {
+        recordDodge(nk, {
+          leaverId: effect.leaverId,
+          runId: effect.runId,
+          at: effect.at,
+          rankedMode: effect.rankedMode
+        });
+      } catch (e) {
+        logger.warn("Lobby %s: could not record the dodge of %s: %v", lobby.code, effect.leaverId, e);
+      }
+      return;
     case "forfeited":
       try {
         recordForfeit(nk, effect.userId, { runId: effect.runId, code: effect.code, at: effect.at, lobbyKind: effect.lobbyKind });
@@ -9540,7 +14451,11 @@ function requiredStandingParam(params) {
 function lobbyMatchInit(ctx, logger, nk, params) {
   const resumeCode = stringParam(params, "resumeCode");
   const found = resumeCode ? readCheckpoint(nk, resumeCode) : null;
+  if (resumeCode && !found) throw new Error(`Lobby ${resumeCode} has no checkpoint to resume from`);
+  const pin = found ? null : pinFor(stringParam(params, "modId"), stringParam(params, "rankedMode"));
+  if (pin && !pin.ok) throw new Error(`${pin.reason}: ${stringParam(params, "rankedMode")}`);
   const lobby = found ? resumeFrom(found.checkpoint, Date.now()) : newLobby({
+    metadata: (pin == null ? void 0 : pin.ok) ? pin.pin : void 0,
     code: stringParam(params, "code"),
     modId: stringParam(params, "modId"),
     maxPlayers: Number(params.maxPlayers),
@@ -9582,7 +14497,7 @@ function parseMods(raw) {
 function joinInfoOf(nk, settings, presence, meta) {
   var _a;
   const sentMods = parseMods(meta.mods);
-  const standing = standingFor(nk, settings, presence.userId, Date.now()).standing;
+  const standing2 = standingFor(nk, settings, presence.userId, Date.now()).standing;
   const report = readModReport(nk, presence.userId);
   const pvpVersion = pvpVersionOf(report ? report.mods : []);
   const stored = readProfile(nk, presence.userId, presence.username);
@@ -9592,7 +14507,7 @@ function joinInfoOf(nk, settings, presence, meta) {
       displayName: shownNameOf(nk, presence.userId, stored.profile),
       preferredJoker: joker,
       mods: sentMods !== null ? sentMods : stored.profile.mods,
-      standing,
+      standing: standing2,
       pvpVersion
     };
   }
@@ -9600,7 +14515,7 @@ function joinInfoOf(nk, settings, presence, meta) {
     displayName: (_a = banNameFor(nk, presence.userId)) != null ? _a : meta.displayName || presence.username,
     preferredJoker: joker,
     mods: sentMods,
-    standing,
+    standing: standing2,
     pvpVersion
   };
 }
@@ -9621,9 +14536,22 @@ function otherLobbyOf(nk, ctx, userId) {
   if (typeof matchId !== "string" || matchId === ctx.matchId || !nk.matchGet(matchId))
     return null;
   const signal2 = { type: "has_player", userId, forMatchId: ctx.matchId };
-  return nk.matchSignal(matchId, JSON.stringify(signal2)) === "yes" ? String(objects[0].value.code) : null;
+  try {
+    return nk.matchSignal(matchId, JSON.stringify(signal2)) === "yes" ? String(objects[0].value.code) : null;
+  } catch (e) {
+    if (String(e).indexOf("not found") !== -1) return null;
+    throw e;
+  }
 }
 function lobbyMatchJoinAttempt(ctx, logger, nk, dispatcher, tickNumber, state, presence, metadata) {
+  try {
+    return joinAttempt(ctx, logger, nk, dispatcher, tickNumber, state, presence, metadata);
+  } catch (e) {
+    logger.error("Lobby %s: join attempt by %s threw: %v", state.lobby.code, presence.userId, e);
+    return { state, accept: false, rejectMessage: "Could not join, try again" };
+  }
+}
+function joinAttempt(ctx, logger, nk, dispatcher, tickNumber, state, presence, metadata) {
   const meta = metadata || {};
   if (!accountExists2(nk, presence.userId)) {
     return { state, accept: false, rejectMessage: "No such account" };
@@ -9631,6 +14559,9 @@ function lobbyMatchJoinAttempt(ctx, logger, nk, dispatcher, tickNumber, state, p
   if (meta.role === SPECTATOR_ROLE) {
     const refused = spectateRejection(state.lobby, presence.userId, meta.modId || "");
     if (refused) return { state, accept: false, rejectMessage: refused };
+    if (pvpVersionRefused(nk, state.lobby.modId, presence.userId)) {
+      return { state, accept: false, rejectMessage: PVP_UPDATE_REQUIRED_MESSAGE };
+    }
     const pending = (state.pendingSpectators || []).filter((id) => id !== presence.userId);
     return {
       state: __spreadProps(__spreadValues({}, state), { pendingSpectators: pending.concat([presence.userId]) }),
@@ -9644,6 +14575,9 @@ function lobbyMatchJoinAttempt(ctx, logger, nk, dispatcher, tickNumber, state, p
   );
   if (rejection) {
     return { state, accept: false, rejectMessage: rejection };
+  }
+  if (pvpVersionRefused(nk, state.lobby.modId, presence.userId)) {
+    return { state, accept: false, rejectMessage: PVP_UPDATE_REQUIRED_MESSAGE };
   }
   const standingRefused = rejoinRefusal(
     state.lobby.requiredStanding,
@@ -9671,6 +14605,7 @@ function lobbyMatchJoinAttempt(ctx, logger, nk, dispatcher, tickNumber, state, p
   };
 }
 function lobbyMatchJoin(ctx, logger, nk, dispatcher, tickNumber, state, presences) {
+  var _a;
   let current = state;
   for (const presence of presences) {
     if (!current) break;
@@ -9684,24 +14619,34 @@ function lobbyMatchJoin(ctx, logger, nk, dispatcher, tickNumber, state, presence
       continue;
     }
     const pendingInfo = __spreadValues({}, current.pendingInfo);
-    const info = pendingInfo[presence.userId] || {
-      displayName: presence.username,
-      preferredJoker: null,
-      mods: null
-    };
+    const info = (_a = pendingInfo[presence.userId]) != null ? _a : null;
+    if (!info && !findPlayer(current.lobby, presence.userId)) {
+      logger.warn(
+        "Lobby %s join of %s (session %s) has no pending info; kicked",
+        current.lobby.code,
+        presence.userId,
+        presence.sessionId
+      );
+      dispatcher.matchKick([presence]);
+      continue;
+    }
     delete pendingInfo[presence.userId];
     const attached = __spreadProps(__spreadValues({}, current), {
       pendingInfo,
       presences: __spreadProps(__spreadValues({}, current.presences), { [presence.userId]: presence })
     });
-    current = apply(
-      ctx,
+    const joined = guarded(
       logger,
-      nk,
-      dispatcher,
-      attached,
-      join(attached.lobby, presence.userId, presence.sessionId, info, Date.now())
+      attached.lobby.code,
+      `join of ${presence.userId}`,
+      () => join(attached.lobby, presence.userId, presence.sessionId, info, Date.now())
     );
+    if (!joined) {
+      dispatcher.matchKick([presence]);
+      current = __spreadProps(__spreadValues({}, current), { pendingInfo });
+      continue;
+    }
+    current = apply(ctx, logger, nk, dispatcher, attached, joined);
   }
   return current ? { state: current } : null;
 }
@@ -9721,14 +14666,14 @@ function lobbyMatchLeave(ctx, logger, nk, dispatcher, tickNumber, state, presenc
         current = apply(ctx, logger, nk, dispatcher, current, removeSpectator(current.lobby, presence.userId));
       continue;
     }
-    current = apply(
-      ctx,
+    const left = current;
+    const gone = guarded(
       logger,
-      nk,
-      dispatcher,
-      current,
-      disconnect(current.lobby, presence.userId, presence.sessionId, now)
+      left.lobby.code,
+      `leave of ${presence.userId}`,
+      () => disconnect(left.lobby, presence.userId, presence.sessionId, now)
     );
+    current = apply(ctx, logger, nk, dispatcher, left, gone || markedAway(left.lobby, presence, now));
   }
   return current ? { state: current } : null;
 }
@@ -9742,15 +14687,29 @@ function parseMessage(nk, message) {
     return null;
   }
 }
-function stepForMessage(nk, lobby, senderId, opCode, data) {
+function realContext(nk) {
+  return {
+    now: Date.now(),
+    random: Math.random,
+    newId: () => nk.uuidv4(),
+    newSeed: () => seedFromHex(nk.uuidv4())
+  };
+}
+function disabledModesFor(data, read2) {
+  return data.action === START_GAME_KEY ? read2() : [];
+}
+function stepForMessage(nk, lobby, senderId, opCode, data, logger) {
   switch (opCode) {
     case ClientOp.ACTION:
-      return action(lobby, senderId, data, {
-        now: Date.now(),
-        newSeed: () => seedFromHex(nk.uuidv4()),
-        newId: () => nk.uuidv4(),
-        random: Math.random
-      });
+      return action(
+        lobby,
+        senderId,
+        data,
+        realContext(nk),
+        disabledModesFor(data, () => readConfig(nk, logger).disabledPvpModes)
+      );
+    case ClientOp.REQUEST:
+      return requestStep(lobby, senderId, data, realContext(nk));
     case ClientOp.LEAVE:
       if (isSpectator(lobby, senderId)) {
         const stopped = removeSpectator(lobby, senderId);
@@ -9785,18 +14744,65 @@ function stepForMessage(nk, lobby, senderId, opCode, data) {
       return null;
   }
 }
+function guarded(logger, code, what, run) {
+  try {
+    return run();
+  } catch (e) {
+    logger.error("Lobby %s: %s threw, skipped: %v", code, what, e);
+    return null;
+  }
+}
+function markedAway(lobby, presence, now) {
+  const players = lobby.players.map(
+    (p) => p.id === presence.userId && p.sessionId === presence.sessionId && p.awaySince === null ? __spreadProps(__spreadValues({}, p), { awaySince: now }) : p
+  );
+  return { lobby: __spreadProps(__spreadValues({}, lobby), { players }), out: [] };
+}
+function applyStage(ctx, logger, nk, dispatcher, state, what, run, failed) {
+  const step = guarded(logger, state.lobby.code, what, () => run(state.lobby));
+  if (step) return apply(ctx, logger, nk, dispatcher, state, step);
+  failed.push(what);
+  return state;
+}
+function afterTick(ctx, logger, nk, dispatcher, state, failed) {
+  var _a;
+  const failedTicks = failed.length === 0 ? 0 : ((_a = state.failedTicks) != null ? _a : 0) + 1;
+  if (failedTicks < FAILED_TICKS_LIMIT) return __spreadProps(__spreadValues({}, state), { failedTicks });
+  logger.error("Lobby %s: %s threw %d ticks in a row, closing", state.lobby.code, failed.join(", "), failedTicks);
+  const closing = guarded(logger, state.lobby.code, "close", () => close(state.lobby));
+  try {
+    apply(ctx, logger, nk, dispatcher, state, closing || { lobby: __spreadProps(__spreadValues({}, state.lobby), { closed: true }), out: [] });
+  } catch (e) {
+    logger.error("Lobby %s: could not close: %v", state.lobby.code, e);
+  }
+  return null;
+}
 function lobbyMatchLoop(ctx, logger, nk, dispatcher, tickNumber, state, messages) {
+  var _a;
   if (state.stopping || state.lobby.closed) return null;
-  let current = state;
+  let current = __spreadValues({}, state);
+  const warned = /* @__PURE__ */ new Set();
   for (const message of messages) {
     if (!current) break;
+    if (((_a = current.presences[message.sender.userId]) == null ? void 0 : _a.sessionId) !== message.sender.sessionId) {
+      if (!warned.has(message.sender.sessionId)) {
+        warned.add(message.sender.sessionId);
+        logger.warn(
+          "Lobby %s: refused op %d from %s (stale_session)",
+          current.lobby.code,
+          message.opCode,
+          message.sender.userId
+        );
+      }
+      continue;
+    }
     const data = parseMessage(nk, message);
-    const step = data && stepForMessage(
-      nk,
-      current.lobby,
-      message.sender.userId,
-      message.opCode,
-      data
+    const lobby = current.lobby;
+    const step = data && guarded(
+      logger,
+      lobby.code,
+      `op ${message.opCode}`,
+      () => stepForMessage(nk, lobby, message.sender.userId, message.opCode, data, logger)
     );
     if (!step) {
       logger.warn(
@@ -9832,26 +14838,35 @@ function lobbyMatchLoop(ctx, logger, nk, dispatcher, tickNumber, state, messages
   }
   if (!current) return null;
   const now = Date.now();
-  const ticked = apply(ctx, logger, nk, dispatcher, current, tick(current.lobby, now));
+  const failed = [];
+  const ticked = applyStage(ctx, logger, nk, dispatcher, current, "tick", (lobby) => tick(lobby, now), failed);
   if (!ticked) return null;
-  const setupTicked = apply(
+  const setupTicked = applyStage(
     ctx,
     logger,
     nk,
     dispatcher,
     ticked,
-    setupTick(ticked.lobby, now, Math.random)
+    "setupTick",
+    (lobby) => setupTick(lobby, now, Math.random),
+    failed
   );
   if (!setupTicked) return null;
-  const settled = apply(
+  const refereed = applyStage(
     ctx,
     logger,
     nk,
     dispatcher,
     setupTicked,
-    settle(setupTicked.lobby, now)
+    "pvpTick",
+    (lobby) => pvpTick2(lobby, __spreadProps(__spreadValues({}, realContext(nk)), { now })),
+    failed
   );
-  return settled ? { state: settled } : null;
+  if (!refereed) return null;
+  const settled3 = applyStage(ctx, logger, nk, dispatcher, refereed, "settle", (lobby) => settle(lobby, now), failed);
+  if (!settled3) return null;
+  const counted = afterTick(ctx, logger, nk, dispatcher, settled3, failed);
+  return counted ? { state: counted } : null;
 }
 function lobbyMatchSignal(ctx, logger, nk, dispatcher, tickNumber, state, data) {
   let signal2;
@@ -10130,7 +15145,7 @@ function rpcChatSend(ctx, logger, nk, payload) {
   if (missing) throw runtimeError(PERMISSION_DENIED, MISSING_CONSENT_MESSAGE[missing]);
   const banned = chatBanRefusal(readBans(nk, userId), Date.now());
   if (banned) throw runtimeError(PERMISSION_DENIED, banned);
-  const current = currentLobby(nk, userId);
+  const current = currentLobby(nk, logger, userId);
   if (!current) throw runtimeError(INVALID_ARGUMENT, "Not in a lobby");
   const check = JSON.parse(
     nk.matchSignal(current.matchId, JSON.stringify({ type: "chat_check", userId }))
@@ -10208,8 +15223,8 @@ function partyIdOf(message) {
   const id = field2(message, "partyId", "party_id");
   return typeof id === "string" ? id : "";
 }
-function refuse(refusal) {
-  return runtimeError(PERMISSION_DENIED, refusalMessage(refusal));
+function refuse2(refusal2) {
+  return runtimeError(PERMISSION_DENIED, refusalMessage(refusal2));
 }
 function memberFactsOf(nk, settings, modId, memberIds, exceptTicket, now) {
   const refusals = {};
@@ -10218,6 +15233,10 @@ function memberFactsOf(nk, settings, modId, memberIds, exceptTicket, now) {
     if (refused) refusals[id] = refused;
   }
   if (modId === PVP_MOD_ID) {
+    for (const id of memberIds) {
+      const tooOld = pvpFloorRefusal(nk, modId, id);
+      if (tooOld && !refusals[id]) refusals[id] = tooOld;
+    }
     for (const id of pvpVersionOutliers(nk, memberIds)) {
       if (!refusals[id]) refusals[id] = { code: VERSION_MISMATCH };
     }
@@ -10243,9 +15262,9 @@ function beforePartyJoin(ctx, logger, nk, envelope) {
   const found = statusOf(nk, partyId);
   if (!found) return envelope;
   const refused = joinRefusal(found.status, ctx.userId);
-  if (refused) throw refuse(refused);
+  if (refused) throw refuse2(refused);
   const queueRefused = queueRefusalFor(nk, settingsOf(ctx), ctx.userId, false, Date.now());
-  if (queueRefused) throw refuse(memberRefused(ctx.userId, queueRefused));
+  if (queueRefused) throw refuse2(memberRefused(ctx.userId, queueRefused));
   return envelope;
 }
 function beforePartyMatchmakerAdd(ctx, logger, nk, envelope) {
@@ -10254,8 +15273,9 @@ function beforePartyMatchmakerAdd(ctx, logger, nk, envelope) {
   const partyId = partyIdOf(add);
   const found = partyId ? statusOf(nk, partyId) : null;
   const memberIds = found ? found.status.memberIds : [];
+  const config = readConfig(nk, logger);
   const refused = ticketRefusal({
-    switches: readConfig(nk),
+    switches: config,
     status: found ? found.status : null,
     leaderId: ctx.userId,
     partyUserIds: partyPresences(nk, partyId).map((p) => p.userId),
@@ -10264,7 +15284,11 @@ function beforePartyMatchmakerAdd(ctx, logger, nk, envelope) {
   });
   if (refused) {
     logger.info("Group ticket for party %s refused: %s", partyId, refused.code);
-    throw refuse(refused);
+    throw refuse2(refused);
+  }
+  if (found && ticketModeDisabled(config.disabledPvpModes, found.status.modId, found.status.mode, false)) {
+    logger.info("Group ticket for party %s refused: %s", partyId, MODE_DISABLED);
+    throw runtimeError(PERMISSION_DENIED, MODE_DISABLED);
   }
   return envelope;
 }
@@ -10325,8 +15349,8 @@ function beforePartyClose(ctx, logger, nk, envelope) {
 }
 
 // src/matchmaking/group/rpc.ts
-function refusedReply(refusal) {
-  const reply = { refused: __spreadProps(__spreadValues({}, refusal), { message: refusalMessage(refusal) }) };
+function refusedReply(refusal2) {
+  const reply = { refused: __spreadProps(__spreadValues({}, refusal2), { message: refusalMessage(refusal2) }) };
   return JSON.stringify(reply);
 }
 function relayed(reply) {
@@ -10347,7 +15371,7 @@ function rpcGroupQueueOpen(ctx, logger, nk, payload) {
   };
   const badRequest = requestRefusal(request);
   if (badRequest) return refusedReply(badRequest);
-  const seat = currentLobby(nk, userId);
+  const seat = currentLobby(nk, logger, userId);
   if (!seat) return refusedReply({ code: "not_in_lobby" });
   const home = JSON.parse(signal(nk, seat.matchId, { type: "group_members" }));
   const memberIds = home.members.map((m) => m.id);
@@ -10371,12 +15395,18 @@ function rpcGroupQueueOpen(ctx, logger, nk, payload) {
 }
 function rpcGroupQueueCancel(ctx, logger, nk, payload) {
   const userId = requireUser(ctx);
-  const seat = currentLobby(nk, userId);
+  const seat = currentLobby(nk, logger, userId);
   if (!seat) return refusedReply({ code: "not_in_lobby" });
   const home = JSON.parse(signal(nk, seat.matchId, { type: "group_members" }));
   if (!home.groupQueue) return JSON.stringify({ groupQueue: null });
   const reason = "cancelled";
   return relayed(signal(nk, seat.matchId, { type: "group_cancel", partyId: home.groupQueue.partyId, reason, userId }));
+}
+
+// src/pvp_protocol.ts
+var PVP_PROTOCOL = 1;
+function rpcPvpProtocol(_ctx, _logger, _nk, _payload) {
+  return JSON.stringify({ protocol: PVP_PROTOCOL });
 }
 
 // src/rating/rpc.ts
@@ -10450,8 +15480,8 @@ function boardEntries(records, stored, now, modId) {
 var LIST_PAGE5 = 100;
 var SWEEP_MAX = 200;
 function isSweepable(checkpoint, now, ttlMs) {
-  const expired = ttlMs === void 0 ? isExpired(checkpoint, now) : now >= checkpoint.at + ttlMs;
-  if (!expired) return false;
+  const expired2 = ttlMs === void 0 ? isExpired(checkpoint, now) : now >= checkpoint.at + ttlMs;
+  if (!expired2) return false;
   return checkpoint.claimedAt === null || now - checkpoint.claimedAt >= CLAIM_TIMEOUT_MS;
 }
 function recordNoContest(nk, logger, checkpoint, now) {
@@ -10480,13 +15510,14 @@ function sweepCheckpoints(nk, logger, now, max, ttlMs) {
     const page = nk.storageList(SYSTEM_USER_ID, LOBBY_CHECKPOINT_COLLECTION, LIST_PAGE5, cursor);
     for (const o of page.objects || []) {
       const checkpoint = o.value;
-      if (!isSweepable(checkpoint, now, ttlMs)) continue;
+      const readable = hasCurrentSchema(checkpoint);
+      if (readable && !isSweepable(checkpoint, now, ttlMs)) continue;
       if (result.deleted >= max) {
         result.more = true;
         return result;
       }
       try {
-        if (checkpoint.lobby.game.started) {
+        if (readable && checkpoint.lobby.game.started) {
           recordNoContest(nk, logger, checkpoint, now);
           result.noContest++;
         }
@@ -10579,7 +15610,7 @@ function rpcAdminRunsExpired(ctx, logger, nk, payload) {
 var USER_ID_PATTERN4 = /^[0-9a-f-]{36}$/;
 var MODE_PATTERN2 = /^[A-Za-z0-9_:.-]{1,64}$/;
 var MAX_ENTRIES = 1e3;
-function isCount3(value) {
+function isCount4(value) {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 function isSeasonBest(value) {
@@ -10592,7 +15623,7 @@ function recordOf3(value) {
   if (typeof value !== "object" || Array.isArray(value)) return void 0;
   const r = value;
   if (typeof r.rating !== "number" || !Number.isFinite(r.rating)) return void 0;
-  if (!isCount3(r.wins) || !isCount3(r.losses) || !isCount3(r.gamesPlayed) || !isCount3(r.lastMatchAt)) return void 0;
+  if (!isCount4(r.wins) || !isCount4(r.losses) || !isCount4(r.gamesPlayed) || !isCount4(r.lastMatchAt)) return void 0;
   if (!isSeasonBest(r.seasonBest)) return void 0;
   return {
     rating: r.rating,
@@ -10652,10 +15683,10 @@ function rpcAdminRatingsSet(ctx, logger, nk, payload) {
 function outcomeOf2(placements, playerId) {
   const own = placements.find((p) => p.playerId === playerId);
   if (!own) return null;
-  const places = placements.map((p) => p.place);
-  const best = Math.min(...places);
+  const places2 = placements.map((p) => p.place);
+  const best = Math.min(...places2);
   if (own.place !== best) return "loss";
-  return Math.max(...places) === best && placements.length > 1 ? "draw" : "win";
+  return Math.max(...places2) === best && placements.length > 1 ? "draw" : "win";
 }
 function knownOutcome(before, playerId, contesters) {
   var _a;
@@ -10672,13 +15703,13 @@ function outcomeAfter(after, playerId) {
 function planResultNotifications(before, after, decidesContest, contesters = []) {
   const sends = [];
   const told = __spreadValues({}, before.told);
-  const standing = decidesContest ? contesters : [];
+  const standing2 = decidesContest ? contesters : [];
   const contest2 = decidesContest ? before.contest : void 0;
-  const contestDecided = !!contest2 || standing.length > 0;
+  const contestDecided = !!contest2 || standing2.length > 0;
   for (const player of before.players) {
     const now = outcomeAfter(after, player.id);
     if (!now) continue;
-    if (now === knownOutcome(before, player.id, standing)) continue;
+    if (now === knownOutcome(before, player.id, standing2)) continue;
     told[player.id] = now;
     if (now === "void") {
       sends.push({
@@ -10691,7 +15722,7 @@ function planResultNotifications(before, after, decidesContest, contesters = [])
         userId: player.id,
         kind: NotificationKind.CONTEST_DECIDED,
         params: {
-          role: standing.includes(player.id) || (contest2 == null ? void 0 : contest2.by) === player.id ? "contester" : "opponent",
+          role: standing2.includes(player.id) || (contest2 == null ? void 0 : contest2.by) === player.id ? "contester" : "opponent",
           outcome: now
         }
       });
@@ -10707,41 +15738,34 @@ function planResultNotifications(before, after, decidesContest, contesters = [])
 }
 
 // src/rating/match_edit.ts
-var refuse2 = (refusal) => ({
+var refuse3 = (refusal2) => ({
   ok: false,
-  refusal
+  refusal: refusal2
 });
-function winners(placements) {
-  if (placements.length === 0) return /* @__PURE__ */ new Set();
-  const best = Math.min(...placements.map((p) => p.place));
-  return new Set(
-    placements.filter((p) => p.place === best).map((p) => p.playerId)
-  );
-}
 function planMatchEdit(run, current, edit) {
   var _b, _c, _d, _e;
   if (edit.placements === null && run.voided)
-    return refuse2({ kind: "unchanged" });
-  if (edit.placements !== null && run.voided) return refuse2({ kind: "voided" });
+    return refuse3({ kind: "unchanged" });
+  if (edit.placements !== null && run.voided) return refuse3({ kind: "voided" });
   const rated = run.rankedMode !== void 0 && edit.season !== null;
   const hadRatings = hasRatings(run);
   let next = run;
-  let places = {};
+  let places2 = {};
   if (edit.placements !== null) {
     const overturn = overturnRun(run, edit.placements, edit.now);
     if (overturn.ok) {
       next = overturn.run;
-      places = overturn.places;
+      places2 = overturn.places;
     } else if (overturn.refusal.kind === "unchanged" && !hadRatings && rated && run.placements.length >= 2) {
     } else {
-      return refuse2(
+      return refuse3(
         overturn.refusal.kind === "unchanged" ? { kind: "unchanged" } : { kind: "players_differ" }
       );
     }
   }
   const empty = {
     ok: true,
-    places,
+    places: places2,
     myRunRatings: {},
     changes: {},
     records: {}
@@ -10751,12 +15775,12 @@ function planMatchEdit(run, current, edit) {
     next = __spreadProps(__spreadValues({}, rest), { voided: { at: edit.now } });
     if (!rated || !hadRatings)
       return __spreadProps(__spreadValues({}, empty), { run: next, myRunRatings: nulls(run) });
-  } else if (!rated || !hadRatings && (run.status === "abandoned" || run.status === "restarted" || next.placements.length < 2)) {
+  } else if (!rated || !hadRatings && (run.status === "abandoned" || run.status === "dodged" || run.status === "restarted" || next.placements.length < 2)) {
     return __spreadProps(__spreadValues({}, empty), { run: next });
   }
   const ids = run.players.map((p) => p.id);
-  const oldWon = winners(run.placements);
-  const newWon = winners(next.placements);
+  const oldStanding = standingsOf(run.placements);
+  const newStanding = standingsOf(next.placements);
   const befores = {};
   const oldDeltas = {};
   for (const id of ids) {
@@ -10764,13 +15788,13 @@ function planMatchEdit(run, current, edit) {
     const old = (_b = run.ratings) == null ? void 0 : _b[id];
     if (hadRatings) {
       if (!old || old.delta === null || old.newRating === null)
-        return refuse2({ kind: "old_change_unknown", playerId: id });
+        return refuse3({ kind: "old_change_unknown", playerId: id });
       befores[id] = {
         rating: old.newRating - old.delta,
         gamesPlayed: old.gamesPlayed - 1
       };
       oldDeltas[id] = old.delta;
-      if (!record) return refuse2({ kind: "record_missing", playerId: id });
+      if (!record) return refuse3({ kind: "record_missing", playerId: id });
     } else {
       const base = record != null ? record : newRating();
       befores[id] = { rating: base.rating, gamesPlayed: base.gamesPlayed };
@@ -10794,7 +15818,8 @@ function planMatchEdit(run, current, edit) {
     const before = befores[id];
     const stored = (_c = current[id]) != null ? _c : newRating();
     const oldDelta = oldDeltas[id];
-    const wasWon = hadRatings && oldWon.has(id);
+    const wasWon = hadRatings && oldStanding.get(id) === "win";
+    const wasLost = hadRatings && oldStanding.get(id) === "loss";
     let change;
     if (newDeltas === null) {
       change = {
@@ -10802,7 +15827,7 @@ function planMatchEdit(run, current, edit) {
         newDelta: null,
         rating: -oldDelta,
         wins: wasWon ? -1 : 0,
-        losses: wasWon ? 0 : -1,
+        losses: wasLost ? -1 : 0,
         gamesPlayed: -1
       };
     } else {
@@ -10811,7 +15836,8 @@ function planMatchEdit(run, current, edit) {
         before.rating + ((_d = newDeltas.get(id)) != null ? _d : 0)
       );
       const newDelta = after - before.rating;
-      const won = newWon.has(id);
+      const won = newStanding.get(id) === "win";
+      const lost = newStanding.get(id) === "loss";
       const gamesPlayed = before.gamesPlayed + 1;
       const placing = gamesPlayed < PLACEMENT_GAMES;
       change = {
@@ -10819,7 +15845,7 @@ function planMatchEdit(run, current, edit) {
         newDelta,
         rating: newDelta - (oldDelta != null ? oldDelta : 0),
         wins: (won ? 1 : 0) - (wasWon ? 1 : 0),
-        losses: (won ? 0 : 1) - (hadRatings && !wasWon ? 1 : 0),
+        losses: (lost ? 1 : 0) - (wasLost ? 1 : 0),
         gamesPlayed: hadRatings ? 0 : 1
       };
       const old = (_e = run.ratings) == null ? void 0 : _e[id];
@@ -10839,7 +15865,7 @@ function planMatchEdit(run, current, edit) {
       lastMatchAt: change.gamesPlayed > 0 ? Math.max(stored.lastMatchAt, run.endedAt) : stored.lastMatchAt
     });
     if (record.wins < 0 || record.losses < 0 || record.gamesPlayed < 0)
-      return refuse2({ kind: "record_too_small", playerId: id });
+      return refuse3({ kind: "record_too_small", playerId: id });
     changes[id] = change;
     records[id] = record;
   }
@@ -11112,7 +16138,7 @@ function seedsFor(nk, run, mode, season, unseen) {
     out[o.userId].before = o.value;
   if (season > 1) {
     for (const o of read2(boardId(run.modId, mode, season - 1))) {
-      const rating = carriedOver(
+      const rating = carriedOver2(
         o.value,
         run.endedAt
       );
@@ -11375,12 +16401,12 @@ var TARGETS = [...BAN_KINDS, "warning", "network"];
 var MAX_KEY_LENGTH = 100;
 function parseAppeal(value) {
   if (typeof value !== "object" || value === null) return void 0;
-  const { accepted, target, result } = value;
-  if (typeof accepted !== "boolean") return void 0;
+  const { accepted: accepted2, target, result } = value;
+  if (typeof accepted2 !== "boolean") return void 0;
   if (typeof target !== "string" || !TARGETS.includes(target)) return void 0;
-  if (!accepted) return { accepted, target, result: null };
+  if (!accepted2) return { accepted: accepted2, target, result: null };
   if (result !== "lifted" && result !== "shortened") return void 0;
-  return { accepted, target, result };
+  return { accepted: accepted2, target, result };
 }
 function parseEnded(value) {
   if (typeof value !== "object" || value === null) return void 0;
@@ -11688,7 +16714,7 @@ function rpcDiscordUnlink(ctx, logger, nk, payload) {
     ctx.username
   );
   releaseDiscord(nk, userId, previous);
-  profileChanged(nk, userId, profile);
+  profileChanged(nk, logger, userId, profile);
   callExpress(nk, logger, ctx.env, "/discord/unlinked", { nakamaUserId: userId });
   return JSON.stringify({ player: playerView(nk, userId, profile) });
 }
@@ -11707,7 +16733,7 @@ function rpcAdminDiscordSet(ctx, logger, nk, payload) {
     return withDiscord(current, discordIdHash, name);
   });
   if (previous !== discordIdHash) releaseDiscord(nk, userId, previous);
-  profileChanged(nk, userId, profile);
+  profileChanged(nk, logger, userId, profile);
   recordMilestone(nk, logger, userId, "discordLinked", profile.privileges);
   logger.info("Linked Discord to %s", userId);
   return JSON.stringify({ player: playerView(nk, userId, profile) });
@@ -11797,7 +16823,7 @@ function rpcAdminProfileSet(ctx, logger, nk, payload) {
     return applyEdit(current, edit, unlocked);
   });
   if (edit.discord === null) releaseDiscord(nk, userId, previousDiscord);
-  profileChanged(nk, userId, profile);
+  profileChanged(nk, logger, userId, profile);
   logger.info("Profile of %s updated by the API: %v", userId, JSON.stringify(Object.keys(edit)));
   return JSON.stringify({ player: playerView(nk, userId, profile) });
 }
@@ -11812,7 +16838,7 @@ function rpcAdminAccountDelete(ctx, logger, nk, payload) {
     throw runtimeError(INVALID_ARGUMENT, "keptRunIds must be a list of run ids");
   if (typeof input.keepSteamIdHash !== "boolean")
     throw runtimeError(INVALID_ARGUMENT, "keepSteamIdHash is required");
-  const lobby = currentLobby(nk, userId);
+  const lobby = currentLobby(nk, logger, userId);
   if (lobby) {
     const signal2 = { type: "admin_remove", userId, reason: "account_deleted", onlyIfStarted: false };
     nk.matchSignal(lobby.matchId, JSON.stringify(signal2));
@@ -11919,7 +16945,7 @@ function rpcReportSubmit(ctx, logger, nk, payload) {
   const now = Date.now();
   const times = reportTimesAfter(readTimes2(nk, userId), now);
   if (!times) throw runtimeError(RESOURCE_EXHAUSTED, "Too many reports; try again later");
-  const lobby = currentLobby(nk, userId);
+  const lobby = currentLobby(nk, logger, userId);
   if (!lobby) throw runtimeError(NOT_FOUND, "Not in a lobby");
   const signal2 = { type: "report_evidence", reporterId: userId, reportedId: report.reportedUserId };
   const evidence = JSON.parse(nk.matchSignal(lobby.matchId, JSON.stringify(signal2)) || "{}");
@@ -12040,6 +17066,7 @@ function InitModule(ctx, logger, nk, initializer) {
   initializer.registerRpc("group_queue_open", rpcGroupQueueOpen);
   initializer.registerRpc("group_queue_cancel", rpcGroupQueueCancel);
   initializer.registerRpc("queue_counts", rpcQueueCounts);
+  initializer.registerRpc("pvp_protocol", rpcPvpProtocol);
   initializer.registerRpc("session_init", rpcSessionInit);
   initializer.registerRpc("tos_accept", rpcTosAccept);
   initializer.registerRpc("profile_set_display", rpcProfileSetDisplay);

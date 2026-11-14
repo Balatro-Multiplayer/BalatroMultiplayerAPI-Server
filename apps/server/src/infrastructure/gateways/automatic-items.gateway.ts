@@ -5,6 +5,7 @@ import {
 	type ObsoleteCandidate,
 	type ObsoleteRule,
 } from '../../features/service-queue/automatic-rules.js'
+import type { LobbyRunStatus } from '../../contracts/IReplayLogRepository.js'
 import { AUTOMATIC_TYPES } from '../../features/service-queue/lanes.js'
 import { contextOf } from '../../features/service-queue/types.js'
 import { parseAntiCheatSourceId } from '../../shared/service-queue/source-ids.js'
@@ -57,11 +58,11 @@ export async function listOpenAutomaticCandidates(): Promise<ObsoleteCandidate[]
 	}
 
 	const runIds = [...new Set(antiCheat.map((a) => a.runId))]
-	const statusOf = new Map<string, 'active' | 'completed' | 'abandoned' | 'terminated'>()
+	const statusOf = new Map<string, LobbyRunStatus>()
 	const flagsOf = new Map<string, { flagged: number; total: number; reasons: Map<string, string | null> }>()
 	for (const part of chunks(runIds)) {
 		for (const r of await db.select({ id: lobbyRuns.id, status: lobbyRuns.status }).from(lobbyRuns).where(inArray(lobbyRuns.id, part)))
-			statusOf.set(r.id, r.status as 'active' | 'completed' | 'abandoned' | 'terminated')
+			statusOf.set(r.id, r.status as LobbyRunStatus)
 		for (const l of await db
 			.select({ runId: matchRunLogs.runId, playerId: matchRunLogs.playerId, flagReason: matchRunLogs.flagReason })
 			.from(matchRunLogs)

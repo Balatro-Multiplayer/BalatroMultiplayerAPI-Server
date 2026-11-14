@@ -18,6 +18,7 @@ import { partitionTeams, type TeamPlan } from './group/teams'
 import { clearMatched } from './queue'
 import { readConfig } from '../config'
 import { requiredStandingFor, type RequiredStanding } from '../standing/standing'
+import { pinFor } from '../lobby/pvp/ranked_pin'
 import { settingsOf } from '../server_kind'
 
 // A matched ticket's player. Numeric ticket properties arrive merged into
@@ -116,6 +117,8 @@ export function planMatch(entries: MatchedEntry[], integrityEnforced = false): M
 	const groups = groupsOf(entries)
 	if (typeof groups === 'string') return groups
 	if (groups.party.length > 0 && kind === 'ranked') return 'A group may not queue ranked'
+	// A ranked PvP queue the server has no rules pin for is not a game it can referee.
+	if (kind === 'ranked' && !pinFor(modId, mode).ok) return `unknown_ranked_mode: ${mode}`
 	let teamPlan: TeamPlan | null = null
 	if (teams) {
 		const split = partitionTeams(groups.all)
@@ -145,7 +148,7 @@ export function matchmakerMatched(
 		requeuePartiesOf(nk, partyIdsOf(matches))
 		throw new Error(plan)
 	}
-	const refused = refusedPlayers(nk, settingsOf(ctx), plan)
+	const refused = refusedPlayers(nk, settingsOf(ctx), plan, logger)
 	const groups = resolveGroups(nk, plan)
 	if (refused.length > 0 || groups.faulty.length > 0) {
 		// The matchmaker spent every ticket of the group all the same, so their

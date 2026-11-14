@@ -8,20 +8,26 @@ import { afterMatchmakerAdd, QUEUE_COLLECTION, recordKey } from './queue'
 function entry(userId: string, props: { [k: string]: string | number }, partyId?: string): MatchedEntry {
 	return { presence: { userId }, properties: props, partyId }
 }
-const RANKED = { modId: 'MultiplayerPvP', mode: 'pvp_ranked_standard', kind: 'ranked' }
+const RANKED = { modId: 'MultiplayerPvP', mode: 'pvp_ranked_balanced', kind: 'ranked' }
 
 describe('planMatch', () => {
 	it('plans a ranked lobby on the queued mode', () => {
 		expect(planMatch([entry('a', RANKED), entry('b', RANKED)])).toEqual({
 			modId: 'MultiplayerPvP',
-			rankedMode: 'pvp_ranked_standard',
-			gameMode: 'ranked:pvp_ranked_standard',
+			rankedMode: 'pvp_ranked_balanced',
+			gameMode: 'ranked:pvp_ranked_balanced',
 			playerIds: ['a', 'b'],
 			groups: [],
 			teamPlan: null,
 			requiredStanding: 'valid',
 		})
 		expect(planMatch([entry('a', RANKED), entry('b', RANKED)], true)).toMatchObject({ requiredStanding: 'verified' })
+	})
+	it('refuses a ranked PvP queue the server has no rules for', () => {
+		const unknown = { ...RANKED, mode: 'pvp_ranked_chaos' }
+		expect(planMatch([entry('a', unknown), entry('b', unknown)])).toMatch(/^unknown_ranked_mode/)
+		const other = { modId: 'MultiplayerSPDRN', mode: 'duel', kind: 'ranked' }
+		expect(typeof planMatch([entry('a', other), entry('b', other)])).not.toBe('string')
 	})
 	it('plans a casual lobby with no rating board', () => {
 		const casual = { modId: 'MultiplayerSPDRN', mode: 'standard', kind: 'casual' }

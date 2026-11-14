@@ -64,7 +64,7 @@ export function rpcAdminAvatarsReset(
 				? current
 				: { ...current, preferredJoker: DEFAULT_AVATAR },
 		)
-		profileChanged(nk, object.userId, profile)
+		profileChanged(nk, logger, object.userId, profile)
 	}
 	logger.info(
 		'Avatar reset%s: %d checked, %d jokers reset',

@@ -34,6 +34,6 @@ export function renameLeaderboardEntries(nk: nkruntime.Nakama, logger: nkruntime
 export function showNameChange(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: string) {
 	const stored = readProfile(nk, userId)
 	if (!stored) return
-	profileChanged(nk, userId, stored.profile)
+	profileChanged(nk, logger, userId, stored.profile)
 	renameLeaderboardEntries(nk, logger, userId, shownNameOf(nk, userId, stored.profile))
 }

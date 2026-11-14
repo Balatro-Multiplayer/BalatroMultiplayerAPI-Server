@@ -57,7 +57,7 @@ export function rpcGroupQueueOpen(
 	}
 	const badRequest = requestRefusal(request)
 	if (badRequest) return refusedReply(badRequest)
-	const seat = currentLobby(nk, userId)
+	const seat = currentLobby(nk, logger, userId)
 	if (!seat) return refusedReply({ code: 'not_in_lobby' })
 	const home = JSON.parse(signal(nk, seat.matchId, { type: 'group_members' })) as GroupHomeFacts
 	const memberIds = home.members.map((m) => m.id)
@@ -94,7 +94,7 @@ export function rpcGroupQueueCancel(
 	payload: string,
 ) {
 	const userId = requireUser(ctx)
-	const seat = currentLobby(nk, userId)
+	const seat = currentLobby(nk, logger, userId)
 	if (!seat) return refusedReply({ code: 'not_in_lobby' })
 	const home = JSON.parse(signal(nk, seat.matchId, { type: 'group_members' })) as GroupHomeFacts
 	if (!home.groupQueue) return JSON.stringify({ groupQueue: null })

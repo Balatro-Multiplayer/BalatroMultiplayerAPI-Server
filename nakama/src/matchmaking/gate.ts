@@ -11,12 +11,20 @@ import { readBans } from '../moderation/bans'
 import { notify, NotifyCode } from '../notify'
 import { profileFor } from '../player/profile'
 import { standingFor } from '../standing/current'
-import { PVP_MOD_ID, VERSION_MISMATCH, pvpVersionOf, versionOutliers } from '../standing/pvp_version'
+import {
+	PVP_MOD_ID,
+	PVP_UPDATE_REQUIRED,
+	VERSION_MISMATCH,
+	pvpJoinRefused,
+	pvpVersionOf,
+	versionOutliers,
+} from '../standing/pvp_version'
 import { readModReport } from '../standing/storage'
 import { groupOf } from './group/binding'
 import { blocksSoloQueue } from './group/refusal'
 import type { RefusedMember } from '../lobby/protocol'
 import type { MatchPlan } from './matched'
+import { MODE_DISABLED, ticketModeDisabled } from './mode_switch'
 import { isStandingRefusal, queueRefusalMessage, refusedMods, standingRefusal, type QueueRefusal } from './queue_refusal'
 import { TICKET_QUERY_MESSAGES, ticketQueryRefusal } from './ticket_query'
 import { settingsOf, type ServerSettings } from '../server_kind'
@@ -36,6 +44,15 @@ export function queueRefusalFor(
 	if (access) return { code: 'access_denied', message: access }
 	if (ranked && integrityRefusal(config, readIntegrity(nk, userId), now)) return { code: 'integrity_required' }
 	return standingRefusal(standingFor(nk, settings, userId, now, config))
+}
+
+// A PvP player whose reported version is below the one the server referees
+// (standing/pvp_version.ts): they never enter a pool. The version is read from
+// the stored mod report, never from the ticket.
+export function pvpFloorRefusal(nk: nkruntime.Nakama, modId: unknown, userId: string): QueueRefusal | null {
+	if (modId !== PVP_MOD_ID) return null
+	const report = readModReport(nk, userId)
+	return pvpJoinRefused(PVP_MOD_ID, pvpVersionOf(report ? report.mods : [])) ? { code: PVP_UPDATE_REQUIRED } : null
 }
 
 function matchmakerAdd(envelope: nkruntime.Envelope): { [key: string]: unknown } {
@@ -66,6 +83,11 @@ export function beforeMatchmakerAdd(
 	const ranked = props.kind === 'ranked'
 	const refused = queueRefusalFor(nk, settingsOf(ctx), ctx.userId, ranked, Date.now())
 	if (refused) throw runtimeError(PERMISSION_DENIED, queueRefusalMessage(refused))
+	// The update message comes first: a 1.0.x client cannot read mode_disabled.
+	const tooOld = pvpFloorRefusal(nk, props.modId, ctx.userId)
+	if (tooOld) throw runtimeError(PERMISSION_DENIED, queueRefusalMessage(tooOld))
+	if (ticketModeDisabled(readConfig(nk, logger).disabledPvpModes, props.modId, props.mode, ranked))
+		throw runtimeError(PERMISSION_DENIED, MODE_DISABLED)
 	const group = groupOf(nk, ctx.userId)
 	if (group && blocksSoloQueue(group.phase)) throw runtimeError(PERMISSION_DENIED, IN_GROUP_QUEUE)
 	if (ranked && readConfig(nk).integrityEnforced) checkRankedReadiness(ctx, logger, nk, ctx.userId)
@@ -96,12 +118,24 @@ export function pvpVersionOutliers(nk: nkruntime.Nakama, userIds: string[]): str
 // players who are not on the PvP version most of them run are refused too:
 // they are told, the others queue again. The versions come from the stored
 // mod reports, so a modified client cannot change them in its ticket.
-export function refusedPlayers(nk: nkruntime.Nakama, settings: ServerSettings, plan: MatchPlan): RefusedPlayer[] {
+export function refusedPlayers(
+	nk: nkruntime.Nakama,
+	settings: ServerSettings,
+	plan: MatchPlan,
+	logger?: nkruntime.Logger,
+): RefusedPlayer[] {
 	const now = Date.now()
 	const ranked = plan.rankedMode !== ''
+	// The switch may have flipped since the tickets were added.
+	const modeOff = ticketModeDisabled(
+		readConfig(nk, logger).disabledPvpModes,
+		plan.modId,
+		ranked ? plan.rankedMode : plan.gameMode,
+		ranked,
+	)
 	const out: RefusedPlayer[] = []
 	for (const userId of plan.playerIds) {
-		const refusal = queueRefusalFor(nk, settings, userId, ranked, now)
+		const refusal: QueueRefusal | null = modeOff ? { code: MODE_DISABLED } : queueRefusalFor(nk, settings, userId, ranked, now)
 		if (refusal) out.push({ userId, refusal })
 	}
 	if (plan.modId === PVP_MOD_ID) {
@@ -137,7 +171,8 @@ export function requeueSolos(nk: nkruntime.Nakama, plan: MatchPlan, refused: Ref
 		if (grouped.indexOf(id) !== -1) continue
 		const own = refused.filter((r) => r.userId === id)[0]
 		if (own) {
-			if (isStandingRefusal(own.refusal) || own.refusal.code === VERSION_MISMATCH) cancelSoloQueue(nk, id, plan.modId, mode, own.refusal)
+			if (isStandingRefusal(own.refusal) || own.refusal.code === VERSION_MISMATCH || own.refusal.code === MODE_DISABLED)
+				cancelSoloQueue(nk, id, plan.modId, mode, own.refusal)
 			continue
 		}
 		notify(nk, id, NotifyCode.QUEUE_CANCELLED, 'queue_cancelled', {
@@ -157,7 +192,7 @@ export function refuseMatchedGroup(
 	logger: nkruntime.Logger,
 	plan: MatchPlan,
 ): boolean {
-	const refused = refusedPlayers(nk, settings, plan)
+	const refused = refusedPlayers(nk, settings, plan, logger)
 	if (refused.length === 0) return false
 	requeueSolos(nk, plan, refused)
 	logger.warn('Matched group refused: %d player(s) may not queue', refused.length)

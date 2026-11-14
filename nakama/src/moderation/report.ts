@@ -88,7 +88,7 @@ export function rpcReportSubmit(
 	const times = reportTimesAfter(readTimes(nk, userId), now)
 	if (!times) throw runtimeError(RESOURCE_EXHAUSTED, 'Too many reports; try again later')
 
-	const lobby = currentLobby(nk, userId)
+	const lobby = currentLobby(nk, logger, userId)
 	if (!lobby) throw runtimeError(NOT_FOUND, 'Not in a lobby')
 	const signal: LobbySignal = { type: 'report_evidence', reporterId: userId, reportedId: report.reportedUserId }
 	const evidence = JSON.parse(nk.matchSignal(lobby.matchId, JSON.stringify(signal)) || '{}') as

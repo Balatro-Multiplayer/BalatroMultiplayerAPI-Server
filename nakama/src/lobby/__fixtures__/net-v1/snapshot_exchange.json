@@ -1,0 +1,23 @@
+[
+	{
+		"op": 115,
+		"body": {
+			"rev": 13,
+			"full": true,
+			"changed": {
+				"pvp.ready": {
+					"runId": "r-abc",
+					"round": 3,
+					"ready": {},
+					"firstReady": null,
+					"lastStart": {
+						"roundId": 3,
+						"firstPlayer": "u1",
+						"players": ["u1", "u2"]
+					}
+				}
+			}
+		}
+	},
+	{ "op": 114, "body": { "reqId": "c4:8", "ok": true, "rev": 13 } }
+]

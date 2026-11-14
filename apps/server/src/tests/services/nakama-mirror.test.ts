@@ -151,6 +151,11 @@ describe('runRowsOf', () => {
 		expect(runRowsOf({ ...entry, run: run().run }, ids).lobbyRun.connections).toBeNull()
 	})
 
+	it('maps a dodged run as dodged, never as completed', () => {
+		const entry = { ...run({ status: 'dodged' }), rating: null }
+		expect(runRowsOf(entry, ids).lobbyRun.status).toBe('dodged')
+		expect(() => runRowsOf({ ...entry, run: { ...entry.run, status: 'bogus' as never } }, ids)).toThrow()
+	})
 	it('maps a private, abandoned or restarted run without a match or ratings', () => {
 		const entry = { ...run({ gameMode: undefined, rankedMode: undefined, lobbyType: undefined, status: 'abandoned', logChecks: {} }), rating: null }
 		const rows = runRowsOf(entry, ids)

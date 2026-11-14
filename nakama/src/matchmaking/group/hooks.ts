@@ -5,8 +5,9 @@
 import { readConfig } from '../../config'
 import { PERMISSION_DENIED, runtimeError } from '../../errors'
 import type { GroupEndReason, LobbySignal } from '../../lobby/protocol'
-import { pvpVersionOutliers, queueRefusalFor } from '../gate'
+import { pvpFloorRefusal, pvpVersionOutliers, queueRefusalFor } from '../gate'
 import { PVP_MOD_ID, VERSION_MISMATCH } from '../../standing/pvp_version'
+import { MODE_DISABLED, ticketModeDisabled } from '../mode_switch'
 import { queueKey } from '../matched'
 import { clearMatched, liveTicketHolders, writeGroupRecords } from '../queue'
 import {
@@ -63,6 +64,11 @@ export function memberFactsOf(
 	}
 	// A PvP group must run one PvP version, or the matched game would be refused.
 	if (modId === PVP_MOD_ID) {
+		// A member below the version the server referees never queues, even when all agree.
+		for (const id of memberIds) {
+			const tooOld = pvpFloorRefusal(nk, modId, id)
+			if (tooOld && !refusals[id]) refusals[id] = tooOld
+		}
 		for (const id of pvpVersionOutliers(nk, memberIds)) {
 			if (!refusals[id]) refusals[id] = { code: VERSION_MISMATCH }
 		}
@@ -119,17 +125,23 @@ export function beforePartyMatchmakerAdd(
 	const partyId = partyIdOf(add)
 	const found = partyId ? statusOf(nk, partyId) : null
 	const memberIds = found ? found.status.memberIds : []
+	const config = readConfig(nk, logger)
 	const refused = ticketRefusal({
-		switches: readConfig(nk),
+		switches: config,
 		status: found ? found.status : null,
 		leaderId: ctx.userId,
 		partyUserIds: partyPresences(nk, partyId).map((p) => p.userId),
 		members: memberFactsOf(nk, settingsOf(ctx), found ? found.status.modId : '', memberIds, null, Date.now()),
 		ticket: partyTicketOf(add),
 	})
+	// Groups queue casual only; the ticket was just checked against the group's mode.
 	if (refused) {
 		logger.info('Group ticket for party %s refused: %s', partyId, refused.code)
 		throw refuse(refused)
+	}
+	if (found && ticketModeDisabled(config.disabledPvpModes, found.status.modId, found.status.mode, false)) {
+		logger.info('Group ticket for party %s refused: %s', partyId, MODE_DISABLED)
+		throw runtimeError(PERMISSION_DENIED, MODE_DISABLED)
 	}
 	return envelope
 }

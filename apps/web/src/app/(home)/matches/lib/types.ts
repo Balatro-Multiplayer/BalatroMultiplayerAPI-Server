@@ -1,6 +1,6 @@
 import type { ItemType } from '../../admin/service-queue/lib/types'
 
-export type RunStatus = 'active' | 'completed' | 'abandoned' | 'terminated'
+export type RunStatus = 'active' | 'completed' | 'abandoned' | 'terminated' | 'dodged'
 
 export interface RunRow {
   id: string
