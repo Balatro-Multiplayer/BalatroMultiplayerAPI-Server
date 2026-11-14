@@ -72,10 +72,30 @@ describe('relayed actions', () => {
 		})
 	})
 
+	it('pvp_log_event: the others get t and opcode without args, the sender keeps its own copy', () => {
+		const params = { t: 12, opcode: 3, args: ['1e6', 2], score: '1e6' }
+		const step = send(lobbyWith('a', 'b', 'c'), 'a', {
+			cid: 'c1',
+			action: 'pvp_log_event',
+			to: '*',
+			params,
+		})
+		const msgs = delivered(step)
+		const own = msgs.find((m) => m.to.includes('a'))
+		const others = msgs.find((m) => m.to.includes('b'))
+		expect(own?.to).toEqual(['a'])
+		expect((own?.payload as { params: unknown }).params).toEqual(params)
+		expect(others?.to).toEqual(['b', 'c'])
+		expect((others?.payload as { params: unknown }).params).toEqual({
+			t: 12,
+			opcode: 3,
+		})
+	})
+
 	it('sends a directed action to its target only', () => {
 		const step = send(lobbyWith('a', 'b', 'c'), 'a', {
 			cid: 'c1',
-			action: 'pvp_trap_plant',
+			action: 'pvp_get_nemesis_deck',
 			to: 'c',
 			params: {},
 		})
@@ -273,11 +293,11 @@ describe('authoritative actions', () => {
 		})
 	})
 
-	it('ignores away players when checking ready', () => {
+	it('refuses player_away while any seat is away', () => {
 		let lobby = lobbyWith('a', 'b', 'c')
 		lobby = ready(lobby, 'b', true).lobby
 		lobby = disconnect(lobby, 'c', 'c-s1', 500).lobby
-		expect(rejection(start(lobby, 'a'))).toBeUndefined()
+		expect(rejection(start(lobby, 'a'))).toBe('player_away')
 	})
 
 	it('needs two players', () => {
@@ -321,17 +341,7 @@ describe('seedFromHex', () => {
 	})
 })
 
-describe('action from a player marked away', () => {
-	it('relays it, marks the sender back, and tells the others', () => {
-		const away = disconnect(lobbyWith('a', 'b'), 'a', 'a-s1', 500).lobby
-		const step = send(away, 'a', { cid: 'c1', action: 'spdrn_player_ready', to: '*', params: {} })
-		expect(delivered(step)).toHaveLength(1)
-		expect(step.lobby.players.find((p) => p.id === 'a')?.awaySince).toBeNull()
-		const events = sends(step, ServerOp.EVENT)
-		expect(events.map((e) => (e.payload as { type: string }).type)).toEqual(['player_reconnected'])
-		expect(events[0].to).toEqual(['b'])
-	})
-
+describe('action from a stranger', () => {
 	it('still drops an action from a stranger', () => {
 		const step = send(lobbyWith('a', 'b'), 'x', { cid: 'c1', action: 'spdrn_player_ready', to: '*' })
 		expect(step.out).toEqual([])

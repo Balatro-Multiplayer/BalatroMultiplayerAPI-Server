@@ -9,6 +9,11 @@ export const PVP_MOD_ID = 'MultiplayerPvP'
 export const VERSION_MISMATCH = 'version_mismatch'
 export const VERSION_MISMATCH_MESSAGE = 'Everyone in a PvP game needs the same MultiplayerPvP version. Update the mod and try again.'
 
+// The oldest PvP version the server referees: a PvP lobby refuses older ones.
+export const MIN_PVP_VERSION = '1.1.0'
+export const PVP_UPDATE_REQUIRED = 'PVP_UPDATE_REQUIRED'
+export const PVP_UPDATE_REQUIRED_MESSAGE = `PvP needs MultiplayerPvP ${MIN_PVP_VERSION} or newer. Update the mod and try again.`
+
 const X_Y_Z = /^v?(\d+\.\d+\.\d+)/
 
 // The X.Y.Z of the reported PvP entry; '' when PvP is not reported. A version
@@ -33,6 +38,19 @@ function compareVersions(a: string, b: string): number {
 		if (x !== y) return x < y ? -1 : 1
 	}
 	return 0
+}
+
+// True when a join to a lobby of `modId` is refused for the joiner's PvP
+// version: only a PvP lobby asks, and a missing, unreadable or older version
+// fails it. `pvpVersion` is what pvpVersionOf gives ('' when not reported).
+export function pvpJoinRefused(
+	modId: string,
+	pvpVersion: string | undefined,
+): boolean {
+	if (modId !== PVP_MOD_ID) return false
+	const match = X_Y_Z.exec(pvpVersion ?? '')
+	if (!match) return true
+	return compareVersions(match[1], MIN_PVP_VERSION) < 0
 }
 
 // Who is off the version most players run (the newer version wins a tie), in

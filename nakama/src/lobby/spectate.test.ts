@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import { withRules } from '../testing/pvp_rules'
 import { ServerOp, type SpectateRun } from './protocol'
 import { action } from './relay'
 import {
@@ -28,6 +29,7 @@ function lobbyWith(ids: string[], matched = false): Lobby {
 		now: 0,
 		graceMs: 10_000,
 	})
+	lobby = { ...lobby, metadata: withRules() }
 	for (const id of ids) lobby = join(lobby, id, `${id}-s1`, info(id)).lobby
 	return lobby
 }
@@ -116,7 +118,7 @@ describe('spectators in the lobby', () => {
 		])
 		// The participants' own relay never reaches the spectator.
 		for (const sent of sends(step, ServerOp.ACTION)) expect(sent.to).not.toContain('z')
-		const chat = send(lobby, 'a', { cid: 'x', action: 'pvp_thing', to: '*', params: {} })
+		const chat = send(lobby, 'a', { cid: 'x', action: 'pvp_get_nemesis_deck', to: '*', params: {} })
 		expect(sends(chat, ServerOp.SPECTATE_EVENT)).toEqual([])
 	})
 

@@ -47,7 +47,7 @@ describe('obsoleteRuleOf', () => {
 		expect(obsoleteRuleOf(antiCheat({ runFlagged: 1 }))).toBeNull()
 	})
 	it('closes an unverified log of a restarted or abandoned game', () => {
-		for (const runStatus of ['terminated', 'abandoned'] as const)
+		for (const runStatus of ['terminated', 'abandoned', 'dodged'] as const)
 			expect(obsoleteRuleOf(antiCheat({ flagReason: 'unverified_log', runStatus }))?.rule).toBe(
 				'unverified_log_game_not_played_out',
 			)

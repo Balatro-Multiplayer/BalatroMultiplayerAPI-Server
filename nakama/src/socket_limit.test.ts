@@ -69,3 +69,17 @@ describe('socket.max_request_size_bytes', () => {
 		})
 	}
 })
+
+function outgoingQueueSize(config: string) {
+	const text = readFileSync(new URL(`../${config}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+	const match = /^socket:\n(?:[ \t]+.*\n|\n)*?[ \t]+outgoing_queue_size:\s*(\d+)/m.exec(text)
+	return match ? Number(match[1]) : 64 // Nakama's default
+}
+
+describe('socket.outgoing_queue_size', () => {
+	for (const config of ['local.yml', 'prod.yml']) {
+		it(`${config} holds a spectated run's burst without closing the socket`, () => {
+			expect(outgoingQueueSize(config)).toBeGreaterThanOrEqual(1024)
+		})
+	}
+})

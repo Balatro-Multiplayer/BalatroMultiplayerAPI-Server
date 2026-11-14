@@ -21,7 +21,13 @@ import {
 import { planResultNotifications } from '../notification/result_change'
 import { sendNotification } from '../notification/store'
 import { parsePayload, requireServer } from '../rpc'
-import { type RatingRecord, boardId, loadRatings, newRating } from './apply'
+import {
+	type RatingRecord,
+	boardId,
+	loadRatings,
+	newRating,
+	standingsOf,
+} from './apply'
 import { syncLeaderboardEntry } from './board_sync'
 import {
 	PLACEMENT_GAMES,
@@ -70,18 +76,6 @@ const refuse = (refusal: MatchEditRefusal): MatchEditPlan => ({
 function samePlayers(a: string[], b: string[]): boolean {
 	const key = (ids: string[]) => ids.slice().sort().join(',')
 	return a.length === b.length && key(a) === key(b)
-}
-
-// Same win rule as planRatings: everyone on the best place won (a draw is a
-// win for all).
-function winners(
-	placements: { playerId: string; place: number }[],
-): Set<string> {
-	if (placements.length === 0) return new Set()
-	const best = Math.min(...placements.map((p) => p.place))
-	return new Set(
-		placements.filter((p) => p.place === best).map((p) => p.playerId),
-	)
 }
 
 interface Before {
@@ -140,6 +134,7 @@ export function planMatchEdit(
 		!rated ||
 		(!hadRatings &&
 			(run.status === 'abandoned' ||
+				run.status === 'dodged' ||
 				run.status === 'restarted' ||
 				next.placements.length < 2))
 	) {
@@ -147,8 +142,8 @@ export function planMatchEdit(
 	}
 
 	const ids = run.players.map((p) => p.id)
-	const oldWon = winners(run.placements)
-	const newWon = winners(next.placements)
+	const oldStanding = standingsOf(run.placements)
+	const newStanding = standingsOf(next.placements)
 	const befores: { [userId: string]: Before } = {}
 	const oldDeltas: { [userId: string]: number | null } = {}
 	for (const id of ids) {
@@ -189,7 +184,8 @@ export function planMatchEdit(
 		const before = befores[id]
 		const stored = current[id] ?? newRating()
 		const oldDelta = oldDeltas[id]
-		const wasWon = hadRatings && oldWon.has(id)
+		const wasWon = hadRatings && oldStanding.get(id) === 'win'
+		const wasLost = hadRatings && oldStanding.get(id) === 'loss'
 		let change: RatingChange
 		if (newDeltas === null) {
 			change = {
@@ -197,7 +193,7 @@ export function planMatchEdit(
 				newDelta: null,
 				rating: -(oldDelta as number),
 				wins: wasWon ? -1 : 0,
-				losses: wasWon ? 0 : -1,
+				losses: wasLost ? -1 : 0,
 				gamesPlayed: -1,
 			}
 		} else {
@@ -206,7 +202,8 @@ export function planMatchEdit(
 				before.rating + (newDeltas.get(id) ?? 0),
 			)
 			const newDelta = after - before.rating
-			const won = newWon.has(id)
+			const won = newStanding.get(id) === 'win'
+			const lost = newStanding.get(id) === 'loss'
 			const gamesPlayed = before.gamesPlayed + 1
 			const placing = gamesPlayed < PLACEMENT_GAMES
 			change = {
@@ -214,7 +211,7 @@ export function planMatchEdit(
 				newDelta,
 				rating: newDelta - (oldDelta ?? 0),
 				wins: (won ? 1 : 0) - (wasWon ? 1 : 0),
-				losses: (won ? 0 : 1) - (hadRatings && !wasWon ? 1 : 0),
+				losses: (lost ? 1 : 0) - (wasLost ? 1 : 0),
 				gamesPlayed: hadRatings ? 0 : 1,
 			}
 			const old = run.ratings?.[id]

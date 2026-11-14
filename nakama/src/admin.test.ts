@@ -140,3 +140,47 @@ describe('admin_lobby_kick', () => {
 		).toThrow(/not in this lobby/)
 	})
 })
+
+describe('the disabledPvpModes switch', () => {
+	const warnings = (): { logger: typeof fakeLogger; seen: string[] } => {
+		const seen: string[] = []
+		return { logger: { ...fakeLogger, warn: (m: string) => void seen.push(m) }, seen }
+	}
+
+	it.each([
+		['a wrongly cased mode', ['Royale']],
+		['an unknown mode', ['bogus']],
+		['a repeated mode', ['royale', 'royale']],
+		['a string', 'royale'],
+		['a number', 3],
+	])('admin_config_set refuses %s and leaves the list as it was', (_name, bad) => {
+		const nk = fakeNk()
+		call(rpcAdminConfigSet, nk, { disabledPvpModes: ['teams'] })
+		const { logger, seen } = warnings()
+		expect(() => rpcAdminConfigSet(serverCtx(), logger, nk as never, JSON.stringify({ disabledPvpModes: bad }))).toThrow(
+			/disabledPvpModes/,
+		)
+		expect(readConfig(nk as never).disabledPvpModes).toEqual(['teams'])
+		expect(seen).toHaveLength(1)
+	})
+
+	it('admin_config_set takes a whole list, and an empty one switches everything back on', () => {
+		const nk = fakeNk()
+		expect(call(rpcAdminConfigSet, nk, { disabledPvpModes: ['royale', 'teams'] }).disabledPvpModes).toEqual(['royale', 'teams'])
+		expect(call(rpcAdminConfigSet, nk, { disabledPvpModes: [] }).disabledPvpModes).toEqual([])
+	})
+
+	it('readConfig warns of a stored list it has to drop, and not of a good or missing one', () => {
+		const stored = (value: unknown) =>
+			fakeNk({
+				storageRead: () => [{ value: { disabledPvpModes: value } }],
+			})
+		const bad = warnings()
+		expect(readConfig(stored(['Royale']) as never, bad.logger).disabledPvpModes).toEqual([])
+		expect(bad.seen).toHaveLength(1)
+		const good = warnings()
+		readConfig(stored(['royale']) as never, good.logger)
+		readConfig(fakeNk() as never, good.logger)
+		expect(good.seen).toEqual([])
+	})
+})

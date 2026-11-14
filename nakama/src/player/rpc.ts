@@ -23,8 +23,8 @@ const MAX_MUTES = 1000
 const USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // Tells the player's lobby (if any) about their new info.
-export function pushToLobby(nk: nkruntime.Nakama, userId: string, info: Partial<PlayerInfo>) {
-	const current = currentLobby(nk, userId)
+export function pushToLobby(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: string, info: Partial<PlayerInfo>) {
+	const current = currentLobby(nk, logger, userId)
 	if (!current) return
 	const signal: LobbySignal = { type: 'player_info', userId, info }
 	nk.matchSignal(current.matchId, JSON.stringify(signal))
@@ -36,9 +36,9 @@ export function accountUpdated(nk: nkruntime.Nakama, userId: string, profile: Pr
 
 // After a change to anything others see: the account's name, the lobby and
 // the player's own sessions all catch up.
-export function profileChanged(nk: nkruntime.Nakama, userId: string, profile: Profile) {
+export function profileChanged(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: string, profile: Profile) {
 	syncDisplayName(nk, userId, profile)
-	pushToLobby(nk, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker })
+	pushToLobby(nk, logger, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker })
 	accountUpdated(nk, userId, profile)
 }
 
@@ -62,7 +62,7 @@ export function rpcProfileSetDisplay(
 		ctx.username,
 	)
 	syncDisplayName(nk, userId, profile)
-	pushToLobby(nk, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker })
+	pushToLobby(nk, logger, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker })
 	accountUpdated(nk, userId, profile)
 	return JSON.stringify({ player: playerView(nk, userId, profile) })
 }
@@ -89,7 +89,7 @@ export function rpcProfileSetJoker(
 		},
 		ctx.username,
 	)
-	pushToLobby(nk, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker })
+	pushToLobby(nk, logger, userId, { displayName: shownNameOf(nk, userId, profile), preferredJoker: profile.preferredJoker })
 	accountUpdated(nk, userId, profile)
 	return JSON.stringify({ player: playerView(nk, userId, profile) })
 }
@@ -111,7 +111,7 @@ export function rpcProfileSetMods(
 	const now = Date.now()
 	writeModReport(nk, userId, { mods: list, reportedAt: now })
 	const standing = standingFor(nk, settingsOf(ctx), userId, now)
-	pushToLobby(nk, userId, { mods: list, standing: standing.standing, pvpVersion: pvpVersionOf(list) })
+	pushToLobby(nk, logger, userId, { mods: list, standing: standing.standing, pvpVersion: pvpVersionOf(list) })
 	return JSON.stringify({ mods: list, standing })
 }
 

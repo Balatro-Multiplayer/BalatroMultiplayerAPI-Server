@@ -77,13 +77,13 @@ describe('planMatchEdit', () => {
 		if (!plan.ok) return
 		expect(plan.records[A]).toMatchObject({
 			rating: 1020,
-			wins: 6,
+			wins: 7,
 			losses: 5,
 			gamesPlayed: 11,
 		})
 		expect(plan.records[B]).toMatchObject({
 			rating: 980,
-			wins: 5,
+			wins: 6,
 			losses: 6,
 			gamesPlayed: 11,
 		})
@@ -94,7 +94,7 @@ describe('planMatchEdit', () => {
 			oldDelta: 0,
 			newDelta: -20,
 			rating: -20,
-			wins: -1,
+			wins: 0,
 			losses: 1,
 			gamesPlayed: 0,
 		})
@@ -104,6 +104,68 @@ describe('planMatchEdit', () => {
 		})
 		expect(plan.places).toEqual({ [A]: 1, [B]: 2 })
 		expect(plan.myRunRatings[B]).toMatchObject({ delta: -20, newRating: 980 })
+	})
+
+	it('a draw becoming a win moves wins and losses only for the new result', () => {
+		const plan = planMatchEdit(
+			drawRun(),
+			{ [A]: record(), [B]: record() },
+			{ placements: aWins, season: 3, now: 9000 },
+		)
+		expect(plan.ok).toBe(true)
+		if (!plan.ok) return
+		expect(plan.changes[A]).toMatchObject({ wins: 1, losses: 0 })
+		expect(plan.changes[B]).toMatchObject({ wins: 0, losses: 1 })
+	})
+
+	it('a win becoming a draw takes back the win and the loss', () => {
+		const run = drawRun({
+			placements: aWins,
+			ratings: { [A]: rated(20, 1020), [B]: rated(-20, 980) },
+		})
+		const plan = planMatchEdit(
+			run,
+			{ [A]: record({ rating: 1020 }), [B]: record({ rating: 980 }) },
+			{
+				placements: [
+					{ playerId: A, place: 1 },
+					{ playerId: B, place: 1 },
+				],
+				season: 3,
+				now: 9000,
+			},
+		)
+		expect(plan.ok).toBe(true)
+		if (!plan.ok) return
+		expect(plan.changes[A]).toMatchObject({ wins: -1, losses: 0 })
+		expect(plan.changes[B]).toMatchObject({ wins: 0, losses: -1 })
+	})
+
+	it('voiding a draw takes back no win and no loss', () => {
+		const plan = planMatchEdit(
+			drawRun(),
+			{ [A]: record(), [B]: record() },
+			{ placements: null, season: 3, now: 9000 },
+		)
+		expect(plan.ok).toBe(true)
+		if (!plan.ok) return
+		for (const id of [A, B]) {
+			expect(plan.changes[id]).toMatchObject({ wins: 0, losses: 0 })
+			expect(plan.records[id]).toMatchObject({ wins: 6, losses: 5 })
+		}
+	})
+
+	it('refuses a draw edit that would take a counter below zero', () => {
+		const run = drawRun({
+			placements: aWins,
+			ratings: { [A]: rated(20, 1020), [B]: rated(-20, 980) },
+		})
+		const plan = planMatchEdit(
+			run,
+			{ [A]: record({ wins: 0 }), [B]: record({ losses: 0 }) },
+			{ placements: null, season: 3, now: 9000 },
+		)
+		expect(plan.ok).toBe(false)
 	})
 
 	it('applies the difference to the current rating after later games', () => {
@@ -439,7 +501,7 @@ describe('admin_match_edit', () => {
 		expect(read(RATINGS_COLLECTION, KEY, A)).toMatchObject({ rating: 1020 })
 		expect(read(RATINGS_COLLECTION, KEY, B)).toMatchObject({
 			rating: 980,
-			wins: 5,
+			wins: 6,
 		})
 		expect(board.get(A)).toBe(1020)
 		expect(board.get(B)).toBe(980)

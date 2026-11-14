@@ -2,7 +2,7 @@
 // before its match exists (matchId ''), bound once matchCreate returns, and
 // released by the match when the lobby closes.
 import {
-	checkpointExpiry,
+	checkpointExpired,
 	LOBBY_CHECKPOINT_COLLECTION,
 	LOBBY_CODE_COLLECTION,
 	SYSTEM_USER_ID,
@@ -54,7 +54,7 @@ function heldByCheckpoint(nk: nkruntime.Nakama, code: string): boolean {
 	const objects = nk.storageRead([
 		{ collection: LOBBY_CHECKPOINT_COLLECTION, key: code, userId: SYSTEM_USER_ID },
 	])
-	return objects.length > 0 && Date.now() < checkpointExpiry(objects[0].value)
+	return objects.length > 0 && !checkpointExpired(objects[0].value, Date.now())
 }
 
 // Claims a free code; false if it's taken. An entry left behind by a match

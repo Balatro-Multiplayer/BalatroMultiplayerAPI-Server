@@ -1,0 +1,11 @@
+[
+	"pvp_end_game_stats_requested",
+	"pvp_get_end_game_jokers",
+	"pvp_get_nemesis_deck",
+	"pvp_location",
+	"pvp_log_event",
+	"pvp_nemesis_end_game_stats",
+	"pvp_player_result",
+	"pvp_receive_end_game_jokers",
+	"pvp_receive_nemesis_deck"
+]

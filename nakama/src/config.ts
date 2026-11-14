@@ -4,6 +4,7 @@
 // every Nakama JavaScript VM has its own globals, so a cached copy would go
 // stale on the others.
 import { SYSTEM_USER_ID } from './lobby/protocol'
+import { PVP_MODES, type PvpMode } from './lobby/pvp/state'
 
 export const CONFIG_COLLECTION = 'server_config'
 export const CONFIG_KEY = 'global'
@@ -34,6 +35,10 @@ export interface ServerConfig {
 	// boot from QUEUE_ALLOWED_MOD_IDS_EXTRA -- standing/seed.ts); the API
 	// never sends it, so its pushes leave it be.
 	queueAllowedModIdsExtra: string[]
+	// The PvP game modes switched off (the kill switch): a disabled mode is
+	// refused at the queue, at lobby create and at game start (mode_disabled).
+	// Disabling nemesis also disables ranked, which is always Nemesis.
+	disabledPvpModes: PvpMode[]
 }
 
 // Until the API's first push: everything Nakama already did stays allowed.
@@ -50,6 +55,20 @@ export const DEFAULT_CONFIG: ServerConfig = {
 	season: 0,
 	queueAllowedModIds: [],
 	queueAllowedModIdsExtra: [],
+	disabledPvpModes: [],
+}
+
+// The list as pushed: only whole lists of known modes (each at most once) are
+// taken; anything else is null, and mergeConfig keeps the current list.
+export function pvpModesOf(value: unknown): PvpMode[] | null {
+	if (!Array.isArray(value)) return null
+	const modes: PvpMode[] = []
+	for (const entry of value) {
+		const known = PVP_MODES.find((mode) => mode === entry)
+		if (known === undefined || modes.indexOf(known) !== -1) return null
+		modes.push(known)
+	}
+	return modes
 }
 
 const MAX_MOD_IDS = 500
@@ -88,6 +107,8 @@ export function mergeConfig(current: ServerConfig, update: { [key: string]: unkn
 	if (allowedIds) next.queueAllowedModIds = allowedIds
 	const extraIds = modIdsOf(update.queueAllowedModIdsExtra)
 	if (extraIds) next.queueAllowedModIdsExtra = extraIds
+	const disabledModes = pvpModesOf(update.disabledPvpModes)
+	if (disabledModes) next.disabledPvpModes = disabledModes
 	return next
 }
 
@@ -101,9 +122,15 @@ export function clientConfig(config: ServerConfig): ClientConfig {
 	return shown
 }
 
-export function readConfig(nk: nkruntime.Nakama): ServerConfig {
+// A stored `disabledPvpModes` that is not a whole list of known modes is dropped
+// and reads as none disabled (the default), so the kill switch would be off with
+// no sign of it: pass the logger where a decision hangs on the list, and it warns.
+export function readConfig(nk: nkruntime.Nakama, logger?: nkruntime.Logger): ServerConfig {
 	const objects = nk.storageRead([{ collection: CONFIG_COLLECTION, key: CONFIG_KEY, userId: SYSTEM_USER_ID }])
-	return mergeConfig(DEFAULT_CONFIG, objects.length > 0 ? objects[0].value : {})
+	const stored = objects.length > 0 ? objects[0].value : {}
+	if (logger && stored.disabledPvpModes !== undefined && pvpModesOf(stored.disabledPvpModes) === null)
+		logger.warn('Stored config field disabledPvpModes is malformed and is ignored: no PvP mode is switched off')
+	return mergeConfig(DEFAULT_CONFIG, stored)
 }
 
 export function writeConfig(nk: nkruntime.Nakama, config: ServerConfig) {

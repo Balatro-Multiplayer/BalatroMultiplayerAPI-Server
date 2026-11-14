@@ -12,6 +12,15 @@ export interface FakeNk {
 	[key: string]: any
 }
 
+// Real Nakama (goja) throws a TypeError when a storage DELETE request has a
+// `version` key that is not a string, `undefined` included: such a key must be
+// left out. (Writes are not held to this: many older callers pass an optional
+// `version: undefined` to storageWrite.)
+function assertVersionKey(req: any): void {
+	if ('version' in req && typeof req.version !== 'string')
+		throw new TypeError('storage request: version must be a string, or the key left out')
+}
+
 export function fakeNk(overrides: { [key: string]: unknown } = {}): FakeNk {
 	const objects = new Map<string, { value: any; version: number }>()
 	let uuidCounter = 0
@@ -31,12 +40,20 @@ export function fakeNk(overrides: { [key: string]: unknown } = {}): FakeNk {
 				const ok = w.version === undefined || (w.version === '*' ? !e : e && String(e.version) === w.version)
 				if (!ok) throw new Error('version check failed')
 			}
-			for (const w of writes) {
+			return writes.map((w) => {
 				const key = k(w.collection, w.userId, w.key)
-				objects.set(key, { value: w.value, version: (objects.get(key)?.version ?? 0) + 1 })
-			}
+				const version = (objects.get(key)?.version ?? 0) + 1
+				objects.set(key, { value: w.value, version })
+				return { collection: w.collection, key: w.key, userId: w.userId, version: String(version) }
+			})
 		},
+		// A delete that names a version needs the object to be at it, as in Nakama.
 		storageDelete: (deletes: any[]) => {
+			for (const d of deletes) assertVersionKey(d)
+			for (const d of deletes) {
+				const e = objects.get(k(d.collection, d.userId, d.key))
+				if (d.version !== undefined && !(e && String(e.version) === d.version)) throw new Error('version check failed')
+			}
 			for (const d of deletes) objects.delete(k(d.collection, d.userId, d.key))
 		},
 		// userId null lists the collection across every owner, as Nakama does.

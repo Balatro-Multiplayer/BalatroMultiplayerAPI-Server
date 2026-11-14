@@ -1,8 +1,14 @@
 // Why a player may not queue, as a closed set the client can tell apart, each
 // with an English message built here as the fallback text. Pure.
 import { INTEGRITY_REQUIRED } from '../integrity'
-import { VERSION_MISMATCH, VERSION_MISMATCH_MESSAGE } from '../standing/pvp_version'
+import {
+	type PVP_UPDATE_REQUIRED,
+	PVP_UPDATE_REQUIRED_MESSAGE,
+	VERSION_MISMATCH,
+	VERSION_MISMATCH_MESSAGE,
+} from '../standing/pvp_version'
 import type { StandingResult } from '../standing/standing'
+import { type MODE_DISABLED, MODE_DISABLED_MESSAGE } from './mode_switch'
 
 export type QueueRefusal =
 	// A switch, a queue ban or testing mode (moderation/access.ts), as worded there.
@@ -15,6 +21,10 @@ export type QueueRefusal =
 	| { code: 'mods_unreported' }
 	// Matched with players on another PvP version (standing/pvp_version.ts).
 	| { code: typeof VERSION_MISMATCH }
+	// The PvP mode asked for is switched off (config.disabledPvpModes).
+	| { code: typeof MODE_DISABLED }
+	// A PvP ticket from a version older than the server referees (MIN_PVP_VERSION).
+	| { code: typeof PVP_UPDATE_REQUIRED }
 
 export type QueueRefusalCode = QueueRefusal['code']
 
@@ -31,6 +41,10 @@ export function queueRefusalMessage(refusal: QueueRefusal): string {
 			return "These mods aren't allowed in matchmaking: " + refusal.mods.join(', ') + '. ' + PRIVATE_LOBBIES_ALLOW_ANY_MODS
 		case 'version_mismatch':
 			return VERSION_MISMATCH_MESSAGE
+		case 'mode_disabled':
+			return MODE_DISABLED_MESSAGE
+		case 'PVP_UPDATE_REQUIRED':
+			return PVP_UPDATE_REQUIRED_MESSAGE
 		case 'mods_unreported':
 			return "Your game hasn't reported its mods yet. Reconnect and try again."
 	}

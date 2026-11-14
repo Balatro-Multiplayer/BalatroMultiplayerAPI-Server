@@ -7,12 +7,14 @@ import { DEFAULT_CONFIG, writeConfig } from '../../config'
 import { bindCode } from '../../lobby/codes'
 import { answerGroupSignal, isGroupSignal } from '../../lobby/group_signals'
 import { CURRENT_LOBBY_COLLECTION, CURRENT_LOBBY_KEY, type LobbySignal } from '../../lobby/protocol'
+import type { PvpMode } from '../../lobby/pvp/state'
 import { join, newLobby, type Lobby } from '../../lobby/state'
 import { writeBans } from '../../moderation/bans'
 import { NotifyCode } from '../../notify'
 import { standingInputsUpdated } from '../../standing/changed'
 import { clearModReport, writeModReport } from '../../standing/storage'
 import { fakeLogger, fakeNk, playerCtx, settingsFor, type FakeNk } from '../../testing/fake_nk'
+import { asEnvelope, asNakama } from '../../testing/casts'
 import { reportVanilla } from '../../testing/reports'
 import { beforeMatchmakerAdd, IN_GROUP_QUEUE } from '../gate'
 import { matchmakerMatched, type MatchedEntry } from '../matched'
@@ -467,15 +469,21 @@ describe('PvP versions in a group', () => {
 
 	it('refuses to queue a group whose members run different PvP versions, naming the older one', () => {
 		const w = world('a', 'b')
-		versions(w, { a: '1.0.3', b: '1.0.4' })
+		versions(w, { a: '1.1.0', b: '1.1.1' })
 		w.party.add('a')
 		expect(openFor(w).refused).toMatchObject({ code: 'member_refused', userId: 'a', reason: 'version_mismatch', mods: [] })
-		versions(w, { a: '1.0.4' })
+		versions(w, { a: '1.1.1' })
 		expect(openFor(w).groupQueue).toMatchObject({ phase: 'forming' })
 	})
 	it('cancels a matched group over the member off the common version, saying who and why', () => {
-		const w = queuedWorld()
-		versions(w, { a: '1.0.4', b: '1.0.3', s: '1.0.4' })
+		// The group queues on one version (the floor); b falls back before the match.
+		const w = world('a', 'b')
+		versions(w, { a: '1.1.1', b: '1.1.1' })
+		w.party.add('a')
+		openFor(w)
+		w.party.add('b')
+		addTicket(w, 'a', 'T1')
+		versions(w, { a: '1.1.1', b: '1.1.0', s: '1.1.1' })
 		expect(() =>
 			matchmakerMatched(playerCtx('a'), fakeLogger, w.nk as any, [grouped('a'), grouped('b'), entry('s', CASUAL)]),
 		).toThrow()
@@ -484,5 +492,42 @@ describe('PvP versions in a group', () => {
 			reason: 'member_refused',
 			refused: { userId: 'b', reason: 'version_mismatch', mods: [] },
 		})
+	})
+})
+
+describe('the kill switch for a group queue', () => {
+	beforeEach(() => {
+		MOD = 'MultiplayerPvP'
+		CASUAL.modId = MOD
+	})
+	afterEach(() => {
+		MOD = 'MultiplayerSPDRN'
+		CASUAL.modId = MOD
+	})
+	const PVP_TICKET = { modId: 'MultiplayerPvP', mode: 'pvp_royale', kind: 'casual' }
+	const queueing = (disabledPvpModes: PvpMode[]) => {
+		const w = world('a', 'b')
+		for (const id of ['a', 'b']) reportFor(w, id, ['MultiplayerPvP-1.1.0'])
+		writeConfig(asNakama(w.nk), { ...DEFAULT_CONFIG, disabledPvpModes })
+		w.party.add('a')
+		openFor(w, 'a', { mode: 'pvp_royale' })
+		w.party.add('b')
+		return w
+	}
+	const refusalOf = (w: World): string | null => {
+		try {
+			beforePartyMatchmakerAdd(playerCtx('a'), fakeLogger, asNakama(w.nk), asEnvelope(ticketOf(2, PVP_TICKET)))
+			return null
+		} catch (e) {
+			return (e as { message: string }).message
+		}
+	}
+
+	it('refuses the ticket of a disabled mode with the bare code', () => {
+		expect(refusalOf(queueing(['royale']))).toBe('mode_disabled')
+	})
+	it('lets the ticket of a mode that is still on through', () => {
+		expect(refusalOf(queueing(['teams']))).toBeNull()
+		expect(refusalOf(queueing([]))).toBeNull()
 	})
 })

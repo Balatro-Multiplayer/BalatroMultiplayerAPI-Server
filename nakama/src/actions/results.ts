@@ -2,7 +2,9 @@
 // (mpapi_report_result), and once they're all in -- or the clock runs out --
 // the reports are reconciled into one result, handed off to be stored, and
 // the lobby is free to start again. Pure, like the rest of src/actions.
+import { refereeOf } from '../lobby/pvp/state'
 import {
+	type GameEnd,
 	type GameEnded,
 	type Participant,
 	type Placement,
@@ -130,12 +132,26 @@ function remainingParticipants(lobby: Lobby): string[] {
 	return started.players.filter((p) => seated[p.id]).map((p) => p.id)
 }
 
+// A started PvP game: the server referees it from its first batch
+// (docs/pvp-match.md section 4), before pvpTick freezes the rules. Its result comes from the
+// referee, never from client reports.
+export function isRefereed(lobby: Lobby): boolean {
+	return refereeOf(lobby) !== null
+}
+
+// How a caller ends the game other than by reconciling the reports.
+export type FinishOverride = {
+	status: RunStatus
+	announce: boolean
+	placements?: Placement[]
+}
+
 // Ends the started game: the record to store, GAME_ENDED to everyone (unless
 // `announce` is false, as for a restart), and a clean game state.
 export function finishGame(
 	lobby: Lobby,
 	now: number,
-	override?: { status: RunStatus; announce: boolean },
+	override?: FinishOverride,
 ): Step {
 	const game = lobby.game
 	const started = game.started
@@ -153,7 +169,14 @@ export function finishGame(
 		: override
 			? override.status
 			: reconciled.status
-	const placements = status === 'abandoned' ? [] : reconciled.placements
+	// Given placements (a PvP referee result) are recorded as they are: the
+	// reports are not reconciled into them.
+	const placements =
+		status === 'abandoned' || status === 'dodged'
+			? []
+			: override?.placements
+				? sortedById(override.placements)
+				: reconciled.placements
 	const run: RunRecord = {
 		runId: started.runId,
 		code: lobby.code,
@@ -178,13 +201,25 @@ export function finishGame(
 	const seated: { [id: string]: boolean } = {}
 	for (const p of lobby.players) seated[p.id] = true
 	const lateResultTo =
-		game.resultWasPending && status !== 'abandoned'
+		game.resultWasPending && status !== 'abandoned' && status !== 'dodged'
 			? started.players.filter((p) => !seated[p.id]).map((p) => p.id)
 			: []
 
-	const next = { ...lobby, lastRunId: started.runId, game: emptyGame() }
+	const announced = !override || override.announce
+	// Started players who were not attached to hear GAME_ENDED keep the end for their
+	// next snapshot (game.endedAway).
+	const attached = new Set(lobby.players.filter((p) => p.awaySince === null).map((p) => p.id))
+	const missed: { [id: string]: GameEnd } = {}
+	if (announced)
+		for (const p of started.players)
+			if (!attached.has(p.id)) missed[p.id] = { runId: started.runId, status }
+	const next = {
+		...lobby,
+		lastRunId: started.runId,
+		game: Object.keys(missed).length > 0 ? { ...emptyGame(), endedAway: missed } : emptyGame(),
+	}
 	const out: Outbound[] = [{ kind: 'saveRun', run, logs: game.logs, lateResultTo }]
-	if (!override || override.announce) {
+	if (announced) {
 		const ended: GameEnded = { runId: started.runId, status, placements }
 		out.push({
 			kind: 'send',
@@ -206,15 +241,22 @@ export function settle(lobby: Lobby, now: number): Step {
 	const remaining = remainingParticipants(lobby)
 	if (remaining.length === 0) return finishGame(lobby, now)
 
-	// A pending result holds the run open: no clock, and reports alone do not
-	// end it. Clearing the flag settles it as usual. A contest outranks the
-	// hold, or a contested run would never reach a moderator.
-	if (lobby.game.resultPending && !lobby.game.contest) return { lobby, out: [] }
+	// A refereed PvP game ends only in pvpTick (a result, or a forfeit), so
+	// reports and the pending hold play no part: what is left is the hard cap
+	// (everyone gone, or down to one player for the result timeout), which
+	// stores the run abandoned and unrated.
+	if (!isRefereed(lobby)) {
+		// A pending result holds the run open: no clock, and reports alone do not
+		// end it. Clearing the flag settles it as usual. A contest outranks the
+		// hold, or a contested run would never reach a moderator.
+		if (lobby.game.resultPending && !lobby.game.contest)
+			return { lobby, out: [] }
 
-	const reports = lobby.game.reports
-	const anyReport = lobby.game.reportOrder.length > 0
-	if (anyReport && remaining.every((id) => reports[id] !== undefined))
-		return finishGame(lobby, now)
+		const reports = lobby.game.reports
+		const anyReport = lobby.game.reportOrder.length > 0
+		if (anyReport && remaining.every((id) => reports[id] !== undefined))
+			return finishGame(lobby, now)
+	}
 
 	let current = lobby
 	if (current.game.settleFrom === null && remaining.length < 2) {

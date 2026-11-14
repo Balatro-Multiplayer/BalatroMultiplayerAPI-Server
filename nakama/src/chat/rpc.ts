@@ -95,7 +95,7 @@ export function rpcChatSend(
 	const banned = chatBanRefusal(readBans(nk, userId), Date.now())
 	if (banned) throw runtimeError(PERMISSION_DENIED, banned)
 
-	const current = currentLobby(nk, userId)
+	const current = currentLobby(nk, logger, userId)
 	if (!current) throw runtimeError(INVALID_ARGUMENT, 'Not in a lobby')
 
 	const check = JSON.parse(

@@ -1,7 +1,7 @@
 // The game a player is still in, for rejoining after a crash or a dropped
 // connection. Pure.
 import { hashInput } from './log_check'
-import type { ActiveRun, ReplayEvent, ReplayTail } from './protocol'
+import type { ActiveRun, ReplayEvent, ReplayTail, TailEvent } from './protocol'
 import { type Lobby, isParticipant } from './state'
 
 // null unless a game is running and userId is one of its participants still
@@ -52,10 +52,16 @@ export function replayTailOf(lobby: Lobby, userId: string): ReplayTail | null {
 		.filter((p) => p.id !== userId)
 		.map((p) => ({
 			playerId: p.id,
-			events: eventsOf(lobby.game.logs[p.id]?.lines ?? []),
+			events: tailEventsOf(lobby.game.logs[p.id]?.lines ?? []),
 		}))
 		.filter((tail) => tail.events.length > 0)
 	return tails.length > 0 ? { runId: started.runId, tails } : null
+}
+
+// Another player's events as the rejoiner may see them: the time only, never the opcode
+// or args (a hand result carries the score).
+function tailEventsOf(lines: string[]): TailEvent[] {
+	return eventsOf(lines).map((e) => ({ t: e.t }))
 }
 
 export function eventsOf(lines: string[]): ReplayEvent[] {

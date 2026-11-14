@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { withRules } from '../testing/pvp_rules'
 import { ServerOp } from './protocol'
 import { action } from './relay'
 import { type Lobby, type Step, join, newLobby } from './state'
@@ -27,6 +28,7 @@ function readyLobby(modId: string, ...players: [string, string | undefined][]): 
 		graceMs: 10_000,
 		resultTimeoutMs: 60_000,
 	})
+	lobby = { ...lobby, metadata: withRules() }
 	for (const [id, version] of players) lobby = join(lobby, id, `${id}-s1`, info(id, version)).lobby
 	for (const [id] of players.slice(1)) lobby = send(lobby, id, 'mpapi_ready', { ready: true }).lobby
 	return lobby

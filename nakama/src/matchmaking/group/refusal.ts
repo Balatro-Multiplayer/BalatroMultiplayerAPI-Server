@@ -3,6 +3,7 @@
 // members' (from storage and the party's stream) and the server switches.
 // Each check answers the first refusal it finds, or null.
 import type { GroupPhase, GroupQueueView } from '../../lobby/protocol'
+import { MODE_DISABLED_MESSAGE } from '../mode_switch'
 import { queueRefusalMessage, refusedMods, type QueueRefusal, type QueueRefusalCode } from '../queue_refusal'
 import { ticketQueryRefusal } from '../ticket_query'
 
@@ -48,6 +49,8 @@ export type GroupRefusalCode =
 	| 'ticket_mismatch'
 	// The ticket's counts would let the group match only itself, or split it.
 	| 'bad_counts'
+	// The group's PvP mode is switched off (config.disabledPvpModes).
+	| 'mode_disabled'
 
 export interface GroupRefusal {
 	code: GroupRefusalCode
@@ -83,6 +86,7 @@ const MESSAGES: { [code in GroupRefusalCode]: string } = {
 	not_member: 'Only players in the lobby can join its group.',
 	ticket_mismatch: "The ticket doesn't match the group.",
 	bad_counts: 'Invalid player counts for a group ticket.',
+	mode_disabled: MODE_DISABLED_MESSAGE,
 }
 
 export function refusalMessage(refusal: GroupRefusal): string {

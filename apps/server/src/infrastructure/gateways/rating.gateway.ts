@@ -13,6 +13,7 @@ import {
 } from '../../features/ratings/metrics.config.js'
 import { effectiveRating } from '../../features/ratings/effective-rating.js'
 import { seasonBestColumns } from '../../features/ratings/season-best.js'
+import { nextCounters, standingsOf } from '../../features/ratings/standing.js'
 import type { PlacementEntry } from '../../shared/types/index.js'
 import { db } from '../db/index.js'
 import {
@@ -200,7 +201,8 @@ export async function applyRatingTransaction(
 		}
 
 		const deltas = computeRatingDeltas(mode, placements, ratingMap)
-		const bestPlace = Math.min(...placements.map((pl) => pl.place))
+		// Wins and losses follow the same rule as nakama's rating (see standing.ts).
+		const standings = standingsOf(placements)
 		const updated: Array<{
 			playerId: string
 			newRating: number | null
@@ -209,7 +211,7 @@ export async function applyRatingTransaction(
 
 		for (const p of placements) {
 			const r = ratingMap.get(p.playerId)!
-			const isWin = p.place === bestPlace
+			const standing = standings.get(p.playerId)
 			const newRating = Math.max(
 				RATING_FLOOR,
 				r.rating + (deltas.get(p.playerId) ?? 0),
@@ -220,8 +222,7 @@ export async function applyRatingTransaction(
 				.update(matchmakingRatings)
 				.set({
 					rating: newRating,
-					wins: r.wins + (isWin ? 1 : 0),
-					losses: r.losses + (isWin ? 0 : 1),
+					...nextCounters(r, standing),
 					gamesPlayed,
 					lastMatchAt: at,
 					updatedAt: new Date(),

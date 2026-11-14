@@ -126,7 +126,7 @@ export function rpcAdminProfileSet(
 		return applyEdit(current, edit, unlocked)
 	})
 	if (edit.discord === null) releaseDiscord(nk, userId, previousDiscord)
-	profileChanged(nk, userId, profile)
+	profileChanged(nk, logger, userId, profile)
 	logger.info('Profile of %s updated by the API: %v', userId, JSON.stringify(Object.keys(edit)))
 	return JSON.stringify({ player: playerView(nk, userId, profile) })
 }
@@ -162,7 +162,7 @@ export function rpcAdminAccountDelete(
 		throw runtimeError(INVALID_ARGUMENT, 'keptRunIds must be a list of run ids')
 	if (typeof input.keepSteamIdHash !== 'boolean')
 		throw runtimeError(INVALID_ARGUMENT, 'keepSteamIdHash is required')
-	const lobby = currentLobby(nk, userId)
+	const lobby = currentLobby(nk, logger, userId)
 	if (lobby) {
 		const signal: LobbySignal = { type: 'admin_remove', userId, reason: 'account_deleted', onlyIfStarted: false }
 		nk.matchSignal(lobby.matchId, JSON.stringify(signal))

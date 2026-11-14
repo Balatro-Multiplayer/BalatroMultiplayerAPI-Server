@@ -1,4 +1,4 @@
-export type LobbyRunStatus = 'active' | 'completed' | 'abandoned' | 'terminated'
+export type LobbyRunStatus = 'active' | 'completed' | 'abandoned' | 'terminated' | 'dodged'
 export type PlayerLogStatus = 'partial' | 'complete'
 export type FlagReason =
 	| 'hash_mismatch'

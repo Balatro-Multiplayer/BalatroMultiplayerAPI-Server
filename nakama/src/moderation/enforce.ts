@@ -85,8 +85,8 @@ function deleteIndex(nk: nkruntime.Nakama, userId: string) {
 
 // Takes userId out of their lobby: always for an account ban, only out of a
 // running game for a queue ban.
-function removeFromLobby(nk: nkruntime.Nakama, userId: string, reason: string, onlyIfStarted: boolean) {
-	const lobby = currentLobby(nk, userId)
+function removeFromLobby(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: string, reason: string, onlyIfStarted: boolean) {
+	const lobby = currentLobby(nk, logger, userId)
 	if (!lobby) return
 	const signal: LobbySignal = { type: 'admin_remove', userId, reason, onlyIfStarted }
 	nk.matchSignal(lobby.matchId, JSON.stringify(signal))
@@ -104,9 +104,9 @@ function pushBan(nk: nkruntime.Nakama, userId: string, type: BanType, ban: Ban) 
 }
 
 // Account-ban side effects for a ban already in storage.
-export function enforceAccountBan(nk: nkruntime.Nakama, userId: string, ban: Ban) {
+export function enforceAccountBan(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: string, ban: Ban) {
 	writeIndex(nk, userId, ban)
-	removeFromLobby(nk, userId, 'banned', false)
+	removeFromLobby(nk, logger, userId, 'banned', false)
 	nk.usersBanId([userId])
 }
 
@@ -129,8 +129,8 @@ export function applyBan(
 		if (before.username?.banId !== ban.banId)
 			sendNotification(nk, userId, NotificationKind.USERNAME_BANNED, { banName: banNameOf(userId) })
 	} else pushBan(nk, userId, type, ban)
-	if (type === 'queue') removeFromLobby(nk, userId, 'banned', true)
-	if (type === 'account' && bans.account) enforceAccountBan(nk, userId, bans.account)
+	if (type === 'queue') removeFromLobby(nk, logger, userId, 'banned', true)
+	if (type === 'account' && bans.account) enforceAccountBan(nk, logger, userId, bans.account)
 	logger.info('Applied %s ban %s to %s', type, ban.banId, userId)
 	return bans
 }

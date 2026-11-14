@@ -281,6 +281,11 @@ function startRefusal(
 ): string | null {
 	if (!lobby.game.started) return 'not_in_game'
 	if (lobby.hostId !== ctx.from) return 'not_host'
+	// Setup is what a game runs before its run: once the race began no step may open. A
+	// step opened after the rules froze holds nothing (register.ts frozenFor only applies
+	// setup_open before the freeze), and refusing it here would stall a casual Draft that
+	// a forged request froze the rules ahead of.
+	if (lobby.game.started.raceStartedAt !== undefined) return 'run_started'
 	if (typeof id !== 'string' || !STEP_ID_PATTERN.test(id)) return 'bad_params'
 	const setup = setupOf(lobby.game)
 	if (setup.open) return 'step_open'

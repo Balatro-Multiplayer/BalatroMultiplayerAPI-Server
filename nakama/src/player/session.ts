@@ -149,7 +149,7 @@ export function rpcSessionInit(
 	// missed) ends the login here.
 	const accountBan = activeBan(readBans(nk, userId), 'account', Date.now())
 	if (accountBan) {
-		enforceAccountBan(nk, userId, accountBan)
+		enforceAccountBan(nk, logger, userId, accountBan)
 		banNetworks(nk, settingsOf(ctx), userId, accountBan, Date.now())
 		throw runtimeError(PERMISSION_DENIED, banMessage(ACCOUNT_BANNED, accountBan))
 	}

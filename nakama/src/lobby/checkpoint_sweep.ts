@@ -9,7 +9,7 @@ import { finishGame } from '../actions/results'
 import { INVALID_ARGUMENT, runtimeError } from '../errors'
 import { enqueue } from '../mirror/outbox'
 import { parsePayload, requireServer } from '../rpc'
-import { CLAIM_TIMEOUT_MS, type Checkpoint, isExpired } from './checkpoint'
+import { CLAIM_TIMEOUT_MS, type Checkpoint, hasCurrentSchema, isExpired } from './checkpoint'
 import { LOBBY_CHECKPOINT_COLLECTION, SYSTEM_USER_ID } from './protocol'
 import { saveRun } from './storage'
 
@@ -69,13 +69,16 @@ export function sweepCheckpoints(
 		const page = nk.storageList(SYSTEM_USER_ID, LOBBY_CHECKPOINT_COLLECTION, LIST_PAGE, cursor)
 		for (const o of page.objects || []) {
 			const checkpoint = o.value as unknown as Checkpoint
-			if (!isSweepable(checkpoint, now, ttlMs)) continue
+			// Another build's shape cannot be read, so it is deleted with no run
+			// record (as resumeLobby does), expired or not.
+			const readable = hasCurrentSchema(checkpoint)
+			if (readable && !isSweepable(checkpoint, now, ttlMs)) continue
 			if (result.deleted >= max) {
 				result.more = true
 				return result
 			}
 			try {
-				if (checkpoint.lobby.game.started) {
+				if (readable && checkpoint.lobby.game.started) {
 					recordNoContest(nk, logger, checkpoint, now)
 					result.noContest++
 				}

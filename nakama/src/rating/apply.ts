@@ -43,6 +43,28 @@ export interface RatingPlan {
 	results: { [userId: string]: RatingResult }
 }
 
+// How each player's game counts in wins and losses, the one owner of that rule:
+// the players on the best place win and the rest lose, unless every rated player
+// shares the best place. That is a draw, no one's win and no one's loss (the rating
+// delta of a draw is unchanged). `[1,1,2]` is no draw: both first places win. A
+// single placement is no draw either: a lone rated player keeps the win.
+// Mirrored by `standingsOf` in apps/server/src/features/ratings/standing.ts (used by
+// the gateway that rebuilds a voided match); change both together.
+export type Standing = 'win' | 'loss' | 'draw'
+
+export function standingsOf(
+	placements: { playerId: string; place: number }[],
+): Map<string, Standing> {
+	const out = new Map<string, Standing>()
+	if (placements.length === 0) return out
+	const best = Math.min(...placements.map((p) => p.place))
+	const draw =
+		placements.length >= 2 && placements.every((p) => p.place === best)
+	for (const p of placements)
+		out.set(p.playerId, draw ? 'draw' : p.place === best ? 'win' : 'loss')
+	return out
+}
+
 // Who is rated: everyone in an agreed or partial result (a disputed one isn't
 // trusted). An anti-cheat flag (lobby/anticheat.ts) doesn't withhold a rating.
 // `bounds` caps each player's season best at their replay log (logBounds).
@@ -64,15 +86,15 @@ export function planRatings(
 		performance: p.performance,
 	}))
 	const deltas = computeRatingDeltas(detectRatingMode(entries), entries, ratings)
-	const bestPlace = Math.min(...placements.map((p) => p.place))
+	const standings = standingsOf(placements)
 	for (const p of placements) {
 		const before = ratings.get(p.playerId) as RatingRecord
 		const delta = deltas.get(p.playerId) || 0
-		const won = p.place === bestPlace
+		const standing = standings.get(p.playerId)
 		const after: RatingRecord = {
 			rating: Math.max(RATING_FLOOR, before.rating + delta),
-			wins: before.wins + (won ? 1 : 0),
-			losses: before.losses + (won ? 0 : 1),
+			wins: before.wins + (standing === 'win' ? 1 : 0),
+			losses: before.losses + (standing === 'loss' ? 1 : 0),
 			gamesPlayed: before.gamesPlayed + 1,
 			seasonBest: nextSeasonBest(run.modId, p, before.seasonBest, bounds[p.playerId]),
 			lastMatchAt: run.endedAt,

@@ -3,12 +3,13 @@
 //
 // The server stamps `from` with the sender rather than trusting the payload's,
 // so a player can't pose as another, and only the server can send an
-// authoritative action's result. A match-deciding action from a sender its
-// rule doesn't allow (sender_guard.ts) is dropped, and the step says so.
+// authoritative action's result. A `pvp_*` action the server referee does not
+// need relayed, or a match-deciding action from a sender its rule doesn't allow
+// (sender_guard.ts), is dropped, and the step says so.
 import {
-	type ActionContext,
 	LOG_EVENTS_KEY,
 	LOG_EVENT_KEY,
+	type StepContext,
 	authoritativeAction,
 } from '../actions/registry'
 import { settle } from '../actions/results'
@@ -17,10 +18,10 @@ import {
 	type ActionRejection,
 	BROADCAST_TARGET,
 	SERVER_TARGET,
-	type LobbyEventMessage,
 	ServerOp,
 	type SpectateEvent,
 } from './protocol'
+import type { PvpMode } from './pvp/state'
 import { type SenderRefusal, senderRefusal } from './sender_guard'
 import { spectateEvent } from './spectate'
 import {
@@ -31,8 +32,12 @@ import {
 	logBudgetKey,
 } from './state'
 
+const NO_DISABLED_MODES: readonly PvpMode[] = []
+
 export const ACTION_KEY_PATTERN = /^[a-z0-9_]{1,64}$/
 export const MAX_PARAMS_BYTES = 16 * 1024
+// The PvP client broadcasts every replay line as this peer action (docs/pvp-match.md).
+const PVP_LOG_EVENT_KEY = 'pvp_log_event'
 export const MAX_CID_LENGTH = 64
 // Token bucket per sender: RATE_PER_SECOND refill, BURST capacity. Generous:
 // a mod's own actions can come in bursts after a scored hand.
@@ -57,7 +62,7 @@ function reject(to: string, rejection: ActionRejection): Outbound {
 
 // Spends `cost` tokens (one per replay event) from the bucket for this action;
 // null when it holds fewer.
-function spend(
+export function spend(
 	lobby: Lobby,
 	userId: string,
 	key: string,
@@ -95,7 +100,11 @@ function isLogAction(key: string): boolean {
 }
 
 function isAck(params: unknown): boolean {
-	return typeof params === 'object' && params !== null && (params as { ack?: unknown }).ack === true
+	return (
+		typeof params === 'object' &&
+		params !== null &&
+		(params as { ack?: unknown }).ack === true
+	)
 }
 
 function stringField(data: { [key: string]: unknown }, key: string): string {
@@ -103,8 +112,8 @@ function stringField(data: { [key: string]: unknown }, key: string): string {
 	return typeof value === 'string' ? value : ''
 }
 
-// A relay step; `dropped` when the action was refused by its sender rule, so
-// the caller can log (and later record) it.
+// A relay step; `dropped` when the action was refused by the sender guard (not
+// relayed, or not its sender's to send), so the caller can log it.
 export interface RelayStep extends Step {
 	dropped?: SenderRefusal
 	// Set when the action was refused, so the caller can log it with the
@@ -112,54 +121,36 @@ export interface RelayStep extends Step {
 	refused?: { key: string; reason: string }
 }
 
-// An action from a player marked away proves their socket is back (a short
-// drop that the grace period covered). It is relayed, and the player is marked
-// back, so the others do not miss moves played while the seat looked empty.
+// A client action. The match loop only hands over messages from the sender's
+// current joined session.
 export function action(
 	lobby: Lobby,
 	senderId: string,
 	data: { [key: string]: unknown },
-	ctx: Omit<ActionContext, 'from'>,
-): RelayStep {
-	const sender = findPlayer(lobby, senderId)
-	if (!sender || sender.awaySince === null) return relayAction(lobby, senderId, data, ctx)
-	const back: Lobby = {
-		...lobby,
-		players: lobby.players.map((p) => (p.id === senderId ? { ...p, awaySince: null } : p)),
-	}
-	const payload: LobbyEventMessage = {
-		type: 'player_reconnected',
-		lobbyCode: lobby.code,
-		playerId: senderId,
-		displayName: sender.info.displayName,
-	}
-	const announce: Outbound = {
-		kind: 'send',
-		op: ServerOp.EVENT,
-		payload,
-		to: back.players.map((p) => p.id).filter((id) => id !== senderId),
-	}
-	const step = relayAction(back, senderId, data, ctx)
-	return { ...step, out: [announce, ...step.out] }
-}
-
-function relayAction(
-	lobby: Lobby,
-	senderId: string,
-	data: { [key: string]: unknown },
-	ctx: Omit<ActionContext, 'from'>,
+	ctx: StepContext,
+	// The kill switch's modes (config.disabledPvpModes), read by the shell; only
+	// the game start looks at them. The default is the switch's own: none off.
+	disabledPvpModes: readonly PvpMode[] = NO_DISABLED_MODES,
 ): RelayStep {
 	const cid = stringField(data, 'cid').slice(0, MAX_CID_LENGTH)
 	const key = stringField(data, 'action')
 	const to = stringField(data, 'to')
-	const refuse = (reason: string): RelayStep => ({
+	const refuse = (reason: string, ruleKey?: string): RelayStep => ({
 		lobby,
-		out: [reject(senderId, { cid, action: key, reason })],
+		out: [
+			reject(
+				senderId,
+				ruleKey === undefined
+					? { cid, action: key, reason }
+					: { cid, action: key, reason, key: ruleKey },
+			),
+		],
 		refused: { key, reason },
 	})
 
 	// No seat, no reply: the sender is not a player here. The caller still logs it.
-	if (!findPlayer(lobby, senderId)) return { lobby, out: [], refused: { key, reason: 'no_seat' } }
+	if (!findPlayer(lobby, senderId))
+		return { lobby, out: [], refused: { key, reason: 'no_seat' } }
 	if (!ACTION_KEY_PATTERN.test(key)) return refuse('bad_action')
 	const params = data.params === undefined ? null : data.params
 	if (JSON.stringify(params).length > MAX_PARAMS_BYTES)
@@ -173,10 +164,10 @@ function relayAction(
 		if (!authoritative) return refuse('not_authoritative')
 		const result = authoritative.reduce(
 			budgeted,
-			{ ...ctx, from: senderId },
+			{ ...ctx, from: senderId, disabledPvpModes },
 			params,
 		)
-		if ('reject' in result) return refuse(result.reject)
+		if ('reject' in result) return refuse(result.reject, result.key)
 		const next = { ...budgeted, game: result.game }
 		const out: Outbound[] = []
 		const audience = result.to || 'all'
@@ -205,14 +196,20 @@ function relayAction(
 			out.push({
 				kind: 'send',
 				op: ServerOp.ACTION,
-				payload: { cid, action: key, from: SERVER_TARGET, to: BROADCAST_TARGET, params: { ack: true, ...result.ack } },
+				payload: {
+					cid,
+					action: key,
+					from: SERVER_TARGET,
+					to: BROADCAST_TARGET,
+					params: { ack: true, ...result.ack },
+				},
 				to: [senderId],
 			})
 		if (result.out) out.push(...result.out)
-		if (key === LOG_EVENT_KEY && audience !== 'none' && result.params)
-			out.push(...spectateEvent(next, result.params as SpectateEvent))
-		if (key === LOG_EVENTS_KEY && result.spectate)
-			for (const event of result.spectate) out.push(...spectateEvent(next, event))
+		// The others got a slim copy; a spectator gets each whole event.
+		if ((key === LOG_EVENT_KEY || key === LOG_EVENTS_KEY) && result.spectate)
+			for (const event of result.spectate)
+				out.push(...spectateEvent(next, event))
 		// A report may have been the last one the game was waiting for.
 		const settled = settle(next, ctx.now)
 		return { lobby: settled.lobby, out: out.concat(settled.out) }
@@ -247,8 +244,31 @@ function relayAction(
 	}
 	const responseTo = stringField(data, 'responseTo')
 	if (responseTo) envelope.responseTo = responseTo.slice(0, MAX_CID_LENGTH)
+	if (key === PVP_LOG_EVENT_KEY) {
+		// A PvP replay line can carry a hand's score in `args`. The sender keeps its
+		// own copy whole; the other players get `t` and `opcode` only.
+		const slim: ActionEnvelope = { ...envelope, params: slimLogParams(params) }
+		const own = targets.filter((id) => id === senderId)
+		const others = targets.filter((id) => id !== senderId)
+		const out: Outbound[] = []
+		if (own.length > 0)
+			out.push({ kind: 'send', op: ServerOp.ACTION, payload: envelope, to: own })
+		if (others.length > 0)
+			out.push({ kind: 'send', op: ServerOp.ACTION, payload: slim, to: others })
+		return { lobby: budgeted, out }
+	}
 	return {
 		lobby: budgeted,
-		out: [{ kind: 'send', op: ServerOp.ACTION, payload: envelope, to: targets }],
+		out: [
+			{ kind: 'send', op: ServerOp.ACTION, payload: envelope, to: targets },
+		],
 	}
+}
+
+// What the other players are told of a pvp_log_event: `t` and `opcode`, nothing else.
+function slimLogParams(params: unknown): unknown {
+	if (params === null || typeof params !== 'object' || Array.isArray(params))
+		return params
+	const { t, opcode } = params as { [key: string]: unknown }
+	return { t, opcode }
 }

@@ -1,16 +1,37 @@
-// Who may send a relayed action. Most relayed actions are a player's claim
-// about itself and anyone may send them; the ones below decide the match, so
-// the relay (relay.ts) drops them from anyone else and never forwards them.
+// Which relayed actions reach other players, and who may send them. Pure.
 //
-// The host of record is the lobby's own `hostId`, which moves with a host
-// transfer (state.ts transferHostFrom). That is how PvP re-elects its referee
-// too: the new host's client sees HOST_CHANGED and takes the referee over
-// (PvP pvp_api/lobby_bridge.lua -> PVP.referee_take_over), so its referee
-// messages pass from the moment the server made it host. Pure.
+// PvP games are refereed by the server (lobby/pvp): lives, rounds, targets and
+// results come from the match state, never from a client's message. So the
+// relay forwards only the `pvp_*` actions the client still needs between
+// players (PVP_RELAY_KEYS). Every other `pvp_*` key (the old host referee's
+// outputs, the old inputs, anything made up) reaches nobody, whoever sends it,
+// so a modified client has nothing to forge in the game itself. What is relayed is
+// display data between players and is not checked: pvp_player_result carries the
+// sender's own claimed highest score and jokers for the end screen and roster. Ratings,
+// places and the placements metric come from the match state, never from this field.
+// The list is the whole rule: a new client action must be added to it.
+//
+// The Speedrunning mod is still refereed by its host, so a few of its
+// match-deciding actions are ruled by sender below. The host of record is the
+// lobby's own `hostId`, which moves with a host transfer (state.ts
+// transferHostFrom).
 import type { Lobby } from './state'
 
-// 'host': only the host of record sends it (the PvP referee's broadcasts, the
-//   SPDRN host's timeout/draw/reseed).
+// The `pvp_*` actions relayed between players, sorted. A test checks it against
+// the keys the PvP client registers (pvp_relay_keys.test.ts).
+export const PVP_RELAY_KEYS: readonly string[] = [
+	'pvp_end_game_stats_requested',
+	'pvp_get_end_game_jokers',
+	'pvp_get_nemesis_deck',
+	'pvp_location',
+	'pvp_log_event',
+	'pvp_nemesis_end_game_stats',
+	'pvp_player_result',
+	'pvp_receive_end_game_jokers',
+	'pvp_receive_nemesis_deck',
+]
+
+// 'host': only the host of record sends it (the SPDRN host's timeout/draw/reseed).
 // 'self': `params.player_id` names the sender.
 // 'self_or_host': the player claims it for itself, or the host declares it for
 //   another (a SPDRN forfeit win: the host's check_single_survivor names the
@@ -18,25 +39,6 @@ import type { Lobby } from './state'
 export type SenderRule = 'host' | 'self' | 'self_or_host'
 
 export const SENDER_RULES = {
-	// PvP referee (pvp_api/referee.lua: every broadcast is under is_host()).
-	pvp_win: 'host',
-	pvp_player_won: 'host', // check_single_survivor: host only
-	pvp_end_pvp: 'host',
-	pvp_round_state: 'host',
-	pvp_player_lives: 'host',
-	pvp_eliminated: 'host',
-	pvp_start_blind: 'host',
-	pvp_ready_check: 'host', // referee.lua: the host asks everyone to confirm Ready before a blind
-	pvp_timer_hand_lost: 'host',
-	pvp_nemesis_pairing: 'host',
-	pvp_royale_target: 'host',
-	pvp_manhunt_target: 'host',
-	pvp_team_card_target: 'host',
-	pvp_team_score_board: 'host',
-	pvp_team_lives: 'host',
-	pvp_team_roster: 'host',
-	pvp_death_pending: 'host', // pvp_api/referee.lua: the host broadcasts a pending death
-	pvp_reseed: 'host', // run_actions.lua: host on a unanimous seed vote
 	// SPDRN host decisions.
 	spdrn_match_timeout: 'host', // matchmaking/duration.lua: host clock
 	spdrn_match_draw: 'host', // ui/lobby/draw_vote.lua: host on unanimity
@@ -49,6 +51,7 @@ export const SENDER_RULES = {
 export type RuledKey = keyof typeof SENDER_RULES
 
 export type SenderRefusal =
+	| { kind: 'not_relayed'; key: string; from: string; hostId: string }
 	| { kind: 'not_host'; key: RuledKey; from: string; hostId: string }
 	| {
 			kind: 'not_self'
@@ -79,10 +82,12 @@ export function senderRefusal(
 	key: string,
 	params: unknown,
 ): SenderRefusal | null {
+	const hostId = lobby.hostId
+	if (key.startsWith('pvp_') && !PVP_RELAY_KEYS.includes(key))
+		return { kind: 'not_relayed', key, from, hostId }
 	const rule = senderRuleOf(key)
 	if (rule === null) return null
 	const ruled = key as RuledKey
-	const hostId = lobby.hostId
 	const isHost = from === hostId
 	if (rule === 'host')
 		return isHost ? null : { kind: 'not_host', key: ruled, from, hostId }

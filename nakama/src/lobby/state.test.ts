@@ -199,7 +199,7 @@ describe('labelOf', () => {
 	})
 	it('marks a private lobby spectatable when its host allows it, and started once a game runs', () => {
 		const base = lobbyWith('a', 'b')
-		const lobby = { ...base, metadata: { spectatable: true }, game: { ...base.game, started: { at: 1 } as any } }
+		const lobby = { ...base, metadata: { spectatable: true }, game: { ...base.game, started: { at: 1, players: [] } as any } }
 		expect(JSON.parse(labelOf(lobby))).toMatchObject({ spectatable: true, started: true, open: false })
 	})
 })
@@ -224,6 +224,30 @@ describe('leave', () => {
 		let lobby = lobbyWith('a', 'b', 'c')
 		lobby = disconnect(lobby, 'b', 'b-s1', 1).lobby
 		expect(leave(lobby, 'a').lobby.hostId).toBe('c')
+	})
+})
+
+// The team a player picked in the lobby waits for the game's init.
+describe('teamPicks', () => {
+	const picked = (): Lobby => ({
+		...lobbyWith('a', 'b', 'c'),
+		teamPicks: { a: 'A', b: 'B', c: 'A' },
+	})
+
+	it.each<[string, (lobby: Lobby) => Step]>([
+		['leaves', (lobby) => leave(lobby, 'b')],
+		['is kicked', (lobby) => kick(lobby, 'a', 'b')],
+	])('a player who %s takes their pick with them', (_name, remove) => {
+		expect(remove(picked()).lobby.teamPicks).toEqual({ a: 'A', c: 'A' })
+	})
+
+	it('a lobby that never had picks stays without the field', () => {
+		expect(leave(lobbyWith('a', 'b'), 'b').lobby.teamPicks).toBeUndefined()
+	})
+
+	it('a dropped connection keeps the pick: the seat is still held', () => {
+		const lobby = disconnect(picked(), 'b', 'b-s1', 1).lobby
+		expect(lobby.teamPicks).toEqual({ a: 'A', b: 'B', c: 'A' })
 	})
 })
 
@@ -268,7 +292,7 @@ describe('disconnect and grace period', () => {
 		expect(tail).toEqual({
 			kind: 'send',
 			op: ServerOp.REPLAY_TAIL,
-			payload: { runId: 'r1', tails: [{ playerId: 'b', events: [{ t: 2, opcode: 'hand_result', args: ['50', 2] }] }] },
+			payload: { runId: 'r1', tails: [{ playerId: 'b', events: [{ t: 2 }] }] },
 			to: ['a'],
 		})
 		// Not on a plain re-join, and not with no game running.
@@ -329,14 +353,103 @@ describe('disconnect and grace period', () => {
 		})
 	})
 
-	it('closes the lobby straight away once nobody is connected', () => {
+	it('keeps an unstarted lobby open when every seat disconnects in one step', () => {
 		let lobby = lobbyWith('a', 'b')
 		lobby = disconnect(lobby, 'b', 'b-s1', 1000).lobby
-		const step = disconnect(lobby, 'a', 'a-s1', 2000)
+		const step = disconnect(lobby, 'a', 'a-s1', 1000)
+		expect(step.lobby.closed).toBe(false)
+		expect(step.lobby.players.map((p) => [p.id, p.awaySince])).toEqual([
+			['a', 1000],
+			['b', 1000],
+		])
+		expect(eventTypes(step)).not.toContain('lobby_closed')
+	})
+})
+
+describe('an unstarted lobby with every seat away', () => {
+	const allAway = () => {
+		let lobby = lobbyWith('a', 'b')
+		lobby = disconnect(lobby, 'b', 'b-s1', 1000).lobby
+		return disconnect(lobby, 'a', 'a-s1', 2000).lobby
+	}
+
+	it('closes when the last grace runs out', () => {
+		const midway = tick(allAway(), 1000 + GRACE)
+		expect(midway.lobby.closed).toBe(false)
+		const last = tick(midway.lobby, 2000 + GRACE)
+		expect(last.lobby.closed).toBe(true)
+		expect(eventTypes(last)).toContain('lobby_closed')
+		expect(last.out).toContainEqual({ kind: 'clearCurrent', userId: 'a' })
+	})
+
+	it('closes when the last seat leaves for good', () => {
+		const step = leave(leave(allAway(), 'a').lobby, 'b')
 		expect(step.lobby.closed).toBe(true)
-		expect(eventTypes(step)).toContain('lobby_closed')
-		expect(step.out).toContainEqual({ kind: 'clearCurrent', userId: 'a' })
-		expect(step.out).toContainEqual({ kind: 'clearCurrent', userId: 'b' })
+	})
+
+	it('hands the host to the first seat back', () => {
+		const lobby = allAway()
+		expect(lobby.hostId).toBe('a')
+		const step = join(lobby, 'b', 'b-s2', info('b'), 3000)
+		expect(step.lobby.hostId).toBe('b')
+		const hostChanged = events(step).filter((e) => e.type === 'host_changed')
+		expect(hostChanged).toHaveLength(1)
+		expect(hostChanged[0].playerId).toBe('b')
+	})
+
+	it('keeps the host when the host is the seat back', () => {
+		const step = join(allAway(), 'a', 'a-s2', info('a'), 3000)
+		expect(step.lobby.hostId).toBe('a')
+		expect(eventTypes(step)).not.toContain('host_changed')
+	})
+})
+
+describe('the lobby Ready across a disconnect', () => {
+	const readyLobby = () => {
+		const lobby = lobbyWith('a', 'b', 'c')
+		return { ...lobby, game: { ...lobby.game, ready: { b: true, c: true } } }
+	}
+	const actionsSent = (step: Step) => step.out.filter((o) => o.kind === 'send' && o.op === ServerOp.ACTION)
+
+	it('survives a drop, and nobody is told it changed', () => {
+		const step = disconnect(readyLobby(), 'b', 'b-s1', 1000)
+		expect(step.lobby.game.ready).toEqual({ b: true, c: true })
+		expect(actionsSent(step)).toEqual([])
+	})
+
+	it('survives a drop and a rejoin', () => {
+		const dropped = disconnect(readyLobby(), 'b', 'b-s1', 1000).lobby
+		const back = join(dropped, 'b', 'b-s2', info('b'), 2000)
+		expect(back.lobby.game.ready).toEqual({ b: true, c: true })
+		expect(actionsSent(back)).toEqual([])
+	})
+
+	it('goes when the seat leaves for good', () => {
+		const dropped = disconnect(readyLobby(), 'b', 'b-s1', 1000).lobby
+		expect(leave(dropped, 'b', 2000).lobby.game.ready).toEqual({ c: true })
+		expect(leave(readyLobby(), 'b', 2000).lobby.game.ready).toEqual({ c: true })
+	})
+
+	it('goes when the seat is evicted as its grace runs out', () => {
+		const dropped = disconnect(readyLobby(), 'b', 'b-s1', 1000).lobby
+		expect(tick(dropped, 1000 + GRACE - 1).lobby.game.ready).toEqual({ b: true, c: true })
+		const evicted = tick(dropped, 1000 + GRACE).lobby
+		expect(evicted.players.map((p) => p.id)).toEqual(['a', 'c'])
+		expect(evicted.game.ready).toEqual({ c: true })
+	})
+
+	it('is left alone once the game has started', () => {
+		const lobby = readyLobby()
+		const started = {
+			...lobby,
+			game: {
+				...lobby.game,
+				started: { runId: 'r1', players: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] } as unknown as Lobby['game']['started'],
+			},
+		}
+		const step = disconnect(started, 'b', 'b-s1', 1000)
+		expect(step.lobby.game.ready).toEqual({ b: true, c: true })
+		expect(actionsSent(step)).toEqual([])
 	})
 })
 
@@ -378,12 +491,6 @@ describe('a started match with every seat away', () => {
 		lobby = leave(lobby, 'a').lobby
 		expect(lobby.closed).toBe(false)
 		expect(tick(lobby, 1000 + GRACE).lobby.closed).toBe(true)
-	})
-
-	it('still closes at once when the match has not started', () => {
-		let lobby = disconnect(lobbyWith('a', 'b'), 'b', 'b-s1', 1000).lobby
-		lobby = disconnect(lobby, 'a', 'a-s1', 2000).lobby
-		expect(lobby.closed).toBe(true)
 	})
 })
 
@@ -443,7 +550,7 @@ describe('adminRemove', () => {
 	it('can leave a player alone until a game runs', () => {
 		const lobby = lobbyWith('a', 'b')
 		expect(adminRemove(lobby, 'b', 'banned', true).lobby).toBe(lobby)
-		const started = { ...lobby, game: { ...lobby.game, started: { at: 1 } as any } }
+		const started = { ...lobby, game: { ...lobby.game, started: { at: 1, players: [] } as any } }
 		expect(adminRemove(started, 'b', 'banned', true).lobby.kickedIds).toEqual(['b'])
 	})
 	it('ignores a player not in the lobby', () => {
@@ -620,5 +727,23 @@ describe('presence record of a running game', () => {
 		const lobby = lobbyWith('a', 'b')
 		expect(leave(lobby, 'b', 500).lobby.game.presence).toBeUndefined()
 		expect(disconnect(lobby, 'b', 'b-s1', 1000).lobby.game.presence).toBeUndefined()
+	})
+})
+
+describe('join without info', () => {
+	it('rejoins a seated user and throws for a new seat', () => {
+		const away = disconnect(lobbyWith('a', 'b'), 'b', 'b-s1', 100).lobby
+		const back = join(away, 'b', 'b-s2', null, 200).lobby
+		expect(back.players.find((p) => p.id === 'b')).toMatchObject({ sessionId: 'b-s2', awaySince: null, info: info('b') })
+		expect(() => join(lobbyWith('a'), 'c', 'c-s1', null, 200)).toThrow('A new seat for c needs join info')
+	})
+})
+
+describe('a voluntary leave that leaves only away seats', () => {
+	it('keeps the lobby open for the away seats', () => {
+		const away = disconnect(lobbyWith('a', 'b'), 'b', 'b-s1', 100).lobby
+		const step = leave(away, 'a', 200)
+		expect(step.lobby.closed).toBe(false)
+		expect(step.lobby.players.map((p) => p.id)).toEqual(['b'])
 	})
 })

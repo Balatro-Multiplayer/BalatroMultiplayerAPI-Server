@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { seasonBestColumns } from '../ratings/season-best.js'
+import type { LobbyRunStatus } from '../../contracts/IReplayLogRepository.js'
 import { raisesAntiCheatItem } from '../service-queue/automatic-rules.js'
 import { compressToBase64 } from '../../shared/utils/compression.js'
 import { DELETED_PLAYER_ID, DELETED_PLAYER_NAME } from '../../shared/deleted-player.js'
@@ -44,7 +45,7 @@ export interface NakamaRun {
 	modId: string
 	startedAt: number
 	endedAt: number
-	status: 'agreed' | 'partial' | 'disputed' | 'abandoned' | 'restarted' | 'contested'
+	status: 'agreed' | 'partial' | 'disputed' | 'abandoned' | 'dodged' | 'restarted' | 'contested'
 	placements: {
 		playerId: string
 		place: number
@@ -190,7 +191,7 @@ export interface RunRows {
 		modId: string
 		lobbyType: 'public' | 'private'
 		matchmakingMatchId: string | null
-		status: 'completed' | 'abandoned' | 'terminated'
+		status: LobbyRunStatus
 		startedAt: Date
 		finalizedAt: Date
 		connections: RunConnections | null
@@ -350,9 +351,24 @@ export function forfeitRowOf(
 function runStatusOf(
 	status: NakamaRun['status'],
 ): RunRows['lobbyRun']['status'] {
-	if (status === 'abandoned') return 'abandoned'
-	if (status === 'restarted') return 'terminated'
-	return 'completed'
+	switch (status) {
+		case 'agreed':
+		case 'partial':
+		case 'disputed':
+		case 'contested':
+			return 'completed'
+		case 'abandoned':
+			return 'abandoned'
+		case 'dodged':
+			return 'dodged'
+		case 'restarted':
+			return 'terminated'
+		default: {
+			// A status this server does not know is refused, never stored as completed.
+			const unknown: never = status
+			throw new Error(`Unknown Nakama run status: ${String(unknown)}`)
+		}
+	}
 }
 
 // A flagged agreed or partial game with two or more players is rated by the
