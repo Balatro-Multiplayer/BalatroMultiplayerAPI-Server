@@ -34,6 +34,15 @@ const ACTION_VERB = {
   pack_skip: 'Skipped the pack',
 } as const
 
+const JOKER_HIT_LABEL = {
+  wraith: 'Wraith',
+  judgement: 'Judgement',
+  soul: 'The Soul',
+  riffraff: 'Riff-Raff',
+  ankh: 'Ankh',
+  invisible: 'Invisible Joker',
+} as const
+
 function Money({ amount }: { amount: number | null }) {
   if (amount === null) return null
   return <span className='font-mono text-xs'>(${amount})</span>
@@ -137,6 +146,33 @@ function EventLine({ event }: { event: GameEvent }) {
         <div className='flex items-center gap-2 text-muted-foreground text-sm'>
           {time}
           <span>{event.ready ? 'Ready' : 'Unready'}</span>
+        </div>
+      )
+    case 'joker_hit':
+      return (
+        <div className='flex flex-wrap items-center gap-x-2 gap-y-1 text-sm'>
+          {time}
+          <span className='font-medium'>{JOKER_HIT_LABEL[event.source]}</span>
+          <span className='text-muted-foreground'>
+            {event.source !== 'ankh' &&
+              event.source !== 'invisible' &&
+              'created'}
+            {event.source === 'ankh' && 'copied'}
+            {event.source === 'invisible' && 'duplicated'}
+          </span>
+          {event.created.map((joker, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: ordered, static
+            <CardChip key={i} card={joker} />
+          ))}
+          {event.destroyed.length > 0 && (
+            <>
+              <span className='text-muted-foreground'>and destroyed</span>
+              {event.destroyed.map((joker, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: ordered, static
+                <CardChip key={i} card={joker} artOnly />
+              ))}
+            </>
+          )}
         </div>
       )
     case 'other':

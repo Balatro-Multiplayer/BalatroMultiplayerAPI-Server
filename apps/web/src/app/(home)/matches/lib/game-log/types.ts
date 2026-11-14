@@ -28,6 +28,14 @@ export type ShopAction =
   | 'pack_pick'
   | 'pack_skip'
 
+export type JokerHitSource =
+  | 'wraith'
+  | 'judgement'
+  | 'soul'
+  | 'riffraff'
+  | 'ankh'
+  | 'invisible'
+
 export type GameEvent =
   | {
       type: 'hand'
@@ -63,6 +71,16 @@ export type GameEvent =
       /** Jokers owned when the roll was made. */
       jokers: ResolvedCard[]
     } & IdolRoll)
+  | {
+      type: 'joker_hit'
+      t: number
+      /** The effect that rolled: Wraith, Judgement, The Soul, Riff-Raff, Ankh, or a sold Invisible Joker. */
+      source: JokerHitSource
+      /** Jokers the effect added (the joker Wraith/Judgement/The Soul makes, Riff-Raff's Commons, Ankh's copy, Invisible's duplicate). */
+      created: ResolvedCard[]
+      /** Jokers it destroyed (Ankh only). */
+      destroyed: ResolvedCard[]
+    }
   | { type: 'other'; t: number; opcode: string; args: unknown }
 
 export interface RoundLog {

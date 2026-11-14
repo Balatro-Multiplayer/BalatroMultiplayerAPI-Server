@@ -250,3 +250,69 @@ describe('buildGameLog with a reduced side', () => {
     expect(log.pvp[0]?.winnerId).toBe('a')
   })
 })
+
+describe('buildGameLog joker hits', () => {
+  const hits = (log: ReturnType<typeof buildGameLog>) =>
+    (log.players[0]?.rounds ?? [])
+      .flatMap((r) => r.events)
+      .flatMap((e) => (e.type === 'joker_hit' ? [e] : []))
+  const ident = (c: { type: string; ident?: string }) =>
+    c.type === 'other_card' ? c.ident : ''
+
+  test('shows what Wraith created, Ankh copied and destroyed, and a sold Invisible duplicated', () => {
+    const log = buildGameLog([
+      player('a', [
+        ...opening,
+        [10, 'select_blind', [0, 'bl_small']],
+        [11, 'joker_hit', ['wraith', ['j_blueprint|foil'], []]],
+        [12, 'joker_hit', ['ankh', ['j_joker'], ['j_blueprint|foil', 'j_x']]],
+        [13, 'joker_hit', ['invisible', ['j_joker'], []]],
+        [14, 'joker_hit', ['judgement', ['j_common'], []]],
+        [15, 'joker_hit', ['soul', ['j_legend'], []]],
+        [16, 'joker_hit', ['riffraff', ['j_c1', 'j_c2|foil'], []]],
+      ]),
+    ])
+    const found = hits(log)
+    expect(found.map((h) => h.source)).toEqual([
+      'wraith',
+      'ankh',
+      'invisible',
+      'judgement',
+      'soul',
+      'riffraff',
+    ])
+    expect(found[0]?.created.map(ident)).toEqual(['j_blueprint'])
+    expect(found[1]?.created.map(ident)).toEqual(['j_joker'])
+    expect(found[1]?.destroyed.map(ident)).toEqual(['j_blueprint', 'j_x'])
+    expect(found[3]?.created.map(ident)).toEqual(['j_common'])
+    expect(found[4]?.created.map(ident)).toEqual(['j_legend'])
+    expect(found[5]?.created.map(ident)).toEqual(['j_c1', 'j_c2'])
+  })
+
+  test('keeps the reconstructed lineup in step with hits', () => {
+    const log = buildGameLog([
+      player('a', [
+        ...opening,
+        [10, 'select_blind', [0, 'bl_small']],
+        [11, 'buy' as string, [4, 1, [-1, 'Joker', 'j_a'], 4]],
+        [12, 'joker_hit', ['wraith', ['j_rare'], []]],
+        [13, 'joker_hit', ['ankh', ['j_rare'], ['j_a']]],
+        // The Wraith joker is sold later; its ref is new, so it matches by key.
+        [14, 'sell', [4, 1, [-9, 'Joker', 'j_rare']]],
+      ]),
+    ])
+    const left = (log.players[0]?.finalJokers ?? []).map(ident)
+    expect(left).toEqual(['j_rare'])
+  })
+
+  test('ignores a hit from an unknown source', () => {
+    const log = buildGameLog([
+      player('a', [
+        ...opening,
+        [10, 'select_blind', [0, 'bl_small']],
+        [11, 'joker_hit', ['mystery', ['j_x'], []]],
+      ]),
+    ])
+    expect(hits(log)).toHaveLength(0)
+  })
+})

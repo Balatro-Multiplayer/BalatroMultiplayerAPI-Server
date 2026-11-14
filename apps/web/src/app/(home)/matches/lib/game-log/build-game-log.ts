@@ -78,6 +78,13 @@ function resolveAll(
   return refs.map(resolve).filter((r): r is Resolved => r !== null)
 }
 
+// Same joker key (editions ignored: a hit's copy can differ from the original).
+function sameJoker(a: ResolvedCard, b: ResolvedCard): boolean {
+  return (
+    a.type === 'other_card' && b.type === 'other_card' && a.ident === b.ident
+  )
+}
+
 function isJoker(card: ResolvedCard): boolean {
   return (
     card.type === 'other_card' && (card.kind === 'Joker' || card.kind === 'j')
@@ -229,6 +236,9 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
   rounds.push(current)
 
   let jokers: Resolved[] = []
+  // Jokers a Wraith/Ankh/Invisible hit added have no card ref in the log, so
+  // they get negative ids that no real ref can collide with.
+  let syntheticId = 0
   const vouchers: ResolvedCard[] = []
   let seed: string | null = null
   let deck: string | null = null
@@ -445,6 +455,31 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
         break
       }
 
+      case 'joker_hit': {
+        const source = a[0]
+        if (
+          source !== 'wraith' &&
+          source !== 'judgement' &&
+          source !== 'soul' &&
+          source !== 'riffraff' &&
+          source !== 'ankh' &&
+          source !== 'invisible'
+        ) {
+          break
+        }
+        const created = parseJokerTokens(a[1])
+        const destroyed = parseJokerTokens(a[2])
+        // Keep the reconstructed lineup in step: drop what Ankh destroyed
+        // (first match by joker), add what the hit created.
+        for (const gone of destroyed) {
+          const at = jokers.findIndex((j) => sameJoker(j.card, gone))
+          if (at !== -1) jokers = jokers.filter((_, i) => i !== at)
+        }
+        for (const card of created) jokers.push({ id: --syntheticId, card })
+        push({ type: 'joker_hit', t, source, created, destroyed })
+        break
+      }
+
       case 'idol_roll': {
         let idol: GameEvent | null = null
         if (Array.isArray(args)) {
@@ -514,7 +549,14 @@ export function buildPlayerGameLog(log: DecodedPlayerLog): PlayerGameLog {
         if (r && action === 'buy' && isJoker(r.card)) jokers.push(r)
         if (r && action === 'voucher') vouchers.push(r.card)
         if (r && action === 'sell' && area === AREA_JOKERS) {
-          jokers = jokers.filter((j) => j.id !== r.id)
+          // A joker a hit created has no ref until it is first mentioned, so
+          // its sale arrives with a new id: match it by joker instead.
+          const at = jokers.findIndex((j) => j.id === r.id)
+          const sold =
+            at !== -1
+              ? at
+              : jokers.findIndex((j) => j.id < 0 && sameJoker(j.card, r.card))
+          if (sold !== -1) jokers = jokers.filter((_, i) => i !== sold)
         }
       } else if (action === 'use' || action === 'pack_pick') {
         const r = resolve(a[2])
